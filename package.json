@@ -14,6 +14,9 @@
     "db:generate": "turbo run db:generate",
     "db:migrate": "turbo run db:migrate",
     "db:seed": "turbo run db:seed",
+    "telegram:dev": "cd apps/telegram && npm run dev",
+    "telegram:build": "cd apps/telegram && npm run build",
+    "telegram:start": "cd apps/telegram && npm run start",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down"
