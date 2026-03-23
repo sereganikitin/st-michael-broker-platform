@@ -1,0 +1,378 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ───────────────────────────────────────────
+
+enum UserRole {
+  BROKER
+  MANAGER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+  PENDING
+}
+
+enum CommissionLevel {
+  START
+  BASIC
+  STRONG
+  PREMIUM
+  ELITE
+  CHAMPION
+  LEGEND
+}
+
+enum Project {
+  ZORGE9
+  SILVER_BOR
+}
+
+enum UniquenessStatus {
+  CONDITIONALLY_UNIQUE
+  REJECTED
+  UNDER_REVIEW        // Спорная ситуация — ручное решение менеджера
+  EXPIRED
+}
+
+// Этапы воронки брокеров в amoCRM
+enum BrokerFunnelStage {
+  NEW_BROKER
+  BROKER_TOUR
+  FIXATION
+  MEETING
+  DEAL
+}
+
+// Источник появления брокера
+enum BrokerSource {
+  CRM_MANUAL          // Внесён менеджером вручную
+  BROKER_CABINET      // Зарегистрировался через кабинет
+  PHONE_CALL          // Позвонил на линию
+  CLOSED_AS_BROKER    // Закрыт как брокер (с причиной)
+}
+
+enum FixationStatus {
+  NOT_FIXED
+  FIXED
+  EXPIRED
+  ANNULLED
+}
+
+enum ClientStatus {
+  NEW
+  BOOKED
+  DEAL
+  CANCELLED
+}
+
+enum ContractType {
+  DDU
+  DKP
+  PDKP
+}
+
+enum DealStatus {
+  PENDING
+  SIGNED
+  PAID
+  COMMISSION_PAID
+  CANCELLED
+}
+
+enum LotStatus {
+  AVAILABLE
+  BOOKED
+  SOLD
+}
+
+enum CallDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum CallStatus {
+  COMPLETED
+  NO_ANSWER
+  BUSY
+  UNAVAILABLE
+  FAILED
+}
+
+enum CallResult {
+  INTERESTED
+  NOT_INTERESTED
+  CALLBACK
+  MEETING_SCHEDULED
+}
+
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+enum MeetingType {
+  OFFICE_VISIT
+  ONLINE
+  BROKER_TOUR
+}
+
+enum MeetingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationChannel {
+  SMS
+  WHATSAPP
+  TELEGRAM
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+// ─── MODELS ──────────────────────────────────────────
+
+model Agency {
+  id               String            @id @default(uuid())
+  name             String
+  legalName        String?           @map("legal_name")
+  inn              String            @unique   // ОБЯЗАТЕЛЬНОЕ — ключ дедупликации и связи с кабинетом
+  phone            String?
+  email            String?
+  address          String?
+  totalSqmSold     Decimal           @default(0) @map("total_sqm_sold") @db.Decimal(10, 2)
+  commissionLevel  CommissionLevel   @default(START) @map("commission_level")
+  quarterlyBonusStreak Int           @default(0) @map("quarterly_bonus_streak")
+  brokerAgencies   BrokerAgency[]
+  deals            Deal[]
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  @@map("agencies")
+}
+
+// M2M: Брокер ↔ Компании (неограниченное кол-во, не удаляются)
+model BrokerAgency {
+  id         String   @id @default(uuid())
+  brokerId   String   @map("broker_id")
+  broker     Broker   @relation(fields: [brokerId], references: [id])
+  agencyId   String   @map("agency_id")
+  agency     Agency   @relation(fields: [agencyId], references: [id])
+  isPrimary  Boolean  @default(false) @map("is_primary")  // Основная компания
+  joinedAt   DateTime @default(now()) @map("joined_at")
+
+  @@unique([brokerId, agencyId])  // Без повторов
+  @@map("broker_agencies")
+}
+
+model Broker {
+  id                   String             @id @default(uuid())
+  amoContactId         BigInt?            @unique @map("amo_contact_id")
+  fullName             String             @map("full_name")
+  phone                String             @unique
+  email                String?
+  passwordHash         String?            @map("password_hash")
+  role                 UserRole           @default(BROKER)
+  status               UserStatus         @default(PENDING)
+  funnelStage          BrokerFunnelStage  @default(NEW_BROKER) @map("funnel_stage")
+  source               BrokerSource?      // Откуда пришёл брокер
+  closureReason        String?            @map("closure_reason") // Причина закрытия (если закрыт)
+  brokerAgencies       BrokerAgency[]     // M2M — список компаний (не удаляются)
+  telegramChatId       BigInt?            @unique @map("telegram_chat_id")
+  brokerTourVisited    Boolean            @default(false) @map("broker_tour_visited")
+  brokerTourDate       DateTime?          @map("broker_tour_date")
+  doNotCall            Boolean            @default(false) @map("do_not_call")
+  bestCallTime         String?            @map("best_call_time")
+  clients              Client[]
+  deals                Deal[]
+  calls                Call[]
+  meetings             Meeting[]
+  notifications        Notification[]
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  @@map("brokers")
+}
+
+model Client {
+  id                  String           @id @default(uuid())
+  brokerId            String           @map("broker_id")
+  broker              Broker           @relation(fields: [brokerId], references: [id])
+  amoLeadId           BigInt?          @map("amo_lead_id")
+  fullName            String           @map("full_name")
+  phone               String
+  email               String?
+  comment             String?
+  project             Project          @default(ZORGE9)
+  fixationAgencyId    String?          @map("fixation_agency_id") // Компания, от которой подана заявка
+  uniquenessStatus    UniquenessStatus @default(CONDITIONALLY_UNIQUE) @map("uniqueness_status")
+  uniquenessReason    String?          @map("uniqueness_reason")  // Пояснение (напр. «переоткрыта сделка»)
+  uniquenessExpiresAt DateTime?        @map("uniqueness_expires_at")
+  fixationStatus      FixationStatus   @default(NOT_FIXED) @map("fixation_status")
+  fixationExpiresAt   DateTime?        @map("fixation_expires_at")
+  inspectionActSigned Boolean          @default(false) @map("inspection_act_signed")
+  status              ClientStatus     @default(NEW)
+  deals               Deal[]
+  meetings            Meeting[]
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+
+  @@index([phone])
+  @@index([brokerId])
+  @@map("clients")
+}
+
+model Lot {
+  id           String    @id @default(uuid())
+  externalId   String?   @unique @map("external_id")
+  number       String
+  project      Project   @default(ZORGE9)
+  building     String
+  floor        Int
+  rooms        String
+  sqm          Decimal   @db.Decimal(10, 2)
+  price        Decimal   @db.Decimal(14, 2)
+  pricePerSqm  Decimal?  @map("price_per_sqm") @db.Decimal(10, 2)
+  status       LotStatus @default(AVAILABLE)
+  layoutUrl    String?   @map("layout_url")
+  planImageUrl String?   @map("plan_image_url")
+  description  String?
+  deals        Deal[]
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([project, status])
+  @@map("lots")
+}
+
+model Deal {
+  id               String       @id @default(uuid())
+  clientId         String       @map("client_id")
+  client           Client       @relation(fields: [clientId], references: [id])
+  brokerId         String       @map("broker_id")
+  broker           Broker       @relation(fields: [brokerId], references: [id])
+  agencyId         String?      @map("agency_id")  // Компания, от которой сделка (привязка на ДВОУ)
+  agency           Agency?      @relation(fields: [agencyId], references: [id])
+  lotId            String?      @map("lot_id")
+  lot              Lot?         @relation(fields: [lotId], references: [id])
+  amoDealId        BigInt?      @map("amo_deal_id")
+  project          Project      @default(ZORGE9)
+  contractType     ContractType? @map("contract_type")
+  amount           Decimal      @db.Decimal(14, 2)
+  sqm              Decimal      @db.Decimal(10, 2)
+  commissionRate   Decimal      @map("commission_rate") @db.Decimal(5, 2)
+  commissionAmount Decimal      @map("commission_amount") @db.Decimal(14, 2)
+  paymentReceived  Boolean      @default(false) @map("payment_received")
+  paymentPercent   Decimal      @default(0) @map("payment_percent") @db.Decimal(5, 2)
+  isInstallment    Boolean      @default(false) @map("is_installment")
+  status           DealStatus   @default(PENDING)
+  signedAt         DateTime?    @map("signed_at")
+  paidAt           DateTime?    @map("paid_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  @@index([brokerId])
+  @@index([clientId])
+  @@index([agencyId])
+  @@map("deals")
+}
+
+model Call {
+  id            String        @id @default(uuid())
+  brokerId      String        @map("broker_id")
+  broker        Broker        @relation(fields: [brokerId], references: [id])
+  mangoCallId   String?       @map("mango_call_id")
+  direction     CallDirection @default(OUTBOUND)
+  status        CallStatus    @default(COMPLETED)
+  result        CallResult?
+  durationSec   Int?          @map("duration_sec")
+  transcript    String?
+  sentiment     Sentiment?
+  recordingUrl  String?       @map("recording_url")
+  attemptNumber Int           @default(1) @map("attempt_number")
+  cycleDay      Int           @default(1) @map("cycle_day")
+  materialsSent Json?         @map("materials_sent")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  @@index([brokerId, createdAt])
+  @@map("calls")
+}
+
+model Meeting {
+  id         String        @id @default(uuid())
+  clientId   String        @map("client_id")
+  client     Client        @relation(fields: [clientId], references: [id])
+  brokerId   String        @map("broker_id")
+  broker     Broker        @relation(fields: [brokerId], references: [id])
+  managerId  String?       @map("manager_id")
+  type       MeetingType
+  date       DateTime
+  comment    String?
+  status     MeetingStatus @default(PENDING)
+  actSigned  Boolean       @default(false) @map("act_signed")
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  @@index([brokerId, date])
+  @@map("meetings")
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  name      String
+  type      String
+  category  String
+  project   Project?
+  fileUrl   String   @map("file_url")
+  fileSize  Int?     @map("file_size")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("documents")
+}
+
+model Notification {
+  id        String              @id @default(uuid())
+  brokerId  String              @map("broker_id")
+  broker    Broker              @relation(fields: [brokerId], references: [id])
+  channel   NotificationChannel
+  subject   String?
+  body      String
+  status    NotificationStatus  @default(PENDING)
+  sentAt    DateTime?           @map("sent_at")
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  @@index([brokerId, createdAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  payload   Json?
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entity, entityId])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
