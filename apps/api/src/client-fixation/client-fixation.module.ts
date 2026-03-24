@@ -1,13 +1,17 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bull';
 import { ClientFixationController } from './client-fixation.controller';
 import { ClientFixationService } from './client-fixation.service';
 import { DatabaseModule } from '../database/database.module';
-import { NotificationModule } from '../notification/notification.module';
+import { AmoCrmAdapter } from '@st-michael/integrations';
 
 @Module({
-  imports: [DatabaseModule, NotificationModule],
+  imports: [
+    DatabaseModule,
+    BullModule.registerQueue({ name: 'notifications' }),
+  ],
   controllers: [ClientFixationController],
-  providers: [ClientFixationService],
+  providers: [ClientFixationService, AmoCrmAdapter],
   exports: [ClientFixationService],
 })
 export class ClientFixationModule {}

@@ -1,7 +1,10 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { DocumentsService } from './documents.service';
+import { UserRole } from '@st-michael/shared';
 
 @ApiTags('documents')
 @Controller('documents')
@@ -12,15 +15,24 @@ export class DocumentsController {
 
   @Get()
   @ApiOperation({ summary: 'Get documents' })
-  @ApiResponse({ status: 200, description: 'List of documents' })
+  @ApiResponse({ status: 200, description: 'Paginated list of documents' })
   async getDocuments(@Query() query: any) {
     return this.documentsService.getDocuments(query);
   }
 
   @Get(':id/download')
-  @ApiOperation({ summary: 'Download document' })
-  @ApiResponse({ status: 200, description: 'Document URL' })
+  @ApiOperation({ summary: 'Get document download URL' })
+  @ApiResponse({ status: 200, description: 'Presigned download URL' })
   async downloadDocument(@Param('id') id: string) {
     return this.documentsService.getDownloadUrl(id);
+  }
+
+  @Post('upload-url')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get upload URL (manager only)' })
+  @ApiResponse({ status: 201, description: 'Presigned upload URL' })
+  async getUploadUrl(@Body() body: { name: string; type: string; category: string; project?: string }) {
+    return this.documentsService.getUploadUrl(body);
   }
 }

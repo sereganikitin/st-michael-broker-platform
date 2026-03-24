@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser, CurrentUserPayload } from '../auth/current-user.decorator';
 import { CommissionService } from './commission.service';
+import { commissionCalculationDtoSchema } from '@st-michael/shared';
 
 @ApiTags('commission')
 @Controller('commission')
@@ -12,15 +14,28 @@ export class CommissionController {
 
   @Get('my')
   @ApiOperation({ summary: 'Get my commission info' })
-  @ApiResponse({ status: 200, description: 'Commission info' })
-  async getMyCommission() {
-    return this.commissionService.getMyCommission();
+  @ApiResponse({ status: 200, description: 'Commission info with level, rates, progress' })
+  async getMyCommission(@CurrentUser() user: CurrentUserPayload) {
+    return this.commissionService.getMyCommission(user.id);
+  }
+
+  @Get('deals')
+  @ApiOperation({ summary: 'Get my commission deal history' })
+  @ApiResponse({ status: 200, description: 'List of deals with commissions' })
+  async getMyDeals(@CurrentUser() user: CurrentUserPayload) {
+    return this.commissionService.getBrokerCommission(user.id);
   }
 
   @Post('calculate')
-  @ApiOperation({ summary: 'Calculate commission' })
+  @ApiOperation({ summary: 'Calculate commission for a deal' })
   @ApiResponse({ status: 200, description: 'Calculated commission' })
-  async calculateCommission(@Body() body: any) {
-    return this.commissionService.calculateCommission(body);
+  async calculateCommission(@Body() body: unknown) {
+    const data = commissionCalculationDtoSchema.parse(body) as {
+      amount: number;
+      project: string;
+      agencyInn: string;
+      isInstallment?: boolean;
+    };
+    return this.commissionService.calculateCommission(data);
   }
 }

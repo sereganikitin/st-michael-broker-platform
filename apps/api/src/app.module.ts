@@ -14,6 +14,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { DatabaseModule } from './database/database.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { DatabaseModule } from './database/database.module';
       },
     }),
     DatabaseModule,
+    AuditModule,
     AuthModule,
     ClientFixationModule,
     CatalogModule,

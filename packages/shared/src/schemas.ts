@@ -11,6 +11,11 @@ export const uuidSchema = z.string().uuid();
 // Auth schemas
 export const registerDtoSchema = z.object({
   phone: phoneSchema,
+  fullName: z.string().min(2, 'Full name too short'),
+});
+
+export const sendOtpDtoSchema = z.object({
+  phone: phoneSchema,
 });
 
 export const loginDtoSchema = z.object({
