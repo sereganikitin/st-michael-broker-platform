@@ -6,22 +6,30 @@ import Link from 'next/link';
 
 export default function RegisterPage() {
   const [phone, setPhone] = useState('');
+  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
   const router = useRouter();
 
   const handleRegister = async () => {
     setLoading(true);
+    setError('');
     try {
-      const response = await fetch('/api/auth/register', {
+      const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, fullName }),
       });
-      if (response.ok) {
-        router.push('/login');
+      const data = await res.json();
+      if (res.ok) {
+        setSuccess(true);
+        setTimeout(() => router.push('/login'), 2000);
+      } else {
+        setError(data.message || 'Ошибка регистрации');
       }
-    } catch (error) {
-      console.error('Registration error:', error);
+    } catch {
+      setError('Ошибка соединения с сервером');
     }
     setLoading(false);
   };
@@ -31,23 +39,49 @@ export default function RegisterPage() {
       <div className="card w-full max-w-md">
         <h1 className="text-2xl font-bold text-center mb-6">Регистрация</h1>
 
-        <div>
-          <label className="label">Номер телефона</label>
-          <input
-            type="tel"
-            className="input"
-            placeholder="+7 (999) 123-45-67"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-          <button
-            className="btn btn-primary w-full mt-4"
-            onClick={handleRegister}
-            disabled={loading}
-          >
-            {loading ? 'Регистрация...' : 'Зарегистрироваться'}
-          </button>
-        </div>
+        {error && (
+          <div className="mb-4 p-3 bg-error/20 text-error rounded-lg text-sm">
+            {error}
+          </div>
+        )}
+
+        {success ? (
+          <div className="p-4 bg-success/20 text-success rounded-lg text-center">
+            Регистрация успешна! Перенаправляем на вход...
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="label">ФИО</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="Иванов Иван Иванович"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="label">Номер телефона</label>
+              <input
+                type="tel"
+                className="input"
+                placeholder="+79991234567"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </div>
+
+            <button
+              className="btn btn-primary w-full"
+              onClick={handleRegister}
+              disabled={loading || !phone || !fullName}
+            >
+              {loading ? 'Регистрация...' : 'Зарегистрироваться'}
+            </button>
+          </div>
+        )}
 
         <div className="mt-6 text-center">
           <Link href="/login" className="text-accent hover:text-accent-hover">
