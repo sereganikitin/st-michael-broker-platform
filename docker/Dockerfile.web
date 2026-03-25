@@ -3,21 +3,16 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY apps/web/package*.json ./apps/web/
-COPY packages/shared/package*.json ./packages/shared/
+# Copy entire project
+COPY . .
 
 # Install dependencies
-RUN npm ci --ignore-scripts
+RUN npm install --ignore-scripts
 
-# Copy source code
-COPY packages/shared ./packages/shared
-COPY apps/web ./apps/web
-
-# Build
+# Build web app
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN cd apps/web && npx next build
+RUN npm run build --workspace=apps/web 2>/dev/null || \
+    cd apps/web && npx next build
 
 # Production stage
 FROM node:20-alpine AS production
@@ -33,7 +28,6 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 # Copy standalone build
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder /app/apps/web/public ./apps/web/public 2>/dev/null || true
 
 RUN chown -R nextjs:nodejs /app
 USER nextjs

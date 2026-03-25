@@ -3,19 +3,11 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy everything (monorepo needs full context for workspaces)
-COPY package*.json ./
-COPY apps/api/package*.json ./apps/api/
-COPY packages/shared/package*.json ./packages/shared/
-COPY packages/database/package*.json ./packages/database/
-COPY packages/integrations/package*.json ./packages/integrations/
+# Copy entire project (monorepo workspaces need full context)
+COPY . .
 
-# Install all dependencies from root (workspaces need this)
-RUN npm ci --ignore-scripts
-
-# Copy source code
-COPY packages ./packages
-COPY apps/api ./apps/api
+# Install dependencies
+RUN npm install --ignore-scripts
 
 # Generate Prisma client
 RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
@@ -24,30 +16,19 @@ RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
 RUN npm run build --workspace=apps/api 2>/dev/null || \
     cd apps/api && npx nest build
 
-# Production stage — single stage to avoid workspace issues
+# Production stage
 FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Copy everything needed
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/apps/api/package*.json ./apps/api/
-COPY --from=builder /app/packages/shared/package*.json ./packages/shared/
-COPY --from=builder /app/packages/database/package*.json ./packages/database/
-COPY --from=builder /app/packages/integrations/package*.json ./packages/integrations/
+# Copy everything from builder (simpler for monorepo)
+COPY --from=builder /app /app
 
-# Install prod dependencies
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+# Remove dev dependencies and rebuild for prod
+RUN npm prune --omit=dev --ignore-scripts 2>/dev/null || true
 
-# Copy Prisma schema + generate client
-COPY --from=builder /app/packages/database/prisma ./packages/database/prisma
+# Re-generate Prisma client after prune
 RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
-
-# Copy built files
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/packages/shared ./packages/shared
-COPY --from=builder /app/packages/integrations ./packages/integrations
-COPY --from=builder /app/packages/database ./packages/database
 
 # Copy entrypoint
 COPY docker/entrypoint-api.sh /entrypoint.sh
