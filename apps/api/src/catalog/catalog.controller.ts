@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CatalogService } from './catalog.service';
@@ -9,6 +9,13 @@ import { CatalogService } from './catalog.service';
 @ApiBearerAuth()
 export class CatalogController {
   constructor(private readonly catalogService: CatalogService) {}
+
+  @Post('sync')
+  @ApiOperation({ summary: 'Sync lots from Profitbase' })
+  @ApiResponse({ status: 200, description: 'Sync result' })
+  async syncFromProfitbase(@Query('project') project?: string) {
+    return this.catalogService.syncFromProfitbase(project || 'ZORGE9');
+  }
 
   @Get()
   @ApiOperation({ summary: 'Get lots catalog with filters' })

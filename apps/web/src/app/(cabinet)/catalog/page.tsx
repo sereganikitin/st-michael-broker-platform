@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet } from '@/lib/api';
-import { Building, Search } from 'lucide-react';
+import { apiGet, apiPost } from '@/lib/api';
+import { Building, RefreshCw } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   AVAILABLE: { label: 'Свободен', cls: 'bg-success/20 text-success' },
@@ -16,8 +16,25 @@ export default function CatalogPage() {
   const [projectFilter, setProjectFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [roomsFilter, setRoomsFilter] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; total: number } | null>(null);
 
-  useEffect(() => {
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const params = projectFilter ? `?project=${projectFilter}` : '';
+      const data = await apiPost(`/lots/sync${params}`, {});
+      setSyncResult(data);
+      // Refresh catalog
+      fetchLots();
+    } catch (e: any) {
+      alert(e.message || 'Ошибка синхронизации');
+    }
+    setSyncing(false);
+  };
+
+  const fetchLots = () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (projectFilter) params.set('project', projectFilter);
@@ -27,11 +44,27 @@ export default function CatalogPage() {
       .then((data) => setLots(Array.isArray(data) ? data : data.lots || []))
       .catch(() => setLots([]))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchLots();
   }, [projectFilter, statusFilter, roomsFilter]);
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Каталог</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Каталог</h1>
+        <button className="btn btn-secondary flex items-center gap-2" onClick={handleSync} disabled={syncing}>
+          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Синхронизация...' : 'Обновить из Profitbase'}
+        </button>
+      </div>
+
+      {syncResult && (
+        <div className="mb-4 p-4 rounded-lg bg-success/20 text-success text-sm">
+          Синхронизация завершена: добавлено {syncResult.created}, обновлено {syncResult.updated}, всего {syncResult.total}
+        </div>
+      )}
 
       <div className="card mb-6">
         <div className="flex flex-wrap gap-4">

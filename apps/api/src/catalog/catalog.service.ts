@@ -1,9 +1,50 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
+import { ProfitbaseAdapter } from '@st-michael/integrations';
 
 @Injectable()
 export class CatalogService {
-  constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
+  private profitbase: ProfitbaseAdapter;
+
+  constructor(@Inject('PrismaClient') private prisma: PrismaClient) {
+    this.profitbase = new ProfitbaseAdapter();
+  }
+
+  async syncFromProfitbase(project: string = 'ZORGE9') {
+    const lots = await this.profitbase.getLots();
+    let created = 0;
+    let updated = 0;
+
+    for (const lot of lots) {
+      const externalId = lot.id;
+      const existing = await this.prisma.lot.findUnique({ where: { externalId } });
+
+      const data = {
+        number: lot.number,
+        project: project as any,
+        building: lot.building,
+        floor: lot.floor,
+        rooms: lot.rooms,
+        sqm: lot.sqm,
+        price: lot.price,
+        pricePerSqm: lot.pricePerSqm || (lot.sqm > 0 ? Math.round(lot.price / lot.sqm) : 0),
+        status: lot.status as any,
+        layoutUrl: lot.layout_url || null,
+        planImageUrl: lot.plan_image_url || null,
+        description: lot.description || null,
+      };
+
+      if (existing) {
+        await this.prisma.lot.update({ where: { externalId }, data });
+        updated++;
+      } else {
+        await this.prisma.lot.create({ data: { ...data, externalId } });
+        created++;
+      }
+    }
+
+    return { created, updated, total: lots.length };
+  }
 
   async getLots(filters: {
     project?: string;
