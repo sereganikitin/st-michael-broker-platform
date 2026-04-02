@@ -4,6 +4,7 @@ import { Project } from '@st-michael/shared';
 import { AmoCrmAdapter } from '@st-michael/integrations';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
+import * as XLSX from 'xlsx';
 
 const UNIQUENESS_DAYS = 30;
 const msInDays = (days: number) => days * 24 * 60 * 60 * 1000;
@@ -334,6 +335,77 @@ export class ClientFixationService {
     });
 
     return { client: updated, message: 'Uniqueness conflict resolved' };
+  }
+
+  async importClients(brokerId: string, fileBuffer: Buffer) {
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+    if (rows.length === 0) throw new BadRequestException('Файл пустой или не содержит данных');
+
+    // Normalize column names
+    const normalize = (key: string) => key.trim().toLowerCase();
+    const findCol = (row: any, variants: string[]): string => {
+      const keys = Object.keys(row);
+      for (const v of variants) {
+        const found = keys.find((k) => normalize(k).includes(v));
+        if (found) return row[found]?.toString().trim() || '';
+      }
+      return '';
+    };
+
+    let imported = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const fullName = findCol(row, ['фио', 'имя', 'name', 'fullname']);
+      const rawPhone = findCol(row, ['телефон', 'phone', 'тел']);
+      const email = findCol(row, ['email', 'почта', 'mail']);
+      const comment = findCol(row, ['комментарий', 'comment', 'примечание']);
+      const projectRaw = findCol(row, ['проект', 'project']).toUpperCase();
+
+      if (!fullName || !rawPhone) {
+        errors.push(`Строка ${i + 2}: не заполнены ФИО или телефон`);
+        skipped++;
+        continue;
+      }
+
+      // Normalize phone: ensure +7XXXXXXXXXX format
+      let phone = rawPhone.replace(/[\s\-()]/g, '');
+      if (phone.startsWith('8') && phone.length === 11) phone = '+7' + phone.slice(1);
+      if (!phone.startsWith('+')) phone = '+' + phone;
+
+      const project = Object.values(Project).includes(projectRaw as Project)
+        ? (projectRaw as Project)
+        : Project.ZORGE9;
+
+      try {
+        const existing = await this.prisma.client.findFirst({ where: { phone, brokerId } });
+        if (existing) { skipped++; continue; }
+
+        await this.prisma.client.create({
+          data: {
+            brokerId,
+            fullName,
+            phone,
+            email: email || null,
+            comment: comment || null,
+            project,
+            uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+            uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          },
+        });
+        imported++;
+      } catch {
+        errors.push(`Строка ${i + 2}: ошибка при сохранении (${fullName})`);
+        skipped++;
+      }
+    }
+
+    return { imported, skipped, errors: errors.slice(0, 20) };
   }
 
   private async logAudit(userId: string, action: string, entity: string, entityId: string, payload: any) {

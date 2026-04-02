@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiGet } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<any[]>([]);
@@ -12,6 +12,37 @@ export default function ClientsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/clients/import', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setImportResult(data);
+        fetchClients();
+      } else {
+        setImportResult({ imported: 0, skipped: 0, errors: [data.message || 'Ошибка импорта'] });
+      }
+    } catch {
+      setImportResult({ imported: 0, skipped: 0, errors: ['Ошибка соединения с сервером'] });
+    }
+    setImporting(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const fetchClients = async () => {
     setLoading(true);
@@ -55,8 +86,30 @@ export default function ClientsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">Клиенты</h1>
-        <span className="text-text-muted text-sm">Всего: {total}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-text-muted text-sm">Всего: {total}</span>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
+          <button
+            className="btn btn-secondary flex items-center gap-2"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+          >
+            <Upload className="w-4 h-4" />
+            {importing ? 'Импорт...' : 'Импорт Excel'}
+          </button>
+        </div>
       </div>
+
+      {importResult && (
+        <div className={`mb-4 p-4 rounded-lg text-sm ${importResult.errors.length && !importResult.imported ? 'bg-error/20 text-error' : 'bg-success/20 text-success'}`}>
+          <p className="font-medium">Импорт завершён: добавлено {importResult.imported}, пропущено {importResult.skipped}</p>
+          {importResult.errors.length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs">
+              {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="card mb-6">
         <div className="flex flex-wrap gap-4">
