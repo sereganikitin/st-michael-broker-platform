@@ -61,7 +61,7 @@ export class ProfitbaseAdapter implements IProfitbaseAdapter {
     });
 
     if (!res.ok) throw new Error(`Profitbase auth failed: ${res.status}`);
-    const data = await res.json();
+    const data: any = await res.json();
     this.accessToken = data.access_token;
     this.tokenExpiresAt = Date.now() + 3500 * 1000; // ~1 hour
     return this.accessToken!;
