@@ -11,10 +11,10 @@ export class CatalogController {
   constructor(private readonly catalogService: CatalogService) {}
 
   @Post('sync')
-  @ApiOperation({ summary: 'Sync lots from Profitbase' })
+  @ApiOperation({ summary: 'Sync lots from Profitbase XML feed' })
   @ApiResponse({ status: 200, description: 'Sync result' })
-  async syncFromProfitbase(@Query('project') project?: string) {
-    return this.catalogService.syncFromProfitbase(project || 'ZORGE9');
+  async syncFromFeed() {
+    return this.catalogService.syncFromFeed();
   }
 
   @Get()
