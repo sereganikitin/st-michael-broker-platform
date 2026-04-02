@@ -5,6 +5,7 @@ COPY . .
 RUN npm install
 RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
 RUN npm run build --workspace=packages/shared 2>/dev/null || (cd packages/shared && npx tsc)
+RUN npm run build --workspace=packages/integrations 2>/dev/null || (cd packages/integrations && npx tsc)
 RUN npm run build --workspace=apps/api 2>/dev/null || (cd apps/api && npx nest build)
 
 FROM node:20-alpine
