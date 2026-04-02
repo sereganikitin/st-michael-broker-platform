@@ -6,47 +6,25 @@ import { useAuth } from '@/lib/auth';
 
 export default function LoginPage() {
   const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
-  const [step, setStep] = useState<'phone' | 'otp'>('phone');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
 
-  const handleSendOtp = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setStep('otp');
-      } else {
-        setError(data.message || 'Ошибка отправки SMS');
-      }
-    } catch {
-      setError('Ошибка соединения с сервером');
-    }
-    setLoading(false);
-  };
-
-  const handleVerifyOtp = async () => {
+  const handleLogin = async () => {
     setLoading(true);
     setError('');
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, otp }),
+        body: JSON.stringify({ phone, password }),
       });
       const data = await res.json();
       if (res.ok) {
         login(data.accessToken, data.refreshToken);
       } else {
-        setError(data.message || 'Неверный код');
+        setError(data.message || 'Неверный телефон или пароль');
       }
     } catch {
       setError('Ошибка соединения с сервером');
@@ -65,7 +43,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        {step === 'phone' ? (
+        <div className="space-y-4">
           <div>
             <label className="label">Номер телефона</label>
             <input
@@ -75,48 +53,32 @@ export default function LoginPage() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
             />
-            <button
-              className="btn btn-primary w-full mt-4"
-              onClick={handleSendOtp}
-              disabled={loading || !phone}
-            >
-              {loading ? 'Отправка...' : 'Получить SMS'}
-            </button>
           </div>
-        ) : (
+
           <div>
-            <p className="text-text-muted text-sm mb-4">
-              Код отправлен на {phone}
-            </p>
-            <label className="label">Код из SMS</label>
+            <label className="label">Пароль</label>
             <input
-              type="text"
-              className="input text-center text-2xl tracking-widest"
-              placeholder="0000"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              maxLength={4}
-              autoFocus
+              type="password"
+              className="input"
+              placeholder="Введите пароль"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
             />
-            <button
-              className="btn btn-primary w-full mt-4"
-              onClick={handleVerifyOtp}
-              disabled={loading || otp.length !== 4}
-            >
-              {loading ? 'Проверка...' : 'Войти'}
-            </button>
-            <button
-              className="btn btn-secondary w-full mt-2"
-              onClick={() => { setStep('phone'); setOtp(''); setError(''); }}
-            >
-              Изменить номер
-            </button>
           </div>
-        )}
+
+          <button
+            className="btn btn-primary w-full"
+            onClick={handleLogin}
+            disabled={loading || !phone || !password}
+          >
+            {loading ? 'Вход...' : 'Войти'}
+          </button>
+        </div>
 
         <div className="mt-6 text-center">
           <Link href="/register" className="text-accent hover:text-accent-hover">
-            Регистрация
+            Нет аккаунта? Зарегистрироваться
           </Link>
         </div>
       </div>

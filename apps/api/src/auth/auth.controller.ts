@@ -30,10 +30,10 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify OTP and login' })
+  @ApiOperation({ summary: 'Login with phone and password' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   async login(@Body() body: unknown) {
-    const data = loginDtoSchema.parse(body) as { phone: string; otp: string };
+    const data = loginDtoSchema.parse(body) as { phone: string; password: string };
     return this.authService.login(data);
   }
 

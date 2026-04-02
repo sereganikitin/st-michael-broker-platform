@@ -3,116 +3,47 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaClient, UserStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-
-const OTP_TTL_SECONDS = 300; // 5 minutes
-const OTP_LENGTH = 4;
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
-  // In-memory OTP store (use Redis in production via BullMQ or ioredis)
-  private otpStore = new Map<string, { code: string; expiresAt: number }>();
-
   constructor(
     @Inject('PrismaClient') private prisma: PrismaClient,
     private jwtService: JwtService,
     @InjectQueue('notifications') private notificationQueue: Queue,
   ) {}
 
-  private generateOtp(): string {
-    return Math.floor(Math.pow(10, OTP_LENGTH - 1) + Math.random() * 9 * Math.pow(10, OTP_LENGTH - 1))
-      .toString()
-      .slice(0, OTP_LENGTH);
-  }
-
-  private storeOtp(phone: string, code: string): void {
-    this.otpStore.set(phone, {
-      code,
-      expiresAt: Date.now() + OTP_TTL_SECONDS * 1000,
-    });
-  }
-
-  private verifyOtp(phone: string, code: string): boolean {
-    const stored = this.otpStore.get(phone);
-    if (!stored) return false;
-    if (Date.now() > stored.expiresAt) {
-      this.otpStore.delete(phone);
-      return false;
-    }
-    if (stored.code !== code) return false;
-    this.otpStore.delete(phone);
-    return true;
-  }
-
-  async register(data: { phone: string; fullName: string }) {
-    const existingBroker = await this.prisma.broker.findUnique({
+  async register(data: { phone: string; fullName: string; email?: string; password: string }) {
+    const existing = await this.prisma.broker.findUnique({
       where: { phone: data.phone },
     });
 
-    if (existingBroker) {
+    if (existing) {
       throw new BadRequestException('Broker with this phone already exists');
     }
+
+    const passwordHash = await bcrypt.hash(data.password, 10);
 
     const broker = await this.prisma.broker.create({
       data: {
         phone: data.phone,
         fullName: data.fullName,
-        status: UserStatus.PENDING,
+        email: data.email,
+        passwordHash,
+        status: UserStatus.ACTIVE,
         source: 'BROKER_CABINET',
       },
     });
 
-    // Generate and send OTP
-    const otp = this.generateOtp();
-    this.storeOtp(data.phone, otp);
-
-    // Queue SMS notification
-    await this.notificationQueue.add('send', {
-      brokerId: broker.id,
-      channel: 'SMS',
-      body: `Ваш код подтверждения: ${otp}`,
-    });
-
-    console.log(`[Auth] OTP for ${data.phone}: ${otp}`); // Dev logging
-
-    return {
-      message: 'Registration initiated. Please check SMS for OTP.',
-      brokerId: broker.id,
-    };
+    return { message: 'Registration successful', brokerId: broker.id };
   }
 
   async sendOtp(phone: string) {
-    const broker = await this.prisma.broker.findUnique({
-      where: { phone },
-    });
-
-    if (!broker) {
-      throw new BadRequestException('Broker not found. Please register first.');
-    }
-
-    if (broker.status === 'BLOCKED') {
-      throw new UnauthorizedException('Account is blocked');
-    }
-
-    const otp = this.generateOtp();
-    this.storeOtp(phone, otp);
-
-    await this.notificationQueue.add('send', {
-      brokerId: broker.id,
-      channel: 'SMS',
-      body: `Ваш код входа: ${otp}`,
-    });
-
-    console.log(`[Auth] OTP for ${phone}: ${otp}`); // Dev logging
-
-    return { message: 'OTP sent successfully' };
+    // OTP disabled — kept for API compatibility
+    return { message: 'OTP not required' };
   }
 
-  async login(data: { phone: string; otp: string }) {
-    const isValid = this.verifyOtp(data.phone, data.otp);
-    if (!isValid) {
-      throw new UnauthorizedException('Invalid or expired OTP');
-    }
-
+  async login(data: { phone: string; password: string }) {
     const broker = await this.prisma.broker.findUnique({
       where: { phone: data.phone },
       include: {
@@ -124,7 +55,7 @@ export class AuthService {
       },
     });
 
-    if (!broker) {
+    if (!broker || !broker.passwordHash) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -132,12 +63,9 @@ export class AuthService {
       throw new UnauthorizedException('Account is blocked');
     }
 
-    // Activate on first login
-    if (broker.status === 'PENDING') {
-      await this.prisma.broker.update({
-        where: { id: broker.id },
-        data: { status: 'ACTIVE' },
-      });
+    const isValid = await bcrypt.compare(data.password, broker.passwordHash);
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid credentials');
     }
 
     const payload = { sub: broker.id, phone: broker.phone, role: broker.role };
@@ -154,7 +82,7 @@ export class AuthService {
         fullName: broker.fullName,
         phone: broker.phone,
         role: broker.role,
-        status: broker.status === 'PENDING' ? 'ACTIVE' : broker.status,
+        status: broker.status,
         funnelStage: broker.funnelStage,
         agency: broker.brokerAgencies[0]?.agency ?? null,
       },

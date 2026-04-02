@@ -7,6 +7,8 @@ import Link from 'next/link';
 export default function RegisterPage() {
   const [phone, setPhone] = useState('');
   const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -19,7 +21,7 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, fullName }),
+        body: JSON.stringify({ phone, fullName, email: email || undefined, password }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -73,10 +75,32 @@ export default function RegisterPage() {
               />
             </div>
 
+            <div>
+              <label className="label">Email (необязательно)</label>
+              <input
+                type="email"
+                className="input"
+                placeholder="example@mail.ru"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="label">Пароль</label>
+              <input
+                type="password"
+                className="input"
+                placeholder="Минимум 6 символов"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+
             <button
               className="btn btn-primary w-full"
               onClick={handleRegister}
-              disabled={loading || !phone || !fullName}
+              disabled={loading || !phone || !fullName || password.length < 6}
             >
               {loading ? 'Регистрация...' : 'Зарегистрироваться'}
             </button>
