@@ -51,7 +51,7 @@ export class ProfitbaseAdapter implements IProfitbaseAdapter {
       throw new Error('PROFITBASE_BASE_URL and PROFITBASE_API_KEY must be set');
     }
 
-    const res = await fetch(`${this.baseUrl}/authentication`, {
+    const res = await fetch(`${this.baseUrl}/json/authentication`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -69,7 +69,7 @@ export class ProfitbaseAdapter implements IProfitbaseAdapter {
 
   private async request(path: string, params?: Record<string, string>): Promise<any> {
     const token = await this.authenticate();
-    const url = new URL(`${this.baseUrl}${path}`);
+    const url = new URL(`${this.baseUrl}/json${path}`);
     if (params) {
       Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
     }
@@ -124,13 +124,13 @@ export class ProfitbaseAdapter implements IProfitbaseAdapter {
     if (filters?.building) params.house = filters.building;
     if (filters?.rooms) params.rooms = filters.rooms;
 
-    const data = await this.request('/v2/property', params);
+    const data = await this.request('/property', params);
     const items = Array.isArray(data) ? data : data?.data || data?.items || data?.properties || [];
     return items.map((item: any) => this.mapLot(item));
   }
 
   async getLotById(id: string): Promise<ProfitbaseLot> {
-    const data = await this.request(`/v2/property/${id}`);
+    const data = await this.request(`/property/${id}`);
     const raw = data?.data || data;
     return this.mapLot(raw);
   }
