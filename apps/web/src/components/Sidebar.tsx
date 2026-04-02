@@ -23,7 +23,6 @@ const navigation = [
   { name: 'Комиссия', href: '/commission', icon: Calculator },
   { name: 'Встречи', href: '/meetings', icon: Calendar },
   { name: 'Документы', href: '/documents', icon: FileText },
-  { name: 'Аналитика', href: '/analytics', icon: BarChart3 },
   { name: 'Профиль', href: '/profile', icon: Settings },
 ];
 
