@@ -51,6 +51,8 @@ services:
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
       API_PORT: 4000
       WEB_URL: ${WEB_URL:-http://localhost}
+      PROFITBASE_API_KEY: ${PROFITBASE_API_KEY:-}
+      PROFITBASE_BASE_URL: ${PROFITBASE_BASE_URL:-}
     ports:
       - "4000:4000"
     depends_on:
