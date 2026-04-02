@@ -355,32 +355,82 @@ export class ClientFixationService {
       return '';
     };
 
+    // Extract phone number from any string
+    const extractPhone = (text: string): string => {
+      const match = text.replace(/[\s\-()]/g, '').match(/(\+?[78]\d{10})/);
+      return match ? match[1] : '';
+    };
+
     let imported = 0;
     let skipped = 0;
     const errors: string[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const fullName = findCol(row, ['фио', 'имя', 'name', 'fullname']);
-      const rawPhone = findCol(row, ['телефон', 'phone', 'тел']);
+      let fullName = findCol(row, ['фио', 'имя', 'name', 'fullname', 'контакт', 'клиент']);
+      let rawPhone = findCol(row, ['телефон', 'phone', 'тел']);
       const email = findCol(row, ['email', 'почта', 'mail']);
-      const comment = findCol(row, ['комментарий', 'comment', 'примечание']);
+      const comment = findCol(row, ['комментарий', 'comment', 'примечание', 'этап', 'воронка']);
+      const budget = findCol(row, ['бюджет', 'budget', 'сумма']);
       const projectRaw = findCol(row, ['проект', 'project']).toUpperCase();
 
-      if (!fullName || !rawPhone) {
-        errors.push(`Строка ${i + 2}: не заполнены ФИО или телефон`);
+      // If no phone found in dedicated column, try to extract from all fields
+      if (!rawPhone) {
+        const allValues = Object.values(row).map((v: any) => String(v || ''));
+        for (const val of allValues) {
+          const found = extractPhone(val);
+          if (found) { rawPhone = found; break; }
+        }
+      }
+
+      // If no name found, try to extract from contact field (might contain "Name Phone")
+      if (!fullName) {
+        const contactVal = findCol(row, ['контакт', 'клиент', 'основной']);
+        if (contactVal) {
+          fullName = contactVal.replace(/[\+]?[78][\d\s\-()]{10,}/, '').trim() || contactVal;
+          if (!rawPhone) {
+            const phoneFromContact = extractPhone(contactVal);
+            if (phoneFromContact) rawPhone = phoneFromContact;
+          }
+        }
+      }
+
+      if (!fullName) {
+        // Last resort: use first column value as name
+        const firstKey = Object.keys(row)[0];
+        if (firstKey) {
+          const val = String(row[firstKey] || '').trim();
+          if (val && !extractPhone(val)) fullName = val;
+          else if (val) {
+            fullName = val.replace(/[\+]?[78][\d\s\-()]{10,}/, '').trim();
+            if (!rawPhone) rawPhone = extractPhone(val);
+          }
+        }
+      }
+
+      if (!fullName) {
+        errors.push(`Строка ${i + 2}: не удалось определить ФИО`);
         skipped++;
         continue;
       }
 
-      // Normalize phone: ensure +7XXXXXXXXXX format
-      let phone = rawPhone.replace(/[\s\-()]/g, '');
-      if (phone.startsWith('8') && phone.length === 11) phone = '+7' + phone.slice(1);
-      if (!phone.startsWith('+')) phone = '+' + phone;
+      // Generate placeholder phone if missing
+      let phone = '';
+      if (rawPhone) {
+        phone = rawPhone.replace(/[\s\-()]/g, '');
+        if (phone.startsWith('8') && phone.length === 11) phone = '+7' + phone.slice(1);
+        if (!phone.startsWith('+')) phone = '+' + phone;
+      } else {
+        // No phone — generate unique placeholder
+        phone = `+70000${String(Date.now()).slice(-6)}${i}`;
+      }
 
       const project = Object.values(Project).includes(projectRaw as Project)
         ? (projectRaw as Project)
         : Project.ZORGE9;
+
+      const commentParts = [comment, budget ? `Бюджет: ${budget}` : ''].filter(Boolean);
+      const finalComment = commentParts.join('. ') || null;
 
       try {
         const existing = await this.prisma.client.findFirst({ where: { phone, brokerId } });
@@ -392,7 +442,7 @@ export class ClientFixationService {
             fullName,
             phone,
             email: email || null,
-            comment: comment || null,
+            comment: finalComment,
             project,
             uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
             uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
