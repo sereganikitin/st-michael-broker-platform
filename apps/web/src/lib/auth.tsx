@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!broker && !isAuthPage) {
       router.replace('/login');
     } else if (broker && isAuthPage) {
-      router.replace('/dashboard');
+      router.replace('/fixation');
     }
   }, [broker, loading, pathname, router]);
 
