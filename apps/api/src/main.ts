@@ -18,6 +18,9 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Global prefix
+  app.setGlobalPrefix('api');
+
   // Validation
   app.useGlobalPipes(
     new ValidationPipe({
@@ -47,7 +50,7 @@ async function bootstrap() {
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, document);
+  SwaggerModule.setup('docs', app, document);
 
   const port = process.env.API_PORT || 4000;
   await app.listen(port);
