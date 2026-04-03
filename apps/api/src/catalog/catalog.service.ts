@@ -2,15 +2,40 @@ import { Injectable, Inject, NotFoundException, BadRequestException } from '@nes
 import { PrismaClient } from '@st-michael/database';
 import { XMLParser } from 'fast-xml-parser';
 
-const FEED_URL = process.env.PROFITBASE_FEED_URL
-  || 'https://pb7828.profitbase.ru/export/profitbase_xml/2b76e70bcddca7c519166c8a9993b20b?scheme=https';
+const FEEDS = [
+  {
+    url: process.env.PROFITBASE_FEED_ZORGE || 'https://pb7828.profitbase.ru/export/profitbase_xml/2b76e70bcddca7c519166c8a9993b20b?scheme=https',
+    project: 'ZORGE9',
+  },
+  {
+    url: process.env.PROFITBASE_FEED_SILVER || 'https://pb7828.profitbase.ru/export/profitbase_xml/9829a3c5d6882f1a1cb12906ee9025ee?scheme=https',
+    project: 'SILVER_BOR',
+  },
+];
 
 @Injectable()
 export class CatalogService {
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
 
   async syncFromFeed() {
-    const res = await fetch(FEED_URL);
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalSkipped = 0;
+    let totalOffers = 0;
+
+    for (const feed of FEEDS) {
+      const result = await this.syncSingleFeed(feed.url, feed.project);
+      totalCreated += result.created;
+      totalUpdated += result.updated;
+      totalSkipped += result.skipped;
+      totalOffers += result.total;
+    }
+
+    return { created: totalCreated, updated: totalUpdated, skipped: totalSkipped, total: totalOffers };
+  }
+
+  private async syncSingleFeed(feedUrl: string, defaultProject: string) {
+    const res = await fetch(feedUrl);
     if (!res.ok) throw new BadRequestException(`Feed fetch failed: ${res.status}`);
 
     const xml = await res.text();
@@ -37,7 +62,7 @@ export class CatalogService {
       const pricePerSqm = Number(offer?.['price-meter']?.value || (sqm > 0 ? Math.round(price / sqm) : 0));
 
       const projectName = offer?.object?.name || '';
-      const project = this.mapProject(projectName);
+      const project = this.mapProject(projectName) || defaultProject;
 
       const propertyType = offer?.property_type || null;
       const images = Array.isArray(offer.image) ? offer.image : offer.image ? [offer.image] : [];
@@ -79,6 +104,7 @@ export class CatalogService {
 
     return { created, updated, skipped, total: offers.length };
   }
+
 
   private mapStatus(status: string): string {
     const s = (status || '').toUpperCase();
