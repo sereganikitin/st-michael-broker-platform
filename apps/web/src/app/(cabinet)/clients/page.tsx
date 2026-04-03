@@ -122,6 +122,7 @@ export default function ClientsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
@@ -162,6 +163,7 @@ export default function ClientsPage() {
       const params = new URLSearchParams({ page: String(page), limit: '15' });
       if (search) params.set('search', search);
       if (statusFilter) params.set('status', statusFilter);
+      if (projectFilter) params.set('project', projectFilter);
       const data = await apiGet(`/clients?${params}`);
       setClients(data.clients || []);
       setTotal(data.total || 0);
@@ -172,7 +174,7 @@ export default function ClientsPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchClients(); }, [page, statusFilter]);
+  useEffect(() => { fetchClients(); }, [page, statusFilter, projectFilter]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,6 +222,15 @@ export default function ClientsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </form>
+          <select
+            className="input w-auto"
+            value={projectFilter}
+            onChange={(e) => { setProjectFilter(e.target.value); setPage(1); }}
+          >
+            <option value="">Все проекты</option>
+            <option value="ZORGE9">Зорге 9</option>
+            <option value="SILVER_BOR">Серебряный бор</option>
+          </select>
           <select
             className="input w-auto"
             value={statusFilter}
