@@ -152,7 +152,10 @@ export class CatalogService {
     const skip = (page - 1) * limit;
 
     const where: any = {
-      number: { not: { contains: 'TEST', mode: 'insensitive' } },
+      NOT: [
+        { number: { contains: 'TEST', mode: 'insensitive' } },
+        { number: { contains: 'ТЕСТ', mode: 'insensitive' } },
+      ],
     };
     if (filters.project) where.project = filters.project;
     if (filters.status) where.status = filters.status;
