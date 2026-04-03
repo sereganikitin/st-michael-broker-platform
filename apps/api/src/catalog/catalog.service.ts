@@ -55,6 +55,9 @@ export class CatalogService {
       const externalId = String(offer['@_internal-id'] || '');
       if (!externalId) { skipped++; continue; }
 
+      const lotNumber = String(offer.number || '');
+      if (lotNumber.toLowerCase().includes('test') || lotNumber.toLowerCase().includes('тест')) { skipped++; continue; }
+
       const status = this.mapStatus(offer.status);
       const rooms = this.mapRooms(offer.rooms, offer.studio);
       const sqm = Number(offer?.area?.value || 0);
@@ -148,7 +151,9 @@ export class CatalogService {
     const limit = Number(filters.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = {
+      number: { not: { contains: 'TEST', mode: 'insensitive' } },
+    };
     if (filters.project) where.project = filters.project;
     if (filters.status) where.status = filters.status;
     else where.status = { not: 'SOLD' };
