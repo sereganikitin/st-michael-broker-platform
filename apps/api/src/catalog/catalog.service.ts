@@ -151,6 +151,7 @@ export class CatalogService {
     const where: any = {};
     if (filters.project) where.project = filters.project;
     if (filters.status) where.status = filters.status;
+    else where.status = { not: 'SOLD' };
     if (filters.rooms) where.rooms = filters.rooms;
     if (filters.building) where.building = filters.building;
     if (filters.floor) where.floor = Number(filters.floor);
