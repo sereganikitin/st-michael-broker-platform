@@ -339,12 +339,17 @@ export class ClientFixationService {
 
   async importClients(brokerId: string, fileBuffer: Buffer) {
     const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+    // Find target sheet: "Воронка зорге+берз" or fallback to first
+    const targetSheetNames = workbook.SheetNames.filter((n) =>
+      n.toLowerCase().includes('воронка') || n.toLowerCase().includes('зорге'),
+    );
+    const sheetName = targetSheetNames[0] || workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
     const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
-    if (rows.length === 0) throw new BadRequestException('Файл пустой или не содержит данных');
+    if (rows.length === 0) throw new BadRequestException('Лист пустой или не содержит данных');
 
-    // Normalize column names
     const normalize = (key: string) => key.trim().toLowerCase();
     const findCol = (row: any, variants: string[]): string => {
       const keys = Object.keys(row);
@@ -355,10 +360,16 @@ export class ClientFixationService {
       return '';
     };
 
-    // Extract phone number from any string
     const extractPhone = (text: string): string => {
       const match = text.replace(/[\s\-()]/g, '').match(/(\+?[78]\d{10})/);
       return match ? match[1] : '';
+    };
+
+    const mapProject = (val: string): string => {
+      const v = val.toLowerCase();
+      if (v.includes('зорге') || v.includes('zorge')) return 'ZORGE9';
+      if (v.includes('серебр') || v.includes('silver') || v.includes('бор') || v.includes('берез')) return 'SILVER_BOR';
+      return 'ZORGE9';
     };
 
     let imported = 0;
@@ -367,67 +378,60 @@ export class ClientFixationService {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      let fullName = findCol(row, ['фио', 'имя', 'name', 'fullname', 'контакт', 'клиент']);
-      let rawPhone = findCol(row, ['телефон', 'phone', 'тел']);
-      const email = findCol(row, ['email', 'почта', 'mail']);
-      const comment = findCol(row, ['комментарий', 'comment', 'примечание', 'этап', 'воронка']);
-      const budget = findCol(row, ['бюджет', 'budget', 'сумма']);
-      const projectRaw = findCol(row, ['проект', 'project']).toUpperCase();
 
-      // If no phone found in dedicated column, try to extract from all fields
+      // ФИО из "Основной контакт"
+      const fullName = findCol(row, ['основной контакт', 'контакт', 'фио', 'имя', 'name']);
+
+      // Телефон из "Рабочий телефон (контакт)"
+      let rawPhone = findCol(row, ['рабочий телефон', 'телефон (контакт)', 'телефон', 'phone', 'тел']);
       if (!rawPhone) {
-        const allValues = Object.values(row).map((v: any) => String(v || ''));
-        for (const val of allValues) {
-          const found = extractPhone(val);
+        // Try to extract from all values
+        for (const val of Object.values(row)) {
+          const found = extractPhone(String(val || ''));
           if (found) { rawPhone = found; break; }
         }
       }
 
-      // If no name found, try to extract from contact field (might contain "Name Phone")
-      if (!fullName) {
-        const contactVal = findCol(row, ['контакт', 'клиент', 'основной']);
-        if (contactVal) {
-          fullName = contactVal.replace(/[\+]?[78][\d\s\-()]{10,}/, '').trim() || contactVal;
-          if (!rawPhone) {
-            const phoneFromContact = extractPhone(contactVal);
-            if (phoneFromContact) rawPhone = phoneFromContact;
-          }
-        }
-      }
+      // Проект из "Объект интереса"
+      const projectRaw = findCol(row, ['объект интереса', 'объект', 'проект', 'project']);
+
+      // Дата из "Дата создания"
+      const dateRaw = findCol(row, ['дата создания', 'дата', 'date', 'created']);
+
+      const email = findCol(row, ['email', 'почта', 'mail']);
+      const comment = findCol(row, ['комментарий', 'comment', 'примечание', 'этап']);
+      const budget = findCol(row, ['бюджет', 'budget', 'сумма']);
 
       if (!fullName) {
-        // Last resort: use first column value as name
-        const firstKey = Object.keys(row)[0];
-        if (firstKey) {
-          const val = String(row[firstKey] || '').trim();
-          if (val && !extractPhone(val)) fullName = val;
-          else if (val) {
-            fullName = val.replace(/[\+]?[78][\d\s\-()]{10,}/, '').trim();
-            if (!rawPhone) rawPhone = extractPhone(val);
-          }
-        }
-      }
-
-      if (!fullName) {
-        errors.push(`Строка ${i + 2}: не удалось определить ФИО`);
+        errors.push(`Строка ${i + 2}: не заполнено ФИО (Основной контакт)`);
         skipped++;
         continue;
       }
 
-      // Generate placeholder phone if missing
+      // Normalize phone
       let phone = '';
       if (rawPhone) {
         phone = rawPhone.replace(/[\s\-()]/g, '');
         if (phone.startsWith('8') && phone.length === 11) phone = '+7' + phone.slice(1);
         if (!phone.startsWith('+')) phone = '+' + phone;
       } else {
-        // No phone — generate unique placeholder
         phone = `+70000${String(Date.now()).slice(-6)}${i}`;
       }
 
-      const project = Object.values(Project).includes(projectRaw as Project)
-        ? (projectRaw as Project)
-        : Project.ZORGE9;
+      const project = mapProject(projectRaw);
+
+      // Parse date
+      let createdAt: Date | undefined;
+      if (dateRaw) {
+        const excelDate = Number(dateRaw);
+        if (!isNaN(excelDate) && excelDate > 10000) {
+          // Excel serial date
+          createdAt = new Date((excelDate - 25569) * 86400 * 1000);
+        } else {
+          const parsed = new Date(dateRaw);
+          if (!isNaN(parsed.getTime())) createdAt = parsed;
+        }
+      }
 
       const commentParts = [comment, budget ? `Бюджет: ${budget}` : ''].filter(Boolean);
       const finalComment = commentParts.join('. ') || null;
@@ -443,9 +447,10 @@ export class ClientFixationService {
             phone,
             email: email || null,
             comment: finalComment,
-            project,
+            project: project as any,
             uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
             uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            ...(createdAt && { createdAt }),
           },
         });
         imported++;
@@ -455,7 +460,7 @@ export class ClientFixationService {
       }
     }
 
-    return { imported, skipped, errors: errors.slice(0, 20) };
+    return { imported, skipped, sheet: sheetName, errors: errors.slice(0, 20) };
   }
 
   private async logAudit(userId: string, action: string, entity: string, entityId: string, payload: any) {
