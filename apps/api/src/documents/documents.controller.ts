@@ -20,6 +20,13 @@ export class DocumentsController {
     return this.documentsService.getDocuments(query);
   }
 
+  @Get('external')
+  @ApiOperation({ summary: 'Get documents from external broker page' })
+  @ApiResponse({ status: 200, description: 'List of external documents' })
+  async getExternalDocuments() {
+    return this.documentsService.getExternalDocuments();
+  }
+
   @Get(':id/download')
   @ApiOperation({ summary: 'Get document download URL' })
   @ApiResponse({ status: 200, description: 'Presigned download URL' })
