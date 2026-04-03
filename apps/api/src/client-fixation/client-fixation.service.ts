@@ -367,8 +367,8 @@ export class ClientFixationService {
 
     const mapProject = (val: string): string => {
       const v = val.toLowerCase();
+      if (v.includes('берзарин') || v.includes('серебр') || v.includes('silver') || v.includes('бор') || v.includes('берз')) return 'SILVER_BOR';
       if (v.includes('зорге') || v.includes('zorge')) return 'ZORGE9';
-      if (v.includes('серебр') || v.includes('silver') || v.includes('бор') || v.includes('берез')) return 'SILVER_BOR';
       return 'ZORGE9';
     };
 
