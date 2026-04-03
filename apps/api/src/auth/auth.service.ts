@@ -146,6 +146,32 @@ export class AuthService {
     };
   }
 
+  async updateProfile(brokerId: string, data: { fullName?: string; email?: string; phone?: string }) {
+    const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
+    if (!broker) throw new UnauthorizedException('Broker not found');
+
+    if (data.phone && data.phone !== broker.phone) {
+      const existing = await this.prisma.broker.findUnique({ where: { phone: data.phone } });
+      if (existing) throw new BadRequestException('Phone already in use');
+    }
+
+    const updated = await this.prisma.broker.update({
+      where: { id: brokerId },
+      data: {
+        ...(data.fullName && { fullName: data.fullName }),
+        ...(data.email !== undefined && { email: data.email || null }),
+        ...(data.phone && { phone: data.phone }),
+      },
+    });
+
+    return {
+      id: updated.id,
+      fullName: updated.fullName,
+      phone: updated.phone,
+      email: updated.email,
+    };
+  }
+
   async validateBroker(brokerId: string) {
     const broker = await this.prisma.broker.findUnique({
       where: { id: brokerId },

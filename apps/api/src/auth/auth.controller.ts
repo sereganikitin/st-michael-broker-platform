@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -52,5 +52,19 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Current user data' })
   async getProfile(@CurrentUser() user: CurrentUserPayload) {
     return this.authService.getProfile(user.id);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update current user profile' })
+  @ApiResponse({ status: 200, description: 'Profile updated' })
+  async updateProfile(@CurrentUser() user: CurrentUserPayload, @Body() body: any) {
+    return this.authService.updateProfile(user.id, {
+      fullName: body.fullName,
+      email: body.email,
+      phone: body.phone,
+    });
   }
 }
