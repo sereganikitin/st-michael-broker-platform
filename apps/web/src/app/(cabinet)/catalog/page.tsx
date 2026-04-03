@@ -196,7 +196,6 @@ export default function CatalogPage() {
             <option value="">Все статусы</option>
             <option value="AVAILABLE">Свободен</option>
             <option value="BOOKED">Бронь</option>
-            <option value="SOLD">Продан</option>
           </select>
 
           <select className="input w-auto" value={roomsFilter} onChange={(e) => { setRoomsFilter(e.target.value); setPage(1); }}>

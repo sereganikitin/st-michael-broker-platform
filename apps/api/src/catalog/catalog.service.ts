@@ -179,16 +179,18 @@ export class CatalogService {
       this.prisma.lot.count({ where }),
     ]);
 
-    // Get distinct property types for filters
+    // Get distinct property types for filters (exclude SOLD)
+    const notSold = { status: { not: 'SOLD' as any } };
     const propertyTypes = await this.prisma.lot.groupBy({
       by: ['propertyType'],
-      where: { propertyType: { not: null } },
+      where: { propertyType: { not: null }, ...notSold },
       _count: true,
     });
 
-    // Get distinct projects
+    // Get distinct projects (exclude SOLD)
     const projects = await this.prisma.lot.groupBy({
       by: ['project'],
+      where: notSold,
       _count: true,
     });
 
