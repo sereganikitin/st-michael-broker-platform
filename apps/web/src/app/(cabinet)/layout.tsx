@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { TopBar } from '@/components/TopBar';
 import { useAuth } from '@/lib/auth';
@@ -10,6 +11,7 @@ export default function CabinetLayout({
   children: React.ReactNode;
 }) {
   const { broker, loading } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (loading) {
     return (
@@ -19,14 +21,14 @@ export default function CabinetLayout({
     );
   }
 
-  if (!broker) return null; // Redirect handled by AuthProvider
+  if (!broker) return null;
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar />
+      <TopBar onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
       <div className="flex">
-        <Sidebar />
-        <main className="flex-1 p-6">
+        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <main className="flex-1 p-4 sm:p-6 min-w-0">
           {children}
         </main>
       </div>
