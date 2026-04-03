@@ -4,27 +4,29 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 
-function AuthModal({ mode, onClose, onSwitch }: { mode: 'login' | 'register'; onClose: () => void; onSwitch: () => void }) {
+function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 'register'; onClose: () => void; onSwitch: () => void; onSuccess: () => void }) {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
   const { login } = useAuth();
+
+  const doLogin = async (p: string, pw: string) => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: p, password: pw }),
+    });
+    const data = await res.json();
+    if (res.ok) { login(data.accessToken, data.refreshToken); onSuccess(); }
+    else throw new Error(data.message || 'Ошибка входа');
+  };
 
   const handleLogin = async () => {
     setLoading(true); setError('');
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, password }),
-      });
-      const data = await res.json();
-      if (res.ok) { login(data.accessToken, data.refreshToken); onClose(); }
-      else setError(data.message || 'Неверный телефон или пароль');
-    } catch { setError('Ошибка соединения'); }
+    try { await doLogin(phone, password); }
+    catch (e: any) { setError(e.message || 'Ошибка соединения'); }
     setLoading(false);
   };
 
@@ -36,9 +38,9 @@ function AuthModal({ mode, onClose, onSwitch }: { mode: 'login' | 'register'; on
         body: JSON.stringify({ phone, fullName, email: email || undefined, password }),
       });
       const data = await res.json();
-      if (res.ok) { setSuccess(true); setTimeout(() => { onSwitch(); }, 1500); }
+      if (res.ok) { await doLogin(phone, password); }
       else setError(data.message || 'Ошибка регистрации');
-    } catch { setError('Ошибка соединения'); }
+    } catch (e: any) { setError(e.message || 'Ошибка соединения'); }
     setLoading(false);
   };
 
@@ -50,9 +52,8 @@ function AuthModal({ mode, onClose, onSwitch }: { mode: 'login' | 'register'; on
         <p style={{fontSize:13,color:'#8a8680',marginBottom:24}}>{mode === 'login' ? 'Введите данные для входа' : 'Создайте аккаунт партнёра'}</p>
 
         {error && <div style={{padding:'10px 14px',background:'rgba(220,60,60,0.1)',color:'#c33',borderRadius:4,fontSize:13,marginBottom:16}}>{error}</div>}
-        {success && <div style={{padding:'10px 14px',background:'rgba(60,140,80,0.1)',color:'#3a8a5c',borderRadius:4,fontSize:13,marginBottom:16}}>Регистрация успешна! Переходим ко входу...</div>}
 
-        {!success && (
+        {(
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             {mode === 'register' && (
               <input placeholder="ФИО" value={fullName} onChange={e=>setFullName(e.target.value)}
@@ -312,6 +313,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           mode={authModal}
           onClose={() => setAuthModal(null)}
           onSwitch={() => setAuthModal(authModal === 'login' ? 'register' : 'login')}
+          onSuccess={() => { setAuthModal(null); router.push('/fixation'); }}
         />
       )}
     </>
