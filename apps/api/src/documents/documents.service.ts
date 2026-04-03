@@ -70,7 +70,7 @@ export class DocumentsService {
       const rawText = match[2].replace(/<[^>]+>/g, '').trim();
       if (!rawText || !href) continue;
 
-      const url = href.startsWith('http') ? href : BASE + href.replace(/^\.?\/?/, '');
+      const url = href.startsWith('http') ? href : 'https://old.zorge9.com/' + href.replace(/^\.?\/?/, '');
       const ext = (href.split('.').pop() || '').toLowerCase();
       const type = ext === 'pdf' ? 'PDF' : ext === 'docx' ? 'DOCX' : ext === 'xlsx' ? 'XLSX' : ext.toUpperCase();
 
