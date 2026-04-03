@@ -46,14 +46,14 @@ export class CatalogService {
 
       const data = {
         number: String(offer.number || ''),
-        project,
+        project: project as any,
         building: offer?.house?.name || '',
         floor: Number(offer.floor || 0),
         rooms,
         sqm,
         price,
         pricePerSqm,
-        status,
+        status: status as any,
         propertyType,
         layoutUrl: null as string | null,
         planImageUrl,
