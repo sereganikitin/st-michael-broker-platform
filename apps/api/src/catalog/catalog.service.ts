@@ -4,7 +4,7 @@ import { XMLParser } from 'fast-xml-parser';
 
 const FEEDS = [
   {
-    url: process.env.PROFITBASE_FEED_ZORGE || 'https://pb7828.profitbase.ru/export/profitbase_xml/2b76e70bcddca7c519166c8a9993b20b?scheme=https',
+    url: process.env.PROFITBASE_FEED_ZORGE || 'https://pb7828.profitbase.ru/export/profitbase_xml/cccbe8c77d59ace56d69e0b05cb11ced?scheme=https',
     project: 'ZORGE9',
   },
   {
