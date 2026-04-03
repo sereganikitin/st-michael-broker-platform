@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 
@@ -94,6 +94,13 @@ export default function LandingPage() {
 
   const handleCabinet = () => { if (broker) router.push('/fixation'); else setAuthModal('login'); };
   const handleRegister = () => { if (broker) router.push('/fixation'); else setAuthModal('register'); };
+
+  useEffect(() => {
+    const prev = document.body.style.cssText;
+    document.body.style.background = '#ffffff';
+    document.body.style.color = '#1a1a1a';
+    return () => { document.body.style.cssText = prev; };
+  }, []);
 
   return (
     <>
