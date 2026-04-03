@@ -2,13 +2,105 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
-import { Building, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Building, RefreshCw, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   AVAILABLE: { label: 'Свободен', cls: 'bg-success/20 text-success' },
   BOOKED: { label: 'Бронь', cls: 'bg-warning/20 text-warning' },
   SOLD: { label: 'Продан', cls: 'bg-error/20 text-error' },
 };
+
+const projectLabels: Record<string, string> = {
+  ZORGE9: 'Зорге 9',
+  SILVER_BOR: 'Серебряный бор',
+};
+
+function LotDetail({ lot, onClose }: { lot: any; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-surface rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 relative"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button className="absolute top-4 right-4 text-text-muted hover:text-text" onClick={onClose}>
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">{lot.number}</h2>
+          <span className={`text-xs px-2 py-1 rounded ${statusLabels[lot.status]?.cls || 'bg-text-muted/20'}`}>
+            {statusLabels[lot.status]?.label || lot.status}
+          </span>
+        </div>
+
+        {lot.propertyType && (
+          <div className="text-sm text-accent mb-4">{lot.propertyType}</div>
+        )}
+
+        {lot.planImageUrl && (
+          <div className="mb-6 bg-surface-secondary rounded-lg p-3">
+            <img src={lot.planImageUrl} alt="Планировка" className="w-full rounded max-h-80 object-contain" />
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 text-sm mb-6">
+          <div className="bg-surface-secondary rounded-lg p-3">
+            <span className="text-text-muted block text-xs">Проект</span>
+            <span className="font-medium">{projectLabels[lot.project] || lot.project}</span>
+          </div>
+          <div className="bg-surface-secondary rounded-lg p-3">
+            <span className="text-text-muted block text-xs">Корпус</span>
+            <span className="font-medium">{lot.building}</span>
+          </div>
+          <div className="bg-surface-secondary rounded-lg p-3">
+            <span className="text-text-muted block text-xs">Этаж</span>
+            <span className="font-medium">{lot.floor}{lot.floorsTotal ? ` / ${lot.floorsTotal}` : ''}</span>
+          </div>
+          <div className="bg-surface-secondary rounded-lg p-3">
+            <span className="text-text-muted block text-xs">Комнат</span>
+            <span className="font-medium">{lot.rooms}</span>
+          </div>
+          <div className="bg-surface-secondary rounded-lg p-3">
+            <span className="text-text-muted block text-xs">Площадь</span>
+            <span className="font-medium">{Number(lot.sqm)} м²</span>
+          </div>
+          {lot.buildingSection && (
+            <div className="bg-surface-secondary rounded-lg p-3">
+              <span className="text-text-muted block text-xs">Секция</span>
+              <span className="font-medium">{lot.buildingSection}</span>
+            </div>
+          )}
+          {lot.windowView && (
+            <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+              <span className="text-text-muted block text-xs">Вид из окна</span>
+              <span className="font-medium">{lot.windowView}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-surface-secondary rounded-lg p-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-text-muted">Стоимость</span>
+            <span className="text-2xl font-bold text-accent">{Number(lot.price).toLocaleString('ru-RU')} ₽</span>
+          </div>
+          {Number(lot.pricePerSqm) > 0 && (
+            <div className="flex justify-between items-center">
+              <span className="text-text-muted text-sm">Цена за м²</span>
+              <span className="text-sm">{Number(lot.pricePerSqm).toLocaleString('ru-RU')} ₽/м²</span>
+            </div>
+          )}
+        </div>
+
+        {lot.description && (
+          <div className="mt-4 text-sm text-text-muted">
+            <span className="block text-xs mb-1">Описание</span>
+            {lot.description}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function CatalogPage() {
   const [lots, setLots] = useState<any[]>([]);
@@ -24,6 +116,7 @@ export default function CatalogPage() {
   const [projects, setProjects] = useState<{ project: string; count: number }[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ created: number; updated: number; total: number } | null>(null);
+  const [selectedLot, setSelectedLot] = useState<any>(null);
 
   const fetchLots = () => {
     setLoading(true);
@@ -59,11 +152,6 @@ export default function CatalogPage() {
   };
 
   useEffect(() => { fetchLots(); }, [page, projectFilter, statusFilter, roomsFilter, propertyTypeFilter]);
-
-  const projectLabels: Record<string, string> = {
-    ZORGE9: 'Зорге 9',
-    SILVER_BOR: 'Серебряный бор',
-  };
 
   return (
     <div>
@@ -135,8 +223,17 @@ export default function CatalogPage() {
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {lots.map((lot: any) => (
-                <div key={lot.id} className="p-4 bg-surface-secondary rounded-lg">
-                  <div className="flex items-center justify-between mb-3">
+                <div
+                  key={lot.id}
+                  className="p-4 bg-surface-secondary rounded-lg cursor-pointer hover:ring-2 hover:ring-accent/50 transition"
+                  onClick={() => setSelectedLot(lot)}
+                >
+                  {lot.planImageUrl && (
+                    <div className="mb-3 bg-surface rounded-lg p-2">
+                      <img src={lot.planImageUrl} alt="Планировка" className="w-full rounded max-h-40 object-contain" />
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between mb-2">
                     <h3 className="font-medium text-sm">{lot.number}</h3>
                     <span className={`text-xs px-2 py-1 rounded ${statusLabels[lot.status]?.cls || 'bg-text-muted/20'}`}>
                       {statusLabels[lot.status]?.label || lot.status}
@@ -152,7 +249,7 @@ export default function CatalogPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-text-muted">Корпус:</span>
-                      <span>{lot.building}</span>
+                      <span className="text-right text-xs">{lot.building}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-text-muted">Этаж:</span>
@@ -166,28 +263,11 @@ export default function CatalogPage() {
                       <span className="text-text-muted">Площадь:</span>
                       <span>{Number(lot.sqm)} м²</span>
                     </div>
-                    {lot.windowView && (
-                      <div className="flex justify-between">
-                        <span className="text-text-muted">Вид:</span>
-                        <span className="text-right text-xs">{lot.windowView}</span>
-                      </div>
-                    )}
                     <div className="flex justify-between pt-2 border-t border-border">
                       <span className="text-text-muted">Цена:</span>
                       <span className="font-bold text-accent">{Number(lot.price).toLocaleString('ru-RU')} ₽</span>
                     </div>
-                    {Number(lot.pricePerSqm) > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-text-muted">За м²:</span>
-                        <span className="text-text-muted text-xs">{Number(lot.pricePerSqm).toLocaleString('ru-RU')} ₽</span>
-                      </div>
-                    )}
                   </div>
-                  {lot.planImageUrl && (
-                    <div className="mt-3">
-                      <img src={lot.planImageUrl} alt="Планировка" className="w-full rounded opacity-80 hover:opacity-100 transition" />
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -208,6 +288,8 @@ export default function CatalogPage() {
           </>
         )}
       </div>
+
+      {selectedLot && <LotDetail lot={selectedLot} onClose={() => setSelectedLot(null)} />}
     </div>
   );
 }
