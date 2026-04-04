@@ -5,11 +5,15 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 
 export default function LoginPage() {
-  const [phone, setPhone] = useState('');
+  const [phoneDigits, setPhoneDigits] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10));
+  };
 
   const handleLogin = async () => {
     setLoading(true);
@@ -18,7 +22,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, password }),
+        body: JSON.stringify({ phone: '+7' + phoneDigits, password }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -46,13 +50,17 @@ export default function LoginPage() {
         <div className="space-y-4">
           <div>
             <label className="label">Номер телефона</label>
-            <input
-              type="tel"
-              className="input"
-              placeholder="+79991234567"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
+            <div className="flex">
+              <span className="inline-flex items-center px-3 bg-surface-secondary border border-r-0 border-border rounded-l text-text-muted text-sm">+7</span>
+              <input
+                type="tel"
+                className="input rounded-l-none"
+                placeholder="9991234567"
+                value={phoneDigits}
+                onChange={handlePhoneChange}
+                maxLength={10}
+              />
+            </div>
           </div>
 
           <div>
@@ -70,7 +78,7 @@ export default function LoginPage() {
           <button
             className="btn btn-primary w-full"
             onClick={handleLogin}
-            disabled={loading || !phone || !password}
+            disabled={loading || phoneDigits.length !== 10 || !password}
           >
             {loading ? 'Вход...' : 'Войти'}
           </button>

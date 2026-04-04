@@ -4,14 +4,36 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 
+function PhoneInput({ value, onChange, style }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+    onChange(digits);
+  };
+  return (
+    <div style={{display:'flex',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,overflow:'hidden',...style}}>
+      <span style={{padding:'12px 12px 12px 16px',fontSize:14,color:'#8a8680',background:'rgba(0,0,0,0.03)',borderRight:'1px solid rgba(0,0,0,0.08)',userSelect:'none'}}>+7</span>
+      <input
+        type="tel"
+        placeholder="9991234567"
+        value={value}
+        onChange={handleChange}
+        maxLength={10}
+        style={{flex:1,padding:'12px 16px',border:'none',fontSize:14,outline:'none',width:'100%'}}
+      />
+    </div>
+  );
+}
+
 function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 'register'; onClose: () => void; onSwitch: () => void; onSuccess: () => void }) {
-  const [phone, setPhone] = useState('');
+  const [phoneDigits, setPhoneDigits] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
+
+  const fullPhone = '+7' + phoneDigits;
 
   const doLogin = async (p: string, pw: string) => {
     const res = await fetch('/api/auth/login', {
@@ -25,7 +47,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
 
   const handleLogin = async () => {
     setLoading(true); setError('');
-    try { await doLogin(phone, password); }
+    try { await doLogin(fullPhone, password); }
     catch (e: any) { setError(e.message || 'Ошибка соединения'); }
     setLoading(false);
   };
@@ -35,10 +57,10 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, fullName, email: email || undefined, password }),
+        body: JSON.stringify({ phone: fullPhone, fullName, email: email || undefined, password }),
       });
       const data = await res.json();
-      if (res.ok) { await doLogin(phone, password); }
+      if (res.ok) { await doLogin(fullPhone, password); }
       else setError(data.message || 'Ошибка регистрации');
     } catch (e: any) { setError(e.message || 'Ошибка соединения'); }
     setLoading(false);
@@ -59,8 +81,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
               <input placeholder="ФИО" value={fullName} onChange={e=>setFullName(e.target.value)}
                 style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
             )}
-            <input placeholder="+79991234567" type="tel" value={phone} onChange={e=>setPhone(e.target.value)}
-              style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            <PhoneInput value={phoneDigits} onChange={setPhoneDigits} />
             {mode === 'register' && (
               <input placeholder="Email (необязательно)" type="email" value={email} onChange={e=>setEmail(e.target.value)}
                 style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
@@ -69,7 +90,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
               onKeyDown={e=>e.key==='Enter' && (mode==='login' ? handleLogin() : handleRegister())}
               style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
             <button onClick={mode==='login' ? handleLogin : handleRegister}
-              disabled={loading || !phone || !password || (mode==='register' && !fullName)}
+              disabled={loading || phoneDigits.length !== 10 || !password || (mode==='register' && !fullName)}
               style={{padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
               {loading ? 'Подождите...' : mode==='login' ? 'ВОЙТИ' : 'ЗАРЕГИСТРИРОВАТЬСЯ'}
             </button>

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function RegisterPage() {
-  const [phone, setPhone] = useState('');
+  const [phoneDigits, setPhoneDigits] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,6 +14,10 @@ export default function RegisterPage() {
   const [success, setSuccess] = useState(false);
   const router = useRouter();
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10));
+  };
+
   const handleRegister = async () => {
     setLoading(true);
     setError('');
@@ -21,7 +25,7 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, fullName, email: email || undefined, password }),
+        body: JSON.stringify({ phone: '+7' + phoneDigits, fullName, email: email || undefined, password }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -66,13 +70,17 @@ export default function RegisterPage() {
 
             <div>
               <label className="label">Номер телефона</label>
-              <input
-                type="tel"
-                className="input"
-                placeholder="+79991234567"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
+              <div className="flex">
+                <span className="inline-flex items-center px-3 bg-surface-secondary border border-r-0 border-border rounded-l text-text-muted text-sm">+7</span>
+                <input
+                  type="tel"
+                  className="input rounded-l-none"
+                  placeholder="9991234567"
+                  value={phoneDigits}
+                  onChange={handlePhoneChange}
+                  maxLength={10}
+                />
+              </div>
             </div>
 
             <div>
@@ -100,7 +108,7 @@ export default function RegisterPage() {
             <button
               className="btn btn-primary w-full"
               onClick={handleRegister}
-              disabled={loading || !phone || !fullName || password.length < 6}
+              disabled={loading || phoneDigits.length !== 10 || !fullName || password.length < 6}
             >
               {loading ? 'Регистрация...' : 'Зарегистрироваться'}
             </button>
