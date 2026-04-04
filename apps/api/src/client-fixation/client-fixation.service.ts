@@ -411,7 +411,7 @@ export class ClientFixationService {
       // Normalize phone
       let phone = '';
       if (rawPhone) {
-        phone = rawPhone.replace(/[\s\-()]/g, '');
+        phone = rawPhone.replace(/[\s\-()'"]/g, '');
         if (phone.startsWith('8') && phone.length === 11) phone = '+7' + phone.slice(1);
         if (!phone.startsWith('+')) phone = '+' + phone;
       } else {
