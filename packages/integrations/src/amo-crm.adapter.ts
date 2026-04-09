@@ -1,6 +1,5 @@
 import { Project } from '@st-michael/shared';
 
-// Types for amoCRM
 export interface AmoContact {
   id: number;
   name: string;
@@ -27,9 +26,11 @@ export interface AmoLead {
   pipeline_id?: number;
   created_at?: number;
   updated_at?: number;
+  responsible_user_id?: number;
   custom_fields_values?: any[];
   contacts?: { id: number }[];
   companies?: { id: number }[];
+  _embedded?: any;
 }
 
 export interface CreateContactDto {
@@ -61,116 +62,189 @@ export interface UpdateLeadDto {
   custom_fields_values?: any[];
 }
 
-export interface IAmoCrmAdapter {
-  // Контакты
-  findContactByPhone(phone: string): Promise<AmoContact | null>;
-  createContact(data: CreateContactDto): Promise<AmoContact>;
+export class AmoCrmAdapter {
+  private baseUrl: string;
+  private token: string;
 
-  // Компании
-  findCompanyByInn(inn: string): Promise<AmoCompany | null>;
-  createCompany(data: CreateCompanyDto): Promise<AmoCompany>;
-  linkContactToCompany(contactId: number, companyId: number): Promise<void>;
+  constructor() {
+    const subdomain = process.env.AMO_SUBDOMAIN || 'stmichael';
+    const domain = process.env.AMO_BASE_DOMAIN || 'amocrm.ru';
+    this.baseUrl = `https://${subdomain}.${domain}/api/v4`;
+    this.token = process.env.AMO_ACCESS_TOKEN || '';
+  }
 
-  // Сделки (лиды)
-  createLead(data: CreateLeadDto): Promise<AmoLead>;
-  updateLead(id: number, data: UpdateLeadDto): Promise<void>;
-  reopenLead(id: number, newBrokerAmoId: number): Promise<AmoLead>;
-  getLeadsByBroker(brokerAmoId: number): Promise<AmoLead[]>;
-  getLeadStage(leadId: number): Promise<string>;
+  private async request<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+    if (!this.token) throw new Error('AMO_ACCESS_TOKEN not configured');
 
-  // Создание заявки на фиксацию
-  createFixationRequest(data: {
-    clientPhone: string;
-    clientName: string;
-    brokerPhone: string;
-    agencyName: string;
-    agencyInn: string;
-    comment: string;
-    project: Project;
-  }): Promise<AmoLead>;
-}
+    const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
+    const res = await fetch(url, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        'Content-Type': 'application/json',
+        ...(init.headers || {}),
+      },
+    });
 
-export class AmoCrmAdapter implements IAmoCrmAdapter {
-  // TODO: Implement actual amoCRM API integration
+    if (res.status === 204) return null as T;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`amoCRM ${res.status} ${path}: ${text.slice(0, 200)}`);
+    }
+    return res.json() as Promise<T>;
+  }
+
+  // === Account info ===
+  async getAccount(): Promise<any> {
+    return this.request('/account');
+  }
+
+  // === Contacts ===
   async findContactByPhone(phone: string): Promise<AmoContact | null> {
-    console.log('AmoCrmAdapter: findContactByPhone', phone);
-    // Stub implementation
-    return null;
+    const query = encodeURIComponent(phone);
+    try {
+      const data = await this.request<any>(`/contacts?query=${query}`);
+      const contacts = data?._embedded?.contacts || [];
+      return contacts[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async getContact(id: number): Promise<AmoContact | null> {
+    try { return await this.request<AmoContact>(`/contacts/${id}?with=leads`); }
+    catch { return null; }
   }
 
   async createContact(data: CreateContactDto): Promise<AmoContact> {
-    console.log('AmoCrmAdapter: createContact', data);
-    // Stub implementation
-    return {
-      id: Math.floor(Math.random() * 1000000),
-      name: data.name,
-      created_at: Date.now(),
-      updated_at: Date.now(),
-    };
+    const result = await this.request<any>('/contacts', {
+      method: 'POST',
+      body: JSON.stringify([data]),
+    });
+    return result?._embedded?.contacts?.[0];
   }
 
+  async updateContact(id: number, data: Partial<CreateContactDto>): Promise<void> {
+    await this.request(`/contacts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // === Companies ===
   async findCompanyByInn(inn: string): Promise<AmoCompany | null> {
-    console.log('AmoCrmAdapter: findCompanyByInn', inn);
-    // Stub implementation
-    return null;
+    try {
+      const data = await this.request<any>(`/companies?query=${encodeURIComponent(inn)}`);
+      const companies = data?._embedded?.companies || [];
+      return companies[0] || null;
+    } catch {
+      return null;
+    }
   }
 
   async createCompany(data: CreateCompanyDto): Promise<AmoCompany> {
-    console.log('AmoCrmAdapter: createCompany', data);
-    // Stub implementation
-    return {
-      id: Math.floor(Math.random() * 1000000),
-      name: data.name,
-      created_at: Date.now(),
-      updated_at: Date.now(),
-    };
+    const result = await this.request<any>('/companies', {
+      method: 'POST',
+      body: JSON.stringify([data]),
+    });
+    return result?._embedded?.companies?.[0];
   }
 
   async linkContactToCompany(contactId: number, companyId: number): Promise<void> {
-    console.log('AmoCrmAdapter: linkContactToCompany', { contactId, companyId });
-    // Stub implementation
+    await this.request(`/contacts/${contactId}/link`, {
+      method: 'POST',
+      body: JSON.stringify([{ to_entity_id: companyId, to_entity_type: 'companies' }]),
+    });
+  }
+
+  // === Leads (deals) ===
+  async getLead(id: number): Promise<AmoLead | null> {
+    try { return await this.request<AmoLead>(`/leads/${id}?with=contacts,companies`); }
+    catch { return null; }
   }
 
   async createLead(data: CreateLeadDto): Promise<AmoLead> {
-    console.log('AmoCrmAdapter: createLead', data);
-    // Stub implementation
-    return {
-      id: Math.floor(Math.random() * 1000000),
-      name: data.name,
-      price: data.price,
-      status_id: data.status_id,
-      created_at: Date.now(),
-      updated_at: Date.now(),
-    };
+    const result = await this.request<any>('/leads', {
+      method: 'POST',
+      body: JSON.stringify([data]),
+    });
+    return result?._embedded?.leads?.[0];
   }
 
   async updateLead(id: number, data: UpdateLeadDto): Promise<void> {
-    console.log('AmoCrmAdapter: updateLead', id, data);
-    // Stub implementation
+    await this.request(`/leads/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getLeadsByContact(contactId: number): Promise<AmoLead[]> {
+    try {
+      const contact = await this.request<any>(`/contacts/${contactId}?with=leads`);
+      const leadIds = (contact?._embedded?.leads || []).map((l: any) => l.id);
+      if (leadIds.length === 0) return [];
+      const leads: AmoLead[] = [];
+      // Fetch leads in batches
+      const ids = leadIds.join(',');
+      const data = await this.request<any>(`/leads?filter[id][]=${leadIds.join('&filter[id][]=')}`);
+      return data?._embedded?.leads || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async getLeadsByResponsibleUser(userId: number, limit = 250): Promise<AmoLead[]> {
+    try {
+      const data = await this.request<any>(`/leads?filter[responsible_user_id]=${userId}&limit=${limit}&with=contacts`);
+      return data?._embedded?.leads || [];
+    } catch {
+      return [];
+    }
   }
 
   async reopenLead(id: number, newBrokerAmoId: number): Promise<AmoLead> {
-    console.log('AmoCrmAdapter: reopenLead', { id, newBrokerAmoId });
-    // Stub implementation
-    return {
-      id,
-      name: 'Reopened Lead',
-      updated_at: Date.now(),
-    };
-  }
-
-  async getLeadsByBroker(brokerAmoId: number): Promise<AmoLead[]> {
-    console.log('AmoCrmAdapter: getLeadsByBroker', brokerAmoId);
-    // Stub implementation
-    return [];
+    await this.updateLead(id, { status_id: 142 } as any);
+    return (await this.getLead(id))!;
   }
 
   async getLeadStage(leadId: number): Promise<string> {
-    console.log('AmoCrmAdapter: getLeadStage', leadId);
-    // Stub implementation
-    return 'New Lead';
+    const lead = await this.getLead(leadId);
+    return lead?.status_id ? String(lead.status_id) : '';
   }
 
+  // === Pipelines ===
+  async getPipelines(): Promise<any[]> {
+    const data = await this.request<any>('/leads/pipelines');
+    return data?._embedded?.pipelines || [];
+  }
+
+  // === Custom fields ===
+  async getContactCustomFields(): Promise<any[]> {
+    const data = await this.request<any>('/contacts/custom_fields');
+    return data?._embedded?.custom_fields || [];
+  }
+
+  async getCompanyCustomFields(): Promise<any[]> {
+    const data = await this.request<any>('/companies/custom_fields');
+    return data?._embedded?.custom_fields || [];
+  }
+
+  // === Users ===
+  async getUsers(): Promise<any[]> {
+    const data = await this.request<any>('/users');
+    return data?._embedded?.users || [];
+  }
+
+  async findUserByPhone(phone: string): Promise<any | null> {
+    const users = await this.getUsers();
+    const cleanPhone = phone.replace(/\D/g, '');
+    return users.find((u: any) => {
+      const userPhone = String(u.phone || '').replace(/\D/g, '');
+      return userPhone && userPhone.endsWith(cleanPhone.slice(-10));
+    }) || null;
+  }
+
+  // === Fixation request (create lead with broker info) ===
   async createFixationRequest(data: {
     clientPhone: string;
     clientName: string;
@@ -180,13 +254,19 @@ export class AmoCrmAdapter implements IAmoCrmAdapter {
     comment: string;
     project: Project;
   }): Promise<AmoLead> {
-    console.log('AmoCrmAdapter: createFixationRequest', data);
-    // Stub implementation
-    return {
-      id: Math.floor(Math.random() * 1000000),
-      name: `Fixation: ${data.clientName}`,
-      created_at: Date.now(),
-      updated_at: Date.now(),
-    };
+    let contact = await this.findContactByPhone(data.clientPhone);
+    if (!contact) {
+      contact = await this.createContact({
+        name: data.clientName,
+        custom_fields_values: [
+          { field_code: 'PHONE', values: [{ value: data.clientPhone, enum_code: 'WORK' }] },
+        ],
+      });
+    }
+
+    return this.createLead({
+      name: `Фиксация: ${data.clientName} (${data.project})`,
+      contacts: contact ? [{ id: contact.id }] : undefined,
+    });
   }
 }

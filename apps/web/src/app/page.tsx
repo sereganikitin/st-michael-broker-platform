@@ -29,6 +29,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [inn, setInn] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
@@ -57,7 +58,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: fullPhone, fullName, email: email || undefined, password }),
+        body: JSON.stringify({ phone: fullPhone, fullName, email: email || undefined, password, inn: inn || undefined }),
       });
       const data = await res.json();
       if (res.ok) { await doLogin(fullPhone, password); }
@@ -84,6 +85,11 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
             <PhoneInput value={phoneDigits} onChange={setPhoneDigits} />
             {mode === 'register' && (
               <input placeholder="Email (необязательно)" type="email" value={email} onChange={e=>setEmail(e.target.value)}
+                style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            )}
+            {mode === 'register' && (
+              <input placeholder="ИНН агентства (10 или 12 цифр)" inputMode="numeric" value={inn}
+                onChange={e=>setInn(e.target.value.replace(/\D/g,'').slice(0,12))}
                 style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
             )}
             <input placeholder="Пароль" type="password" value={password} onChange={e=>setPassword(e.target.value)}

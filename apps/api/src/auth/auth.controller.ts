@@ -15,7 +15,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Register broker' })
   @ApiResponse({ status: 201, description: 'Broker registered, OTP sent' })
   async register(@Body() body: unknown) {
-    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string; email?: string; password: string };
+    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string; email?: string; password: string; inn?: string };
     return this.authService.register(data);
   }
 

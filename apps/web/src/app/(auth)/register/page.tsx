@@ -8,6 +8,7 @@ export default function RegisterPage() {
   const [phoneDigits, setPhoneDigits] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [inn, setInn] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -25,7 +26,7 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: '+7' + phoneDigits, fullName, email: email || undefined, password }),
+        body: JSON.stringify({ phone: '+7' + phoneDigits, fullName, email: email || undefined, password, inn: inn || undefined }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -91,6 +92,19 @@ export default function RegisterPage() {
                 placeholder="example@mail.ru"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="label">ИНН агентства</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                className="input"
+                placeholder="10 или 12 цифр"
+                value={inn}
+                onChange={(e) => setInn(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                maxLength={12}
               />
             </div>
 

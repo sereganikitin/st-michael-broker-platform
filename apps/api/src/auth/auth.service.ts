@@ -4,16 +4,19 @@ import { PrismaClient, UserStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as bcrypt from 'bcrypt';
+import { AmoCrmAdapter } from '@st-michael/integrations';
 
 @Injectable()
 export class AuthService {
+  private amo = new AmoCrmAdapter();
+
   constructor(
     @Inject('PrismaClient') private prisma: PrismaClient,
     private jwtService: JwtService,
     @InjectQueue('notifications') private notificationQueue: Queue,
   ) {}
 
-  async register(data: { phone: string; fullName: string; email?: string; password: string }) {
+  async register(data: { phone: string; fullName: string; email?: string; password: string; inn?: string }) {
     const existing = await this.prisma.broker.findUnique({
       where: { phone: data.phone },
     });
@@ -24,6 +27,47 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(data.password, 10);
 
+    // Check amoCRM for existing contact by phone
+    let amoContactId: bigint | undefined;
+    let amoLeadsCount = 0;
+    try {
+      const amoContact = await this.amo.findContactByPhone(data.phone);
+      if (amoContact) {
+        amoContactId = BigInt(amoContact.id);
+        const fullContact = await this.amo.getContact(amoContact.id);
+        amoLeadsCount = fullContact?._embedded?.leads?.length || 0;
+
+        // If INN provided, link to company in amoCRM
+        if (data.inn) {
+          let company = await this.amo.findCompanyByInn(data.inn);
+          if (!company) {
+            company = await this.amo.createCompany({
+              name: `Агентство ${data.inn}`,
+            });
+          }
+          try { await this.amo.linkContactToCompany(amoContact.id, company.id); } catch {}
+        }
+      } else if (data.inn) {
+        // Create new contact in amoCRM
+        const newContact = await this.amo.createContact({
+          name: data.fullName,
+          custom_fields_values: [
+            { field_code: 'PHONE' as any, values: [{ value: data.phone, enum_code: 'WORK' }] },
+          ],
+        });
+        if (newContact?.id) {
+          amoContactId = BigInt(newContact.id);
+          let company = await this.amo.findCompanyByInn(data.inn);
+          if (!company) {
+            company = await this.amo.createCompany({ name: `Агентство ${data.inn}` });
+          }
+          try { await this.amo.linkContactToCompany(newContact.id, company.id); } catch {}
+        }
+      }
+    } catch (e) {
+      console.error('amoCRM sync failed during register:', e);
+    }
+
     const broker = await this.prisma.broker.create({
       data: {
         phone: data.phone,
@@ -32,10 +76,29 @@ export class AuthService {
         passwordHash,
         status: UserStatus.ACTIVE,
         source: 'BROKER_CABINET',
+        ...(amoContactId && { amoContactId }),
       },
     });
 
-    return { message: 'Registration successful', brokerId: broker.id };
+    // Create or link agency by INN
+    if (data.inn) {
+      let agency = await this.prisma.agency.findUnique({ where: { inn: data.inn } });
+      if (!agency) {
+        agency = await this.prisma.agency.create({
+          data: { name: `Агентство ${data.inn}`, inn: data.inn },
+        });
+      }
+      await this.prisma.brokerAgency.create({
+        data: { brokerId: broker.id, agencyId: agency.id, isPrimary: true },
+      });
+    }
+
+    return {
+      message: 'Registration successful',
+      brokerId: broker.id,
+      amoLinked: !!amoContactId,
+      amoLeadsCount,
+    };
   }
 
   async sendOtp(phone: string) {

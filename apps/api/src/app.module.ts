@@ -17,6 +17,7 @@ import { DatabaseModule } from './database/database.module';
 import { AuditModule } from './audit/audit.module';
 import { HealthController } from './health.controller';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { AmocrmModule } from './amocrm/amocrm.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
     AnalyticsModule,
     WebhooksModule,
     SchedulerModule,
+    AmocrmModule,
   ],
   controllers: [HealthController],
 })

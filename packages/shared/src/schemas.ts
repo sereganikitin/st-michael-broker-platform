@@ -14,6 +14,7 @@ export const registerDtoSchema = z.object({
   fullName: z.string().min(2, 'Full name too short'),
   email: z.string().email('Invalid email').optional(),
   password: z.string().min(6, 'Password must be at least 6 characters'),
+  inn: z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits').optional(),
 });
 
 export const sendOtpDtoSchema = z.object({
