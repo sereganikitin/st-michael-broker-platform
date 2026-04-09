@@ -4,7 +4,7 @@ import { PrismaClient, UserStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as bcrypt from 'bcrypt';
-import { AmoCrmAdapter } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS } from '@st-michael/integrations';
 
 @Injectable()
 export class AuthService {
@@ -31,38 +31,38 @@ export class AuthService {
     let amoContactId: bigint | undefined;
     let amoLeadsCount = 0;
     try {
+      const brokerFields: any[] = [
+        { field_id: AMO_CONTACT_FIELDS.PHONE, values: [{ value: data.phone, enum_code: 'WORK' }] },
+        { field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] },
+      ];
+      if (data.email) {
+        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.EMAIL, values: [{ value: data.email, enum_code: 'WORK' }] });
+      }
+      if (data.inn) {
+        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.INN, values: [{ value: data.inn }] });
+        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: `Агентство ${data.inn}` }] });
+      }
+
       const amoContact = await this.amo.findContactByPhone(data.phone);
       if (amoContact) {
         amoContactId = BigInt(amoContact.id);
+        // Update contact: set broker flag, INN, agency
+        try {
+          await this.amo.updateContact(amoContact.id, {
+            custom_fields_values: brokerFields,
+          } as any);
+        } catch (e) {
+          console.error('amoCRM updateContact failed:', e);
+        }
         const fullContact = await this.amo.getContact(amoContact.id);
         amoLeadsCount = fullContact?._embedded?.leads?.length || 0;
-
-        // If INN provided, link to company in amoCRM
-        if (data.inn) {
-          let company = await this.amo.findCompanyByInn(data.inn);
-          if (!company) {
-            company = await this.amo.createCompany({
-              name: `Агентство ${data.inn}`,
-            });
-          }
-          try { await this.amo.linkContactToCompany(amoContact.id, company.id); } catch {}
-        }
-      } else if (data.inn) {
-        // Create new contact in amoCRM
+      } else {
+        // Create new contact as broker
         const newContact = await this.amo.createContact({
           name: data.fullName,
-          custom_fields_values: [
-            { field_code: 'PHONE' as any, values: [{ value: data.phone, enum_code: 'WORK' }] },
-          ],
+          custom_fields_values: brokerFields,
         });
-        if (newContact?.id) {
-          amoContactId = BigInt(newContact.id);
-          let company = await this.amo.findCompanyByInn(data.inn);
-          if (!company) {
-            company = await this.amo.createCompany({ name: `Агентство ${data.inn}` });
-          }
-          try { await this.amo.linkContactToCompany(newContact.id, company.id); } catch {}
-        }
+        if (newContact?.id) amoContactId = BigInt(newContact.id);
       }
     } catch (e) {
       console.error('amoCRM sync failed during register:', e);
@@ -98,6 +98,7 @@ export class AuthService {
       brokerId: broker.id,
       amoLinked: !!amoContactId,
       amoLeadsCount,
+      autoSyncTip: amoContactId ? 'Use POST /api/amocrm/sync-my-deals to pull deals/clients' : undefined,
     };
   }
 

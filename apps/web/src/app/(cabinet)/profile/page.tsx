@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
-import { apiPatch } from '@/lib/api';
-import { User, Building, Phone, Mail, Shield, Pencil, Check, X } from 'lucide-react';
+import { apiPatch, apiPost } from '@/lib/api';
+import { User, Building, Phone, Mail, Shield, Pencil, Check, X, RefreshCw } from 'lucide-react';
 
 const levelNames: Record<string, string> = {
   START: 'Старт', BASIC: 'Базовый', STRONG: 'Продвинутый',
@@ -24,6 +24,20 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string>('');
+
+  const handleAmoSync = async () => {
+    setSyncing(true);
+    setSyncResult('');
+    try {
+      const data: any = await apiPost('/amocrm/sync-my-deals', {});
+      setSyncResult(`Синхронизация: добавлено сделок ${data.dealsCreated}, обновлено ${data.dealsUpdated}, новых клиентов ${data.clientsCreated}`);
+    } catch (e: any) {
+      setSyncResult(e.message || 'Ошибка синхронизации');
+    }
+    setSyncing(false);
+  };
 
   if (!broker) return null;
 
@@ -84,11 +98,21 @@ export default function ProfilePage() {
               </div>
             </div>
             {!editing && (
-              <button className="btn btn-secondary flex items-center gap-2" onClick={startEdit}>
-                <Pencil className="w-4 h-4" /> Редактировать
-              </button>
+              <div className="flex gap-2">
+                <button className="btn btn-secondary flex items-center gap-2" onClick={handleAmoSync} disabled={syncing}>
+                  <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                  {syncing ? 'Синхронизация...' : 'Синхр. amoCRM'}
+                </button>
+                <button className="btn btn-secondary flex items-center gap-2" onClick={startEdit}>
+                  <Pencil className="w-4 h-4" /> Редактировать
+                </button>
+              </div>
             )}
           </div>
+
+          {syncResult && (
+            <div className="mb-4 p-3 bg-info/20 text-info rounded-lg text-sm">{syncResult}</div>
+          )}
 
           {error && <div className="mb-4 p-3 bg-error/20 text-error rounded-lg text-sm">{error}</div>}
           {success && <div className="mb-4 p-3 bg-success/20 text-success rounded-lg text-sm">{success}</div>}

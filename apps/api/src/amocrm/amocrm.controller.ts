@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser, CurrentUserPayload } from '../auth/current-user.decorator';
 import { AmocrmService } from './amocrm.service';
 
 @ApiTags('amocrm')
@@ -9,6 +10,12 @@ import { AmocrmService } from './amocrm.service';
 @ApiBearerAuth()
 export class AmocrmController {
   constructor(private readonly amocrmService: AmocrmService) {}
+
+  @Post('sync-my-deals')
+  @ApiOperation({ summary: 'Pull all deals/clients from amoCRM linked to current broker' })
+  async syncMyDeals(@CurrentUser() user: CurrentUserPayload) {
+    return this.amocrmService.syncMyDealsAndClients(user.id);
+  }
 
   @Get('account')
   @ApiOperation({ summary: 'Get amoCRM account info (test connection)' })
