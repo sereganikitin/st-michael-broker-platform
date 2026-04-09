@@ -8,6 +8,7 @@ export interface AmoContact {
   custom_fields_values?: any[];
   created_at?: number;
   updated_at?: number;
+  _embedded?: any;
 }
 
 export interface AmoCompany {
