@@ -372,35 +372,67 @@ export class ClientFixationService {
       return 'ZORGE9';
     };
 
+    const parseExcelDate = (raw: string): Date | undefined => {
+      if (!raw) return undefined;
+      const num = Number(raw);
+      if (!isNaN(num) && num > 10000) return new Date((num - 25569) * 86400 * 1000);
+      const parsed = new Date(raw);
+      return isNaN(parsed.getTime()) ? undefined : parsed;
+    };
+
+    const mapDealStatus = (stage: string, dealFlag: string): any => {
+      const s = (stage || '').toLowerCase();
+      if (String(dealFlag) === '1' || s.includes('оплач')) return 'PAID';
+      if (s.includes('подпис') || s.includes('договор')) return 'SIGNED';
+      return 'PENDING';
+    };
+
+    const mapMeetingType = (val: string): any => {
+      const v = (val || '').toLowerCase();
+      if (v.includes('онлайн') || v.includes('online') || v.includes('zoom')) return 'ONLINE';
+      if (v.includes('тур') || v.includes('брокер')) return 'BROKER_TOUR';
+      return 'OFFICE_VISIT';
+    };
+
     let imported = 0;
+    let dealsCreated = 0;
+    let meetingsCreated = 0;
     let skipped = 0;
+    let excluded = 0;
     const errors: string[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
 
-      // ФИО из "Основной контакт"
       const fullName = findCol(row, ['основной контакт', 'контакт', 'фио', 'имя', 'name']);
 
-      // Телефон из "Рабочий телефон (контакт)"
       let rawPhone = findCol(row, ['рабочий телефон', 'телефон (контакт)', 'телефон', 'phone', 'тел']);
       if (!rawPhone) {
-        // Try to extract from all values
         for (const val of Object.values(row)) {
           const found = extractPhone(String(val || ''));
           if (found) { rawPhone = found; break; }
         }
       }
 
-      // Проект из "Объект интереса"
       const projectRaw = findCol(row, ['объект интереса', 'объект', 'проект', 'project']);
-
-      // Дата из "Дата создания"
-      const dateRaw = findCol(row, ['дата создания', 'дата', 'date', 'created']);
+      const dateRaw = findCol(row, ['дата создания', 'дата создан', 'created']);
 
       const email = findCol(row, ['email', 'почта', 'mail']);
-      const comment = findCol(row, ['комментарий', 'comment', 'примечание', 'этап']);
-      const budget = findCol(row, ['бюджет', 'budget', 'сумма']);
+      const comment = findCol(row, ['комментарий', 'comment', 'примечание']);
+      const budget = findCol(row, ['бюджет в руб', 'бюджет', 'budget', 'сумма']);
+      const dealStage = findCol(row, ['этап сделки', 'этап']);
+      const dealReadiness = findCol(row, ['готовность к сделке', 'готовность']);
+      const dealCurrentStatus = findCol(row, ['текущий статус работы', 'текущий статус']);
+      const dealFlag = findCol(row, ['сделка']);
+      const meetingTypeRaw = findCol(row, ['встреча']);
+      const meetingTargeted = findCol(row, ['целевая встреча']);
+      const meetingDateRaw = findCol(row, ['дата и время встречи']);
+
+      // Skip rows where deal stage is "Закрыто и не реализовано"
+      if (dealStage && dealStage.toLowerCase().includes('не реализ')) {
+        excluded++;
+        continue;
+      }
 
       if (!fullName) {
         errors.push(`Строка ${i + 2}: не заполнено ФИО (Основной контакт)`);
@@ -433,34 +465,86 @@ export class ClientFixationService {
         }
       }
 
-      const commentParts = [comment, budget ? `Бюджет: ${budget}` : ''].filter(Boolean);
+      const commentParts = [
+        comment,
+        dealStage ? `Этап: ${dealStage}` : '',
+        dealReadiness ? `Готовность: ${dealReadiness}` : '',
+        dealCurrentStatus ? `Статус: ${dealCurrentStatus}` : '',
+      ].filter(Boolean);
       const finalComment = commentParts.join('. ') || null;
 
       try {
-        const existing = await this.prisma.client.findFirst({ where: { phone, brokerId } });
-        if (existing) { skipped++; continue; }
+        let client = await this.prisma.client.findFirst({ where: { phone, brokerId } });
 
-        await this.prisma.client.create({
-          data: {
-            brokerId,
-            fullName,
-            phone,
-            email: email || null,
-            comment: finalComment,
-            project: project as any,
-            uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
-            uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            ...(createdAt && { createdAt }),
-          },
-        });
-        imported++;
-      } catch {
+        if (!client) {
+          client = await this.prisma.client.create({
+            data: {
+              brokerId,
+              fullName,
+              phone,
+              email: email || null,
+              comment: finalComment,
+              project: project as any,
+              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+              uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              ...(createdAt && { createdAt }),
+            },
+          });
+          imported++;
+        } else {
+          skipped++;
+        }
+
+        // Create Deal if budget present
+        const budgetNum = Number(String(budget).replace(/[^\d.]/g, '')) || 0;
+        if (budgetNum > 0 || dealStage) {
+          const existingDeal = await this.prisma.deal.findFirst({
+            where: { clientId: client.id, brokerId },
+          });
+          if (!existingDeal) {
+            await this.prisma.deal.create({
+              data: {
+                clientId: client.id,
+                brokerId,
+                project: project as any,
+                amount: budgetNum,
+                sqm: 0,
+                commissionRate: 0,
+                commissionAmount: 0,
+                status: mapDealStatus(dealStage, dealFlag) as any,
+                ...(createdAt && { createdAt }),
+              },
+            });
+            dealsCreated++;
+          }
+        }
+
+        // Create Meeting if meeting type or date present
+        if (meetingTypeRaw || meetingDateRaw) {
+          const meetingDate = parseExcelDate(meetingDateRaw) || createdAt || new Date();
+          const existingMeeting = await this.prisma.meeting.findFirst({
+            where: { clientId: client.id, brokerId, date: meetingDate },
+          });
+          if (!existingMeeting) {
+            await this.prisma.meeting.create({
+              data: {
+                clientId: client.id,
+                brokerId,
+                type: mapMeetingType(meetingTypeRaw) as any,
+                date: meetingDate,
+                comment: meetingTargeted ? `Целевая: ${meetingTargeted}` : null,
+              },
+            });
+            meetingsCreated++;
+          }
+        }
+      } catch (e: any) {
         errors.push(`Строка ${i + 2}: ошибка при сохранении (${fullName})`);
         skipped++;
       }
     }
 
-    return { imported, skipped, sheet: sheetName, errors: errors.slice(0, 20) };
+    return { imported, dealsCreated, meetingsCreated, excluded, skipped, sheet: sheetName, errors: errors.slice(0, 20) };
   }
 
   private async logAudit(userId: string, action: string, entity: string, entityId: string, payload: any) {
