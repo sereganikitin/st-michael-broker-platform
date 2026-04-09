@@ -134,25 +134,33 @@ export default function ClientsPage() {
     if (!file) return;
     setImporting(true);
     setImportResult(null);
-    try {
-      const token = localStorage.getItem('accessToken');
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/clients/import', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
+
+    const token = localStorage.getItem('accessToken');
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Fire-and-forget: запускаем импорт, но не ждём ответа (файл большой)
+    fetch('/api/clients/import', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    })
+      .then((res) => res.json().catch(() => null))
+      .then((data) => {
+        if (data && typeof data.imported === 'number') {
+          setImportResult(data);
+          fetchClients();
+        }
+      })
+      .catch(() => {
+        // Тихо игнорируем — импорт продолжается на сервере
       });
-      const data = await res.json();
-      if (res.ok) {
-        setImportResult(data);
-        fetchClients();
-      } else {
-        setImportResult({ imported: 0, skipped: 0, errors: [data.message || 'Ошибка импорта'] });
-      }
-    } catch {
-      setImportResult({ imported: 0, skipped: 0, errors: ['Ошибка соединения с сервером'] });
-    }
+
+    setImportResult({
+      imported: 0,
+      skipped: 0,
+      errors: ['Импорт запущен. Файл большой — обработка может занять несколько минут. Обновите страницу через пару минут.'],
+    });
     setImporting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -201,10 +209,12 @@ export default function ClientsPage() {
       </div>
 
       {importResult && (
-        <div className={`mb-4 p-4 rounded-lg text-sm ${importResult.errors.length && !importResult.imported ? 'bg-error/20 text-error' : 'bg-success/20 text-success'}`}>
-          <p className="font-medium">Импорт завершён: добавлено {importResult.imported}, пропущено {importResult.skipped}</p>
+        <div className="mb-4 p-4 rounded-lg text-sm bg-info/20 text-info">
+          {importResult.imported > 0 && (
+            <p className="font-medium">Импорт завершён: добавлено {importResult.imported}, пропущено {importResult.skipped}</p>
+          )}
           {importResult.errors.length > 0 && (
-            <ul className="mt-2 space-y-1 text-xs">
+            <ul className="space-y-1 text-xs">
               {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
             </ul>
           )}
