@@ -138,6 +138,12 @@ export class AuthService {
       expiresIn: process.env.JWT_REFRESH_TTL || '7d',
     });
 
+    // Trigger background amoCRM sync on login (fire-and-forget)
+    if (process.env.AMO_ACCESS_TOKEN) {
+      this.syncBrokerFromAmo(broker.id, broker.phone, broker.amoContactId ? Number(broker.amoContactId) : null)
+        .catch((e) => console.error('Background amo sync on login failed:', e));
+    }
+
     return {
       accessToken,
       refreshToken,
@@ -151,6 +157,83 @@ export class AuthService {
         agency: broker.brokerAgencies[0]?.agency ?? null,
       },
     };
+  }
+
+  private async syncBrokerFromAmo(brokerId: string, phone: string, currentAmoContactId: number | null) {
+    const { AMO_CONTACT_FIELDS: fields, pipelineToProject, statusToDealStatus, isDealStage } = require('@st-michael/integrations');
+
+    // Find correct broker contact
+    const brokerContact = await this.amo.findBrokerContactByPhone(phone);
+    if (!brokerContact) return;
+
+    const contactId = brokerContact.id;
+    if (!currentAmoContactId || currentAmoContactId !== contactId) {
+      await this.prisma.broker.update({
+        where: { id: brokerId },
+        data: { amoContactId: BigInt(contactId) },
+      });
+    }
+
+    const fullContact = await this.amo.getContact(contactId);
+    const leads = fullContact?._embedded?.leads || [];
+
+    for (const leadRef of leads) {
+      try {
+        const lead: any = await this.amo.getLead(leadRef.id);
+        if (!lead || lead.status_id === 143) continue;
+        if (!isDealStage(lead.status_id)) continue;
+
+        const project = pipelineToProject(lead.pipeline_id);
+        const status = statusToDealStatus(lead.status_id);
+
+        const leadContacts = lead?._embedded?.contacts || [];
+        const clientRef = leadContacts.find((c: any) => c.id !== contactId) || leadContacts[0];
+
+        let fullName = lead.name || 'Без имени';
+        let clientPhone = `+70000${leadRef.id}`;
+        let email: string | null = null;
+
+        if (clientRef) {
+          const cc: any = await this.amo.getContact(clientRef.id);
+          if (cc) {
+            fullName = cc.name || fullName;
+            const pf = (cc.custom_fields_values || []).find((f: any) => f.field_code === 'PHONE');
+            let p = String(pf?.values?.[0]?.value || '').replace(/[\s\-()'"]/g, '');
+            if (p.startsWith('8') && p.length === 11) p = '+7' + p.slice(1);
+            if (p && !p.startsWith('+')) p = '+' + p;
+            if (p) clientPhone = p;
+            const ef = (cc.custom_fields_values || []).find((f: any) => f.field_code === 'EMAIL');
+            email = ef?.values?.[0]?.value || null;
+          }
+        }
+
+        let client = await this.prisma.client.findFirst({ where: { phone: clientPhone, brokerId } });
+        if (!client) {
+          client = await this.prisma.client.create({
+            data: {
+              brokerId, fullName, phone: clientPhone, email,
+              project: project as any,
+              amoLeadId: BigInt(lead.id),
+              uniquenessStatus: 'CONDITIONALLY_UNIQUE' as any,
+              uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            },
+          });
+        }
+
+        const existingDeal = await this.prisma.deal.findFirst({ where: { amoDealId: BigInt(lead.id) } });
+        const dealData = {
+          clientId: client.id, brokerId, project: project as any,
+          amount: Number(lead.price || 0), sqm: 0,
+          commissionRate: 0, commissionAmount: 0,
+          status: status as any, amoDealId: BigInt(lead.id),
+        };
+        if (existingDeal) {
+          await this.prisma.deal.update({ where: { id: existingDeal.id }, data: dealData });
+        } else {
+          await this.prisma.deal.create({ data: dealData });
+        }
+      } catch {}
+    }
   }
 
   async refreshToken(refreshToken: string) {
