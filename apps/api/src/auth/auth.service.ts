@@ -43,7 +43,7 @@ export class AuthService {
         brokerFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: `Агентство ${data.inn}` }] });
       }
 
-      const amoContact = await this.amo.findContactByPhone(data.phone);
+      const amoContact = await this.amo.findBrokerContactByPhone(data.phone);
       if (amoContact) {
         amoContactId = BigInt(amoContact.id);
         // Update contact: set broker flag, INN, agency

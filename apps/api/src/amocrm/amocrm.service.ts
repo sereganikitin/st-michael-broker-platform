@@ -118,7 +118,17 @@ export class AmocrmService {
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
     if (!broker) throw new NotFoundException('Broker not found');
 
-    const amoContactId = broker.amoContactId ? Number(broker.amoContactId) : null;
+    // Find correct broker contact in amoCRM (with Брокер=true flag)
+    let amoContactId = broker.amoContactId ? Number(broker.amoContactId) : null;
+    const brokerContact = await this.amo.findBrokerContactByPhone(broker.phone);
+    if (brokerContact && (!amoContactId || brokerContact.id !== amoContactId)) {
+      // Re-link to correct broker contact
+      amoContactId = brokerContact.id;
+      await this.prisma.broker.update({
+        where: { id: brokerId },
+        data: { amoContactId: BigInt(brokerContact.id) },
+      });
+    }
 
     // Strategy 1: Get leads linked to broker's contact
     let allLeadIds: number[] = [];
@@ -137,7 +147,6 @@ export class AmocrmService {
         const uPhone = String(u.phone || '').replace(/\D/g, '');
         return uPhone && uPhone.endsWith(cleanPhone);
       });
-      // Also try matching by name
       const userByName = !userByPhone ? users.find((u: any) =>
         u.name && broker.fullName && u.name.toLowerCase().includes(broker.fullName.split(' ')[0]?.toLowerCase()),
       ) : null;

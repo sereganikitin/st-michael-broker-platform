@@ -104,9 +104,26 @@ export class AmoCrmAdapter {
   async findContactByPhone(phone: string): Promise<AmoContact | null> {
     const query = encodeURIComponent(phone);
     try {
-      const data = await this.request<any>(`/contacts?query=${query}`);
+      const data = await this.request<any>(`/contacts?query=${query}&limit=50`);
       const contacts = data?._embedded?.contacts || [];
       return contacts[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async findBrokerContactByPhone(phone: string): Promise<AmoContact | null> {
+    const query = encodeURIComponent(phone);
+    try {
+      const data = await this.request<any>(`/contacts?query=${query}&limit=50`);
+      const contacts: any[] = data?._embedded?.contacts || [];
+      // Prefer contact with "Брокер" checkbox = true (field_id 835415)
+      const brokerContact = contacts.find((c: any) => {
+        const fields = c.custom_fields_values || [];
+        const brokerField = fields.find((f: any) => f.field_id === 835415);
+        return brokerField?.values?.[0]?.value === true;
+      });
+      return brokerContact || contacts[0] || null;
     } catch {
       return null;
     }
