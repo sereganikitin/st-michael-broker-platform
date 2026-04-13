@@ -54,6 +54,32 @@ export class DocumentsService {
     };
   }
 
+  async getExternalDocuments() {
+    const BROKER_PAGE = process.env.BROKER_DOCS_URL || 'https://old.zorge9.com/broker/index.html';
+    const BASE = BROKER_PAGE.replace(/\/[^/]*$/, '/');
+
+    const res = await fetch(BROKER_PAGE);
+    if (!res.ok) throw new NotFoundException('External page not available');
+    const html = await res.text();
+
+    const docs: { name: string; url: string; type: string }[] = [];
+    const linkRegex = /<a[^>]+href=["']([^"']*files\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let match;
+    while ((match = linkRegex.exec(html)) !== null) {
+      const href = match[1];
+      const rawText = match[2].replace(/<[^>]+>/g, '').trim();
+      if (!rawText || !href) continue;
+
+      const url = href.startsWith('http') ? href : 'https://old.zorge9.com/' + href.replace(/^\.?\/?/, '');
+      const ext = (href.split('.').pop() || '').toLowerCase();
+      const type = ext === 'pdf' ? 'PDF' : ext === 'docx' ? 'DOCX' : ext === 'xlsx' ? 'XLSX' : ext.toUpperCase();
+
+      docs.push({ name: rawText, url, type });
+    }
+
+    return { documents: docs, source: BROKER_PAGE, fetchedAt: new Date().toISOString() };
+  }
+
   async getDownloadUrl(id: string) {
     const document = await this.prisma.document.findUnique({ where: { id } });
     if (!document) throw new NotFoundException('Document not found');

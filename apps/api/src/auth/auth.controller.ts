@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -15,7 +15,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Register broker' })
   @ApiResponse({ status: 201, description: 'Broker registered, OTP sent' })
   async register(@Body() body: unknown) {
-    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string };
+    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string; email?: string; password: string; inn?: string };
     return this.authService.register(data);
   }
 
@@ -30,10 +30,10 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify OTP and login' })
+  @ApiOperation({ summary: 'Login with phone and password' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   async login(@Body() body: unknown) {
-    const data = loginDtoSchema.parse(body) as { phone: string; otp: string };
+    const data = loginDtoSchema.parse(body) as { phone: string; password: string };
     return this.authService.login(data);
   }
 
@@ -52,5 +52,19 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Current user data' })
   async getProfile(@CurrentUser() user: CurrentUserPayload) {
     return this.authService.getProfile(user.id);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update current user profile' })
+  @ApiResponse({ status: 200, description: 'Profile updated' })
+  async updateProfile(@CurrentUser() user: CurrentUserPayload, @Body() body: any) {
+    return this.authService.updateProfile(user.id, {
+      fullName: body.fullName,
+      email: body.email,
+      phone: body.phone,
+    });
   }
 }

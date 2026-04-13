@@ -12,6 +12,9 @@ export const uuidSchema = z.string().uuid();
 export const registerDtoSchema = z.object({
   phone: phoneSchema,
   fullName: z.string().min(2, 'Full name too short'),
+  email: z.string().email('Invalid email').optional(),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  inn: z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits').optional(),
 });
 
 export const sendOtpDtoSchema = z.object({
@@ -20,7 +23,7 @@ export const sendOtpDtoSchema = z.object({
 
 export const loginDtoSchema = z.object({
   phone: phoneSchema,
-  otp: z.string().length(4, 'OTP must be 4 digits'),
+  password: z.string().min(1, 'Password required'),
 });
 
 export const refreshTokenDtoSchema = z.object({

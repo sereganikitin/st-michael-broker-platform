@@ -51,6 +51,12 @@ services:
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
       API_PORT: 4000
       WEB_URL: ${WEB_URL:-http://localhost}
+      PROFITBASE_API_KEY: ${PROFITBASE_API_KEY:-}
+      PROFITBASE_BASE_URL: ${PROFITBASE_BASE_URL:-}
+      PROFITBASE_FEED_URL: ${PROFITBASE_FEED_URL:-https://pb7828.profitbase.ru/export/profitbase_xml/2b76e70bcddca7c519166c8a9993b20b?scheme=https}
+      AMO_SUBDOMAIN: ${AMO_SUBDOMAIN:-stmichael}
+      AMO_BASE_DOMAIN: ${AMO_BASE_DOMAIN:-amocrm.ru}
+      AMO_ACCESS_TOKEN: ${AMO_ACCESS_TOKEN:-}
     ports:
       - "4000:4000"
     depends_on:

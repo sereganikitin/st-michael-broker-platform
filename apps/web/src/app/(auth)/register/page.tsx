@@ -5,12 +5,19 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function RegisterPage() {
-  const [phone, setPhone] = useState('');
+  const [phoneDigits, setPhoneDigits] = useState('');
   const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [inn, setInn] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const router = useRouter();
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10));
+  };
 
   const handleRegister = async () => {
     setLoading(true);
@@ -19,7 +26,7 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, fullName }),
+        body: JSON.stringify({ phone: '+7' + phoneDigits, fullName, email: email || undefined, password, inn: inn || undefined }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -64,19 +71,58 @@ export default function RegisterPage() {
 
             <div>
               <label className="label">Номер телефона</label>
+              <div className="flex">
+                <span className="inline-flex items-center px-3 bg-surface-secondary border border-r-0 border-border rounded-l text-text-muted text-sm">+7</span>
+                <input
+                  type="tel"
+                  className="input rounded-l-none"
+                  placeholder="9991234567"
+                  value={phoneDigits}
+                  onChange={handlePhoneChange}
+                  maxLength={10}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Email (необязательно)</label>
               <input
-                type="tel"
+                type="email"
                 className="input"
-                placeholder="+79991234567"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                placeholder="example@mail.ru"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="label">ИНН агентства</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                className="input"
+                placeholder="10 или 12 цифр"
+                value={inn}
+                onChange={(e) => setInn(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                maxLength={12}
+              />
+            </div>
+
+            <div>
+              <label className="label">Пароль</label>
+              <input
+                type="password"
+                className="input"
+                placeholder="Минимум 6 символов"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
             </div>
 
             <button
               className="btn btn-primary w-full"
               onClick={handleRegister}
-              disabled={loading || !phone || !fullName}
+              disabled={loading || phoneDigits.length !== 10 || !fullName || password.length < 6}
             >
               {loading ? 'Регистрация...' : 'Зарегистрироваться'}
             </button>

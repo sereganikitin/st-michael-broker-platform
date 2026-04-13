@@ -1,5 +1,6 @@
-import { Controller, Post, Get, Patch, Body, Param, UseGuards, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Post, Get, Patch, Body, Param, UseGuards, Query, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -19,6 +20,19 @@ import { UserRole, UniquenessStatus, Project } from '@st-michael/shared';
 @ApiBearerAuth()
 export class ClientFixationController {
   constructor(private readonly clientFixationService: ClientFixationService) {}
+
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Import clients from Excel file' })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({ status: 201, description: 'Import result' })
+  async importClients(
+    @CurrentUser() user: CurrentUserPayload,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Файл не загружен');
+    return this.clientFixationService.importClients(user.id, file.buffer);
+  }
 
   @Post('fix')
   @ApiOperation({ summary: 'Fix client uniqueness' })
