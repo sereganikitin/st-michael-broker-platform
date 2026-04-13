@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight, Upload, X } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   CONDITIONALLY_UNIQUE: { label: 'Уникален', cls: 'bg-success/20 text-success' },
@@ -25,7 +25,7 @@ const projectLabels: Record<string, string> = {
 
 function ClientDetail({ client, onClose }: { client: any; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div
         className="bg-surface rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 relative"
         onClick={(e) => e.stopPropagation()}
@@ -61,18 +61,6 @@ function ClientDetail({ client, onClose }: { client: any; onClose: () => void })
             <span className="text-text-muted block text-xs">Статус</span>
             <span className="font-medium">{client.status}</span>
           </div>
-          {client.uniquenessExpiresAt && (
-            <div className="bg-surface-secondary rounded-lg p-3">
-              <span className="text-text-muted block text-xs">Уникальность до</span>
-              <span className="font-medium">{new Date(client.uniquenessExpiresAt).toLocaleDateString('ru-RU')}</span>
-            </div>
-          )}
-          {client.fixationExpiresAt && (
-            <div className="bg-surface-secondary rounded-lg p-3">
-              <span className="text-text-muted block text-xs">Фиксация до</span>
-              <span className="font-medium">{new Date(client.fixationExpiresAt).toLocaleDateString('ru-RU')}</span>
-            </div>
-          )}
           <div className="bg-surface-secondary rounded-lg p-3">
             <span className="text-text-muted block text-xs">Дата создания</span>
             <span className="font-medium">{new Date(client.createdAt).toLocaleDateString('ru-RU')}</span>
@@ -87,13 +75,6 @@ function ClientDetail({ client, onClose }: { client: any; onClose: () => void })
           <div className="bg-surface-secondary rounded-lg p-3 mb-4">
             <span className="text-text-muted block text-xs mb-1">Комментарий</span>
             <span className="text-sm whitespace-pre-wrap">{client.comment}</span>
-          </div>
-        )}
-
-        {client.uniquenessReason && (
-          <div className="bg-surface-secondary rounded-lg p-3 mb-4">
-            <span className="text-text-muted block text-xs mb-1">Причина уникальности</span>
-            <span className="text-sm">{client.uniquenessReason}</span>
           </div>
         )}
 
@@ -124,46 +105,7 @@ export default function ClientsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
   const [loading, setLoading] = useState(true);
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
   const [selectedClient, setSelectedClient] = useState<any>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImporting(true);
-    setImportResult(null);
-
-    const token = localStorage.getItem('accessToken');
-    const formData = new FormData();
-    formData.append('file', file);
-
-    // Fire-and-forget: запускаем импорт, но не ждём ответа (файл большой)
-    fetch('/api/clients/import', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    })
-      .then((res) => res.json().catch(() => null))
-      .then((data) => {
-        if (data && typeof data.imported === 'number') {
-          setImportResult(data);
-          fetchClients();
-        }
-      })
-      .catch(() => {
-        // Тихо игнорируем — импорт продолжается на сервере
-      });
-
-    setImportResult({
-      imported: 0,
-      skipped: 0,
-      errors: ['Импорт запущен. Файл большой — обработка может занять несколько минут. Обновите страницу через пару минут.'],
-    });
-    setImporting(false);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
 
   const fetchClients = async () => {
     setLoading(true);
@@ -194,32 +136,8 @@ export default function ClientsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">Клиенты</h1>
-        <div className="flex items-center gap-3">
-          <span className="text-text-muted text-sm">Всего: {total}</span>
-          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
-          <button
-            className="btn btn-secondary flex items-center gap-2"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
-          >
-            <Upload className="w-4 h-4" />
-            {importing ? 'Импорт...' : 'Импорт Excel'}
-          </button>
-        </div>
+        <span className="text-text-muted text-sm">Всего: {total}</span>
       </div>
-
-      {importResult && (
-        <div className="mb-4 p-4 rounded-lg text-sm bg-info/20 text-info">
-          {importResult.imported > 0 && (
-            <p className="font-medium">Импорт завершён: добавлено {importResult.imported}, пропущено {importResult.skipped}</p>
-          )}
-          {importResult.errors.length > 0 && (
-            <ul className="space-y-1 text-xs">
-              {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
-            </ul>
-          )}
-        </div>
-      )}
 
       <div className="card mb-6">
         <div className="flex flex-wrap gap-4">
@@ -259,7 +177,9 @@ export default function ClientsPage() {
         {loading ? (
           <div className="text-center py-8 text-text-muted">Загрузка...</div>
         ) : clients.length === 0 ? (
-          <div className="text-center py-8 text-text-muted">Клиенты не найдены</div>
+          <div className="text-center py-8 text-text-muted">
+            Клиенты появятся после синхронизации с amoCRM
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto">
@@ -307,18 +227,10 @@ export default function ClientsPage() {
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
                 <span className="text-sm text-text-muted">Стр. {page} из {totalPages}</span>
                 <div className="flex gap-2">
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => setPage(Math.max(1, page - 1))}
-                    disabled={page === 1}
-                  >
+                  <button className="btn btn-secondary" onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}>
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => setPage(Math.min(totalPages, page + 1))}
-                    disabled={page === totalPages}
-                  >
+                  <button className="btn btn-secondary" onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages}>
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
