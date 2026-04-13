@@ -20,7 +20,10 @@ export class MeetingsService {
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = { brokerId };
+    const where: any = {
+      brokerId,
+      client: { deals: { some: { status: { in: ['SIGNED', 'PAID', 'COMMISSION_PAID'] } } } },
+    };
     if (query.status) where.status = query.status;
     if (query.type) where.type = query.type;
 
