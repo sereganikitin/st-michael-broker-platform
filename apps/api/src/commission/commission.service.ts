@@ -129,7 +129,7 @@ export class CommissionService {
 
   async getBrokerCommission(brokerId: string) {
     const deals = await this.prisma.deal.findMany({
-      where: { brokerId },
+      where: { brokerId, status: { in: ['SIGNED', 'PAID', 'COMMISSION_PAID'] } },
       include: { client: { select: { fullName: true } }, lot: { select: { number: true } } },
       orderBy: { createdAt: 'desc' },
     });

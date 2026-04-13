@@ -2,12 +2,26 @@ import { Injectable, Inject, BadRequestException, NotFoundException } from '@nes
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus, isDealStage } from '@st-michael/integrations';
 
+const COMMISSION_RATES: Record<string, Record<string, number>> = {
+  ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
+  SILVER_BOR: { START: 4.5, BASIC: 5.0, STRONG: 5.5, PREMIUM: 6.0, ELITE: 6.5, CHAMPION: 7.0, LEGEND: 7.5 },
+};
+
 @Injectable()
 export class AmocrmService {
   private amo: AmoCrmAdapter;
 
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {
     this.amo = new AmoCrmAdapter();
+  }
+
+  private async getCommissionRate(brokerId: string, project: string): Promise<number> {
+    const brokerAgency = await this.prisma.brokerAgency.findFirst({
+      where: { brokerId, isPrimary: true },
+      include: { agency: true },
+    });
+    const level = brokerAgency?.agency?.commissionLevel || 'START';
+    return COMMISSION_RATES[project]?.[level] || COMMISSION_RATES.ZORGE9[level] || 5.0;
   }
 
   async getAccount() {
@@ -232,6 +246,11 @@ export class AmocrmService {
           clientsCreated++;
         }
 
+        // Calculate commission
+        const amount = Number(lead.price || 0);
+        const rate = await this.getCommissionRate(brokerId, project);
+        const commissionAmount = Math.round(amount * rate / 100);
+
         // Upsert deal
         const existingDeal = await this.prisma.deal.findFirst({
           where: { amoDealId: BigInt(lead.id) },
@@ -241,10 +260,10 @@ export class AmocrmService {
           clientId: client.id,
           brokerId,
           project: project as any,
-          amount: Number(lead.price || 0),
+          amount,
           sqm: 0,
-          commissionRate: 0,
-          commissionAmount: 0,
+          commissionRate: rate,
+          commissionAmount,
           status: status as any,
           amoDealId: BigInt(lead.id),
         };

@@ -237,12 +237,26 @@ export class SchedulerService {
               totalClients++;
             }
 
+            // Calculate commission
+            const amount = Number(lead.price || 0);
+            const ba = await this.prisma.brokerAgency.findFirst({
+              where: { brokerId: broker.id, isPrimary: true },
+              include: { agency: true },
+            });
+            const lvl = ba?.agency?.commissionLevel || 'START';
+            const rateMap: Record<string, Record<string, number>> = {
+              ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
+              SILVER_BOR: { START: 4.5, BASIC: 5.0, STRONG: 5.5, PREMIUM: 6.0, ELITE: 6.5, CHAMPION: 7.0, LEGEND: 7.5 },
+            };
+            const rate = rateMap[project]?.[lvl] || 5.0;
+            const commAmt = Math.round(amount * rate / 100);
+
             // Upsert deal
             const existing = await this.prisma.deal.findFirst({ where: { amoDealId: BigInt(lead.id) } });
             const dealData = {
               clientId: client.id, brokerId: broker.id,
-              project: project as any, amount: Number(lead.price || 0),
-              sqm: 0, commissionRate: 0, commissionAmount: 0,
+              project: project as any, amount,
+              sqm: 0, commissionRate: rate, commissionAmount: commAmt,
               status: status as any, amoDealId: BigInt(lead.id),
             };
             if (existing) {
