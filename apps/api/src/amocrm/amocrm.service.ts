@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus, isDealStage } from '@st-michael/integrations';
 
 @Injectable()
 export class AmocrmService {
@@ -171,8 +171,9 @@ export class AmocrmService {
         const lead: any = await this.amo.getLead(leadId);
         if (!lead) continue;
 
-        // Skip closed-not-realized
+        // Skip closed-not-realized and non-deal stages
         if (lead.status_id === 143) { skipped++; continue; }
+        if (!isDealStage(lead.status_id)) { skipped++; continue; }
 
         const project = pipelineToProject(lead.pipeline_id);
         const status = statusToDealStatus(lead.status_id);

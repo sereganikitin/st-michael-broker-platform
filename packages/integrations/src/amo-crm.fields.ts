@@ -30,6 +30,24 @@ export function statusToDealStatus(statusId: number): 'PENDING' | 'SIGNED' | 'PA
   return 'PENDING';
 }
 
+// Status IDs that represent actual deals (Сделка, Сделка зарегистрирована, Контроль оплаты, Успешно реализовано)
+export const AMO_DEAL_STATUSES = new Set([
+  // Воронка Зорге9
+  62907450, 62907454, 62907458,
+  // Воронка Берзарина
+  62907378, 62907382, 62907386,
+  // Воронка Толбухина
+  62907590, 62907594, 62907598,
+  // Продажи (старая воронка)
+  28905289, 28905292, 33935695,
+  // Финальный "Успешно реализовано" (общий для всех воронок)
+  142,
+]);
+
+export function isDealStage(statusId: number): boolean {
+  return AMO_DEAL_STATUSES.has(statusId);
+}
+
 export const AMO_CONTACT_FIELDS = {
   PHONE: 557903,
   EMAIL: 557905,
