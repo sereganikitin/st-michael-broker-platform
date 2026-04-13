@@ -47,12 +47,10 @@ export default function DealsPage() {
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
         >
-          <option value="">Все статусы</option>
-          <option value="PENDING">В работе</option>
-          <option value="SIGNED">Подписан</option>
-          <option value="PAID">Оплачен</option>
-          <option value="COMMISSION_PAID">Комиссия выплачена</option>
-          <option value="CANCELLED">Отменён</option>
+          <option value="">Все сделки</option>
+          <option value="SIGNED">Сделка / Зарегистрирована</option>
+          <option value="PAID">Контроль оплаты</option>
+          <option value="COMMISSION_PAID">Успешно реализовано</option>
         </select>
       </div>
 

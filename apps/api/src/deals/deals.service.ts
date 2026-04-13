@@ -21,7 +21,12 @@ export class DealsService {
     const skip = (page - 1) * limit;
 
     const where: any = { brokerId };
-    if (query.status) where.status = query.status;
+    if (query.status) {
+      where.status = query.status;
+    } else {
+      // By default show only real deal stages, exclude PENDING and CANCELLED
+      where.status = { in: ['SIGNED', 'PAID', 'COMMISSION_PAID'] };
+    }
     if (query.project) where.project = query.project;
 
     const orderBy: any = {};
