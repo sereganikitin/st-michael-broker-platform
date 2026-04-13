@@ -195,12 +195,21 @@ export class AmoCrmAdapter {
   }
 
   async getLeadsByResponsibleUser(userId: number, limit = 250): Promise<AmoLead[]> {
+    const allLeads: AmoLead[] = [];
+    let page = 1;
     try {
-      const data = await this.request<any>(`/leads?filter[responsible_user_id]=${userId}&limit=${limit}&with=contacts`);
-      return data?._embedded?.leads || [];
-    } catch {
-      return [];
-    }
+      while (true) {
+        const data = await this.request<any>(
+          `/leads?filter[responsible_user_id][]=${userId}&limit=${limit}&page=${page}&with=contacts`,
+        );
+        const leads = data?._embedded?.leads || [];
+        if (leads.length === 0) break;
+        allLeads.push(...leads);
+        if (leads.length < limit) break;
+        page++;
+      }
+    } catch {}
+    return allLeads;
   }
 
   async reopenLead(id: number, newBrokerAmoId: number): Promise<AmoLead> {
