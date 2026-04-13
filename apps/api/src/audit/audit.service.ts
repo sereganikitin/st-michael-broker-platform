@@ -24,8 +24,8 @@ export class AuditService {
   }
 
   async getByUser(userId: string, query: { page?: number; limit?: number }) {
-    const page = query.page || 1;
-    const limit = query.limit || 50;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 50;
     const skip = (page - 1) * limit;
 
     const [logs, total] = await Promise.all([
