@@ -253,13 +253,19 @@ model Lot {
   price        Decimal   @db.Decimal(14, 2)
   pricePerSqm  Decimal?  @map("price_per_sqm") @db.Decimal(10, 2)
   status       LotStatus @default(AVAILABLE)
-  propertyType String?   @map("property_type")   // Апартаменты, Коммерция и т.д.
+  propertyType String?   @map("property_type")
   layoutUrl    String?   @map("layout_url")
   planImageUrl String?   @map("plan_image_url")
   description  String?
   floorsTotal  Int?      @map("floors_total")
   buildingSection String? @map("building_section")
   windowView   String?   @map("window_view")
+  builtYear    Int?      @map("built_year")
+  readyQuarter Int?      @map("ready_quarter")
+  buildingState String?  @map("building_state")
+  hasBalcony   Boolean   @default(false) @map("has_balcony")
+  hasTerrace   Boolean   @default(false) @map("has_terrace")
+  isPenthouse  Boolean   @default(false) @map("is_penthouse")
   deals        Deal[]
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
