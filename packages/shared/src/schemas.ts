@@ -15,6 +15,17 @@ export const registerDtoSchema = z.object({
   email: z.string().email('Invalid email').optional(),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   inn: z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits').optional(),
+  innType: z.enum(['PERSONAL', 'AGENCY']).optional(),
+  agencyName: z.string().min(2).max(200).optional(),
+});
+
+export const forgotPasswordDtoSchema = z.object({
+  email: z.string().email('Invalid email'),
+});
+
+export const resetPasswordDtoSchema = z.object({
+  token: z.string().min(10),
+  password: z.string().min(6),
 });
 
 export const sendOtpDtoSchema = z.object({

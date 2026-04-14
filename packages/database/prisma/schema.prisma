@@ -189,6 +189,8 @@ model Broker {
   phone                String             @unique
   email                String?
   passwordHash         String?            @map("password_hash")
+  passwordResetToken   String?            @unique @map("password_reset_token")
+  passwordResetExpiresAt DateTime?        @map("password_reset_expires_at")
   role                 UserRole           @default(BROKER)
   status               UserStatus         @default(PENDING)
   funnelStage          BrokerFunnelStage  @default(NEW_BROKER) @map("funnel_stage")

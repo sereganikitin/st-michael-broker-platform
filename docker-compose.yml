@@ -57,6 +57,12 @@ services:
       AMO_SUBDOMAIN: ${AMO_SUBDOMAIN:-stmichael}
       AMO_BASE_DOMAIN: ${AMO_BASE_DOMAIN:-amocrm.ru}
       AMO_ACCESS_TOKEN: ${AMO_ACCESS_TOKEN:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     ports:
       - "4000:4000"
     depends_on:

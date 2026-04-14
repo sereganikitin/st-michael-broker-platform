@@ -16,7 +16,7 @@ export class AuthService {
     @InjectQueue('notifications') private notificationQueue: Queue,
   ) {}
 
-  async register(data: { phone: string; fullName: string; email?: string; password: string; inn?: string }) {
+  async register(data: { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string }) {
     const existing = await this.prisma.broker.findUnique({
       where: { phone: data.phone },
     });
@@ -40,6 +40,10 @@ export class AuthService {
       }
       if (data.inn) {
         brokerFields.push({ field_id: AMO_CONTACT_FIELDS.INN, values: [{ value: data.inn }] });
+      }
+      if (data.agencyName) {
+        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: data.agencyName }] });
+      } else if (data.inn && data.innType === 'AGENCY') {
         brokerFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: `Агентство ${data.inn}` }] });
       }
 
@@ -82,11 +86,14 @@ export class AuthService {
 
     // Create or link agency by INN
     if (data.inn) {
+      const agencyName = data.agencyName || (data.innType === 'PERSONAL' ? `ИП ${data.fullName}` : `Агентство ${data.inn}`);
       let agency = await this.prisma.agency.findUnique({ where: { inn: data.inn } });
       if (!agency) {
         agency = await this.prisma.agency.create({
-          data: { name: `Агентство ${data.inn}`, inn: data.inn },
+          data: { name: agencyName, inn: data.inn },
         });
+      } else if (data.agencyName && agency.name !== data.agencyName) {
+        agency = await this.prisma.agency.update({ where: { id: agency.id }, data: { name: data.agencyName } });
       }
       await this.prisma.brokerAgency.create({
         data: { brokerId: broker.id, agencyId: agency.id, isPrimary: true },
@@ -100,6 +107,60 @@ export class AuthService {
       amoLeadsCount,
       autoSyncTip: amoContactId ? 'Use POST /api/amocrm/sync-my-deals to pull deals/clients' : undefined,
     };
+  }
+
+  async forgotPassword(email: string) {
+    const broker = await this.prisma.broker.findFirst({ where: { email } });
+    if (!broker) return { message: 'Если email зарегистрирован, на него отправлена ссылка' };
+
+    const token = require('crypto').randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 60 * 60 * 1000);
+
+    await this.prisma.broker.update({
+      where: { id: broker.id },
+      data: { passwordResetToken: token, passwordResetExpiresAt: expires },
+    });
+
+    const resetUrl = `${process.env.WEB_URL || 'https://72.56.241.199'}/reset-password?token=${token}`;
+
+    if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+      try {
+        const nodemailer = require('nodemailer');
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST,
+          port: Number(process.env.SMTP_PORT || 465),
+          secure: process.env.SMTP_SECURE !== 'false',
+          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+        });
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: email,
+          subject: 'Восстановление пароля — ST Michael',
+          html: `<p>Для сброса пароля перейдите по ссылке:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>Ссылка действует 1 час.</p>`,
+        });
+      } catch (e) {
+        console.error('SMTP send failed:', e);
+      }
+    } else {
+      console.log(`[FORGOT-PASSWORD] Reset link for ${email}: ${resetUrl}`);
+    }
+
+    return { message: 'Если email зарегистрирован, на него отправлена ссылка' };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const broker = await this.prisma.broker.findUnique({ where: { passwordResetToken: token } });
+    if (!broker || !broker.passwordResetExpiresAt || broker.passwordResetExpiresAt < new Date()) {
+      throw new BadRequestException('Ссылка недействительна или истекла');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.prisma.broker.update({
+      where: { id: broker.id },
+      data: { passwordHash, passwordResetToken: null, passwordResetExpiresAt: null },
+    });
+
+    return { message: 'Пароль успешно изменён' };
   }
 
   async sendOtp(phone: string) {

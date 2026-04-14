@@ -29,7 +29,11 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [agencyName, setAgencyName] = useState('');
   const [inn, setInn] = useState('');
+  const [innType, setInnType] = useState<'PERSONAL' | 'AGENCY'>('AGENCY');
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
@@ -53,12 +57,31 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
     setLoading(false);
   };
 
+  const handleForgot = async () => {
+    setLoading(true); setError('');
+    try {
+      await fetch('/api/auth/forgot-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      setForgotSent(true);
+    } catch { setError('Ошибка соединения'); }
+    setLoading(false);
+  };
+
   const handleRegister = async () => {
     setLoading(true); setError('');
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: fullPhone, fullName, email: email || undefined, password, inn: inn || undefined }),
+        body: JSON.stringify({
+          phone: fullPhone, fullName,
+          email: email || undefined,
+          password,
+          inn: inn || undefined,
+          innType: inn ? innType : undefined,
+          agencyName: agencyName || undefined,
+        }),
       });
       const data = await res.json();
       if (res.ok) { await doLogin(fullPhone, password); }
@@ -71,12 +94,31 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
     <div style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
       <div style={{background:'#fff',borderRadius:8,maxWidth:420,width:'100%',padding:'36px 32px',position:'relative'}} onClick={e=>e.stopPropagation()}>
         <button onClick={onClose} style={{position:'absolute',top:16,right:16,background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#8a8680'}}>&times;</button>
-        <h2 style={{fontSize:24,fontWeight:700,marginBottom:4,color:'#1a1a1a'}}>{mode === 'login' ? 'Вход в кабинет' : 'Регистрация'}</h2>
-        <p style={{fontSize:13,color:'#8a8680',marginBottom:24}}>{mode === 'login' ? 'Введите данные для входа' : 'Создайте аккаунт партнёра'}</p>
+        <h2 style={{fontSize:24,fontWeight:700,marginBottom:4,color:'#1a1a1a'}}>
+          {forgotMode ? 'Восстановление пароля' : mode === 'login' ? 'Вход в кабинет' : 'Регистрация'}
+        </h2>
+        <p style={{fontSize:13,color:'#8a8680',marginBottom:24}}>
+          {forgotMode ? 'Введите email для получения ссылки' : mode === 'login' ? 'Введите данные для входа' : 'Создайте аккаунт партнёра'}
+        </p>
 
         {error && <div style={{padding:'10px 14px',background:'rgba(220,60,60,0.1)',color:'#c33',borderRadius:4,fontSize:13,marginBottom:16}}>{error}</div>}
 
-        {(
+        {forgotMode ? (
+          forgotSent ? (
+            <div style={{padding:'14px',background:'rgba(60,140,80,0.1)',color:'#3a8a5c',borderRadius:4,fontSize:13}}>
+              Если email зарегистрирован — на него отправлена ссылка для восстановления. Проверьте почту.
+            </div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <input placeholder="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)}
+                style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+              <button onClick={handleForgot} disabled={loading || !email}
+                style={{padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
+                {loading ? 'Отправка...' : 'ПОЛУЧИТЬ ССЫЛКУ'}
+              </button>
+            </div>
+          )
+        ) : (
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             {mode === 'register' && (
               <input placeholder="ФИО" value={fullName} onChange={e=>setFullName(e.target.value)}
@@ -88,9 +130,25 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                 style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
             )}
             {mode === 'register' && (
-              <input placeholder="ИНН агентства (10 или 12 цифр)" inputMode="numeric" value={inn}
+              <input placeholder="Название агентства" value={agencyName} onChange={e=>setAgencyName(e.target.value)}
+                style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            )}
+            {mode === 'register' && (
+              <input placeholder="ИНН (10 или 12 цифр)" inputMode="numeric" value={inn}
                 onChange={e=>setInn(e.target.value.replace(/\D/g,'').slice(0,12))}
                 style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            )}
+            {mode === 'register' && (
+              <div style={{display:'flex',gap:16,fontSize:13,color:'#1a1a1a'}}>
+                <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                  <input type="radio" name="innType" checked={innType==='PERSONAL'} onChange={()=>setInnType('PERSONAL')} />
+                  Личный ИНН
+                </label>
+                <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                  <input type="radio" name="innType" checked={innType==='AGENCY'} onChange={()=>setInnType('AGENCY')} />
+                  ИНН агентства
+                </label>
+              </div>
             )}
             <input placeholder="Пароль" type="password" value={password} onChange={e=>setPassword(e.target.value)}
               onKeyDown={e=>e.key==='Enter' && (mode==='login' ? handleLogin() : handleRegister())}
@@ -104,8 +162,20 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
         )}
 
         <div style={{marginTop:20,textAlign:'center',fontSize:13,color:'#8a8680'}}>
-          {mode === 'login' ? (
-            <span>Нет аккаунта? <button onClick={onSwitch} style={{background:'none',border:'none',color:'#B4936F',cursor:'pointer',fontWeight:600,fontSize:13}}>Регистрация</button></span>
+          {forgotMode ? (
+            <button onClick={()=>{ setForgotMode(false); setForgotSent(false); setError(''); }}
+              style={{background:'none',border:'none',color:'#B4936F',cursor:'pointer',fontWeight:600,fontSize:13}}>
+              ← Назад ко входу
+            </button>
+          ) : mode === 'login' ? (
+            <>
+              <div><span>Нет аккаунта? <button onClick={onSwitch} style={{background:'none',border:'none',color:'#B4936F',cursor:'pointer',fontWeight:600,fontSize:13}}>Регистрация</button></span></div>
+              <div style={{marginTop:10}}>
+                <button onClick={()=>{ setForgotMode(true); setError(''); }} style={{background:'none',border:'none',color:'#B4936F',cursor:'pointer',fontSize:13,textDecoration:'underline'}}>
+                  Забыли пароль?
+                </button>
+              </div>
+            </>
           ) : (
             <span>Уже есть аккаунт? <button onClick={onSwitch} style={{background:'none',border:'none',color:'#B4936F',cursor:'pointer',fontWeight:600,fontSize:13}}>Войти</button></span>
           )}

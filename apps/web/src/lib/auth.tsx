@@ -76,8 +76,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const isAuthPage = pathname === '/login' || pathname === '/register';
     const isLanding = pathname === '/';
+    const isPublic = pathname === '/reset-password';
 
-    if (!broker && !isAuthPage && !isLanding) {
+    if (!broker && !isAuthPage && !isLanding && !isPublic) {
       router.replace('/');
     } else if (broker && isAuthPage) {
       router.replace('/fixation');
