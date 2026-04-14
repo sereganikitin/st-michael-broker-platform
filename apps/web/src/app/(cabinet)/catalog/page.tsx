@@ -190,9 +190,14 @@ export default function CatalogPage() {
           <h1 className="text-3xl font-bold">Подбор квартир</h1>
           <span className="text-text-muted text-sm">Всего найдено: {total}</span>
         </div>
-        <button className="btn btn-secondary flex items-center gap-2" onClick={handleSync} disabled={syncing}>
-          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Загрузка...' : 'Обновить из фида'}
+        <button
+          className="btn btn-secondary p-2"
+          onClick={handleSync}
+          disabled={syncing}
+          title="Обновить каталог"
+          aria-label="Обновить каталог"
+        >
+          <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
         </button>
       </div>
 

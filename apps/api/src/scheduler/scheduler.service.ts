@@ -4,6 +4,7 @@ import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus, isDealStage } from '@st-michael/integrations';
+import { CatalogService } from '../catalog/catalog.service';
 
 @Injectable()
 export class SchedulerService {
@@ -13,7 +14,20 @@ export class SchedulerService {
   constructor(
     @Inject('PrismaClient') private prisma: PrismaClient,
     @InjectQueue('notifications') private notificationQueue: Queue,
+    private readonly catalogService: CatalogService,
   ) {}
+
+  // Daily catalog XML feed sync at 03:00
+  @Cron('0 3 * * *')
+  async handleCatalogSync() {
+    this.logger.log('Starting daily Profitbase XML feed sync...');
+    try {
+      const result = await this.catalogService.syncFromFeed();
+      this.logger.log(`Catalog sync complete: +${result.created}, ~${result.updated}, total ${result.total}`);
+    } catch (e) {
+      this.logger.error(`Catalog sync failed: ${e}`);
+    }
+  }
 
   // Run every day at 09:00
   @Cron('0 9 * * *')

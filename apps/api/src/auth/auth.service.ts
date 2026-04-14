@@ -5,15 +5,18 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as bcrypt from 'bcrypt';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS } from '@st-michael/integrations';
+import { CatalogService } from '../catalog/catalog.service';
 
 @Injectable()
 export class AuthService {
   private amo = new AmoCrmAdapter();
+  static lastFeedSyncAt = 0;
 
   constructor(
     @Inject('PrismaClient') private prisma: PrismaClient,
     private jwtService: JwtService,
     @InjectQueue('notifications') private notificationQueue: Queue,
+    private readonly catalogService: CatalogService,
   ) {}
 
   async register(data: { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string }) {
@@ -203,6 +206,16 @@ export class AuthService {
     if (process.env.AMO_ACCESS_TOKEN && broker.phone) {
       this.syncBrokerFromAmo(broker.id, broker.phone, broker.amoContactId ? Number(broker.amoContactId) : null)
         .catch((e) => console.error('Background amo sync on login failed:', e));
+    }
+
+    // Trigger background catalog feed sync on login (rate-limited to once per 10 minutes)
+    const FEED_COOLDOWN_MS = 10 * 60 * 1000;
+    const now = Date.now();
+    if (!AuthService.lastFeedSyncAt || now - AuthService.lastFeedSyncAt > FEED_COOLDOWN_MS) {
+      AuthService.lastFeedSyncAt = now;
+      this.catalogService.syncFromFeed()
+        .then((r) => console.log(`[Login] Feed sync: +${r.created}, ~${r.updated}, total ${r.total}`))
+        .catch((e) => console.error('Login feed sync failed:', e));
     }
 
     return {

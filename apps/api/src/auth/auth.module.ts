@@ -7,10 +7,12 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { RolesGuard } from './roles.guard';
 import { DatabaseModule } from '../database/database.module';
+import { CatalogModule } from '../catalog/catalog.module';
 
 @Module({
   imports: [
     DatabaseModule,
+    CatalogModule,
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET,
