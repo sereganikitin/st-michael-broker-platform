@@ -188,8 +188,81 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   );
 }
 
+function QuickFixModal({ onClose }: { onClose: () => void }) {
+  const [clientPhone, setClientPhone] = useState('');
+  const [clientFullName, setClientFullName] = useState('');
+  const [brokerPhone, setBrokerPhone] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<any>(null);
+
+  const formatPhone = (v: string) => {
+    const d = v.replace(/\D/g, '').slice(0, 11);
+    if (!d) return '';
+    return (d.startsWith('7') || d.startsWith('8')) ? '+7' + d.slice(1) : '+' + d;
+  };
+
+  const handleSubmit = async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await fetch('/api/public/quick-fix', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientPhone: formatPhone(clientPhone),
+          clientFullName,
+          brokerPhone: formatPhone(brokerPhone),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) setResult(data);
+      else setError(data.message || 'Ошибка фиксации');
+    } catch { setError('Ошибка соединения'); }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:8,maxWidth:460,width:'100%',padding:'36px 32px',position:'relative'}} onClick={e=>e.stopPropagation()}>
+        <button onClick={onClose} style={{position:'absolute',top:16,right:16,background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#8a8680'}}>&times;</button>
+        <h2 style={{fontSize:24,fontWeight:700,marginBottom:4,color:'#1a1a1a'}}>Моментальная фиксация</h2>
+        <p style={{fontSize:13,color:'#8a8680',marginBottom:24}}>Зафиксируйте клиента за собой прямо сейчас, без входа в кабинет</p>
+
+        {error && <div style={{padding:'10px 14px',background:'rgba(220,60,60,0.1)',color:'#c33',borderRadius:4,fontSize:13,marginBottom:16}}>{error}</div>}
+
+        {result ? (
+          <div style={{padding:'14px',background:'rgba(60,140,80,0.1)',color:'#3a8a5c',borderRadius:4,fontSize:14,textAlign:'center'}}>
+            <div style={{fontWeight:700,marginBottom:4}}>✓ {result.status === 'EXISTS' ? 'Клиент уже зафиксирован за вами' : 'Клиент успешно зафиксирован'}</div>
+            <div style={{fontSize:13}}>{result.message}</div>
+          </div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <input placeholder="Телефон клиента (+79991234567)" type="tel" value={clientPhone}
+              onChange={e=>setClientPhone(e.target.value)}
+              style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            <input placeholder="ФИО клиента" value={clientFullName}
+              onChange={e=>setClientFullName(e.target.value)}
+              style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            <input placeholder="Ваш телефон (+79991234567)" type="tel" value={brokerPhone}
+              onChange={e=>setBrokerPhone(e.target.value)}
+              style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            <button onClick={handleSubmit}
+              disabled={loading || !clientPhone || !clientFullName || !brokerPhone}
+              style={{padding:'14px',background:'#B4936F',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
+              {loading ? 'Отправка...' : 'ЗАФИКСИРОВАТЬ'}
+            </button>
+            <p style={{fontSize:12,color:'#8a8680',textAlign:'center',marginTop:4}}>
+              Ваш номер должен быть зарегистрирован в ЛК. Уникальность действует 30 дней.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   const [authModal, setAuthModal] = useState<'login' | 'register' | null>(null);
+  const [quickFixOpen, setQuickFixOpen] = useState(false);
   const { broker } = useAuth();
   const router = useRouter();
 
@@ -277,7 +350,13 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         {/* QUICK ACTIONS */}
         <div className="quick">
-          <div className="qa" onClick={handleCabinet}><div><div className="qa-title">Записаться на встречу с клиентом</div><div className="qa-sub">+7 (495) 150-40-10</div></div><div className="qa-arrow">&rarr;</div></div>
+          <div className="qa" onClick={()=>setQuickFixOpen(true)} style={{background:'rgba(180,147,111,0.07)'}}>
+            <div>
+              <div className="qa-title" style={{color:'#B4936F',fontWeight:700}}>⚡ Моментальная фиксация клиента</div>
+              <div className="qa-sub">Без входа в кабинет — за 30 секунд</div>
+            </div>
+            <div className="qa-arrow">&rarr;</div>
+          </div>
           <a className="qa" href="#events"><div><div className="qa-title">Записаться на брокер-тур</div><div className="qa-sub">Ближайший — 28 марта</div></div><div className="qa-arrow">&rarr;</div></a>
           <div className="qa" onClick={handleRegister}><div><div className="qa-title">Стать партнёром ST MICHAEL</div><div className="qa-sub">Регистрация за 2 минуты</div></div><div className="qa-arrow">&rarr;</div></div>
         </div>
@@ -416,6 +495,8 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           onSuccess={() => { setAuthModal(null); router.push('/fixation'); }}
         />
       )}
+
+      {quickFixOpen && <QuickFixModal onClose={() => setQuickFixOpen(false)} />}
     </>
   );
 }

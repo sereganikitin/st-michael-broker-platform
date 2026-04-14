@@ -337,6 +337,63 @@ export class ClientFixationService {
     return { client: updated, message: 'Uniqueness conflict resolved' };
   }
 
+  async quickFix(data: { clientPhone: string; clientFullName: string; brokerPhone: string }) {
+    const normalizePhone = (raw: string) => {
+      let p = raw.replace(/[\s\-()'"]/g, '');
+      if (p.startsWith('8') && p.length === 11) p = '+7' + p.slice(1);
+      if (!p.startsWith('+')) p = '+' + p;
+      return p;
+    };
+
+    const clientPhone = normalizePhone(data.clientPhone);
+    const brokerPhone = normalizePhone(data.brokerPhone);
+
+    // Find broker by phone
+    const broker = await this.prisma.broker.findUnique({ where: { phone: brokerPhone } });
+    if (!broker) {
+      throw new BadRequestException('Брокер с таким телефоном не найден. Зарегистрируйтесь в кабинете.');
+    }
+
+    // Check if client already exists for this broker
+    const existing = await this.prisma.client.findFirst({
+      where: { phone: clientPhone, brokerId: broker.id },
+    });
+    if (existing) {
+      return {
+        status: 'EXISTS',
+        message: 'Клиент уже зафиксирован за вами',
+        clientId: existing.id,
+      };
+    }
+
+    // Create client with conditional uniqueness
+    const client = await this.prisma.client.create({
+      data: {
+        brokerId: broker.id,
+        fullName: data.clientFullName,
+        phone: clientPhone,
+        project: 'ZORGE9' as any,
+        uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+        uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        comment: 'Моментальная фиксация с лендинга',
+      },
+    });
+
+    // Audit
+    try {
+      await this.logAudit(broker.id, 'QUICK_FIXATION', 'Client', client.id, {
+        source: 'landing',
+        phone: clientPhone,
+      });
+    } catch {}
+
+    return {
+      status: 'CONDITIONALLY_UNIQUE',
+      message: 'Клиент условно зафиксирован на 30 дней',
+      clientId: client.id,
+    };
+  }
+
   async importClients(brokerId: string, fileBuffer: Buffer) {
     const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
 
