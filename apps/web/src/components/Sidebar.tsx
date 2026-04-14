@@ -3,26 +3,27 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  UserCheck,
   Users,
+  CalendarPlus,
   Building,
   HeartHandshake,
   Calculator,
-  Calendar,
+  BookOpen,
   FileText,
-  Settings,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navigation = [
-  { name: 'Фиксация клиентов', href: '/fixation', icon: Users },
-  { name: 'Клиенты', href: '/clients', icon: Users },
-  { name: 'Каталог', href: '/catalog', icon: Building },
+  { name: 'Фиксация', href: '/fixation', icon: UserCheck },
+  { name: 'Клиенты / Заявки', href: '/clients', icon: Users },
+  { name: 'Записаться на встречу', href: '/meetings', icon: CalendarPlus },
+  { name: 'Подбор квартир', href: '/catalog', icon: Building },
   { name: 'Сделки', href: '/deals', icon: HeartHandshake },
   { name: 'Комиссия', href: '/commission', icon: Calculator },
-  { name: 'Встречи', href: '/meetings', icon: Calendar },
+  { name: 'Материалы для брокеров', href: '/materials', icon: BookOpen },
   { name: 'Документы', href: '/documents', icon: FileText },
-  { name: 'Профиль', href: '/profile', icon: Settings },
 ];
 
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
@@ -30,7 +31,6 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
 
   return (
     <>
-      {/* Mobile overlay */}
       {open && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -38,7 +38,6 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
         />
       )}
 
-      {/* Sidebar */}
       <div
         className={cn(
           'fixed top-0 left-0 z-50 h-full w-64 bg-surface border-r border-border transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 lg:z-auto',
