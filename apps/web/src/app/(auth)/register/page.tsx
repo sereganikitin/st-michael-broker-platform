@@ -8,7 +8,9 @@ export default function RegisterPage() {
   const [phoneDigits, setPhoneDigits] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [agencyName, setAgencyName] = useState('');
   const [inn, setInn] = useState('');
+  const [innType, setInnType] = useState<'PERSONAL' | 'AGENCY'>('AGENCY');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,7 +28,15 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: '+7' + phoneDigits, fullName, email: email || undefined, password, inn: inn || undefined }),
+        body: JSON.stringify({
+          phone: '+7' + phoneDigits,
+          fullName,
+          email,
+          password,
+          inn,
+          innType,
+          agencyName: agencyName || undefined,
+        }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -85,7 +95,7 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="label">Email (необязательно)</label>
+              <label className="label">Email</label>
               <input
                 type="email"
                 className="input"
@@ -96,7 +106,18 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="label">ИНН агентства</label>
+              <label className="label">Название агентства</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="Агентство недвижимости"
+                value={agencyName}
+                onChange={(e) => setAgencyName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="label">ИНН</label>
               <input
                 type="text"
                 inputMode="numeric"
@@ -106,6 +127,17 @@ export default function RegisterPage() {
                 onChange={(e) => setInn(e.target.value.replace(/\D/g, '').slice(0, 12))}
                 maxLength={12}
               />
+            </div>
+
+            <div className="flex gap-4 text-sm">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="innType" checked={innType === 'PERSONAL'} onChange={() => setInnType('PERSONAL')} />
+                Личный ИНН
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="innType" checked={innType === 'AGENCY'} onChange={() => setInnType('AGENCY')} />
+                ИНН агентства
+              </label>
             </div>
 
             <div>
@@ -122,7 +154,14 @@ export default function RegisterPage() {
             <button
               className="btn btn-primary w-full"
               onClick={handleRegister}
-              disabled={loading || phoneDigits.length !== 10 || !fullName || password.length < 6}
+              disabled={
+                loading ||
+                phoneDigits.length !== 10 ||
+                !fullName ||
+                !email ||
+                (inn.length !== 10 && inn.length !== 12) ||
+                password.length < 6
+              }
             >
               {loading ? 'Регистрация...' : 'Зарегистрироваться'}
             </button>

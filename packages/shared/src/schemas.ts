@@ -12,9 +12,9 @@ export const uuidSchema = z.string().uuid();
 export const registerDtoSchema = z.object({
   phone: phoneSchema,
   fullName: z.string().min(2, 'Full name too short'),
-  email: z.string().email('Invalid email').optional(),
+  email: z.string().email('Invalid email'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
-  inn: z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits').optional(),
+  inn: z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits'),
   innType: z.enum(['PERSONAL', 'AGENCY']).optional(),
   agencyName: z.string().min(2).max(200).optional(),
 });

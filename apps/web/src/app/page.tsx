@@ -40,10 +40,10 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
 
   const fullPhone = '+7' + phoneDigits;
 
-  const doLogin = async (p: string, pw: string) => {
+  const doLogin = async (phone: string, pw: string) => {
     const res = await fetch('/api/auth/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: p, password: pw }),
+      body: JSON.stringify({ phone, password: pw }),
     });
     const data = await res.json();
     if (res.ok) { login(data.accessToken, data.refreshToken); onSuccess(); }
@@ -121,40 +121,43 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
         ) : (
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             {mode === 'register' && (
-              <input placeholder="ФИО" value={fullName} onChange={e=>setFullName(e.target.value)}
-                style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+              <>
+                <input placeholder="ФИО" value={fullName} onChange={e=>setFullName(e.target.value)}
+                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+                <PhoneInput value={phoneDigits} onChange={setPhoneDigits} />
+                <input placeholder="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)}
+                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+                <input placeholder="Название агентства" value={agencyName} onChange={e=>setAgencyName(e.target.value)}
+                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+                <input placeholder="ИНН (10 или 12 цифр)" inputMode="numeric" value={inn}
+                  onChange={e=>setInn(e.target.value.replace(/\D/g,'').slice(0,12))}
+                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+                <div style={{display:'flex',gap:16,fontSize:13,color:'#1a1a1a'}}>
+                  <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                    <input type="radio" name="innType" checked={innType==='PERSONAL'} onChange={()=>setInnType('PERSONAL')} />
+                    Личный ИНН
+                  </label>
+                  <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                    <input type="radio" name="innType" checked={innType==='AGENCY'} onChange={()=>setInnType('AGENCY')} />
+                    ИНН агентства
+                  </label>
+                </div>
+              </>
             )}
-            <PhoneInput value={phoneDigits} onChange={setPhoneDigits} />
-            {mode === 'register' && (
-              <input placeholder="Email (необязательно)" type="email" value={email} onChange={e=>setEmail(e.target.value)}
-                style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
-            )}
-            {mode === 'register' && (
-              <input placeholder="Название агентства" value={agencyName} onChange={e=>setAgencyName(e.target.value)}
-                style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
-            )}
-            {mode === 'register' && (
-              <input placeholder="ИНН (10 или 12 цифр)" inputMode="numeric" value={inn}
-                onChange={e=>setInn(e.target.value.replace(/\D/g,'').slice(0,12))}
-                style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
-            )}
-            {mode === 'register' && (
-              <div style={{display:'flex',gap:16,fontSize:13,color:'#1a1a1a'}}>
-                <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                  <input type="radio" name="innType" checked={innType==='PERSONAL'} onChange={()=>setInnType('PERSONAL')} />
-                  Личный ИНН
-                </label>
-                <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                  <input type="radio" name="innType" checked={innType==='AGENCY'} onChange={()=>setInnType('AGENCY')} />
-                  ИНН агентства
-                </label>
-              </div>
+            {mode === 'login' && (
+              <PhoneInput value={phoneDigits} onChange={setPhoneDigits} />
             )}
             <input placeholder="Пароль" type="password" value={password} onChange={e=>setPassword(e.target.value)}
               onKeyDown={e=>e.key==='Enter' && (mode==='login' ? handleLogin() : handleRegister())}
               style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
             <button onClick={mode==='login' ? handleLogin : handleRegister}
-              disabled={loading || phoneDigits.length !== 10 || !password || (mode==='register' && !fullName)}
+              disabled={
+                loading ||
+                !password ||
+                (mode === 'login'
+                  ? phoneDigits.length !== 10
+                  : (!fullName || !email || phoneDigits.length !== 10 || (inn.length !== 10 && inn.length !== 12)))
+              }
               style={{padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
               {loading ? 'Подождите...' : mode==='login' ? 'ВОЙТИ' : 'ЗАРЕГИСТРИРОВАТЬСЯ'}
             </button>

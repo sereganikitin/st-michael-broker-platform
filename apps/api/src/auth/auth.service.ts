@@ -199,8 +199,8 @@ export class AuthService {
       expiresIn: process.env.JWT_REFRESH_TTL || '7d',
     });
 
-    // Trigger background amoCRM sync on login (fire-and-forget)
-    if (process.env.AMO_ACCESS_TOKEN) {
+    // Trigger background amoCRM sync on login (fire-and-forget) — lookup by broker's phone
+    if (process.env.AMO_ACCESS_TOKEN && broker.phone) {
       this.syncBrokerFromAmo(broker.id, broker.phone, broker.amoContactId ? Number(broker.amoContactId) : null)
         .catch((e) => console.error('Background amo sync on login failed:', e));
     }
