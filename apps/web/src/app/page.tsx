@@ -492,7 +492,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           mode={authModal}
           onClose={() => setAuthModal(null)}
           onSwitch={() => setAuthModal(authModal === 'login' ? 'register' : 'login')}
-          onSuccess={() => { setAuthModal(null); router.push('/fixation'); }}
+          onSuccess={() => { setAuthModal(null); }}
         />
       )}
 

@@ -81,7 +81,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!broker && !isAuthPage && !isLanding && !isPublic) {
       router.replace('/');
     } else if (broker && isAuthPage) {
-      router.replace('/fixation');
+      // Logged-in users land on landing page, not cabinet — entering cabinet is explicit via button
+      router.replace('/');
     }
   }, [broker, loading, pathname, router]);
 
