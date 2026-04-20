@@ -1,9 +1,14 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
 
 @Injectable()
 export class MeetingsService {
-  constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
+  constructor(
+    @Inject('PrismaClient') private prisma: PrismaClient,
+    @InjectQueue('notifications') private notificationQueue: Queue,
+  ) {}
 
   async getMeetings(
     brokerId: string,
