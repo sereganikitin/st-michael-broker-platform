@@ -73,23 +73,53 @@ export class MeetingsService {
 
   async createMeeting(
     brokerId: string,
-    data: { clientId: string; type: string; date: string; comment?: string },
+    data: { clientId: string; type: string; date: string; comment?: string; extraPhone?: string; notifySms?: boolean; notifyEmail?: boolean; notifyReminder?: boolean },
   ) {
-    // Verify client belongs to broker
     const client = await this.prisma.client.findUnique({ where: { id: data.clientId } });
     if (!client) throw new NotFoundException('Client not found');
     if (client.brokerId !== brokerId) throw new BadRequestException('Client does not belong to you');
+
+    const commentParts = [
+      data.comment,
+      data.extraPhone ? `Доп. телефон: ${data.extraPhone}` : '',
+    ].filter(Boolean);
+
+    const meetingDate = new Date(data.date);
 
     const meeting = await this.prisma.meeting.create({
       data: {
         clientId: data.clientId,
         brokerId,
         type: data.type as any,
-        date: new Date(data.date),
-        comment: data.comment,
+        date: meetingDate,
+        comment: commentParts.join('. ') || null,
       },
-      include: { client: { select: { id: true, fullName: true, phone: true } } },
+      include: { client: { select: { id: true, fullName: true, phone: true, email: true } } },
     });
+
+    const typeLabel = data.type === 'OFFICE_VISIT' ? 'в офисе' : data.type === 'ONLINE' ? 'онлайн' : 'брокер-тур';
+    const dateStr = meetingDate.toLocaleString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const body = `Встреча ${typeLabel} с клиентом ${meeting.client.fullName} запланирована на ${dateStr}`;
+
+    try {
+      if (data.notifySms) {
+        await this.notificationQueue.add('send', { brokerId, channel: 'SMS', body });
+      }
+      if (data.notifyEmail) {
+        await this.notificationQueue.add('send', { brokerId, channel: 'EMAIL', subject: 'Встреча запланирована', body });
+      }
+      if (data.notifyReminder) {
+        const reminderAt = new Date(meetingDate.getTime() - 2 * 60 * 60 * 1000);
+        const delay = Math.max(0, reminderAt.getTime() - Date.now());
+        await this.notificationQueue.add(
+          'send',
+          { brokerId, channel: 'SMS', body: `Напоминание: встреча с ${meeting.client.fullName} через 2 часа (${dateStr})` },
+          { delay },
+        );
+      }
+    } catch (e) {
+      console.error('Notification queue failed:', e);
+    }
 
     // Update broker funnel stage if needed
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
