@@ -72,18 +72,36 @@ export class CatalogService {
       const planImage = images.find((img: any) => (img?.['@_type'] || '') === 'plan');
       const planImageUrl = typeof planImage === 'string' ? planImage : planImage?.['#text'] || null;
 
-      // Parse additional features from custom-fields / description / property_type
+      // Parse additional features from custom-fields / property_type
       const customFields = Array.isArray(offer['custom-field']) ? offer['custom-field'] : offer['custom-field'] ? [offer['custom-field']] : [];
-      const allText = [
-        offer?.property_type || '',
-        offer?.description || '',
-        offer?.['window-view'] || '',
-        ...customFields.map((cf: any) => `${cf?.name || ''} ${cf?.value || ''}`),
-      ].join(' ').toLowerCase();
 
-      const hasBalcony = /балкон|лоджи/i.test(allText);
-      const hasTerrace = /террас/i.test(allText);
-      const isPenthouse = /пентхаус|penthouse/i.test(allText);
+      // Helper: get value of a custom field by name match, return numeric or string
+      const getCF = (namePattern: RegExp): string => {
+        const cf = customFields.find((f: any) => namePattern.test(String(f?.name || '')));
+        return cf?.value ? String(cf.value).trim() : '';
+      };
+
+      // Feature is present if specific "area" field > 0 OR yes/да checkbox
+      const isTruthyValue = (v: string): boolean => {
+        if (!v) return false;
+        const s = v.toLowerCase().trim();
+        if (['0', 'нет', 'no', 'false', '-', ''].includes(s)) return false;
+        // If numeric — check > 0
+        const n = Number(s.replace(',', '.'));
+        if (!isNaN(n)) return n > 0;
+        // "да"/"yes"/"true"/any text → truthy
+        return true;
+      };
+
+      const balconyValue = getCF(/балкон/i);
+      const loggiaValue = getCF(/лоджи/i);
+      const hasBalcony = isTruthyValue(balconyValue) || isTruthyValue(loggiaValue);
+
+      const terraceValue = getCF(/террас/i);
+      const hasTerrace = isTruthyValue(terraceValue);
+
+      // Penthouse: only if property_type explicitly says so
+      const isPenthouse = /пентхаус|penthouse/i.test(String(offer?.property_type || ''));
 
       // Parse special-offers (discount)
       const specialOffersRaw = offer?.['special-offers']?.['special-offer'];
