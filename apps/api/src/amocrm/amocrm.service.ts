@@ -24,6 +24,67 @@ export class AmocrmService {
     return COMMISSION_RATES[project]?.[level] || COMMISSION_RATES.ZORGE9[level] || 5.0;
   }
 
+  private mapMeetingType(raw: string): 'OFFICE_VISIT' | 'ONLINE' | 'BROKER_TOUR' {
+    const v = (raw || '').toLowerCase();
+    if (v.includes('онлайн') || v.includes('online') || v.includes('zoom')) return 'ONLINE';
+    if (v.includes('тур') || v.includes('брокер')) return 'BROKER_TOUR';
+    return 'OFFICE_VISIT';
+  }
+
+  /**
+   * Sync meeting from a lead if it has meeting date field. Creates/updates Meeting linked to broker.
+   */
+  async syncMeetingFromLead(
+    lead: any,
+    brokerId: string,
+    clientId: string,
+  ): Promise<boolean> {
+    const customFields = lead?.custom_fields_values || [];
+    const dateField = customFields.find((f: any) => f.field_name === 'Дата и время встречи');
+    const typeField = customFields.find((f: any) => f.field_name === 'Встреча');
+
+    const rawDate = dateField?.values?.[0]?.value;
+    if (!rawDate) return false;
+
+    // amoCRM stores date as Unix timestamp (seconds)
+    const meetingDate = new Date(Number(rawDate) * 1000);
+    if (isNaN(meetingDate.getTime())) return false;
+
+    const rawType = typeField?.values?.[0]?.value || '';
+    const meetingType = this.mapMeetingType(rawType);
+
+    // Map lead status → meeting status
+    let meetingStatus: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' = 'PENDING';
+    if (lead.status_id === 143) meetingStatus = 'CANCELLED';
+    else if (lead.status_id === 142) meetingStatus = 'COMPLETED';
+    // "Встреча проведена" in some pipelines → COMPLETED
+    else if ([62907358, 62907430, 28905214].includes(lead.status_id)) meetingStatus = 'COMPLETED';
+
+    // Upsert meeting by clientId+brokerId+date (or use lead.id via comment)
+    const existing = await this.prisma.meeting.findFirst({
+      where: { clientId, brokerId, date: meetingDate },
+    });
+
+    if (existing) {
+      await this.prisma.meeting.update({
+        where: { id: existing.id },
+        data: { type: meetingType as any, status: meetingStatus as any },
+      });
+    } else {
+      await this.prisma.meeting.create({
+        data: {
+          brokerId,
+          clientId,
+          type: meetingType as any,
+          status: meetingStatus as any,
+          date: meetingDate,
+          comment: rawType ? `Тип из amoCRM: ${rawType}` : null,
+        },
+      });
+    }
+    return true;
+  }
+
   async getAccount() {
     return this.amo.getAccount();
   }
@@ -275,6 +336,9 @@ export class AmocrmService {
           await this.prisma.deal.create({ data: dealData });
           dealsCreated++;
         }
+
+        // Sync meeting from lead if present (only for current broker)
+        try { await this.syncMeetingFromLead(lead, brokerId, client.id); } catch {}
       } catch (e) {
         skipped++;
       }

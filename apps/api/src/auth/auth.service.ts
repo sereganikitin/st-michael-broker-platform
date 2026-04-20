@@ -320,6 +320,36 @@ export class AuthService {
         } else {
           await this.prisma.deal.create({ data: dealData });
         }
+
+        // Sync meeting from lead custom fields
+        try {
+          const cf = lead?.custom_fields_values || [];
+          const dateField = cf.find((f: any) => f.field_name === 'Дата и время встречи');
+          const typeField = cf.find((f: any) => f.field_name === 'Встреча');
+          const rawDate = dateField?.values?.[0]?.value;
+          if (rawDate) {
+            const meetingDate = new Date(Number(rawDate) * 1000);
+            if (!isNaN(meetingDate.getTime())) {
+              const rawType = typeField?.values?.[0]?.value || '';
+              const v = rawType.toLowerCase();
+              const meetingType = v.includes('онлайн') ? 'ONLINE' : v.includes('тур') ? 'BROKER_TOUR' : 'OFFICE_VISIT';
+              const meetingStatus = lead.status_id === 143 ? 'CANCELLED' : lead.status_id === 142 ? 'COMPLETED' : 'PENDING';
+              const existing = await this.prisma.meeting.findFirst({ where: { clientId: client.id, brokerId, date: meetingDate } });
+              if (existing) {
+                await this.prisma.meeting.update({ where: { id: existing.id }, data: { type: meetingType as any, status: meetingStatus as any } });
+              } else {
+                await this.prisma.meeting.create({
+                  data: {
+                    brokerId, clientId: client.id,
+                    type: meetingType as any, status: meetingStatus as any,
+                    date: meetingDate,
+                    comment: rawType ? `Тип из amoCRM: ${rawType}` : null,
+                  },
+                });
+              }
+            }
+          }
+        } catch {}
       } catch {}
     }
   }

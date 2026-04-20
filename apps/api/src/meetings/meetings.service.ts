@@ -25,11 +25,9 @@ export class MeetingsService {
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      brokerId,
-      client: { deals: { some: { status: { in: ['SIGNED', 'PAID', 'COMMISSION_PAID'] } } } },
-    };
+    const where: any = { brokerId };
     if (query.status) where.status = query.status;
+    else where.status = { not: 'CANCELLED' };
     if (query.type) where.type = query.type;
 
     const orderBy: any = {};
