@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
 import { TrendingUp } from 'lucide-react';
 
@@ -14,9 +14,23 @@ const levelNames: Record<string, string> = {
   LEGEND: 'Легенда',
 };
 
+const projectLabels: Record<string, string> = {
+  ZORGE9: 'Зорге 9',
+  SILVER_BOR: 'Серебряный бор',
+};
+
+// Commission rate tables by project and level
+const RATE_TABLE: Record<string, Record<string, number>> = {
+  ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
+  SILVER_BOR: { START: 4.5, BASIC: 5.0, STRONG: 5.5, PREMIUM: 6.0, ELITE: 6.5, CHAMPION: 7.0, LEGEND: 7.5 },
+};
+
+const LEVEL_ORDER = ['START', 'BASIC', 'STRONG', 'PREMIUM', 'ELITE', 'CHAMPION', 'LEGEND'];
+
 export default function CommissionPage() {
   const [commission, setCommission] = useState<any>(null);
   const [deals, setDeals] = useState<any[]>([]);
+  const [selectedProject, setSelectedProject] = useState<'ZORGE9' | 'SILVER_BOR'>('ZORGE9');
   const [calcResult, setCalcResult] = useState<any>(null);
   const [calcForm, setCalcForm] = useState({ amount: '', project: 'ZORGE9', agencyInn: '', isInstallment: false });
 
@@ -24,6 +38,21 @@ export default function CommissionPage() {
     apiGet('/commission/my').then(setCommission).catch(() => {});
     apiGet('/commission/deals').then(setDeals).catch(() => {});
   }, []);
+
+  const projectDeals = useMemo(
+    () => deals.filter((d) => d.project === selectedProject),
+    [deals, selectedProject],
+  );
+
+  const projectEarned = useMemo(
+    () =>
+      projectDeals
+        .filter((d) => d.status === 'PAID' || d.status === 'COMMISSION_PAID')
+        .reduce((sum, d) => sum + Number(d.commission || 0), 0),
+    [projectDeals],
+  );
+
+  const currentRate = RATE_TABLE[selectedProject][commission?.level || 'START'];
 
   const handleCalculate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +67,22 @@ export default function CommissionPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Комиссия</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Комиссия</h1>
+        <div className="inline-flex bg-surface-secondary rounded-lg p-1">
+          {(Object.keys(projectLabels) as Array<'ZORGE9' | 'SILVER_BOR'>).map((p) => (
+            <button
+              key={p}
+              onClick={() => setSelectedProject(p)}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                selectedProject === p ? 'bg-accent text-background' : 'text-text-muted hover:text-text'
+              }`}
+            >
+              {projectLabels[p]}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {commission && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -49,6 +93,9 @@ export default function CommissionPage() {
             </div>
             <p className="text-2xl font-bold text-accent">
               {levelNames[commission.level] || commission.level}
+            </p>
+            <p className="text-sm text-text-muted mt-1">
+              Ставка {projectLabels[selectedProject]}: <span className="text-accent font-bold">{currentRate}%</span>
             </p>
             {commission.nextLevel && (
               <div className="mt-3">
@@ -70,10 +117,11 @@ export default function CommissionPage() {
           </div>
 
           <div className="card">
-            <h3 className="text-sm text-text-muted mb-2">Заработано</h3>
+            <h3 className="text-sm text-text-muted mb-2">Заработано по проекту</h3>
             <p className="text-2xl font-bold text-accent">
-              {Math.round(commission.totalEarned || 0).toLocaleString('ru-RU')} ₽
+              {Math.round(projectEarned).toLocaleString('ru-RU')} ₽
             </p>
+            <p className="text-xs text-text-muted mt-1">{projectLabels[selectedProject]}</p>
             {commission.quarterlyBonusStreak > 0 && (
               <p className="text-xs text-success mt-2">
                 Бонусная серия: {commission.quarterlyBonusStreak} кв.
@@ -82,13 +130,20 @@ export default function CommissionPage() {
           </div>
 
           <div className="card">
-            <h3 className="text-sm text-text-muted mb-2">Ставки</h3>
-            {commission.rates && Object.entries(commission.rates).map(([project, rate]: any) => (
-              <div key={project} className="flex justify-between text-sm py-1">
-                <span>{project === 'ZORGE9' ? 'Зорге 9' : 'Серебряный бор'}</span>
-                <span className="font-bold text-accent">{rate}%</span>
-              </div>
-            ))}
+            <h3 className="text-sm text-text-muted mb-2">Шкала ставок — {projectLabels[selectedProject]}</h3>
+            <div className="space-y-1">
+              {LEVEL_ORDER.map((lvl) => (
+                <div
+                  key={lvl}
+                  className={`flex justify-between text-sm py-1 px-2 rounded ${
+                    lvl === commission.level ? 'bg-accent/10 text-accent font-bold' : ''
+                  }`}
+                >
+                  <span>{levelNames[lvl]}</span>
+                  <span>{RATE_TABLE[selectedProject][lvl]}%</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -165,16 +220,20 @@ export default function CommissionPage() {
         </div>
 
         <div className="card">
-          <h3 className="text-lg font-semibold mb-4">История комиссий</h3>
-          {deals.length === 0 ? (
-            <p className="text-text-muted">Нет данных</p>
+          <h3 className="text-lg font-semibold mb-4">
+            История комиссий — {projectLabels[selectedProject]}
+          </h3>
+          {projectDeals.length === 0 ? (
+            <p className="text-text-muted">Нет сделок по этому проекту</p>
           ) : (
             <div className="space-y-3">
-              {deals.map((deal: any) => (
+              {projectDeals.map((deal: any) => (
                 <div key={deal.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                   <div>
                     <div className="font-medium text-sm">{deal.clientName}</div>
-                    <div className="text-xs text-text-muted">{deal.project} | {deal.rate}%</div>
+                    <div className="text-xs text-text-muted">
+                      {projectLabels[deal.project] || deal.project} · {deal.rate}%
+                    </div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-bold text-accent">
