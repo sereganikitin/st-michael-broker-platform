@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet, apiPost } from '@/lib/api';
-import { Calendar, ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { api, apiGet, apiPost } from '@/lib/api';
+import { Calendar, ChevronLeft, ChevronRight, CheckCircle2, Pencil, X, Ban, Check } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   PENDING: { label: 'Ожидает', cls: 'bg-warning/20 text-warning' },
@@ -16,6 +16,128 @@ const typeLabels: Record<string, string> = {
   ONLINE: 'Онлайн',
   BROKER_TOUR: 'Брокер-тур',
 };
+
+function extractExtraPhone(comment: string | null): string {
+  if (!comment) return '';
+  const m = comment.match(/Доп\. телефон:\s*([+\d\s\-()]+)/);
+  return m ? m[1].trim() : '';
+}
+
+function stripExtraPhone(comment: string | null): string {
+  if (!comment) return '';
+  return comment.replace(/\.?\s*Доп\. телефон:.*$/, '').trim();
+}
+
+function EditMeetingModal({ meeting, onClose, onSaved }: { meeting: any; onClose: () => void; onSaved: () => void }) {
+  const toLocalInput = (iso: string) => {
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const [type, setType] = useState(meeting.type);
+  const [date, setDate] = useState(toLocalInput(meeting.date));
+  const [extraPhone, setExtraPhone] = useState(extractExtraPhone(meeting.comment));
+  const [comment, setComment] = useState(stripExtraPhone(meeting.comment));
+  const [status, setStatus] = useState(meeting.status);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const handleSave = async () => {
+    setSaving(true); setErr('');
+    try {
+      await api(`/meetings/${meeting.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          type,
+          date: new Date(date).toISOString(),
+          comment: comment || undefined,
+          extraPhone: extraPhone || undefined,
+          status,
+        }),
+      });
+      onSaved();
+      onClose();
+    } catch (e: any) { setErr(e.message || 'Ошибка сохранения'); }
+    setSaving(false);
+  };
+
+  const handleCancel = async () => {
+    if (!confirm('Отменить встречу?')) return;
+    setSaving(true); setErr('');
+    try {
+      await api(`/meetings/${meeting.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'CANCELLED' }),
+      });
+      onSaved();
+      onClose();
+    } catch (e: any) { setErr(e.message || 'Ошибка отмены'); }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-surface rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 relative" onClick={(e) => e.stopPropagation()}>
+        <button className="absolute top-4 right-4 text-text-muted hover:text-text" onClick={onClose}>
+          <X className="w-5 h-5" />
+        </button>
+        <h2 className="text-xl font-bold mb-1">Редактировать встречу</h2>
+        <p className="text-text-muted text-sm mb-4">{meeting.client?.fullName} · {meeting.client?.phone}</p>
+
+        {err && <div className="mb-3 p-3 bg-error/20 text-error rounded-lg text-sm">{err}</div>}
+
+        <div className="space-y-4">
+          <div>
+            <label className="label">Тип визита</label>
+            <div className="grid grid-cols-3 gap-2">
+              {Object.entries(typeLabels).map(([key, label]) => (
+                <label key={key} className={`cursor-pointer text-center py-2 px-3 rounded-lg border text-sm transition ${type === key ? 'border-accent bg-accent/10 text-accent' : 'border-border hover:bg-surface-secondary'}`}>
+                  <input type="radio" name="edit-type" value={key} checked={type === key} onChange={(e) => setType(e.target.value)} className="hidden" />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Дата и время</label>
+            <input type="datetime-local" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="label">Доп. телефон</label>
+            <input type="tel" className="input" placeholder="+79991234567" value={extraPhone} onChange={(e) => setExtraPhone(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="label">Комментарий</label>
+            <textarea className="input" rows={3} value={comment} onChange={(e) => setComment(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="label">Статус</label>
+            <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="PENDING">Ожидает</option>
+              <option value="CONFIRMED">Подтверждена</option>
+              <option value="COMPLETED">Завершена</option>
+              <option value="CANCELLED">Отменена</option>
+            </select>
+          </div>
+
+          <div className="flex gap-2 pt-2 border-t border-border">
+            <button className="btn btn-primary flex items-center justify-center gap-2 flex-1" onClick={handleSave} disabled={saving}>
+              <Check className="w-4 h-4" /> Сохранить
+            </button>
+            <button className="btn btn-secondary text-error" onClick={handleCancel} disabled={saving} title="Отменить встречу">
+              <Ban className="w-4 h-4" /> Отменить встречу
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function MeetingsPage() {
   const [meetings, setMeetings] = useState<any[]>([]);
@@ -38,6 +160,7 @@ export default function MeetingsPage() {
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState<any | null>(null);
 
   const fetchMeetings = () => {
     setLoading(true);
@@ -257,9 +380,19 @@ export default function MeetingsPage() {
                         {m.comment && <div className="text-xs text-text-muted mt-1 line-clamp-2">{m.comment}</div>}
                       </div>
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${statusLabels[m.status]?.cls || ''}`}>
-                      {statusLabels[m.status]?.label || m.status}
-                    </span>
+                    <div className="flex flex-col items-end gap-2">
+                      <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${statusLabels[m.status]?.cls || ''}`}>
+                        {statusLabels[m.status]?.label || m.status}
+                      </span>
+                      {m.status !== 'CANCELLED' && m.status !== 'COMPLETED' && (
+                        <button
+                          className="text-xs text-accent hover:underline flex items-center gap-1"
+                          onClick={() => setEditingMeeting(m)}
+                        >
+                          <Pencil className="w-3 h-3" /> Изменить
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -281,6 +414,14 @@ export default function MeetingsPage() {
           )}
         </div>
       </div>
+
+      {editingMeeting && (
+        <EditMeetingModal
+          meeting={editingMeeting}
+          onClose={() => setEditingMeeting(null)}
+          onSaved={fetchMeetings}
+        />
+      )}
     </div>
   );
 }

@@ -121,6 +121,8 @@ export const updateMeetingDtoSchema = z.object({
   date: z.string().datetime().optional(),
   comment: z.string().optional(),
   status: z.nativeEnum(MeetingStatus).optional(),
+  type: z.nativeEnum(MeetingType).optional(),
+  extraPhone: z.string().optional(),
 });
 
 // Notification schemas

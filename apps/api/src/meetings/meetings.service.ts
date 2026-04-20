@@ -141,7 +141,7 @@ export class MeetingsService {
   async updateMeeting(
     id: string,
     brokerId: string,
-    data: { date?: string; comment?: string; status?: string },
+    data: { date?: string; comment?: string; status?: string; type?: string; extraPhone?: string },
   ) {
     const meeting = await this.prisma.meeting.findUnique({ where: { id } });
     if (!meeting) throw new NotFoundException('Meeting not found');
@@ -152,14 +152,27 @@ export class MeetingsService {
 
     const updateData: any = {};
     if (data.date) updateData.date = new Date(data.date);
-    if (data.comment !== undefined) updateData.comment = data.comment;
     if (data.status) updateData.status = data.status;
+    if (data.type) updateData.type = data.type;
+
+    // Preserve/append "Доп. телефон" in comment
+    if (data.comment !== undefined || data.extraPhone !== undefined) {
+      const parts: string[] = [];
+      const rawComment = data.comment !== undefined ? data.comment : (meeting.comment || '').replace(/\.?\s*Доп\. телефон:.*$/, '').trim();
+      if (rawComment) parts.push(rawComment);
+      if (data.extraPhone) parts.push(`Доп. телефон: ${data.extraPhone}`);
+      updateData.comment = parts.join('. ') || null;
+    }
 
     return this.prisma.meeting.update({
       where: { id },
       data: updateData,
       include: { client: { select: { id: true, fullName: true, phone: true } } },
     });
+  }
+
+  async cancelMeeting(id: string, brokerId: string) {
+    return this.updateMeeting(id, brokerId, { status: 'CANCELLED' });
   }
 
   async signAct(id: string, brokerId: string) {
