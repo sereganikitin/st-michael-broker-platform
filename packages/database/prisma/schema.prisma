@@ -266,6 +266,9 @@ model Lot {
   hasBalcony   Boolean   @default(false) @map("has_balcony")
   hasTerrace   Boolean   @default(false) @map("has_terrace")
   isPenthouse  Boolean   @default(false) @map("is_penthouse")
+  discountPrice    Decimal? @map("discount_price") @db.Decimal(14, 2)
+  discountPercent  Decimal? @map("discount_percent") @db.Decimal(5, 2)
+  discountName     String?  @map("discount_name")
   deals        Deal[]
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")

@@ -85,6 +85,25 @@ export class CatalogService {
       const hasTerrace = /террас/i.test(allText);
       const isPenthouse = /пентхаус|penthouse/i.test(allText);
 
+      // Parse special-offers (discount)
+      const specialOffersRaw = offer?.['special-offers']?.['special-offer'];
+      const specialOffers = Array.isArray(specialOffersRaw) ? specialOffersRaw : specialOffersRaw ? [specialOffersRaw] : [];
+      let discountPrice: number | null = null;
+      let discountPercent: number | null = null;
+      let discountName: string | null = null;
+      if (specialOffers.length > 0) {
+        // Pick the best (largest) discount
+        const best = specialOffers.reduce((best: any, cur: any) => {
+          const curPrice = Number(cur?.['discount-price'] || 0);
+          const bestPrice = Number(best?.['discount-price'] || Infinity);
+          return curPrice && curPrice < bestPrice ? cur : best;
+        }, specialOffers[0]);
+        discountPrice = Number(best?.['discount-price'] || 0) || null;
+        const unit = (best?.['discount-unit'] || '').toUpperCase();
+        if (unit === 'PERCENT') discountPercent = Number(best?.value || 0) || null;
+        discountName = best?.name || null;
+      }
+
       const data = {
         number: String(offer.number || ''),
         project: project as any,
@@ -108,6 +127,9 @@ export class CatalogService {
         hasBalcony,
         hasTerrace,
         isPenthouse,
+        discountPrice,
+        discountPercent,
+        discountName,
       };
 
       try {

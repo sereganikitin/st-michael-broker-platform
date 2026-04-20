@@ -58,10 +58,24 @@ function LotDetail({ lot, onClose }: { lot: any; onClose: () => void }) {
         )}
 
         <div className="bg-surface-secondary rounded-lg p-4">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-text-muted">Стоимость</span>
-            <span className="text-2xl font-bold text-accent">{Number(lot.price).toLocaleString('ru-RU')} ₽</span>
-          </div>
+          {lot.discountPrice && Number(lot.discountPrice) > 0 ? (
+            <>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-text-muted text-sm">Без скидки</span>
+                <span className="text-sm text-text-muted line-through">{Number(lot.price).toLocaleString('ru-RU')} ₽</span>
+              </div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-text-muted">Со скидкой{lot.discountPercent ? ` (-${Number(lot.discountPercent)}%)` : ''}</span>
+                <span className="text-2xl font-bold text-accent">{Number(lot.discountPrice).toLocaleString('ru-RU')} ₽</span>
+              </div>
+              {lot.discountName && <div className="text-xs text-accent mt-1">{lot.discountName}</div>}
+            </>
+          ) : (
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-text-muted">Стоимость</span>
+              <span className="text-2xl font-bold text-accent">{Number(lot.price).toLocaleString('ru-RU')} ₽</span>
+            </div>
+          )}
           {Number(lot.pricePerSqm) > 0 && (
             <div className="flex justify-between items-center">
               <span className="text-text-muted text-sm">Цена за м²</span>
@@ -359,7 +373,20 @@ export default function CatalogPage() {
                     {lot.builtYear && (
                       <div className="flex justify-between"><span className="text-text-muted">Сдача:</span><span className="text-xs">{lot.readyQuarter ? `${lot.readyQuarter}кв. ` : ''}{lot.builtYear}</span></div>
                     )}
-                    <div className="flex justify-between pt-2 border-t border-border"><span className="text-text-muted">Цена:</span><span className="font-bold text-accent">{Number(lot.price).toLocaleString('ru-RU')} ₽</span></div>
+                    {lot.discountPrice && Number(lot.discountPrice) > 0 ? (
+                      <div className="pt-2 border-t border-border">
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-xs">Без скидки:</span>
+                          <span className="text-xs text-text-muted line-through">{Number(lot.price).toLocaleString('ru-RU')} ₽</span>
+                        </div>
+                        <div className="flex justify-between items-center mt-0.5">
+                          <span className="text-text-muted text-xs">Со скидкой{lot.discountPercent ? ` -${Number(lot.discountPercent)}%` : ''}:</span>
+                          <span className="font-bold text-accent">{Number(lot.discountPrice).toLocaleString('ru-RU')} ₽</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between pt-2 border-t border-border"><span className="text-text-muted">Цена:</span><span className="font-bold text-accent">{Number(lot.price).toLocaleString('ru-RU')} ₽</span></div>
+                    )}
                   </div>
                   {(lot.hasBalcony || lot.hasTerrace || lot.isPenthouse) && (
                     <div className="flex flex-wrap gap-1 mt-2">
