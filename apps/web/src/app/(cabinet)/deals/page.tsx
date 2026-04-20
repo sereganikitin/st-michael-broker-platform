@@ -83,9 +83,9 @@ export default function DealsPage() {
                       </td>
                       <td className="py-3">{deal.project}</td>
                       <td className="py-3 text-text-muted">{deal.lot?.number || '—'}</td>
-                      <td className="py-3">{Number(deal.amount).toLocaleString('ru-RU')} ₽</td>
+                      <td className="py-3">{Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽</td>
                       <td className="py-3 text-accent">
-                        {Number(deal.commissionAmount).toLocaleString('ru-RU')} ₽
+                        {Math.round(Number(deal.commissionAmount)).toLocaleString('ru-RU')} ₽
                         <span className="text-xs text-text-muted ml-1">({Number(deal.commissionRate)}%)</span>
                       </td>
                       <td className="py-3">

@@ -62,24 +62,24 @@ function LotDetail({ lot, onClose }: { lot: any; onClose: () => void }) {
             <>
               <div className="flex justify-between items-center mb-1">
                 <span className="text-text-muted text-sm">Без скидки</span>
-                <span className="text-sm text-text-muted line-through">{Number(lot.price).toLocaleString('ru-RU')} ₽</span>
+                <span className="text-sm text-text-muted line-through">{Math.round(Number(lot.price)).toLocaleString('ru-RU')} ₽</span>
               </div>
               <div className="flex justify-between items-center mb-2">
                 <span className="text-text-muted">Со скидкой{lot.discountPercent ? ` (-${Number(lot.discountPercent)}%)` : ''}</span>
-                <span className="text-2xl font-bold text-accent">{Number(lot.discountPrice).toLocaleString('ru-RU')} ₽</span>
+                <span className="text-2xl font-bold text-accent">{Math.round(Number(lot.discountPrice)).toLocaleString('ru-RU')} ₽</span>
               </div>
               {lot.discountName && <div className="text-xs text-accent mt-1">{lot.discountName}</div>}
             </>
           ) : (
             <div className="flex justify-between items-center mb-2">
               <span className="text-text-muted">Стоимость</span>
-              <span className="text-2xl font-bold text-accent">{Number(lot.price).toLocaleString('ru-RU')} ₽</span>
+              <span className="text-2xl font-bold text-accent">{Math.round(Number(lot.price)).toLocaleString('ru-RU')} ₽</span>
             </div>
           )}
           {Number(lot.pricePerSqm) > 0 && (
             <div className="flex justify-between items-center">
               <span className="text-text-muted text-sm">Цена за м²</span>
-              <span className="text-sm">{Number(lot.pricePerSqm).toLocaleString('ru-RU')} ₽/м²</span>
+              <span className="text-sm">{Math.round(Number(lot.pricePerSqm)).toLocaleString('ru-RU')} ₽/м²</span>
             </div>
           )}
         </div>
@@ -377,15 +377,15 @@ export default function CatalogPage() {
                       <div className="pt-2 border-t border-border">
                         <div className="flex justify-between items-center">
                           <span className="text-text-muted text-xs">Без скидки:</span>
-                          <span className="text-xs text-text-muted line-through">{Number(lot.price).toLocaleString('ru-RU')} ₽</span>
+                          <span className="text-xs text-text-muted line-through">{Math.round(Number(lot.price)).toLocaleString('ru-RU')} ₽</span>
                         </div>
                         <div className="flex justify-between items-center mt-0.5">
                           <span className="text-text-muted text-xs">Со скидкой{lot.discountPercent ? ` -${Number(lot.discountPercent)}%` : ''}:</span>
-                          <span className="font-bold text-accent">{Number(lot.discountPrice).toLocaleString('ru-RU')} ₽</span>
+                          <span className="font-bold text-accent">{Math.round(Number(lot.discountPrice)).toLocaleString('ru-RU')} ₽</span>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex justify-between pt-2 border-t border-border"><span className="text-text-muted">Цена:</span><span className="font-bold text-accent">{Number(lot.price).toLocaleString('ru-RU')} ₽</span></div>
+                      <div className="flex justify-between pt-2 border-t border-border"><span className="text-text-muted">Цена:</span><span className="font-bold text-accent">{Math.round(Number(lot.price)).toLocaleString('ru-RU')} ₽</span></div>
                     )}
                   </div>
                   {(lot.hasBalcony || lot.hasTerrace || lot.isPenthouse) && (

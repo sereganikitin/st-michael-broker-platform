@@ -53,7 +53,7 @@ export default function FixationPage() {
     const commentParts = [
       `Тип: ${propertyType}`,
       `Метраж: ${sqm} м²`,
-      `Сумма: ${Number(amount).toLocaleString('ru-RU')} ₽`,
+      `Сумма: ${Math.round(Number(amount)).toLocaleString('ru-RU')} ₽`,
     ];
     if (participants.length > 0) {
       const parts = participants

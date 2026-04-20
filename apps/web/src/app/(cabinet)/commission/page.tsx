@@ -72,7 +72,7 @@ export default function CommissionPage() {
           <div className="card">
             <h3 className="text-sm text-text-muted mb-2">Заработано</h3>
             <p className="text-2xl font-bold text-accent">
-              {(commission.totalEarned || 0).toLocaleString('ru-RU')} ₽
+              {Math.round(commission.totalEarned || 0).toLocaleString('ru-RU')} ₽
             </p>
             {commission.quarterlyBonusStreak > 0 && (
               <p className="text-xs text-success mt-2">
@@ -146,7 +146,7 @@ export default function CommissionPage() {
             <div className="mt-4 p-4 bg-surface-secondary rounded-lg">
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-text-muted">Сумма:</span>
-                <span>{Number(calcResult.amount).toLocaleString('ru-RU')} ₽</span>
+                <span>{Math.round(Number(calcResult.amount)).toLocaleString('ru-RU')} ₽</span>
               </div>
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-text-muted">Уровень:</span>
@@ -158,7 +158,7 @@ export default function CommissionPage() {
               </div>
               <div className="flex justify-between text-lg font-bold border-t border-border pt-2 mt-2">
                 <span>Комиссия:</span>
-                <span className="text-accent">{Number(calcResult.commission).toLocaleString('ru-RU')} ₽</span>
+                <span className="text-accent">{Math.round(Number(calcResult.commission)).toLocaleString('ru-RU')} ₽</span>
               </div>
             </div>
           )}
@@ -178,7 +178,7 @@ export default function CommissionPage() {
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-bold text-accent">
-                      {Number(deal.commission).toLocaleString('ru-RU')} ₽
+                      {Math.round(Number(deal.commission)).toLocaleString('ru-RU')} ₽
                     </div>
                     <div className="text-xs text-text-muted">{deal.status}</div>
                   </div>

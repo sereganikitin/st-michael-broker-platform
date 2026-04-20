@@ -85,7 +85,7 @@ function ClientDetail({ client, onClose }: { client: any; onClose: () => void })
               {client.deals.map((deal: any) => (
                 <div key={deal.id} className="bg-surface-secondary rounded-lg p-3 flex justify-between text-sm">
                   <span>Статус: {deal.status}</span>
-                  {deal.amount && <span className="font-medium">{Number(deal.amount).toLocaleString('ru-RU')} ₽</span>}
+                  {deal.amount && <span className="font-medium">{Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽</span>}
                 </div>
               ))}
             </div>
