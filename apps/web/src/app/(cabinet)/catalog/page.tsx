@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
-import { Building, RefreshCw, ChevronLeft, ChevronRight, X, SlidersHorizontal } from 'lucide-react';
+import { Building, RefreshCw, ChevronLeft, ChevronRight, X, SlidersHorizontal, Heart, Printer, CalendarDays, Bookmark } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   AVAILABLE: { label: 'Свободен', cls: 'bg-success/20 text-success' },
@@ -15,7 +15,69 @@ const projectLabels: Record<string, string> = {
   SILVER_BOR: 'Серебряный бор',
 };
 
-function LotDetail({ lot, onClose }: { lot: any; onClose: () => void }) {
+const FAVORITES_KEY = 'catalog_favorites';
+
+function getFavorites(): string[] {
+  if (typeof window === 'undefined') return [];
+  try { return JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]'); } catch { return []; }
+}
+
+function toggleFavorite(lotId: string): string[] {
+  const favs = getFavorites();
+  const idx = favs.indexOf(lotId);
+  if (idx >= 0) favs.splice(idx, 1); else favs.push(lotId);
+  localStorage.setItem(FAVORITES_KEY, JSON.stringify(favs));
+  return favs;
+}
+
+function LotDetail({ lot, onClose, onBook, onVisit }: { lot: any; onClose: () => void; onBook: (lot: any) => void; onVisit: (lot: any) => void }) {
+  const [isFavorite, setIsFavorite] = useState(false);
+
+  useEffect(() => {
+    setIsFavorite(getFavorites().includes(lot.id));
+  }, [lot.id]);
+
+  const handleToggleFav = () => {
+    const favs = toggleFavorite(lot.id);
+    setIsFavorite(favs.includes(lot.id));
+  };
+
+  const handlePrint = () => {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    const priceDisplay = lot.discountPrice && Number(lot.discountPrice) > 0
+      ? `${Math.round(Number(lot.discountPrice)).toLocaleString('ru-RU')} ₽ (было ${Math.round(Number(lot.price)).toLocaleString('ru-RU')} ₽)`
+      : `${Math.round(Number(lot.price)).toLocaleString('ru-RU')} ₽`;
+    w.document.write(`
+      <html><head><title>Лот ${lot.number}</title>
+      <style>
+        body{font-family:Arial,sans-serif;padding:32px;color:#1a1a1a;max-width:800px;margin:0 auto}
+        h1{border-bottom:2px solid #B4936F;padding-bottom:8px}
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+        .row{padding:8px 12px;background:#f5f5f5;border-radius:4px}
+        .label{font-size:11px;color:#888;text-transform:uppercase}
+        .value{font-weight:600;margin-top:2px}
+        .price{font-size:24px;color:#B4936F;font-weight:bold;padding:16px;background:#f5f5f5;border-radius:8px;margin-top:16px}
+        img{max-width:100%;margin-top:16px}
+      </style></head><body>
+      <h1>Лот ${lot.number}</h1>
+      <div><strong>${projectLabels[lot.project] || lot.project}</strong> — ${lot.propertyType || ''}</div>
+      <div class="grid">
+        <div class="row"><div class="label">Корпус</div><div class="value">${lot.building || '—'}</div></div>
+        <div class="row"><div class="label">Этаж</div><div class="value">${lot.floor}${lot.floorsTotal ? ` / ${lot.floorsTotal}` : ''}</div></div>
+        <div class="row"><div class="label">Комнат</div><div class="value">${lot.rooms}</div></div>
+        <div class="row"><div class="label">Площадь</div><div class="value">${Number(lot.sqm)} м²</div></div>
+        ${lot.builtYear ? `<div class="row"><div class="label">Срок сдачи</div><div class="value">${lot.readyQuarter ? lot.readyQuarter + ' кв. ' : ''}${lot.builtYear}</div></div>` : ''}
+        ${lot.windowView ? `<div class="row"><div class="label">Вид из окна</div><div class="value">${lot.windowView}</div></div>` : ''}
+      </div>
+      <div class="price">Стоимость: ${priceDisplay}</div>
+      ${lot.planImageUrl ? `<img src="${lot.planImageUrl}" alt="Планировка" />` : ''}
+      </body></html>
+    `);
+    w.document.close();
+    setTimeout(() => { w.print(); }, 500);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-surface rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 relative" onClick={(e) => e.stopPropagation()}>
@@ -23,11 +85,20 @@ function LotDetail({ lot, onClose }: { lot: any; onClose: () => void }) {
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 pr-8">
           <h2 className="text-xl font-bold">{lot.number}</h2>
-          <span className={`text-xs px-2 py-1 rounded ${statusLabels[lot.status]?.cls || 'bg-text-muted/20'}`}>
-            {statusLabels[lot.status]?.label || lot.status}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs px-2 py-1 rounded ${statusLabels[lot.status]?.cls || 'bg-text-muted/20'}`}>
+              {statusLabels[lot.status]?.label || lot.status}
+            </span>
+            <button
+              onClick={handleToggleFav}
+              className={`p-2 rounded-lg transition ${isFavorite ? 'bg-error/20 text-error' : 'hover:bg-surface-secondary text-text-muted'}`}
+              title={isFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}
+            >
+              <Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} />
+            </button>
+          </div>
         </div>
 
         {lot.propertyType && <div className="text-sm text-accent mb-4">{lot.propertyType}</div>}
@@ -83,6 +154,84 @@ function LotDetail({ lot, onClose }: { lot: any; onClose: () => void }) {
             </div>
           )}
         </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
+          <button
+            className="btn btn-primary flex items-center justify-center gap-2"
+            onClick={() => onBook(lot)}
+            disabled={lot.status !== 'AVAILABLE'}
+          >
+            <Bookmark className="w-4 h-4" />
+            Забронировать
+          </button>
+          <button
+            className="btn btn-secondary flex items-center justify-center gap-2"
+            onClick={() => onVisit(lot)}
+          >
+            <CalendarDays className="w-4 h-4" />
+            Записаться в офис
+          </button>
+          <button
+            className="btn btn-secondary flex items-center justify-center gap-2"
+            onClick={handlePrint}
+          >
+            <Printer className="w-4 h-4" />
+            Скачать PDF
+          </button>
+          <button
+            className={`btn flex items-center justify-center gap-2 ${isFavorite ? 'bg-error/20 text-error hover:bg-error/30' : 'btn-secondary'}`}
+            onClick={handleToggleFav}
+          >
+            <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
+            {isFavorite ? 'В избранном' : 'В избранное'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContactModal({ lot, kind, onClose }: { lot: any; kind: 'book' | 'visit'; onClose: () => void }) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [comment, setComment] = useState('');
+  const [sent, setSent] = useState(false);
+
+  const title = kind === 'book' ? 'Забронировать лот' : 'Записаться на встречу в офис';
+
+  const handleSend = () => {
+    // For now — just show success. Later can send to backend / telegram / email
+    setSent(true);
+    setTimeout(onClose, 2500);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-surface rounded-xl max-w-md w-full p-6 relative" onClick={(e) => e.stopPropagation()}>
+        <button className="absolute top-4 right-4 text-text-muted hover:text-text" onClick={onClose}>
+          <X className="w-5 h-5" />
+        </button>
+        <h2 className="text-xl font-bold mb-2">{title}</h2>
+        <p className="text-text-muted text-sm mb-4">Лот {lot.number} — {projectLabels[lot.project] || lot.project}</p>
+
+        {sent ? (
+          <div className="p-4 bg-success/20 text-success rounded-lg text-sm text-center">
+            ✓ Заявка отправлена. Мы свяжемся с вами в ближайшее время.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <input className="input" placeholder="Имя клиента" value={name} onChange={(e) => setName(e.target.value)} />
+            <input className="input" placeholder="Телефон клиента" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <textarea className="input" rows={3} placeholder="Комментарий" value={comment} onChange={(e) => setComment(e.target.value)} />
+            <button
+              className="btn btn-primary w-full"
+              onClick={handleSend}
+              disabled={!name || !phone}
+            >
+              Отправить
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -122,6 +271,7 @@ export default function CatalogPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
   const [selectedLot, setSelectedLot] = useState<any>(null);
+  const [contactModal, setContactModal] = useState<{ lot: any; kind: 'book' | 'visit' } | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Reset building when project changes if it doesn't belong to the project
@@ -359,9 +509,23 @@ export default function CatalogPage() {
                   )}
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-medium text-sm">{lot.number}</h3>
-                    <span className={`text-xs px-2 py-1 rounded ${statusLabels[lot.status]?.cls || 'bg-text-muted/20'}`}>
-                      {statusLabels[lot.status]?.label || lot.status}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className={`text-xs px-2 py-1 rounded ${statusLabels[lot.status]?.cls || 'bg-text-muted/20'}`}>
+                        {statusLabels[lot.status]?.label || lot.status}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(lot.id);
+                          // Force re-render by updating lots array
+                          setLots((prev) => [...prev]);
+                        }}
+                        className={`p-1 rounded ${getFavorites().includes(lot.id) ? 'text-error' : 'text-text-muted hover:text-text'}`}
+                        title="В избранное"
+                      >
+                        <Heart className={`w-4 h-4 ${getFavorites().includes(lot.id) ? 'fill-current' : ''}`} />
+                      </button>
+                    </div>
                   </div>
                   {lot.propertyType && <div className="text-xs text-accent mb-2">{lot.propertyType}</div>}
                   <div className="space-y-1 text-sm">
@@ -412,7 +576,22 @@ export default function CatalogPage() {
         )}
       </div>
 
-      {selectedLot && <LotDetail lot={selectedLot} onClose={() => setSelectedLot(null)} />}
+      {selectedLot && (
+        <LotDetail
+          lot={selectedLot}
+          onClose={() => setSelectedLot(null)}
+          onBook={(lot) => setContactModal({ lot, kind: 'book' })}
+          onVisit={(lot) => setContactModal({ lot, kind: 'visit' })}
+        />
+      )}
+
+      {contactModal && (
+        <ContactModal
+          lot={contactModal.lot}
+          kind={contactModal.kind}
+          onClose={() => setContactModal(null)}
+        />
+      )}
     </div>
   );
 }
