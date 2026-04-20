@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus, isDealStage } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus, isDealStage, mapMeetingStatus } from '@st-michael/integrations';
 
 const COMMISSION_RATES: Record<string, Record<string, number>> = {
   ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
@@ -53,12 +53,7 @@ export class AmocrmService {
     const rawType = typeField?.values?.[0]?.value || '';
     const meetingType = this.mapMeetingType(rawType);
 
-    // Map lead status → meeting status
-    let meetingStatus: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' = 'PENDING';
-    if (lead.status_id === 143) meetingStatus = 'CANCELLED';
-    else if (lead.status_id === 142) meetingStatus = 'COMPLETED';
-    // "Встреча проведена" in some pipelines → COMPLETED
-    else if ([62907358, 62907430, 28905214].includes(lead.status_id)) meetingStatus = 'COMPLETED';
+    const meetingStatus = mapMeetingStatus(lead.status_id);
 
     // Upsert meeting by clientId+brokerId+date (or use lead.id via comment)
     const existing = await this.prisma.meeting.findFirst({

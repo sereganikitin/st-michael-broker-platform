@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus, isDealStage } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus, isDealStage, mapMeetingStatus } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
 
 @Injectable()
@@ -292,7 +292,7 @@ export class SchedulerService {
                   const rawType = tField?.values?.[0]?.value || '';
                   const v = rawType.toLowerCase();
                   const mType = v.includes('онлайн') ? 'ONLINE' : v.includes('тур') ? 'BROKER_TOUR' : 'OFFICE_VISIT';
-                  const mStatus = lead.status_id === 143 ? 'CANCELLED' : lead.status_id === 142 ? 'COMPLETED' : 'PENDING';
+                  const mStatus = mapMeetingStatus(lead.status_id);
                   const existingMeeting = await this.prisma.meeting.findFirst({
                     where: { clientId: client.id, brokerId: broker.id, date: mDate },
                   });

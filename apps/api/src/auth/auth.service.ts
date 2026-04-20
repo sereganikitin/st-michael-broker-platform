@@ -4,7 +4,7 @@ import { PrismaClient, UserStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as bcrypt from 'bcrypt';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, mapMeetingStatus } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
 
 @Injectable()
@@ -333,7 +333,7 @@ export class AuthService {
               const rawType = typeField?.values?.[0]?.value || '';
               const v = rawType.toLowerCase();
               const meetingType = v.includes('онлайн') ? 'ONLINE' : v.includes('тур') ? 'BROKER_TOUR' : 'OFFICE_VISIT';
-              const meetingStatus = lead.status_id === 143 ? 'CANCELLED' : lead.status_id === 142 ? 'COMPLETED' : 'PENDING';
+              const meetingStatus = mapMeetingStatus(lead.status_id);
               const existing = await this.prisma.meeting.findFirst({ where: { clientId: client.id, brokerId, date: meetingDate } });
               if (existing) {
                 await this.prisma.meeting.update({ where: { id: existing.id }, data: { type: meetingType as any, status: meetingStatus as any } });
