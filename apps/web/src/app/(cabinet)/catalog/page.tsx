@@ -267,6 +267,7 @@ export default function CatalogPage() {
   const [buildings, setBuildings] = useState<{ building: string; count: number }[]>([]);
   const [views, setViews] = useState<{ view: string; count: number }[]>([]);
   const [years, setYears] = useState<{ year: number; count: number }[]>([]);
+  const [featureCounts, setFeatureCounts] = useState<{ hasBalcony: number; hasTerrace: number; isPenthouse: number }>({ hasBalcony: 0, hasTerrace: 0, isPenthouse: 0 });
 
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
@@ -312,6 +313,7 @@ export default function CatalogPage() {
         if (data.filters?.buildings) setBuildings(data.filters.buildings);
         if (data.filters?.views) setViews(data.filters.views);
         if (data.filters?.years) setYears(data.filters.years);
+        if (data.filters?.featureCounts) setFeatureCounts(data.filters.featureCounts);
       })
       .catch(() => setLots([]))
       .finally(() => setLoading(false));
@@ -466,18 +468,24 @@ export default function CatalogPage() {
                 </select>
               </div>
               <div className="flex flex-wrap items-center gap-4 pt-4 md:pt-0">
-                <label className="flex items-center gap-2 cursor-pointer text-sm">
-                  <input type="checkbox" checked={hasBalcony} onChange={(e) => { setHasBalcony(e.target.checked); setPage(1); }} />
-                  Балкон / лоджия
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer text-sm">
-                  <input type="checkbox" checked={hasTerrace} onChange={(e) => { setHasTerrace(e.target.checked); setPage(1); }} />
-                  Терраса
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer text-sm">
-                  <input type="checkbox" checked={isPenthouse} onChange={(e) => { setIsPenthouse(e.target.checked); setPage(1); }} />
-                  Пентхаус
-                </label>
+                {featureCounts.hasBalcony > 0 && (
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input type="checkbox" checked={hasBalcony} onChange={(e) => { setHasBalcony(e.target.checked); setPage(1); }} />
+                    Балкон / лоджия ({featureCounts.hasBalcony})
+                  </label>
+                )}
+                {featureCounts.hasTerrace > 0 && (
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input type="checkbox" checked={hasTerrace} onChange={(e) => { setHasTerrace(e.target.checked); setPage(1); }} />
+                    Терраса ({featureCounts.hasTerrace})
+                  </label>
+                )}
+                {featureCounts.isPenthouse > 0 && (
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input type="checkbox" checked={isPenthouse} onChange={(e) => { setIsPenthouse(e.target.checked); setPage(1); }} />
+                    Пентхаус ({featureCounts.isPenthouse})
+                  </label>
+                )}
               </div>
             </div>
           </div>

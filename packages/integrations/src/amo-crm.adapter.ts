@@ -117,13 +117,13 @@ export class AmoCrmAdapter {
     try {
       const data = await this.request<any>(`/contacts?query=${query}&limit=50`);
       const contacts: any[] = data?._embedded?.contacts || [];
-      // Prefer contact with "Брокер" checkbox = true (field_id 835415)
+      // Return ONLY contact with "Брокер" checkbox = true (field_id 835415). No fallback.
       const brokerContact = contacts.find((c: any) => {
         const fields = c.custom_fields_values || [];
         const brokerField = fields.find((f: any) => f.field_id === 835415);
         return brokerField?.values?.[0]?.value === true;
       });
-      return brokerContact || contacts[0] || null;
+      return brokerContact || null;
     } catch {
       return null;
     }

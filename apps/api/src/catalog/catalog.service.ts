@@ -295,6 +295,15 @@ export class CatalogService {
       orderBy: { building: 'asc' },
     });
 
+    // Feature counts (respect project filter) — to hide checkboxes for features absent in project
+    const featureWhere: any = { ...notSold };
+    if (filters.project) featureWhere.project = filters.project;
+    const [balconyCount, terraceCount, penthouseCount] = await Promise.all([
+      this.prisma.lot.count({ where: { ...featureWhere, hasBalcony: true } }),
+      this.prisma.lot.count({ where: { ...featureWhere, hasTerrace: true } }),
+      this.prisma.lot.count({ where: { ...featureWhere, isPenthouse: true } }),
+    ]);
+
     // Distinct window views
     const views = await this.prisma.lot.groupBy({
       by: ['windowView'],
@@ -322,6 +331,11 @@ export class CatalogService {
         buildings: buildings.map((b) => ({ building: b.building, count: b._count })),
         views: views.map((v) => ({ view: v.windowView, count: v._count })),
         years: years.map((y) => ({ year: y.builtYear, count: y._count })),
+        featureCounts: {
+          hasBalcony: balconyCount,
+          hasTerrace: terraceCount,
+          isPenthouse: penthouseCount,
+        },
       },
     };
   }
