@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus, isDealStage, mapMeetingStatus } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 
 const COMMISSION_RATES: Record<string, Record<string, number>> = {
   ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
@@ -250,11 +250,12 @@ export class AmocrmService {
         const lead: any = await this.amo.getLead(leadId);
         if (!lead) continue;
 
-        // Skip closed-not-realized and non-deal stages
+        // Only sync leads from "Воронка брокеров" pipeline
+        if (lead.pipeline_id !== BROKER_PIPELINE_ID) { skipped++; continue; }
+        // Skip closed-not-realized
         if (lead.status_id === 143) { skipped++; continue; }
-        if (!isDealStage(lead.status_id)) { skipped++; continue; }
 
-        const project = pipelineToProject(lead.pipeline_id);
+        const project = leadToProject(lead);
         const status = statusToDealStatus(lead.status_id);
 
         // Find client contact in lead (any contact that is NOT the broker)

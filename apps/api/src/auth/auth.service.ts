@@ -4,7 +4,7 @@ import { PrismaClient, UserStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as bcrypt from 'bcrypt';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, mapMeetingStatus } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, mapMeetingStatus, leadToProject, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
 
 @Injectable()
@@ -234,7 +234,7 @@ export class AuthService {
   }
 
   private async syncBrokerFromAmo(brokerId: string, phone: string, currentAmoContactId: number | null) {
-    const { AMO_CONTACT_FIELDS: fields, pipelineToProject, statusToDealStatus, isDealStage } = require('@st-michael/integrations');
+    const { statusToDealStatus } = require('@st-michael/integrations');
 
     // Find correct broker contact
     const brokerContact = await this.amo.findBrokerContactByPhone(phone);
@@ -254,10 +254,12 @@ export class AuthService {
     for (const leadRef of leads) {
       try {
         const lead: any = await this.amo.getLead(leadRef.id);
-        if (!lead || lead.status_id === 143) continue;
-        if (!isDealStage(lead.status_id)) continue;
+        if (!lead) continue;
+        // Only broker pipeline
+        if (lead.pipeline_id !== BROKER_PIPELINE_ID) continue;
+        if (lead.status_id === 143) continue;
 
-        const project = pipelineToProject(lead.pipeline_id);
+        const project = leadToProject(lead);
         const status = statusToDealStatus(lead.status_id);
 
         const leadContacts = lead?._embedded?.contacts || [];
