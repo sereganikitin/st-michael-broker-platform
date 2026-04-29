@@ -250,10 +250,12 @@ export class AmocrmService {
         const lead: any = await this.amo.getLead(leadId);
         if (!lead) continue;
 
-        // Only sync leads from "Воронка брокеров" pipeline
-        if (lead.pipeline_id !== BROKER_PIPELINE_ID) { skipped++; continue; }
+        // Skip leads from "Воронка брокеров" — они отслеживают самих брокеров, не клиентов
+        if (lead.pipeline_id === BROKER_PIPELINE_ID) { skipped++; continue; }
         // Skip closed-not-realized
         if (lead.status_id === 143) { skipped++; continue; }
+        // Sync only deal-stage leads
+        if (!isDealStage(lead.status_id)) { skipped++; continue; }
 
         const project = leadToProject(lead);
         const status = statusToDealStatus(lead.status_id);

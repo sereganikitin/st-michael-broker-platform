@@ -255,8 +255,8 @@ export class AuthService {
       try {
         const lead: any = await this.amo.getLead(leadRef.id);
         if (!lead) continue;
-        // Only broker pipeline
-        if (lead.pipeline_id !== BROKER_PIPELINE_ID) continue;
+        // Skip broker pipeline (это про самого брокера) and closed-not-realized
+        if (lead.pipeline_id === BROKER_PIPELINE_ID) continue;
         if (lead.status_id === 143) continue;
 
         const project = leadToProject(lead);

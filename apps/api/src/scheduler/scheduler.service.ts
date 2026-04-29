@@ -205,9 +205,10 @@ export class SchedulerService {
           try {
             const lead: any = await this.amo.getLead(leadRef.id);
             if (!lead) continue;
-            // Only sync leads from "Воронка брокеров"
-            if (lead.pipeline_id !== BROKER_PIPELINE_ID) continue;
+            // Skip broker pipeline (это про самого брокера)
+            if (lead.pipeline_id === BROKER_PIPELINE_ID) continue;
             if (lead.status_id === 143) continue;
+            if (!isDealStage(lead.status_id)) continue;
 
             const project = leadToProject(lead);
             const status = statusToDealStatus(lead.status_id);

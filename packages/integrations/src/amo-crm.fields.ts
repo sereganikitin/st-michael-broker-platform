@@ -55,11 +55,21 @@ export function statusToDealStatus(statusId: number): 'PENDING' | 'SIGNED' | 'PA
   return 'PENDING';
 }
 
-// Status IDs where meeting was held — ONLY broker pipeline stages
+// Status IDs where meeting was held (Встреча проведена и далее)
 export const AMO_MEETING_HELD_STATUSES = new Set([
-  // Воронка брокеров — после стадии "Встреча" считается, что встреча проведена
-  AMO_BROKER_STAGE.DEAL,   // Сделка → встреча уже была
-  // Финальный "Успешно реализовано"
+  // Воронка Зорге9 — от "Встреча проведена, думают" и далее
+  62907430, 62907434, 62907438, 62907442, 62907446, 62907450, 62907454, 62907458,
+  // Воронка Берзарина
+  62907358, 62907362, 62907366, 62907370, 62907374, 62907378, 62907382, 62907386,
+  // Воронка Толбухина
+  62907570, 62907574, 62907578, 62907582, 62907586, 62907590, 62907594, 62907598,
+  // Продажи
+  28905214, 28905280, 33935671, 28905283, 28905289, 28905292, 33935695, 42176281,
+  // Подогрев
+  29126935,
+  // Воронка брокеров — Сделка → встреча уже была
+  AMO_BROKER_STAGE.DEAL,
+  // Финальный "Успешно реализовано" / "Встреча проведена"
   142,
 ]);
 
@@ -69,10 +79,20 @@ export function mapMeetingStatus(statusId: number): 'PENDING' | 'COMPLETED' | 'C
   return 'PENDING';
 }
 
-// Status IDs that represent actual deals — ONLY in broker pipeline
+// Status IDs that represent actual deals across all client pipelines
 export const AMO_DEAL_STATUSES = new Set([
-  AMO_BROKER_STAGE.DEAL,    // Сделка
-  142,                       // Успешно реализовано
+  // Воронка Зорге9
+  62907450, 62907454, 62907458,
+  // Воронка Берзарина
+  62907378, 62907382, 62907386,
+  // Воронка Толбухина
+  62907590, 62907594, 62907598,
+  // Продажи (старая)
+  28905289, 28905292, 33935695,
+  // Воронка брокеров — Сделка
+  AMO_BROKER_STAGE.DEAL,
+  // Финальный "Успешно реализовано"
+  142,
 ]);
 
 export function isDealStage(statusId: number): boolean {
