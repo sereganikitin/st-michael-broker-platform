@@ -117,13 +117,27 @@ export class AmoCrmAdapter {
     try {
       const data = await this.request<any>(`/contacts?query=${query}&limit=50`);
       const contacts: any[] = data?._embedded?.contacts || [];
-      // Return ONLY contact with "Брокер" checkbox = true (field_id 835415). No fallback.
-      const brokerContact = contacts.find((c: any) => {
+      // Filter contacts with "Брокер" checkbox = true
+      const brokerCandidates = contacts.filter((c: any) => {
         const fields = c.custom_fields_values || [];
         const brokerField = fields.find((f: any) => f.field_id === 835415);
         return brokerField?.values?.[0]?.value === true;
       });
-      return brokerContact || null;
+      if (brokerCandidates.length === 0) return null;
+      if (brokerCandidates.length === 1) return brokerCandidates[0];
+
+      // Multiple broker candidates — pick the one with the most linked leads
+      let best: any = null;
+      let bestLeads = -1;
+      for (const cand of brokerCandidates) {
+        const full = await this.getContact(cand.id);
+        const leadsCount = full?._embedded?.leads?.length || 0;
+        if (leadsCount > bestLeads) {
+          bestLeads = leadsCount;
+          best = full || cand;
+        }
+      }
+      return best;
     } catch {
       return null;
     }
