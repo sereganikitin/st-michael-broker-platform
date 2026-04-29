@@ -75,7 +75,7 @@ export default function CommissionPage() {
               key={p}
               onClick={() => setSelectedProject(p)}
               className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                selectedProject === p ? 'bg-accent text-background' : 'text-text-muted hover:text-text'
+                selectedProject === p ? 'bg-accent text-white' : 'text-text-muted hover:text-text'
               }`}
             >
               {projectLabels[p]}

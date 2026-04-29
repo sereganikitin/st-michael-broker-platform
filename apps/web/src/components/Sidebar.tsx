@@ -71,7 +71,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
                     className={cn(
                       'flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors',
                       isActive
-                        ? 'bg-accent text-background'
+                        ? 'bg-accent text-white'
                         : 'text-text hover:bg-surface-secondary'
                     )}
                   >

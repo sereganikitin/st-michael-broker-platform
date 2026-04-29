@@ -32,7 +32,7 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
 
           <Link
             href="/profile"
-            className={`p-2 rounded-lg transition ${settingsActive ? 'bg-accent text-background' : 'hover:bg-surface-secondary'}`}
+            className={`p-2 rounded-lg transition ${settingsActive ? 'bg-accent text-white' : 'hover:bg-surface-secondary'}`}
             title="Настройки"
           >
             <Settings className="w-5 h-5" />
@@ -40,7 +40,7 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
 
           <div className="flex items-center space-x-2 sm:space-x-3">
             <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center flex-shrink-0">
-              <User className="w-4 h-4 text-background" />
+              <User className="w-4 h-4 text-white" />
             </div>
             <div className="text-sm hidden sm:block">
               <div className="font-medium">{broker?.fullName || 'Брокер'}</div>
