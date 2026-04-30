@@ -11,9 +11,11 @@ import {
   Calculator,
   BookOpen,
   FileText,
+  Shield,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 
 const navigation = [
   { name: 'Фиксация', href: '/fixation', icon: UserCheck },
@@ -26,8 +28,15 @@ const navigation = [
   { name: 'Документы', href: '/documents', icon: FileText },
 ];
 
+const adminNavigation = [
+  { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
+];
+
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
+  const { broker } = useAuth();
+  const isAdmin = broker?.role === 'ADMIN' || broker?.role === 'MANAGER';
+  const items = isAdmin ? [...navigation, ...adminNavigation] : navigation;
 
   return (
     <>
@@ -61,7 +70,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
 
         <nav className="px-4">
           <ul className="space-y-2">
-            {navigation.map((item) => {
+            {items.map((item) => {
               const isActive = pathname === item.href;
               return (
                 <li key={item.name}>
