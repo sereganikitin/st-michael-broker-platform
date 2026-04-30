@@ -260,20 +260,134 @@ function QuickFixModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function renderAccent(text: string | undefined | null, accent?: string | null): React.ReactNode {
+  if (!text) return null;
+  if (!accent || !text.includes(accent)) return text;
+  const i = text.indexOf(accent);
+  return (<>{text.slice(0, i)}<em>{accent}</em>{text.slice(i + accent.length)}</>);
+}
+
+const DEFAULT_HERO = {
+  tag: 'Партнёрская программа',
+  title: 'Зарабатывайте от 5% до 8% комиссии',
+  titleAccent: '8% комиссии',
+  description: 'Продавайте апартаменты Зорге 9 и Квартал Серебряный Бор. Прогрессивная шкала, личный кабинет, выделенная поддержка на каждом этапе сделки.',
+  stats: [
+    { number: '5–8%', label: 'Средняя комиссия по программе' },
+    { number: '5 дней', label: 'Скорость фиксации клиента' },
+    { number: '30 дней', label: 'Срок уникальности' },
+    { number: '2', label: 'Активных проекта' },
+  ],
+};
+const DEFAULT_ADVANTAGES = {
+  tag: 'Преимущества',
+  title: 'Почему брокеры выбирают нас',
+  titleAccent: 'выбирают нас',
+  items: [
+    { title: 'Выделенный отдел партнёров', description: 'Команда всегда на связи для решения любых вопросов по сделкам и клиентам.' },
+    { title: '30 дней фиксации клиента', description: 'Один из самых длинных сроков фиксации на рынке. С возможностью продления.' },
+    { title: 'Выплата за 5 рабочих дней', description: 'Один из самых коротких сроков выплаты комиссионного вознаграждения.' },
+    { title: 'Личный кабинет брокера', description: 'Фиксация клиентов, просмотр комиссии, каталог объектов, статусы сделок.' },
+    { title: 'Прогрессивная шкала 5-8%', description: 'Накопительная программа по агентству. Квартальные бонусы сверху.' },
+    { title: 'Рекламные материалы', description: 'Готовые тексты, визуалы для соцсетей, брошюры, планировки, видео.' },
+  ],
+};
+const DEFAULT_COMMISSION = {
+  tag: 'Комиссия и условия выплаты',
+  title: 'Прогрессивная шкала вознаграждения',
+  titleAccent: 'шкала',
+  subtitle: 'Чем больше продаёте — тем выше ставка. Накопление по агентству, по обоим проектам.',
+  levels: [
+    { name: 'Start', range: '0-59 м2', rate: '5,0%', active: false },
+    { name: 'Basic', range: '60-119 м2', rate: '5,5%', active: false },
+    { name: 'Strong', range: '120-199 м2', rate: '6,0%', active: true },
+    { name: 'Premium', range: '200-319 м2', rate: '6,5%', active: false },
+    { name: 'Elite', range: '320-499 м2', rate: '7,0%', active: false },
+    { name: 'Champion', range: '500-699 м2', rate: '7,5%', active: false },
+    { name: 'Legend', range: '700+ м2', rate: '8,0%', active: false },
+  ],
+  cards: [
+    { title: 'Условия выплаты', text: 'Выплата в течение 5 рабочих дней с момента оплаты клиентом не менее 50% (Зорге 9) или 30% (Серебряный Бор) от суммы договора.' },
+    { title: 'Квартальный бонус', text: 'При уровне Strong и выше несколько кварталов подряд: +0,1% — +0,15% — +0,2% — +0,25% (максимум).' },
+    { title: 'Рассрочка и ипотека', text: 'При рассрочке ставка уменьшается на 0,5%. При субсидированной ипотеке — фиксированные 4%.' },
+    { title: 'Коммерческие помещения', text: 'Продажа — 3%. Фитнес — 3%. Отдельные здания — 2%. Аренда ритейл — 100% месячного платежа.' },
+  ],
+};
+const DEFAULT_CONTACT = {
+  tag: 'Команда',
+  title: 'Всегда на связи',
+  titleAccent: 'на связи',
+  description: 'В нашем бизнесе процессы запускают точные коммуникации с партнёрами. Мы всегда готовы найти индивидуальный подход к каждому брокеру и агентству.',
+  blockTitle: 'Отдел по работе с партнёрами',
+  phone: '+7 (495) 150-40-10',
+  email: 'broker@stmichael.ru',
+  telegram: 'https://t.me/stmichaelBroker',
+};
+const DEFAULT_PROJECTS = [
+  { id: 'p1', slug: 'zorge9', tag: 'Приоритетный проект', name: 'Зорге', subtitle: '9', description: 'Апартаменты бизнес-класса у метро Полежаевская. 3 корпуса, архитектура в стиле Арт-Москва. От 270 000 р/м2.', ctaText: 'Смотреть каталог', ctaHref: null },
+  { id: 'p2', slug: 'silver-bor', tag: 'Новый проект', name: 'Квартал', subtitle: 'Серебряный Бор', description: 'Жилой комплекс премиум-класса рядом с Серебряным Бором. Уникальная локация и инфраструктура.', ctaText: 'Смотреть каталог', ctaHref: null },
+];
+
+const MONTHS_RU = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+function formatEventDate(iso: string): { day: string; mon: string } {
+  const d = new Date(iso);
+  return { day: String(d.getDate()).padStart(2, '0'), mon: MONTHS_RU[d.getMonth()] };
+}
+function formatEventMeta(iso: string, location: string | null, isOnline: boolean): string {
+  const d = new Date(iso);
+  const day = d.getDate();
+  const mon = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'][d.getMonth()];
+  const dow = ['вс','пн','вт','ср','чт','пт','сб'][d.getDay()];
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const where = isOnline ? 'Онлайн' : (location || '');
+  const base = `${day} ${mon}, ${dow}, ${hh}:${mm}`;
+  return where ? `${base}. ${where}` : base;
+}
+
 export default function LandingPage() {
   const [authModal, setAuthModal] = useState<'login' | 'register' | null>(null);
   const [quickFixOpen, setQuickFixOpen] = useState(false);
+  const [hero, setHero] = useState<any>(DEFAULT_HERO);
+  const [advantages, setAdvantages] = useState<any>(DEFAULT_ADVANTAGES);
+  const [commission, setCommission] = useState<any>(DEFAULT_COMMISSION);
+  const [contact, setContact] = useState<any>(DEFAULT_CONTACT);
+  const [projects, setProjects] = useState<any[]>(DEFAULT_PROJECTS);
+  const [events, setEvents] = useState<any[]>([]);
   const { broker } = useAuth();
   const router = useRouter();
 
   const handleCabinet = () => { if (broker) router.push('/fixation'); else setAuthModal('login'); };
   const handleRegister = () => { if (broker) router.push('/fixation'); else setAuthModal('register'); };
+  const handleProjectClick = (p: any) => { if (p.ctaHref) window.open(p.ctaHref, '_blank'); else handleCabinet(); };
 
   useEffect(() => {
     const prev = document.body.style.cssText;
     document.body.style.background = '#ffffff';
     document.body.style.color = '#1a1a1a';
     return () => { document.body.style.cssText = prev; };
+  }, []);
+
+  useEffect(() => {
+    const safeFetch = async (url: string) => {
+      try { const r = await fetch(url); return r.ok ? await r.json() : null; }
+      catch { return null; }
+    };
+    (async () => {
+      const [content, evs, prjs] = await Promise.all([
+        safeFetch('/api/public/cms/content'),
+        safeFetch('/api/public/cms/events'),
+        safeFetch('/api/public/cms/projects'),
+      ]);
+      if (content) {
+        if (content.hero) setHero({ ...DEFAULT_HERO, ...content.hero });
+        if (content.advantages) setAdvantages({ ...DEFAULT_ADVANTAGES, ...content.advantages });
+        if (content.commission) setCommission({ ...DEFAULT_COMMISSION, ...content.commission });
+        if (content.contact) setContact({ ...DEFAULT_CONTACT, ...content.contact });
+      }
+      if (Array.isArray(evs)) setEvents(evs);
+      if (Array.isArray(prjs) && prjs.length) setProjects(prjs);
+    })();
   }, []);
 
   return (
@@ -337,9 +451,9 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
         {/* HERO */}
         <div className="hero">
           <div className="hero-inner">
-            <div className="hero-tag"><span>Партнёрская программа</span></div>
-            <h1>Зарабатывайте<br /><strong>от 5% до <em>8% комиссии</em></strong></h1>
-            <p className="hero-desc">Продавайте апартаменты Зорге 9 и Квартал Серебряный Бор. Прогрессивная шкала, личный кабинет, выделенная поддержка на каждом этапе сделки.</p>
+            <div className="hero-tag"><span>{hero.tag}</span></div>
+            <h1><strong>{renderAccent(hero.title, hero.titleAccent)}</strong></h1>
+            <p className="hero-desc">{hero.description}</p>
             <div className="hero-btns" style={{marginBottom:24}}>
               <button className="btn-gold" onClick={handleCabinet}>📅 Записаться на встречу</button>
               <a href="#events" className="btn-outline">🚌 Записаться на брокер-тур</a>
@@ -347,19 +461,24 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             </div>
           </div>
           <div className="hero-stats">
-            <div className="hst"><div className="hst-n">5–8%</div><div className="hst-l">Средняя комиссия по программе</div></div>
-            <div className="hst"><div className="hst-n">5 дней</div><div className="hst-l">Скорость фиксации клиента</div></div>
-            <div className="hst"><div className="hst-n">30 дней</div><div className="hst-l">Срок уникальности</div></div>
-            <div className="hst"><div className="hst-n">2</div><div className="hst-l">Активных проекта</div></div>
+            {(hero.stats || []).map((s: any, i: number) => (
+              <div key={i} className="hst"><div className="hst-n">{s.number}</div><div className="hst-l">{s.label}</div></div>
+            ))}
           </div>
         </div>
 
         {/* PROJECTS */}
         <section id="projects">
-          <div className="sh"><div className="sh-tag">Проекты</div><h2>Два проекта — <em>одна программа</em></h2><p className="sh-sub">Квадратные метры суммируются по обоим проектам для роста вашей ставки комиссии</p></div>
+          <div className="sh"><div className="sh-tag">Проекты</div><h2>Проекты — <em>одна программа</em></h2><p className="sh-sub">Квадратные метры суммируются по всем проектам для роста вашей ставки комиссии</p></div>
           <div className="proj-grid">
-            <div className="proj-card" onClick={handleCabinet}><div className="proj-tag">Приоритетный проект</div><div className="proj-name"><strong>Зорге</strong> 9</div><div className="proj-info">Апартаменты бизнес-класса у метро Полежаевская. 3 корпуса, архитектура в стиле Арт-Москва. От 270 000 р/м2.</div><div className="proj-link">Смотреть каталог &rarr;</div></div>
-            <div className="proj-card" onClick={handleCabinet}><div className="proj-tag">Новый проект</div><div className="proj-name"><strong>Квартал</strong> Серебряный Бор</div><div className="proj-info">Жилой комплекс премиум-класса рядом с Серебряным Бором. Уникальная локация и инфраструктура.</div><div className="proj-link">Смотреть каталог &rarr;</div></div>
+            {projects.map((p: any) => (
+              <div key={p.id} className="proj-card" onClick={() => handleProjectClick(p)}>
+                {p.tag && <div className="proj-tag">{p.tag}</div>}
+                <div className="proj-name"><strong>{p.name}</strong>{p.subtitle ? ` ${p.subtitle}` : ''}</div>
+                <div className="proj-info">{p.description}</div>
+                <div className="proj-link">{p.ctaText || 'Смотреть каталог'} &rarr;</div>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -367,25 +486,27 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         {/* COMMISSION */}
         <section id="commission">
-          <div className="sh"><div className="sh-tag">Комиссия и условия выплаты</div><h2>Прогрессивная <em>шкала</em> вознаграждения</h2><p className="sh-sub">Чем больше продаёте — тем выше ставка. Накопление по агентству, по обоим проектам.</p></div>
+          <div className="sh"><div className="sh-tag">{commission.tag}</div><h2>{renderAccent(commission.title, commission.titleAccent)}</h2>{commission.subtitle && <p className="sh-sub">{commission.subtitle}</p>}</div>
           <div className="comm-grid">
             <div>
               <div className="comm-table">
                 <div className="ct-head"><span>Уровень</span><span>Объём м2/кв.</span><span>Ставка</span></div>
-                <div className="ct-row"><span className="ct-level">Start</span><span className="ct-range">0-59 м2</span><span className="ct-rate">5,0%</span></div>
-                <div className="ct-row"><span className="ct-level">Basic</span><span className="ct-range">60-119 м2</span><span className="ct-rate">5,5%</span></div>
-                <div className="ct-row active"><span className="ct-level">Strong</span><span className="ct-range">120-199 м2</span><span className="ct-rate">6,0%</span></div>
-                <div className="ct-row"><span className="ct-level">Premium</span><span className="ct-range">200-319 м2</span><span className="ct-rate">6,5%</span></div>
-                <div className="ct-row"><span className="ct-level">Elite</span><span className="ct-range">320-499 м2</span><span className="ct-rate">7,0%</span></div>
-                <div className="ct-row"><span className="ct-level">Champion</span><span className="ct-range">500-699 м2</span><span className="ct-rate">7,5%</span></div>
-                <div className="ct-row"><span className="ct-level">Legend</span><span className="ct-range">700+ м2</span><span className="ct-rate">8,0%</span></div>
+                {(commission.levels || []).map((lv: any, i: number) => (
+                  <div key={i} className={`ct-row${lv.active ? ' active' : ''}`}>
+                    <span className="ct-level">{lv.name}</span>
+                    <span className="ct-range">{lv.range}</span>
+                    <span className="ct-rate">{lv.rate}</span>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="comm-info">
-              <div className="comm-card"><div className="comm-card-title">Условия выплаты</div><p>Выплата в течение 5 рабочих дней с момента оплаты клиентом не менее 50% (Зорге 9) или 30% (Серебряный Бор) от суммы договора.</p></div>
-              <div className="comm-card"><div className="comm-card-title">Квартальный бонус</div><p>При уровне Strong и выше несколько кварталов подряд: +0,1% — +0,15% — +0,2% — +0,25% (максимум).</p></div>
-              <div className="comm-card"><div className="comm-card-title">Рассрочка и ипотека</div><p>При рассрочке ставка уменьшается на 0,5%. При субсидированной ипотеке — фиксированные 4%.</p></div>
-              <div className="comm-card"><div className="comm-card-title">Коммерческие помещения</div><p>Продажа — 3%. Фитнес — 3%. Отдельные здания — 2%. Аренда ритейл — 100% месячного платежа.</p></div>
+              {(commission.cards || []).map((c: any, i: number) => (
+                <div key={i} className="comm-card">
+                  <div className="comm-card-title">{c.title}</div>
+                  <p>{c.text}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
@@ -395,24 +516,36 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
         {/* EVENTS */}
         <section id="events" style={{background:'var(--bg)'}}>
           <div className="sh"><div className="sh-tag">Календарь событий</div><h2>Ближайшие <em>мероприятия</em></h2></div>
-          <div className="ev-grid">
-            <div className="ev-card"><div className="ev-date"><div className="ev-day">28</div><div className="ev-mon">мар</div></div><div className="ev-info"><div className="ev-title">Брокер-тур: Зорге 9</div><div className="ev-meta">28 марта, пт, 11:00</div></div></div>
-            <div className="ev-card"><div className="ev-date"><div className="ev-day">02</div><div className="ev-mon">апр</div></div><div className="ev-info"><div className="ev-title">Вебинар: Инвест-стратегии в апартаментах</div><div className="ev-meta">2 апреля, ср, 14:00. Онлайн</div></div></div>
-            <div className="ev-card"><div className="ev-date"><div className="ev-day">10</div><div className="ev-mon">апр</div></div><div className="ev-info"><div className="ev-title">Брокер-тур: Серебряный Бор</div><div className="ev-meta">10 апреля, чт, 11:00</div></div></div>
-            <div className="ev-card"><div className="ev-date"><div className="ev-day">15</div><div className="ev-mon">апр</div></div><div className="ev-info"><div className="ev-title">Обучение: как продавать апартаменты</div><div className="ev-meta">15 апреля, вт, 16:00. Офис ST MICHAEL</div></div></div>
-          </div>
+          {events.length === 0 ? (
+            <div style={{textAlign:'center',color:'var(--muted)',fontSize:14,padding:'24px 0'}}>В ближайшее время мероприятий не запланировано</div>
+          ) : (
+            <div className="ev-grid">
+              {events.map((ev: any) => {
+                const d = formatEventDate(ev.date);
+                return (
+                  <div key={ev.id} className="ev-card">
+                    <div className="ev-date"><div className="ev-day">{d.day}</div><div className="ev-mon">{d.mon}</div></div>
+                    <div className="ev-info">
+                      <div className="ev-title">{ev.title}</div>
+                      <div className="ev-meta">{formatEventMeta(ev.date, ev.location, ev.isOnline)}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* ADVANTAGES */}
         <section className="s-adv">
-          <div className="sh"><div className="sh-tag">Преимущества</div><h2>Почему брокеры <em>выбирают нас</em></h2></div>
+          <div className="sh"><div className="sh-tag">{advantages.tag}</div><h2>{renderAccent(advantages.title, advantages.titleAccent)}</h2></div>
           <div className="adv-grid">
-            <div className="adv-card"><div className="adv-title">Выделенный отдел партнёров</div><div className="adv-desc">Команда всегда на связи для решения любых вопросов по сделкам и клиентам.</div></div>
-            <div className="adv-card"><div className="adv-title">30 дней фиксации клиента</div><div className="adv-desc">Один из самых длинных сроков фиксации на рынке. С возможностью продления.</div></div>
-            <div className="adv-card"><div className="adv-title">Выплата за 5 рабочих дней</div><div className="adv-desc">Один из самых коротких сроков выплаты комиссионного вознаграждения.</div></div>
-            <div className="adv-card"><div className="adv-title">Личный кабинет брокера</div><div className="adv-desc">Фиксация клиентов, просмотр комиссии, каталог объектов, статусы сделок.</div></div>
-            <div className="adv-card"><div className="adv-title">Прогрессивная шкала 5-8%</div><div className="adv-desc">Накопительная программа по агентству. Квартальные бонусы сверху.</div></div>
-            <div className="adv-card"><div className="adv-title">Рекламные материалы</div><div className="adv-desc">Готовые тексты, визуалы для соцсетей, брошюры, планировки, видео.</div></div>
+            {(advantages.items || []).map((it: any, i: number) => (
+              <div key={i} className="adv-card">
+                <div className="adv-title">{it.title}</div>
+                <div className="adv-desc">{it.description}</div>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -488,14 +621,14 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         {/* CONTACT — Всегда на связи */}
         <section id="contact">
-          <div className="sh"><div className="sh-tag">Команда</div><h2>Всегда <em>на связи</em></h2></div>
+          <div className="sh"><div className="sh-tag">{contact.tag}</div><h2>{renderAccent(contact.title, contact.titleAccent)}</h2></div>
           <div className="coop-grid">
             <div className="coop-left">
-              <p>В нашем бизнесе процессы запускают точные коммуникации с партнёрами. Мы всегда готовы найти индивидуальный подход к каждому брокеру и агентству.</p>
+              <p>{contact.description}</p>
               <div style={{padding:'16px 18px',background:'var(--bg)',borderRadius:'var(--r)',border:'1px solid var(--bw)'}}>
-                <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--gold)',marginBottom:8}}>Отдел по работе с партнёрами</div>
-                <div style={{fontSize:14,marginBottom:4}}><a href="tel:+74951504010" style={{color:'var(--black)',fontWeight:600}}>+7 (495) 150-40-10</a></div>
-                <div style={{fontSize:14}}><a href="mailto:broker@stmichael.ru" style={{color:'var(--black)'}}>broker@stmichael.ru</a></div>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--gold)',marginBottom:8}}>{contact.blockTitle}</div>
+                {contact.phone && <div style={{fontSize:14,marginBottom:4}}><a href={`tel:${contact.phone.replace(/\D/g,'')}`} style={{color:'var(--black)',fontWeight:600}}>{contact.phone}</a></div>}
+                {contact.email && <div style={{fontSize:14}}><a href={`mailto:${contact.email}`} style={{color:'var(--black)'}}>{contact.email}</a></div>}
               </div>
             </div>
             <div style={{padding:'40px 32px',background:'var(--bg2)',borderRadius:'var(--r)',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--muted2)',fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',minHeight:200}}>
@@ -521,8 +654,8 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           <div className="foot-grid">
             <div><div className="foot-logo">ST MICHAEL</div><div className="foot-logo-sub">Кабинет брокера</div></div>
             <div><div className="foot-col-title">Условия</div><a className="foot-link" href="#cooperation">Условия сотрудничества</a><a className="foot-link" href="#events">Календарь событий</a><a className="foot-link" href="#commission">Комиссия</a></div>
-            <div><div className="foot-col-title">Проекты</div><span className="foot-link" onClick={handleCabinet} style={{cursor:'pointer'}}>Зорге 9</span><span className="foot-link" onClick={handleCabinet} style={{cursor:'pointer'}}>Серебряный Бор</span></div>
-            <div><div className="foot-col-title">Партнёрам</div><a className="foot-link" href="tel:+74951504010">+7 (495) 150-40-10</a><a className="foot-link" href="mailto:broker@stmichael.ru">broker@stmichael.ru</a><a className="foot-link" href="https://t.me/stmichaelBroker">Telegram</a></div>
+            <div><div className="foot-col-title">Проекты</div>{projects.map((p: any) => (<span key={p.id} className="foot-link" onClick={() => handleProjectClick(p)} style={{cursor:'pointer'}}>{p.name}{p.subtitle ? ` ${p.subtitle}` : ''}</span>))}</div>
+            <div><div className="foot-col-title">Партнёрам</div>{contact.phone && <a className="foot-link" href={`tel:${contact.phone.replace(/\D/g,'')}`}>{contact.phone}</a>}{contact.email && <a className="foot-link" href={`mailto:${contact.email}`}>{contact.email}</a>}{contact.telegram && <a className="foot-link" href={contact.telegram}>Telegram</a>}</div>
           </div>
           <div className="foot-bottom"><span>&copy; 2026 ST MICHAEL. Все права защищены.</span><span>Данные носят ориентировочный характер.</span></div>
         </footer>

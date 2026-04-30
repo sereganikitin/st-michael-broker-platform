@@ -19,6 +19,7 @@ import { HealthController } from './health.controller';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { AmocrmModule } from './amocrm/amocrm.module';
 import { AdminModule } from './admin/admin.module';
+import { CmsModule } from './cms/cms.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { AdminModule } from './admin/admin.module';
     SchedulerModule,
     AmocrmModule,
     AdminModule,
+    CmsModule,
   ],
   controllers: [HealthController],
 })

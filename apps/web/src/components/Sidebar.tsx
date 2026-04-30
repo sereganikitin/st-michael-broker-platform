@@ -12,6 +12,8 @@ import {
   BookOpen,
   FileText,
   Shield,
+  Calendar,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -30,6 +32,9 @@ const navigation = [
 
 const adminNavigation = [
   { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
+  { name: 'Лендинг — Контент', href: '/admin/content', icon: Sparkles },
+  { name: 'Лендинг — События', href: '/admin/events', icon: Calendar },
+  { name: 'Лендинг — Проекты', href: '/admin/projects', icon: Building },
 ];
 
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {

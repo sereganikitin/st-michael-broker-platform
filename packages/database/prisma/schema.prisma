@@ -391,3 +391,48 @@ model AuditLog {
   @@index([userId, createdAt])
   @@map("audit_logs")
 }
+
+// ─── CMS / LANDING CONTENT ───────────────────────────
+
+// Generic key-value content for landing blocks (hero, advantages, commission, contact, etc.)
+model SiteContent {
+  key       String   @id          // e.g. "hero", "advantages", "commission", "contact"
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("site_content")
+}
+
+model LandingEvent {
+  id          String   @id @default(uuid())
+  date        DateTime
+  title       String
+  location    String?
+  isOnline    Boolean  @default(false) @map("is_online")
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([date, isActive])
+  @@map("landing_events")
+}
+
+model LandingProject {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  tag         String?              // e.g. "Приоритетный проект"
+  name        String                // bold part, e.g. "Зорге"
+  subtitle    String?              // suffix, e.g. "9" or "Серебряный Бор"
+  description String
+  ctaText     String?  @map("cta_text")     // e.g. "Смотреть каталог"
+  ctaHref     String?  @map("cta_href")     // optional URL; null = open cabinet
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("landing_projects")
+}
