@@ -19,6 +19,14 @@ const projectLabels: Record<string, string> = {
   SILVER_BOR: 'Серебряный бор',
 };
 
+const statusLabels: Record<string, { label: string; cls: string }> = {
+  PENDING: { label: 'В работе', cls: 'bg-warning/20 text-warning' },
+  SIGNED: { label: 'Договор подписан', cls: 'bg-info/20 text-info' },
+  PAID: { label: 'Клиент оплатил', cls: 'bg-success/20 text-success' },
+  COMMISSION_PAID: { label: 'Комиссия выплачена', cls: 'bg-accent/20 text-accent' },
+  CANCELLED: { label: 'Отменена', cls: 'bg-error/20 text-error' },
+};
+
 // Commission rate tables by project and level
 const RATE_TABLE: Record<string, Record<string, number>> = {
   ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
@@ -239,7 +247,9 @@ export default function CommissionPage() {
                     <div className="text-sm font-bold text-accent">
                       {Math.round(Number(deal.commission)).toLocaleString('ru-RU')} ₽
                     </div>
-                    <div className="text-xs text-text-muted">{deal.status}</div>
+                    <span className={`text-xs px-2 py-0.5 rounded inline-block mt-1 ${statusLabels[deal.status]?.cls || 'text-text-muted'}`}>
+                      {statusLabels[deal.status]?.label || deal.status}
+                    </span>
                   </div>
                 </div>
               ))}

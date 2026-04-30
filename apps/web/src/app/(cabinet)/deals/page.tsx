@@ -6,9 +6,9 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   PENDING: { label: 'В работе', cls: 'bg-warning/20 text-warning' },
-  SIGNED: { label: 'Подписан', cls: 'bg-info/20 text-info' },
-  PAID: { label: 'Оплачен', cls: 'bg-success/20 text-success' },
-  COMMISSION_PAID: { label: 'Комиссия', cls: 'bg-accent/20 text-accent' },
+  SIGNED: { label: 'Договор подписан', cls: 'bg-info/20 text-info' },
+  PAID: { label: 'Клиент оплатил', cls: 'bg-success/20 text-success' },
+  COMMISSION_PAID: { label: 'Комиссия выплачена', cls: 'bg-accent/20 text-accent' },
   CANCELLED: { label: 'Отменён', cls: 'bg-error/20 text-error' },
 };
 
@@ -48,9 +48,9 @@ export default function DealsPage() {
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
         >
           <option value="">Все сделки</option>
-          <option value="SIGNED">Сделка / Зарегистрирована</option>
-          <option value="PAID">Контроль оплаты</option>
-          <option value="COMMISSION_PAID">Успешно реализовано</option>
+          <option value="SIGNED">Договор подписан</option>
+          <option value="PAID">Клиент оплатил</option>
+          <option value="COMMISSION_PAID">Комиссия выплачена</option>
         </select>
       </div>
 
