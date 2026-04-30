@@ -35,6 +35,7 @@ const adminNavigation = [
   { name: 'Лендинг — Контент', href: '/admin/content', icon: Sparkles },
   { name: 'Лендинг — События', href: '/admin/events', icon: Calendar },
   { name: 'Лендинг — Проекты', href: '/admin/projects', icon: Building },
+  { name: 'Файлы и документы', href: '/admin/documents', icon: FileText },
 ];
 
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {

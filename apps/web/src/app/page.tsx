@@ -354,6 +354,9 @@ export default function LandingPage() {
   const [contact, setContact] = useState<any>(DEFAULT_CONTACT);
   const [projects, setProjects] = useState<any[]>(DEFAULT_PROJECTS);
   const [events, setEvents] = useState<any[]>([]);
+  const [cooperationDocs, setCooperationDocs] = useState<any[]>([]);
+  const [analyticsDocs, setAnalyticsDocs] = useState<any[]>([]);
+  const [marketingDocs, setMarketingDocs] = useState<any[]>([]);
   const { broker } = useAuth();
   const router = useRouter();
 
@@ -374,10 +377,13 @@ export default function LandingPage() {
       catch { return null; }
     };
     (async () => {
-      const [content, evs, prjs] = await Promise.all([
+      const [content, evs, prjs, coop, anal, mark] = await Promise.all([
         safeFetch('/api/public/cms/content'),
         safeFetch('/api/public/cms/events'),
         safeFetch('/api/public/cms/projects'),
+        safeFetch('/api/public/documents?category=cooperation'),
+        safeFetch('/api/public/documents?category=analytics'),
+        safeFetch('/api/public/documents?category=marketing'),
       ]);
       if (content) {
         if (content.hero) setHero({ ...DEFAULT_HERO, ...content.hero });
@@ -387,6 +393,9 @@ export default function LandingPage() {
       }
       if (Array.isArray(evs)) setEvents(evs);
       if (Array.isArray(prjs) && prjs.length) setProjects(prjs);
+      if (Array.isArray(coop)) setCooperationDocs(coop);
+      if (Array.isArray(anal)) setAnalyticsDocs(anal);
+      if (Array.isArray(mark)) setMarketingDocs(mark);
     })();
   }, []);
 
@@ -560,11 +569,16 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               <button className="btn-gold" onClick={handleRegister}>Стать партнёром</button>
             </div>
             <div className="doc-list">
-              <div className="doc-item"><div className="doc-name">Как начать сотрудничать с ST MICHAEL</div><div className="doc-dl">&darr;</div></div>
-              <div className="doc-item"><div className="doc-name">Регламент работы с партнёрами</div><div className="doc-dl">&darr;</div></div>
-              <div className="doc-item"><div className="doc-name">Условия комиссионного вознаграждения</div><div className="doc-dl">&darr;</div></div>
-              <div className="doc-item"><div className="doc-name">Договор оферты</div><div className="doc-dl">&darr;</div></div>
-              <div className="doc-item"><div className="doc-name">Вопрос — ответ для брокеров</div><div className="doc-dl">&darr;</div></div>
+              {cooperationDocs.length === 0 ? (
+                <div className="doc-item" style={{cursor:'default'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся документы</div></div>
+              ) : (
+                cooperationDocs.map((d: any) => (
+                  <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="doc-item">
+                    <div className="doc-name">{d.name}</div>
+                    <div className="doc-dl">&darr;</div>
+                  </a>
+                ))
+              )}
             </div>
           </div>
         </section>
@@ -575,12 +589,16 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
         <section id="analytics" style={{background:'var(--bg)'}}>
           <div className="sh"><div className="sh-tag">Аналитика</div><h2>Инструменты <em>инвестирования</em></h2><p className="sh-sub">Калькуляторы, презентации и аналитика для работы с клиентами-инвесторами</p></div>
           <div className="ads-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <div className="doc-item"><div className="doc-name">📊 Инвестиционный калькулятор доходности</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">📈 Сравнение инструментов инвестирования</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">📍 Обзор локаций — Зорге 9 / Серебряный Бор</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">📑 Презентация для инвесторов</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">💼 Программы рассрочки и ипотеки</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">🏦 Динамика рынка и прогнозы</div><div className="doc-dl">&rarr;</div></div>
+            {analyticsDocs.length === 0 ? (
+              <div className="doc-item" style={{cursor:'default',gridColumn:'span 2'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся материалы</div></div>
+            ) : (
+              analyticsDocs.map((d: any) => (
+                <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="doc-item">
+                  <div className="doc-name">{d.name}</div>
+                  <div className="doc-dl">&rarr;</div>
+                </a>
+              ))
+            )}
           </div>
         </section>
 
@@ -590,12 +608,16 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
         <section id="materials">
           <div className="sh"><div className="sh-tag">Реклама</div><h2>Материалы для <em>продвижения</em></h2><p className="sh-sub">Готовые материалы для работы с клиентами. Часть доступна только в личном кабинете.</p></div>
           <div className="ads-grid" style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
-            <div className="doc-item"><div className="doc-name">📄 Презентации (по проектам и типам)</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">🎨 Рендеры (экстерьер, интерьеры)</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">📐 Планировки в высоком разрешении</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">🎬 Видеообзоры, 3D-туры, дрон-съёмка</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">💰 Прайс-листы, рассрочка, КВ</div><div className="doc-dl">&rarr;</div></div>
-            <div className="doc-item"><div className="doc-name">🎯 Логотипы, брендбук, шаблоны соцсетей</div><div className="doc-dl">&rarr;</div></div>
+            {marketingDocs.length === 0 ? (
+              <div className="doc-item" style={{cursor:'default',gridColumn:'span 3'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся материалы</div></div>
+            ) : (
+              marketingDocs.map((d: any) => (
+                <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="doc-item">
+                  <div className="doc-name">{d.name}</div>
+                  <div className="doc-dl">&rarr;</div>
+                </a>
+              ))
+            )}
           </div>
         </section>
 

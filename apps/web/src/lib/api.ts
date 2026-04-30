@@ -93,3 +93,16 @@ export const apiPost = <T = any>(path: string, body: any) =>
 
 export const apiPatch = <T = any>(path: string, body: any) =>
   api<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
+
+export async function apiUpload<T = any>(path: string, formData: FormData): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(e.message || `Upload failed: ${res.status}`);
+  }
+  return res.json();
+}

@@ -350,15 +350,21 @@ model Meeting {
 }
 
 model Document {
-  id        String   @id @default(uuid())
-  name      String
-  type      String
-  category  String
-  project   Project?
-  fileUrl   String   @map("file_url")
-  fileSize  Int?     @map("file_size")
-  createdAt DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  type        String                              // mime type or extension label (PDF, DOCX, MP4, URL...)
+  category    String                              // cooperation | analytics | marketing | materials
+  subcategory String?                             // optional sub-grouping label
+  project     Project?
+  fileUrl     String   @map("file_url")            // local: /files/<cat>/<uuid>.ext  |  external URL
+  fileSize    Int?     @map("file_size")
+  isPublic    Boolean  @default(true) @map("is_public")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
+  @@index([category, isPublic, sortOrder])
   @@map("documents")
 }
 

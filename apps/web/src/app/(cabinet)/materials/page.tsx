@@ -1,45 +1,43 @@
 'use client';
 
-import { BookOpen, Image as ImageIcon, Video, FileText, ExternalLink } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { apiGet } from '@/lib/api';
+import { BookOpen, ExternalLink } from 'lucide-react';
 
-const sections = [
-  {
-    title: 'Тексты для рекламы',
-    icon: FileText,
-    items: [
-      { name: 'Описание проекта Зорге 9', desc: 'Готовые тексты для соцсетей и сайтов' },
-      { name: 'Описание проекта Серебряный бор', desc: 'Готовые тексты для соцсетей и сайтов' },
-      { name: 'Коммерческие помещения', desc: 'Фитнес, ритейл, офисы' },
-    ],
-  },
-  {
-    title: 'Планировки и рендеры',
-    icon: ImageIcon,
-    items: [
-      { name: 'Планировки Зорге 9', desc: 'PDF, PNG в высоком разрешении' },
-      { name: 'Планировки Серебряный бор', desc: 'PDF, PNG в высоком разрешении' },
-      { name: 'Рендеры фасадов', desc: 'Визуализации для соцсетей' },
-    ],
-  },
-  {
-    title: 'Видеоматериалы',
-    icon: Video,
-    items: [
-      { name: 'Видеопрезентации проектов', desc: 'Роликb 1-3 минуты' },
-      { name: 'Съёмка с дрона', desc: 'Аэросъёмка территории' },
-    ],
-  },
-  {
-    title: 'Регламенты и гайды',
-    icon: BookOpen,
-    items: [
-      { name: 'Регламент размещения рекламы', desc: 'Правила использования бренда' },
-      { name: 'Инструкции по работе с клиентами', desc: 'Скрипты и сценарии' },
-    ],
-  },
-];
+interface DocItem {
+  id: string;
+  name: string;
+  description: string | null;
+  type: string;
+  category: string;
+  subcategory: string | null;
+  fileUrl: string;
+  fileSize: number | null;
+}
 
 export default function MaterialsPage() {
+  const [docs, setDocs] = useState<DocItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      apiGet('/documents?category=marketing&limit=200').catch(() => ({ documents: [] })),
+      apiGet('/documents?category=materials&limit=200').catch(() => ({ documents: [] })),
+    ])
+      .then(([a, b]) => setDocs([...(a.documents || []), ...(b.documents || [])]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Group by subcategory (or "Без категории")
+  const groups: Record<string, DocItem[]> = {};
+  for (const d of docs) {
+    const key = d.subcategory || 'Без категории';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(d);
+  }
+
+  const groupNames = Object.keys(groups).sort();
+
   return (
     <div>
       <div className="mb-6">
@@ -49,46 +47,47 @@ export default function MaterialsPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {sections.map((section) => (
-          <div key={section.title} className="card">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-accent/10 rounded-lg flex items-center justify-center">
-                <section.icon className="w-5 h-5 text-accent" />
+      {loading ? (
+        <div className="card text-center py-8 text-text-muted">Загрузка...</div>
+      ) : docs.length === 0 ? (
+        <div className="card text-center py-12 text-text-muted">
+          <BookOpen className="w-12 h-12 mx-auto mb-3 text-text-muted/50" />
+          <p>Материалы пока не добавлены</p>
+          <p className="text-xs mt-2">По вопросам обращайтесь в отдел партнёров: <a href="tel:+74951504010" className="text-accent">+7 (495) 150-40-10</a></p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {groupNames.map((groupName) => (
+            <div key={groupName} className="card">
+              <h3 className="font-semibold mb-4">{groupName}</h3>
+              <div className="space-y-2">
+                {groups[groupName].map((d) => (
+                  <a
+                    key={d.id}
+                    href={d.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-surface-secondary cursor-pointer transition"
+                  >
+                    <div>
+                      <div className="text-sm font-medium">{d.name}</div>
+                      {d.description && <div className="text-xs text-text-muted">{d.description}</div>}
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-text-muted flex-shrink-0" />
+                  </a>
+                ))}
               </div>
-              <h3 className="font-semibold">{section.title}</h3>
             </div>
-            <div className="space-y-2">
-              {section.items.map((item) => (
-                <div
-                  key={item.name}
-                  className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-surface-secondary cursor-pointer transition"
-                >
-                  <div>
-                    <div className="text-sm font-medium">{item.name}</div>
-                    <div className="text-xs text-text-muted">{item.desc}</div>
-                  </div>
-                  <ExternalLink className="w-4 h-4 text-text-muted flex-shrink-0" />
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      <div className="card mt-6 text-center py-8 bg-surface-secondary">
-        <BookOpen className="w-12 h-12 mx-auto mb-3 text-text-muted" />
-        <p className="text-text-muted">
-          По вопросам получения материалов обращайтесь в отдел по работе с партнёрами:
-        </p>
-        <p className="mt-2">
-          <a href="tel:+74951504010" className="text-accent font-medium">
-            +7 (495) 150-40-10
-          </a>
+      <div className="card mt-6 text-center py-6 bg-surface-secondary">
+        <p className="text-text-muted text-sm">
+          По вопросам получения материалов:&nbsp;
+          <a href="tel:+74951504010" className="text-accent font-medium">+7 (495) 150-40-10</a>
           <span className="text-text-muted mx-3">•</span>
-          <a href="mailto:broker@stmichael.ru" className="text-accent font-medium">
-            broker@stmichael.ru
-          </a>
+          <a href="mailto:broker@stmichael.ru" className="text-accent font-medium">broker@stmichael.ru</a>
         </p>
       </div>
     </div>
