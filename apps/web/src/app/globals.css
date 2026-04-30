@@ -18,11 +18,11 @@
   }
 
   .btn-primary {
-    @apply bg-accent text-background hover:bg-accent-hover;
+    @apply bg-accent text-white hover:bg-accent-hover;
   }
 
   .btn-secondary {
-    @apply bg-surface text-text hover:bg-surface-secondary;
+    @apply bg-surface text-text hover:bg-surface-secondary border border-border;
   }
 
   .input {
@@ -30,7 +30,7 @@
   }
 
   .card {
-    @apply bg-surface rounded-lg border border-border p-6;
+    @apply bg-surface rounded-lg border border-border p-6 shadow-sm;
   }
 
   .label {

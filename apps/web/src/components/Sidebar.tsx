@@ -3,34 +3,49 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  UserCheck,
   Users,
+  CalendarPlus,
   Building,
   HeartHandshake,
   Calculator,
-  Calendar,
+  BookOpen,
   FileText,
-  Settings,
+  Shield,
+  Calendar,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 
 const navigation = [
-  { name: 'Фиксация клиентов', href: '/fixation', icon: Users },
-  { name: 'Клиенты', href: '/clients', icon: Users },
-  { name: 'Каталог', href: '/catalog', icon: Building },
+  { name: 'Фиксация', href: '/fixation', icon: UserCheck },
+  { name: 'Клиенты / Заявки', href: '/clients', icon: Users },
+  { name: 'Записаться на встречу', href: '/meetings', icon: CalendarPlus },
+  { name: 'Подбор квартир', href: '/catalog', icon: Building },
   { name: 'Сделки', href: '/deals', icon: HeartHandshake },
   { name: 'Комиссия', href: '/commission', icon: Calculator },
-  { name: 'Встречи', href: '/meetings', icon: Calendar },
+  { name: 'Материалы для брокеров', href: '/materials', icon: BookOpen },
   { name: 'Документы', href: '/documents', icon: FileText },
-  { name: 'Профиль', href: '/profile', icon: Settings },
+];
+
+const adminNavigation = [
+  { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
+  { name: 'Лендинг — Контент', href: '/admin/content', icon: Sparkles },
+  { name: 'Лендинг — События', href: '/admin/events', icon: Calendar },
+  { name: 'Лендинг — Проекты', href: '/admin/projects', icon: Building },
+  { name: 'Файлы и документы', href: '/admin/documents', icon: FileText },
 ];
 
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
+  const { broker } = useAuth();
+  const isAdmin = broker?.role === 'ADMIN' || broker?.role === 'MANAGER';
+  const items = isAdmin ? [...navigation, ...adminNavigation] : navigation;
 
   return (
     <>
-      {/* Mobile overlay */}
       {open && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -38,7 +53,6 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
         />
       )}
 
-      {/* Sidebar */}
       <div
         className={cn(
           'fixed top-0 left-0 z-50 h-full w-64 bg-surface border-r border-border transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 lg:z-auto',
@@ -62,7 +76,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
 
         <nav className="px-4">
           <ul className="space-y-2">
-            {navigation.map((item) => {
+            {items.map((item) => {
               const isActive = pathname === item.href;
               return (
                 <li key={item.name}>
@@ -72,7 +86,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
                     className={cn(
                       'flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors',
                       isActive
-                        ? 'bg-accent text-background'
+                        ? 'bg-accent text-white'
                         : 'text-text hover:bg-surface-secondary'
                     )}
                   >

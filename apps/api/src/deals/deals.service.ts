@@ -16,12 +16,17 @@ export class DealsService {
       project?: string;
     },
   ) {
-    const page = query.page || 1;
-    const limit = query.limit || 20;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
     const where: any = { brokerId };
-    if (query.status) where.status = query.status;
+    if (query.status) {
+      where.status = query.status;
+    } else {
+      // By default show only real deal stages, exclude PENDING and CANCELLED
+      where.status = { in: ['SIGNED', 'PAID', 'COMMISSION_PAID'] };
+    }
     if (query.project) where.project = query.project;
 
     const orderBy: any = {};

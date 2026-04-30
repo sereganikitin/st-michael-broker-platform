@@ -90,7 +90,7 @@ export default function ProfilePage() {
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center">
-                <User className="w-8 h-8 text-background" />
+                <User className="w-8 h-8 text-white" />
               </div>
               <div>
                 <h2 className="text-xl font-bold">{broker.fullName}</h2>

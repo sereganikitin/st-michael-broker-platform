@@ -3,7 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from './current-user.decorator';
-import { registerDtoSchema, loginDtoSchema, phoneSchema } from '@st-michael/shared';
+import { registerDtoSchema, loginDtoSchema, phoneSchema, forgotPasswordDtoSchema, resetPasswordDtoSchema } from '@st-michael/shared';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -15,7 +15,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Register broker' })
   @ApiResponse({ status: 201, description: 'Broker registered, OTP sent' })
   async register(@Body() body: unknown) {
-    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string; email?: string; password: string; inn?: string };
+    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string };
     return this.authService.register(data);
   }
 
@@ -35,6 +35,22 @@ export class AuthController {
   async login(@Body() body: unknown) {
     const data = loginDtoSchema.parse(body) as { phone: string; password: string };
     return this.authService.login(data);
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request password reset link via email' })
+  async forgotPassword(@Body() body: unknown) {
+    const { email } = forgotPasswordDtoSchema.parse(body);
+    return this.authService.forgotPassword(email);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset password using token from email' })
+  async resetPassword(@Body() body: unknown) {
+    const { token, password } = resetPasswordDtoSchema.parse(body);
+    return this.authService.resetPassword(token, password);
   }
 
   @Post('refresh')

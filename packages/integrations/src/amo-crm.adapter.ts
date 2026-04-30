@@ -104,9 +104,40 @@ export class AmoCrmAdapter {
   async findContactByPhone(phone: string): Promise<AmoContact | null> {
     const query = encodeURIComponent(phone);
     try {
-      const data = await this.request<any>(`/contacts?query=${query}`);
+      const data = await this.request<any>(`/contacts?query=${query}&limit=50`);
       const contacts = data?._embedded?.contacts || [];
       return contacts[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async findBrokerContactByPhone(phone: string): Promise<AmoContact | null> {
+    const query = encodeURIComponent(phone);
+    try {
+      const data = await this.request<any>(`/contacts?query=${query}&limit=50`);
+      const contacts: any[] = data?._embedded?.contacts || [];
+      // Filter contacts with "Брокер" checkbox = true
+      const brokerCandidates = contacts.filter((c: any) => {
+        const fields = c.custom_fields_values || [];
+        const brokerField = fields.find((f: any) => f.field_id === 835415);
+        return brokerField?.values?.[0]?.value === true;
+      });
+      if (brokerCandidates.length === 0) return null;
+      if (brokerCandidates.length === 1) return brokerCandidates[0];
+
+      // Multiple broker candidates — pick the one with the most linked leads
+      let best: any = null;
+      let bestLeads = -1;
+      for (const cand of brokerCandidates) {
+        const full = await this.getContact(cand.id);
+        const leadsCount = full?._embedded?.leads?.length || 0;
+        if (leadsCount > bestLeads) {
+          bestLeads = leadsCount;
+          best = full || cand;
+        }
+      }
+      return best;
     } catch {
       return null;
     }
@@ -194,13 +225,41 @@ export class AmoCrmAdapter {
     }
   }
 
-  async getLeadsByResponsibleUser(userId: number, limit = 250): Promise<AmoLead[]> {
+  async getLeadsByPipeline(pipelineId: number, limit = 250): Promise<AmoLead[]> {
+    const allLeads: AmoLead[] = [];
+    let page = 1;
     try {
-      const data = await this.request<any>(`/leads?filter[responsible_user_id]=${userId}&limit=${limit}&with=contacts`);
-      return data?._embedded?.leads || [];
-    } catch {
-      return [];
-    }
+      while (true) {
+        const data = await this.request<any>(
+          `/leads?filter[pipeline_id][]=${pipelineId}&limit=${limit}&page=${page}&with=contacts`,
+        );
+        const leads = data?._embedded?.leads || [];
+        if (leads.length === 0) break;
+        allLeads.push(...leads);
+        if (leads.length < limit) break;
+        page++;
+        if (page > 20) break; // safety
+      }
+    } catch {}
+    return allLeads;
+  }
+
+  async getLeadsByResponsibleUser(userId: number, limit = 250): Promise<AmoLead[]> {
+    const allLeads: AmoLead[] = [];
+    let page = 1;
+    try {
+      while (true) {
+        const data = await this.request<any>(
+          `/leads?filter[responsible_user_id][]=${userId}&limit=${limit}&page=${page}&with=contacts`,
+        );
+        const leads = data?._embedded?.leads || [];
+        if (leads.length === 0) break;
+        allLeads.push(...leads);
+        if (leads.length < limit) break;
+        page++;
+      }
+    } catch {}
+    return allLeads;
   }
 
   async reopenLead(id: number, newBrokerAmoId: number): Promise<AmoLead> {

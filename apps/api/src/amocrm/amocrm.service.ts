@@ -1,6 +1,11 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, statusToDealStatus } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+
+const COMMISSION_RATES: Record<string, Record<string, number>> = {
+  ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
+  SILVER_BOR: { START: 4.5, BASIC: 5.0, STRONG: 5.5, PREMIUM: 6.0, ELITE: 6.5, CHAMPION: 7.0, LEGEND: 7.5 },
+};
 
 @Injectable()
 export class AmocrmService {
@@ -8,6 +13,71 @@ export class AmocrmService {
 
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {
     this.amo = new AmoCrmAdapter();
+  }
+
+  private async getCommissionRate(brokerId: string, project: string): Promise<number> {
+    const brokerAgency = await this.prisma.brokerAgency.findFirst({
+      where: { brokerId, isPrimary: true },
+      include: { agency: true },
+    });
+    const level = brokerAgency?.agency?.commissionLevel || 'START';
+    return COMMISSION_RATES[project]?.[level] || COMMISSION_RATES.ZORGE9[level] || 5.0;
+  }
+
+  private mapMeetingType(raw: string): 'OFFICE_VISIT' | 'ONLINE' | 'BROKER_TOUR' {
+    const v = (raw || '').toLowerCase();
+    if (v.includes('онлайн') || v.includes('online') || v.includes('zoom')) return 'ONLINE';
+    if (v.includes('тур') || v.includes('брокер')) return 'BROKER_TOUR';
+    return 'OFFICE_VISIT';
+  }
+
+  /**
+   * Sync meeting from a lead if it has meeting date field. Creates/updates Meeting linked to broker.
+   */
+  async syncMeetingFromLead(
+    lead: any,
+    brokerId: string,
+    clientId: string,
+  ): Promise<boolean> {
+    const customFields = lead?.custom_fields_values || [];
+    const dateField = customFields.find((f: any) => f.field_name === 'Дата и время встречи');
+    const typeField = customFields.find((f: any) => f.field_name === 'Встреча');
+
+    const rawDate = dateField?.values?.[0]?.value;
+    if (!rawDate) return false;
+
+    // amoCRM stores date as Unix timestamp (seconds)
+    const meetingDate = new Date(Number(rawDate) * 1000);
+    if (isNaN(meetingDate.getTime())) return false;
+
+    const rawType = typeField?.values?.[0]?.value || '';
+    const meetingType = this.mapMeetingType(rawType);
+
+    const meetingStatus = mapMeetingStatus(lead.status_id);
+
+    // Upsert meeting by clientId+brokerId+date (or use lead.id via comment)
+    const existing = await this.prisma.meeting.findFirst({
+      where: { clientId, brokerId, date: meetingDate },
+    });
+
+    if (existing) {
+      await this.prisma.meeting.update({
+        where: { id: existing.id },
+        data: { type: meetingType as any, status: meetingStatus as any },
+      });
+    } else {
+      await this.prisma.meeting.create({
+        data: {
+          brokerId,
+          clientId,
+          type: meetingType as any,
+          status: meetingStatus as any,
+          date: meetingDate,
+          comment: rawType ? `Тип из amoCRM: ${rawType}` : null,
+        },
+      });
+    }
+    return true;
   }
 
   async getAccount() {
@@ -117,103 +187,161 @@ export class AmocrmService {
   async syncMyDealsAndClients(brokerId: string) {
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
     if (!broker) throw new NotFoundException('Broker not found');
-    if (!broker.amoContactId) {
-      throw new BadRequestException('Broker not linked to amoCRM contact. Re-register or call /amocrm/sync-broker-by-phone first.');
+
+    // Find correct broker contact in amoCRM (with Брокер=true flag)
+    let amoContactId = broker.amoContactId ? Number(broker.amoContactId) : null;
+    const brokerContact = await this.amo.findBrokerContactByPhone(broker.phone);
+    if (brokerContact && (!amoContactId || brokerContact.id !== amoContactId)) {
+      // Re-link to correct broker contact
+      amoContactId = brokerContact.id;
+      await this.prisma.broker.update({
+        where: { id: brokerId },
+        data: { amoContactId: BigInt(brokerContact.id) },
+      });
     }
 
-    const amoContactId = Number(broker.amoContactId);
+    // Strategy 1: Get leads linked to broker's contact
+    let allLeadIds: number[] = [];
+    if (amoContactId) {
+      const fullContact = await this.amo.getContact(amoContactId);
+      const contactLeads = fullContact?._embedded?.leads || [];
+      allLeadIds.push(...contactLeads.map((l: any) => l.id));
+    }
 
-    // Get full contact with linked leads
-    const fullContact = await this.amo.getContact(amoContactId);
-    const linkedLeads = fullContact?._embedded?.leads || [];
-    if (linkedLeads.length === 0) {
-      return { dealsCreated: 0, dealsUpdated: 0, clientsCreated: 0, message: 'No leads linked to this contact in amoCRM' };
+    // Strategy 2: Find broker as amoCRM user (employee) and get leads by responsible_user_id
+    let amoUserId: number | null = null;
+    try {
+      const users = await this.amo.getUsers();
+      const cleanPhone = broker.phone.replace(/\D/g, '').slice(-10);
+      const userByPhone = users.find((u: any) => {
+        const uPhone = String(u.phone || '').replace(/\D/g, '');
+        return uPhone && uPhone.endsWith(cleanPhone);
+      });
+      const userByName = !userByPhone ? users.find((u: any) =>
+        u.name && broker.fullName && u.name.toLowerCase().includes(broker.fullName.split(' ')[0]?.toLowerCase()),
+      ) : null;
+      const matchedUser = userByPhone || userByName;
+      if (matchedUser) {
+        amoUserId = matchedUser.id;
+        const userLeads = await this.amo.getLeadsByResponsibleUser(matchedUser.id, 500);
+        for (const lead of userLeads) {
+          if (!allLeadIds.includes(lead.id)) allLeadIds.push(lead.id);
+        }
+      }
+    } catch (e) {
+      console.error('User lookup failed:', e);
+    }
+
+    if (allLeadIds.length === 0) {
+      return {
+        dealsCreated: 0, dealsUpdated: 0, clientsCreated: 0,
+        message: 'No leads found. Broker not linked to deals in amoCRM.',
+        amoContactId, amoUserId,
+      };
     }
 
     let dealsCreated = 0;
     let dealsUpdated = 0;
     let clientsCreated = 0;
+    let skipped = 0;
 
-    for (const leadRef of linkedLeads) {
-      const lead: any = await this.amo.getLead(leadRef.id);
-      if (!lead) continue;
+    for (const leadId of allLeadIds) {
+      try {
+        const lead: any = await this.amo.getLead(leadId);
+        if (!lead) continue;
 
-      // Skip closed-not-realized
-      if (lead.status_id === 143) continue;
+        // Skip leads from "Воронка брокеров" — они отслеживают самих брокеров, не клиентов
+        if (lead.pipeline_id === BROKER_PIPELINE_ID) { skipped++; continue; }
+        // Skip closed-not-realized
+        if (lead.status_id === 143) { skipped++; continue; }
+        // Sync only deal-stage leads
+        if (!isDealStage(lead.status_id)) { skipped++; continue; }
 
-      const project = pipelineToProject(lead.pipeline_id);
-      const status = statusToDealStatus(lead.status_id);
+        const project = leadToProject(lead);
+        const status = statusToDealStatus(lead.status_id);
 
-      // Find client contact (any contact in lead that is NOT the broker)
-      const leadContacts = lead?._embedded?.contacts || [];
-      const clientContactRef = leadContacts.find((c: any) => Number(c.id) !== amoContactId) || leadContacts[0];
-      if (!clientContactRef) continue;
+        // Find client contact in lead (any contact that is NOT the broker)
+        const leadContacts = lead?._embedded?.contacts || [];
+        const clientContactRef = leadContacts.find(
+          (c: any) => !amoContactId || Number(c.id) !== amoContactId,
+        ) || leadContacts[0];
 
-      // Fetch client contact details
-      const clientContact: any = await this.amo.getContact(clientContactRef.id);
-      if (!clientContact) continue;
+        let fullName = lead.name || 'Без имени';
+        let phone = `+70000${leadId}`;
+        let email: string | null = null;
 
-      // Extract phone from client custom fields
-      const phoneField = (clientContact.custom_fields_values || []).find(
-        (f: any) => f.field_id === AMO_CONTACT_FIELDS.PHONE || f.field_code === 'PHONE',
-      );
-      const rawPhone = phoneField?.values?.[0]?.value || '';
-      let phone = String(rawPhone).replace(/[\s\-()'"]/g, '');
-      if (phone.startsWith('8') && phone.length === 11) phone = '+7' + phone.slice(1);
-      if (phone && !phone.startsWith('+')) phone = '+' + phone;
-      if (!phone) phone = `+70000${clientContact.id}`;
+        if (clientContactRef) {
+          const clientContact: any = await this.amo.getContact(clientContactRef.id);
+          if (clientContact) {
+            fullName = clientContact.name || fullName;
+            const phoneField = (clientContact.custom_fields_values || []).find(
+              (f: any) => f.field_id === AMO_CONTACT_FIELDS.PHONE || f.field_code === 'PHONE',
+            );
+            const rawPhone = phoneField?.values?.[0]?.value || '';
+            let p = String(rawPhone).replace(/[\s\-()'"]/g, '');
+            if (p.startsWith('8') && p.length === 11) p = '+7' + p.slice(1);
+            if (p && !p.startsWith('+')) p = '+' + p;
+            if (p) phone = p;
 
-      const fullName = clientContact.name || 'Без имени';
+            const emailField = (clientContact.custom_fields_values || []).find(
+              (f: any) => f.field_id === AMO_CONTACT_FIELDS.EMAIL || f.field_code === 'EMAIL',
+            );
+            email = emailField?.values?.[0]?.value || null;
+          }
+        }
 
-      const emailField = (clientContact.custom_fields_values || []).find(
-        (f: any) => f.field_id === AMO_CONTACT_FIELDS.EMAIL || f.field_code === 'EMAIL',
-      );
-      const email = emailField?.values?.[0]?.value || null;
+        // Upsert client
+        let client = await this.prisma.client.findFirst({ where: { phone, brokerId } });
+        if (!client) {
+          client = await this.prisma.client.create({
+            data: {
+              brokerId, fullName, phone, email,
+              project: project as any,
+              amoLeadId: BigInt(lead.id),
+              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+              uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            },
+          });
+          clientsCreated++;
+        }
 
-      // Upsert client by phone+brokerId
-      let client = await this.prisma.client.findFirst({ where: { phone, brokerId } });
-      if (!client) {
-        client = await this.prisma.client.create({
-          data: {
-            brokerId,
-            fullName,
-            phone,
-            email,
-            project: project as any,
-            amoLeadId: BigInt(lead.id),
-            uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
-            uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          },
+        // Calculate commission
+        const amount = Number(lead.price || 0);
+        const rate = await this.getCommissionRate(brokerId, project);
+        const commissionAmount = Math.round(amount * rate / 100);
+
+        // Upsert deal
+        const existingDeal = await this.prisma.deal.findFirst({
+          where: { amoDealId: BigInt(lead.id) },
         });
-        clientsCreated++;
-      }
 
-      // Upsert deal by amoDealId
-      const existingDeal = await this.prisma.deal.findFirst({
-        where: { amoDealId: BigInt(lead.id) },
-      });
+        const dealData = {
+          clientId: client.id,
+          brokerId,
+          project: project as any,
+          amount,
+          sqm: 0,
+          commissionRate: rate,
+          commissionAmount,
+          status: status as any,
+          amoDealId: BigInt(lead.id),
+        };
 
-      const dealData = {
-        clientId: client.id,
-        brokerId,
-        project: project as any,
-        amount: Number(lead.price || 0),
-        sqm: 0,
-        commissionRate: 0,
-        commissionAmount: 0,
-        status: status as any,
-        amoDealId: BigInt(lead.id),
-      };
+        if (existingDeal) {
+          await this.prisma.deal.update({ where: { id: existingDeal.id }, data: dealData });
+          dealsUpdated++;
+        } else {
+          await this.prisma.deal.create({ data: dealData });
+          dealsCreated++;
+        }
 
-      if (existingDeal) {
-        await this.prisma.deal.update({ where: { id: existingDeal.id }, data: dealData });
-        dealsUpdated++;
-      } else {
-        await this.prisma.deal.create({ data: dealData });
-        dealsCreated++;
+        // Sync meeting from lead if present (only for current broker)
+        try { await this.syncMeetingFromLead(lead, brokerId, client.id); } catch {}
+      } catch (e) {
+        skipped++;
       }
     }
 
-    return { dealsCreated, dealsUpdated, clientsCreated, totalLeads: linkedLeads.length };
+    return { dealsCreated, dealsUpdated, clientsCreated, skipped, totalLeads: allLeadIds.length, amoContactId, amoUserId };
   }
 }

@@ -6,9 +6,9 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   PENDING: { label: 'В работе', cls: 'bg-warning/20 text-warning' },
-  SIGNED: { label: 'Подписан', cls: 'bg-info/20 text-info' },
-  PAID: { label: 'Оплачен', cls: 'bg-success/20 text-success' },
-  COMMISSION_PAID: { label: 'Комиссия', cls: 'bg-accent/20 text-accent' },
+  SIGNED: { label: 'Договор подписан', cls: 'bg-info/20 text-info' },
+  PAID: { label: 'Клиент оплатил', cls: 'bg-success/20 text-success' },
+  COMMISSION_PAID: { label: 'Комиссия выплачена', cls: 'bg-accent/20 text-accent' },
   CANCELLED: { label: 'Отменён', cls: 'bg-error/20 text-error' },
 };
 
@@ -47,12 +47,10 @@ export default function DealsPage() {
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
         >
-          <option value="">Все статусы</option>
-          <option value="PENDING">В работе</option>
-          <option value="SIGNED">Подписан</option>
-          <option value="PAID">Оплачен</option>
+          <option value="">Все сделки</option>
+          <option value="SIGNED">Договор подписан</option>
+          <option value="PAID">Клиент оплатил</option>
           <option value="COMMISSION_PAID">Комиссия выплачена</option>
-          <option value="CANCELLED">Отменён</option>
         </select>
       </div>
 
@@ -85,9 +83,9 @@ export default function DealsPage() {
                       </td>
                       <td className="py-3">{deal.project}</td>
                       <td className="py-3 text-text-muted">{deal.lot?.number || '—'}</td>
-                      <td className="py-3">{Number(deal.amount).toLocaleString('ru-RU')} ₽</td>
+                      <td className="py-3">{Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽</td>
                       <td className="py-3 text-accent">
-                        {Number(deal.commissionAmount).toLocaleString('ru-RU')} ₽
+                        {Math.round(Number(deal.commissionAmount)).toLocaleString('ru-RU')} ₽
                         <span className="text-xs text-text-muted ml-1">({Number(deal.commissionRate)}%)</span>
                       </td>
                       <td className="py-3">

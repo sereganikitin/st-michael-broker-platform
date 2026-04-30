@@ -46,7 +46,7 @@ export default function DashboardPage() {
     },
     {
       name: 'Комиссия',
-      value: `${(data?.commission.totalEarned ?? 0).toLocaleString('ru-RU')} ₽`,
+      value: `${Math.round(data?.commission.totalEarned ?? 0).toLocaleString('ru-RU')} ₽`,
       sub: `${data?.deals.paid ?? 0} оплаченных сделок`,
       icon: Calculator,
     },
@@ -115,7 +115,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-medium text-accent">
-                      {Number(deal.amount).toLocaleString('ru-RU')} ₽
+                      {Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽
                     </div>
                     <div className="text-xs text-text-muted">{deal.status}</div>
                   </div>

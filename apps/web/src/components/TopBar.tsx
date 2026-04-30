@@ -1,10 +1,14 @@
 'use client';
 
-import { Bell, User, LogOut, Menu } from 'lucide-react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Bell, User, LogOut, Menu, Settings } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const { broker, logout } = useAuth();
+  const pathname = usePathname();
+  const settingsActive = pathname === '/profile';
 
   return (
     <header className="bg-surface border-b border-border px-4 sm:px-6 py-4">
@@ -22,13 +26,21 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
         </div>
 
         <div className="flex items-center space-x-2 sm:space-x-4">
-          <button className="p-2 hover:bg-surface-secondary rounded-lg">
+          <button className="p-2 hover:bg-surface-secondary rounded-lg" aria-label="Уведомления">
             <Bell className="w-5 h-5" />
           </button>
 
+          <Link
+            href="/profile"
+            className={`p-2 rounded-lg transition ${settingsActive ? 'bg-accent text-white' : 'hover:bg-surface-secondary'}`}
+            title="Настройки"
+          >
+            <Settings className="w-5 h-5" />
+          </Link>
+
           <div className="flex items-center space-x-2 sm:space-x-3">
             <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center flex-shrink-0">
-              <User className="w-4 h-4 text-background" />
+              <User className="w-4 h-4 text-white" />
             </div>
             <div className="text-sm hidden sm:block">
               <div className="font-medium">{broker?.fullName || 'Брокер'}</div>

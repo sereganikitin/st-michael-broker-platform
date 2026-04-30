@@ -76,12 +76,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const isAuthPage = pathname === '/login' || pathname === '/register';
     const isLanding = pathname === '/';
+    const isPublic = pathname === '/reset-password';
 
-    if (!broker && !isAuthPage && !isLanding) {
+    // Unauthenticated users can only see landing / reset-password / login / register
+    if (!broker && !isAuthPage && !isLanding && !isPublic) {
       router.replace('/');
     } else if (broker && isAuthPage) {
+      // Logged-in user on /login or /register → go to cabinet
       router.replace('/fixation');
     }
+    // Note: do NOT redirect logged-in users from landing — they can still visit it
   }, [broker, loading, pathname, router]);
 
   const login = useCallback((accessToken: string, refreshToken: string) => {

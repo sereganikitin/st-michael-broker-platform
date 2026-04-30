@@ -18,6 +18,8 @@ import { AuditModule } from './audit/audit.module';
 import { HealthController } from './health.controller';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { AmocrmModule } from './amocrm/amocrm.module';
+import { AdminModule } from './admin/admin.module';
+import { CmsModule } from './cms/cms.module';
 
 @Module({
   imports: [
@@ -52,6 +54,8 @@ import { AmocrmModule } from './amocrm/amocrm.module';
     WebhooksModule,
     SchedulerModule,
     AmocrmModule,
+    AdminModule,
+    CmsModule,
   ],
   controllers: [HealthController],
 })

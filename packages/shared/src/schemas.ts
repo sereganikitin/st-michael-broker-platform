@@ -12,9 +12,20 @@ export const uuidSchema = z.string().uuid();
 export const registerDtoSchema = z.object({
   phone: phoneSchema,
   fullName: z.string().min(2, 'Full name too short'),
-  email: z.string().email('Invalid email').optional(),
+  email: z.string().email('Invalid email'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
-  inn: z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits').optional(),
+  inn: z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits'),
+  innType: z.enum(['PERSONAL', 'AGENCY']).optional(),
+  agencyName: z.string().min(2).max(200).optional(),
+});
+
+export const forgotPasswordDtoSchema = z.object({
+  email: z.string().email('Invalid email'),
+});
+
+export const resetPasswordDtoSchema = z.object({
+  token: z.string().min(10),
+  password: z.string().min(6),
 });
 
 export const sendOtpDtoSchema = z.object({
@@ -110,6 +121,8 @@ export const updateMeetingDtoSchema = z.object({
   date: z.string().datetime().optional(),
   comment: z.string().optional(),
   status: z.nativeEnum(MeetingStatus).optional(),
+  type: z.nativeEnum(MeetingType).optional(),
+  extraPhone: z.string().optional(),
 });
 
 // Notification schemas

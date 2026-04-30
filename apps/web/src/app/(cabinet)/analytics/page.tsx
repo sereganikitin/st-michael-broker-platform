@@ -30,7 +30,7 @@ export default function AnalyticsPage() {
   const stats = [
     { name: 'Клиенты', value: dashboard?.clients.total ?? 0, icon: Users, sub: `${dashboard?.clients.activeFixations ?? 0} активных фиксаций` },
     { name: 'Сделки', value: dashboard?.deals.total ?? 0, icon: HeartHandshake, sub: `${dashboard?.deals.pending ?? 0} в работе` },
-    { name: 'Комиссия', value: `${(dashboard?.commission.totalEarned ?? 0).toLocaleString('ru-RU')} ₽`, icon: Calculator, sub: `${dashboard?.deals.paid ?? 0} оплаченных` },
+    { name: 'Комиссия', value: `${Math.round(dashboard?.commission.totalEarned ?? 0).toLocaleString('ru-RU')} ₽`, icon: Calculator, sub: `${dashboard?.deals.paid ?? 0} оплаченных` },
     { name: 'Встречи', value: dashboard?.meetings.upcoming ?? 0, icon: Calendar, sub: 'предстоящих' },
   ];
 

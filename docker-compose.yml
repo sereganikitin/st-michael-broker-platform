@@ -57,8 +57,16 @@ services:
       AMO_SUBDOMAIN: ${AMO_SUBDOMAIN:-stmichael}
       AMO_BASE_DOMAIN: ${AMO_BASE_DOMAIN:-amocrm.ru}
       AMO_ACCESS_TOKEN: ${AMO_ACCESS_TOKEN:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     ports:
       - "4000:4000"
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,6 +101,7 @@ services:
     volumes:
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./docker/ssl:/etc/nginx/ssl:ro
+      - uploads:/usr/share/nginx/files:ro
     depends_on:
       - api
       - web
@@ -103,6 +112,7 @@ services:
 volumes:
   pgdata:
   redisdata:
+  uploads:
 
 networks:
   st-michael-network:

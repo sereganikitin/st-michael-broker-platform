@@ -189,6 +189,8 @@ model Broker {
   phone                String             @unique
   email                String?
   passwordHash         String?            @map("password_hash")
+  passwordResetToken   String?            @unique @map("password_reset_token")
+  passwordResetExpiresAt DateTime?        @map("password_reset_expires_at")
   role                 UserRole           @default(BROKER)
   status               UserStatus         @default(PENDING)
   funnelStage          BrokerFunnelStage  @default(NEW_BROKER) @map("funnel_stage")
@@ -251,13 +253,22 @@ model Lot {
   price        Decimal   @db.Decimal(14, 2)
   pricePerSqm  Decimal?  @map("price_per_sqm") @db.Decimal(10, 2)
   status       LotStatus @default(AVAILABLE)
-  propertyType String?   @map("property_type")   // Апартаменты, Коммерция и т.д.
+  propertyType String?   @map("property_type")
   layoutUrl    String?   @map("layout_url")
   planImageUrl String?   @map("plan_image_url")
   description  String?
   floorsTotal  Int?      @map("floors_total")
   buildingSection String? @map("building_section")
   windowView   String?   @map("window_view")
+  builtYear    Int?      @map("built_year")
+  readyQuarter Int?      @map("ready_quarter")
+  buildingState String?  @map("building_state")
+  hasBalcony   Boolean   @default(false) @map("has_balcony")
+  hasTerrace   Boolean   @default(false) @map("has_terrace")
+  isPenthouse  Boolean   @default(false) @map("is_penthouse")
+  discountPrice    Decimal? @map("discount_price") @db.Decimal(14, 2)
+  discountPercent  Decimal? @map("discount_percent") @db.Decimal(5, 2)
+  discountName     String?  @map("discount_name")
   deals        Deal[]
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
@@ -339,15 +350,21 @@ model Meeting {
 }
 
 model Document {
-  id        String   @id @default(uuid())
-  name      String
-  type      String
-  category  String
-  project   Project?
-  fileUrl   String   @map("file_url")
-  fileSize  Int?     @map("file_size")
-  createdAt DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  type        String                              // mime type or extension label (PDF, DOCX, MP4, URL...)
+  category    String                              // cooperation | analytics | marketing | materials
+  subcategory String?                             // optional sub-grouping label
+  project     Project?
+  fileUrl     String   @map("file_url")            // local: /files/<cat>/<uuid>.ext  |  external URL
+  fileSize    Int?     @map("file_size")
+  isPublic    Boolean  @default(true) @map("is_public")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
+  @@index([category, isPublic, sortOrder])
   @@map("documents")
 }
 
@@ -379,4 +396,49 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([userId, createdAt])
   @@map("audit_logs")
+}
+
+// ─── CMS / LANDING CONTENT ───────────────────────────
+
+// Generic key-value content for landing blocks (hero, advantages, commission, contact, etc.)
+model SiteContent {
+  key       String   @id          // e.g. "hero", "advantages", "commission", "contact"
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("site_content")
+}
+
+model LandingEvent {
+  id          String   @id @default(uuid())
+  date        DateTime
+  title       String
+  location    String?
+  isOnline    Boolean  @default(false) @map("is_online")
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([date, isActive])
+  @@map("landing_events")
+}
+
+model LandingProject {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  tag         String?              // e.g. "Приоритетный проект"
+  name        String                // bold part, e.g. "Зорге"
+  subtitle    String?              // suffix, e.g. "9" or "Серебряный Бор"
+  description String
+  ctaText     String?  @map("cta_text")     // e.g. "Смотреть каталог"
+  ctaHref     String?  @map("cta_href")     // optional URL; null = open cabinet
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("landing_projects")
 }

@@ -1,122 +1,188 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { randomUUID } from 'crypto';
+
+const UPLOADS_ROOT = process.env.UPLOADS_DIR || '/app/uploads';
+const PUBLIC_PREFIX = '/files';
+const VALID_CATEGORIES = new Set(['cooperation', 'analytics', 'marketing', 'materials']);
 
 @Injectable()
 export class DocumentsService {
-  private s3: S3Client;
-  private bucket: string;
-
-  constructor(@Inject('PrismaClient') private prisma: PrismaClient) {
-    this.bucket = process.env.S3_BUCKET || 'st-michael-docs';
-    this.s3 = new S3Client({
-      region: process.env.S3_REGION || 'ru-central1',
-      endpoint: process.env.S3_ENDPOINT || 'https://storage.yandexcloud.net',
-      credentials: {
-        accessKeyId: process.env.S3_ACCESS_KEY || '',
-        secretAccessKey: process.env.S3_SECRET_KEY || '',
-      },
-      forcePathStyle: true,
-    });
-  }
+  constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
 
   async getDocuments(filters: {
     category?: string;
+    subcategory?: string;
     project?: string;
+    onlyPublic?: boolean;
     page?: number;
     limit?: number;
   }) {
-    const page = filters.page || 1;
-    const limit = filters.limit || 20;
+    const page = Number(filters.page) || 1;
+    const limit = Number(filters.limit) || 100;
     const skip = (page - 1) * limit;
 
     const where: any = {};
     if (filters.category) where.category = filters.category;
+    if (filters.subcategory) where.subcategory = filters.subcategory;
     if (filters.project) where.project = filters.project;
+    if (filters.onlyPublic) where.isPublic = true;
 
     const [documents, total] = await Promise.all([
       this.prisma.document.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
         skip,
         take: limit,
       }),
       this.prisma.document.count({ where }),
     ]);
 
-    return {
-      documents,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return { documents, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async getExternalDocuments() {
-    const BROKER_PAGE = process.env.BROKER_DOCS_URL || 'https://old.zorge9.com/broker/index.html';
-    const BASE = BROKER_PAGE.replace(/\/[^/]*$/, '/');
+  async getDocument(id: string) {
+    const doc = await this.prisma.document.findUnique({ where: { id } });
+    if (!doc) throw new NotFoundException('Document not found');
+    return doc;
+  }
 
-    const res = await fetch(BROKER_PAGE);
-    if (!res.ok) throw new NotFoundException('External page not available');
-    const html = await res.text();
-
-    const docs: { name: string; url: string; type: string }[] = [];
-    const linkRegex = /<a[^>]+href=["']([^"']*files\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    let match;
-    while ((match = linkRegex.exec(html)) !== null) {
-      const href = match[1];
-      const rawText = match[2].replace(/<[^>]+>/g, '').trim();
-      if (!rawText || !href) continue;
-
-      const url = href.startsWith('http') ? href : 'https://old.zorge9.com/' + href.replace(/^\.?\/?/, '');
-      const ext = (href.split('.').pop() || '').toLowerCase();
-      const type = ext === 'pdf' ? 'PDF' : ext === 'docx' ? 'DOCX' : ext === 'xlsx' ? 'XLSX' : ext.toUpperCase();
-
-      docs.push({ name: rawText, url, type });
+  async uploadFile(file: Express.Multer.File, meta: {
+    name?: string;
+    description?: string;
+    category: string;
+    subcategory?: string;
+    project?: string;
+    isPublic?: boolean;
+    sortOrder?: number;
+  }) {
+    if (!file) throw new BadRequestException('File required');
+    if (!meta.category || !VALID_CATEGORIES.has(meta.category)) {
+      throw new BadRequestException(`category must be one of: ${[...VALID_CATEGORIES].join(', ')}`);
     }
 
-    return { documents: docs, source: BROKER_PAGE, fetchedAt: new Date().toISOString() };
+    const ext = (path.extname(file.originalname) || '').toLowerCase();
+    const fileName = `${randomUUID()}${ext}`;
+    const targetDir = path.join(UPLOADS_ROOT, meta.category);
+    const targetPath = path.join(targetDir, fileName);
+
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.writeFile(targetPath, file.buffer);
+
+    const fileUrl = `${PUBLIC_PREFIX}/${meta.category}/${fileName}`;
+    const typeLabel = (ext.replace('.', '').toUpperCase()) || (file.mimetype.split('/')[1] || 'FILE').toUpperCase();
+
+    return this.prisma.document.create({
+      data: {
+        name: meta.name?.trim() || file.originalname,
+        description: meta.description || null,
+        type: typeLabel,
+        category: meta.category,
+        subcategory: meta.subcategory || null,
+        project: (meta.project as any) || null,
+        fileUrl,
+        fileSize: file.size,
+        isPublic: meta.isPublic !== false,
+        sortOrder: Number(meta.sortOrder) || 0,
+      },
+    });
+  }
+
+  async createExternal(meta: {
+    name: string;
+    description?: string;
+    url: string;
+    category: string;
+    subcategory?: string;
+    project?: string;
+    isPublic?: boolean;
+    sortOrder?: number;
+  }) {
+    if (!meta.url) throw new BadRequestException('url required');
+    if (!meta.category || !VALID_CATEGORIES.has(meta.category)) {
+      throw new BadRequestException(`category must be one of: ${[...VALID_CATEGORIES].join(', ')}`);
+    }
+
+    return this.prisma.document.create({
+      data: {
+        name: meta.name,
+        description: meta.description || null,
+        type: 'URL',
+        category: meta.category,
+        subcategory: meta.subcategory || null,
+        project: (meta.project as any) || null,
+        fileUrl: meta.url,
+        isPublic: meta.isPublic !== false,
+        sortOrder: Number(meta.sortOrder) || 0,
+      },
+    });
+  }
+
+  async updateDocument(id: string, patch: any) {
+    const data: any = {};
+    for (const k of ['name', 'description', 'category', 'subcategory'] as const) {
+      if (patch[k] !== undefined) data[k] = patch[k] || null;
+    }
+    if (data.name === null) delete data.name;
+    if (patch.isPublic !== undefined) data.isPublic = !!patch.isPublic;
+    if (patch.sortOrder !== undefined) data.sortOrder = Number(patch.sortOrder) || 0;
+    if (patch.category && !VALID_CATEGORIES.has(patch.category)) {
+      throw new BadRequestException(`Invalid category`);
+    }
+    return this.prisma.document.update({ where: { id }, data });
+  }
+
+  async deleteDocument(id: string) {
+    const doc = await this.prisma.document.findUnique({ where: { id } });
+    if (!doc) throw new NotFoundException('Document not found');
+
+    // If it's a local file, try to unlink it (best-effort)
+    if (doc.fileUrl.startsWith(PUBLIC_PREFIX + '/')) {
+      const relPath = doc.fileUrl.slice(PUBLIC_PREFIX.length + 1);
+      const fullPath = path.join(UPLOADS_ROOT, relPath);
+      // safety check: ensure path is inside UPLOADS_ROOT
+      if (path.resolve(fullPath).startsWith(path.resolve(UPLOADS_ROOT))) {
+        await fs.unlink(fullPath).catch(() => {});
+      }
+    }
+
+    await this.prisma.document.delete({ where: { id } });
+    return { deleted: true };
   }
 
   async getDownloadUrl(id: string) {
-    const document = await this.prisma.document.findUnique({ where: { id } });
-    if (!document) throw new NotFoundException('Document not found');
-
-    // If S3 credentials are configured, generate presigned URL
-    if (process.env.S3_ACCESS_KEY && document.fileUrl.startsWith('s3://')) {
-      const key = document.fileUrl.replace(`s3://${this.bucket}/`, '');
-      const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
-      const url = await getSignedUrl(this.s3, command, { expiresIn: 3600 });
-      return { url, name: document.name, type: document.type };
-    }
-
-    // Fallback to direct URL
-    return { url: document.fileUrl, name: document.name, type: document.type };
+    const doc = await this.getDocument(id);
+    return { url: doc.fileUrl, name: doc.name, type: doc.type };
   }
 
-  async getUploadUrl(data: { name: string; type: string; category: string; project?: string }) {
-    const key = `documents/${data.category}/${Date.now()}-${data.name}`;
-    const command = new PutObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-      ContentType: data.type,
-    });
+  /**
+   * Legacy compatibility — old broker page scraper.
+   */
+  async getExternalDocuments() {
+    const BROKER_PAGE = process.env.BROKER_DOCS_URL || 'https://old.zorge9.com/broker/index.html';
+    try {
+      const res = await fetch(BROKER_PAGE);
+      if (!res.ok) return { documents: [], source: BROKER_PAGE, fetchedAt: new Date().toISOString() };
+      const html = await res.text();
 
-    const uploadUrl = await getSignedUrl(this.s3, command, { expiresIn: 3600 });
+      const docs: { name: string; url: string; type: string }[] = [];
+      const linkRegex = /<a[^>]+href=["']([^"']*files\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+      let match;
+      while ((match = linkRegex.exec(html)) !== null) {
+        const href = match[1];
+        const rawText = match[2].replace(/<[^>]+>/g, '').trim();
+        if (!rawText || !href) continue;
+        const url = href.startsWith('http') ? href : 'https://old.zorge9.com/' + href.replace(/^\.?\/?/, '');
+        const ext = (href.split('.').pop() || '').toLowerCase();
+        const type = ext === 'pdf' ? 'PDF' : ext === 'docx' ? 'DOCX' : ext === 'xlsx' ? 'XLSX' : ext.toUpperCase();
+        docs.push({ name: rawText, url, type });
+      }
 
-    // Create document record
-    const document = await this.prisma.document.create({
-      data: {
-        name: data.name,
-        type: data.type,
-        category: data.category,
-        project: data.project as any,
-        fileUrl: `s3://${this.bucket}/${key}`,
-      },
-    });
-
-    return { uploadUrl, document };
+      return { documents: docs, source: BROKER_PAGE, fetchedAt: new Date().toISOString() };
+    } catch {
+      return { documents: [], source: BROKER_PAGE, fetchedAt: new Date().toISOString() };
+    }
   }
 }

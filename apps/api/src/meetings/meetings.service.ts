@@ -1,9 +1,14 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
 
 @Injectable()
 export class MeetingsService {
-  constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
+  constructor(
+    @Inject('PrismaClient') private prisma: PrismaClient,
+    @InjectQueue('notifications') private notificationQueue: Queue,
+  ) {}
 
   async getMeetings(
     brokerId: string,
@@ -16,12 +21,13 @@ export class MeetingsService {
       type?: string;
     },
   ) {
-    const page = query.page || 1;
-    const limit = query.limit || 20;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
     const where: any = { brokerId };
     if (query.status) where.status = query.status;
+    else where.status = { not: 'CANCELLED' };
     if (query.type) where.type = query.type;
 
     const orderBy: any = {};
@@ -70,23 +76,53 @@ export class MeetingsService {
 
   async createMeeting(
     brokerId: string,
-    data: { clientId: string; type: string; date: string; comment?: string },
+    data: { clientId: string; type: string; date: string; comment?: string; extraPhone?: string; notifySms?: boolean; notifyEmail?: boolean; notifyReminder?: boolean },
   ) {
-    // Verify client belongs to broker
     const client = await this.prisma.client.findUnique({ where: { id: data.clientId } });
     if (!client) throw new NotFoundException('Client not found');
     if (client.brokerId !== brokerId) throw new BadRequestException('Client does not belong to you');
+
+    const commentParts = [
+      data.comment,
+      data.extraPhone ? `Доп. телефон: ${data.extraPhone}` : '',
+    ].filter(Boolean);
+
+    const meetingDate = new Date(data.date);
 
     const meeting = await this.prisma.meeting.create({
       data: {
         clientId: data.clientId,
         brokerId,
         type: data.type as any,
-        date: new Date(data.date),
-        comment: data.comment,
+        date: meetingDate,
+        comment: commentParts.join('. ') || null,
       },
-      include: { client: { select: { id: true, fullName: true, phone: true } } },
+      include: { client: { select: { id: true, fullName: true, phone: true, email: true } } },
     });
+
+    const typeLabel = data.type === 'OFFICE_VISIT' ? 'в офисе' : data.type === 'ONLINE' ? 'онлайн' : 'брокер-тур';
+    const dateStr = meetingDate.toLocaleString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const body = `Встреча ${typeLabel} с клиентом ${meeting.client.fullName} запланирована на ${dateStr}`;
+
+    try {
+      if (data.notifySms) {
+        await this.notificationQueue.add('send', { brokerId, channel: 'SMS', body });
+      }
+      if (data.notifyEmail) {
+        await this.notificationQueue.add('send', { brokerId, channel: 'EMAIL', subject: 'Встреча запланирована', body });
+      }
+      if (data.notifyReminder) {
+        const reminderAt = new Date(meetingDate.getTime() - 2 * 60 * 60 * 1000);
+        const delay = Math.max(0, reminderAt.getTime() - Date.now());
+        await this.notificationQueue.add(
+          'send',
+          { brokerId, channel: 'SMS', body: `Напоминание: встреча с ${meeting.client.fullName} через 2 часа (${dateStr})` },
+          { delay },
+        );
+      }
+    } catch (e) {
+      console.error('Notification queue failed:', e);
+    }
 
     // Update broker funnel stage if needed
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
@@ -103,7 +139,7 @@ export class MeetingsService {
   async updateMeeting(
     id: string,
     brokerId: string,
-    data: { date?: string; comment?: string; status?: string },
+    data: { date?: string; comment?: string; status?: string; type?: string; extraPhone?: string },
   ) {
     const meeting = await this.prisma.meeting.findUnique({ where: { id } });
     if (!meeting) throw new NotFoundException('Meeting not found');
@@ -114,14 +150,27 @@ export class MeetingsService {
 
     const updateData: any = {};
     if (data.date) updateData.date = new Date(data.date);
-    if (data.comment !== undefined) updateData.comment = data.comment;
     if (data.status) updateData.status = data.status;
+    if (data.type) updateData.type = data.type;
+
+    // Preserve/append "Доп. телефон" in comment
+    if (data.comment !== undefined || data.extraPhone !== undefined) {
+      const parts: string[] = [];
+      const rawComment = data.comment !== undefined ? data.comment : (meeting.comment || '').replace(/\.?\s*Доп\. телефон:.*$/, '').trim();
+      if (rawComment) parts.push(rawComment);
+      if (data.extraPhone) parts.push(`Доп. телефон: ${data.extraPhone}`);
+      updateData.comment = parts.join('. ') || null;
+    }
 
     return this.prisma.meeting.update({
       where: { id },
       data: updateData,
       include: { client: { select: { id: true, fullName: true, phone: true } } },
     });
+  }
+
+  async cancelMeeting(id: string, brokerId: string) {
+    return this.updateMeeting(id, brokerId, { status: 'CANCELLED' });
   }
 
   async signAct(id: string, brokerId: string) {
