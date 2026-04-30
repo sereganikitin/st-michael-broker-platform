@@ -280,6 +280,9 @@ export default function LandingPage() {
     <>
       <style dangerouslySetInnerHTML={{__html: `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800&display=swap');
+html{scroll-behavior:smooth}
+.lp section{animation:fadeInUp .6s ease both}
+@keyframes fadeInUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
 :root{--white:#ffffff;--bg:#f8f7f5;--bg2:#f0eeeb;--bg3:#e8e5e0;--black:#1a1a1a;--dark:#2c2c2a;--dark2:#3d3d3a;--gold:#B4936F;--gold2:#a07e5c;--gold3:#8c6b4a;--gold-bg:rgba(180,147,111,0.07);--gold-border:rgba(180,147,111,0.2);--gold-light:#f5efe8;--muted:#8a8680;--muted2:#a09b95;--light:#6b6660;--bw:rgba(0,0,0,0.08);--bw2:rgba(0,0,0,0.12);--green:#3a8a5c;--r:4px}
 body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;font-size:15px;line-height:1.7;overflow-x:hidden}
 .lp a{text-decoration:none;color:inherit}
@@ -320,8 +323,10 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           <nav>
             <a href="#projects">Проекты</a>
             <a href="#commission">Комиссия</a>
-            <a href="#events">События</a>
-            <a href="#cooperation">Условия</a>
+            <a href="#events">Мероприятия</a>
+            <a href="#cooperation">Документы</a>
+            <a href="#materials">Материалы</a>
+            <a href="#contact">Контакты</a>
           </nav>
           <div className="h-right">
             <a className="h-phone" href="tel:+74951504010">+7 (495) 150-40-10</a>
@@ -333,35 +338,21 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
         <div className="hero">
           <div className="hero-inner">
             <div className="hero-tag"><span>Партнёрская программа</span></div>
-            <h1>Зарабатывайте<br /><strong>до <em>8% комиссии</em></strong></h1>
+            <h1>Зарабатывайте<br /><strong>от 5% до <em>8% комиссии</em></strong></h1>
             <p className="hero-desc">Продавайте апартаменты Зорге 9 и Квартал Серебряный Бор. Прогрессивная шкала, личный кабинет, выделенная поддержка на каждом этапе сделки.</p>
-            <div className="hero-btns">
-              <button className="btn-gold" onClick={handleRegister}>Стать партнёром</button>
-              <a href="#commission" className="btn-outline">Условия комиссии</a>
+            <div className="hero-btns" style={{marginBottom:24}}>
+              <button className="btn-gold" onClick={handleCabinet}>📅 Записаться на встречу</button>
+              <a href="#events" className="btn-outline">🚌 Записаться на брокер-тур</a>
+              <button onClick={()=>setQuickFixOpen(true)} className="btn-outline" style={{borderColor:'#B4936F',color:'#B4936F'}}>⚡ Моментальная фиксация</button>
             </div>
           </div>
           <div className="hero-stats">
-            <div className="hst"><div className="hst-n">5-8%</div><div className="hst-l">Комиссия от стоимости</div></div>
-            <div className="hst"><div className="hst-n">5 дней</div><div className="hst-l">Выплата после оплаты</div></div>
-            <div className="hst"><div className="hst-n">30 дней</div><div className="hst-l">Фиксация клиента</div></div>
-            <div className="hst"><div className="hst-n">2</div><div className="hst-l">Проекта в портфеле</div></div>
+            <div className="hst"><div className="hst-n">5–8%</div><div className="hst-l">Средняя комиссия по программе</div></div>
+            <div className="hst"><div className="hst-n">5 дней</div><div className="hst-l">Скорость фиксации клиента</div></div>
+            <div className="hst"><div className="hst-n">30 дней</div><div className="hst-l">Срок уникальности</div></div>
+            <div className="hst"><div className="hst-n">2</div><div className="hst-l">Активных проекта</div></div>
           </div>
         </div>
-
-        {/* QUICK ACTIONS */}
-        <div className="quick">
-          <div className="qa" onClick={()=>setQuickFixOpen(true)} style={{background:'rgba(180,147,111,0.07)'}}>
-            <div>
-              <div className="qa-title" style={{color:'#B4936F',fontWeight:700}}>⚡ Моментальная фиксация клиента</div>
-              <div className="qa-sub">Без входа в кабинет — за 30 секунд</div>
-            </div>
-            <div className="qa-arrow">&rarr;</div>
-          </div>
-          <a className="qa" href="#events"><div><div className="qa-title">Записаться на брокер-тур</div><div className="qa-sub">Ближайший — 28 марта</div></div><div className="qa-arrow">&rarr;</div></a>
-          <div className="qa" onClick={handleRegister}><div><div className="qa-title">Стать партнёром ST MICHAEL</div><div className="qa-sub">Регистрация за 2 минуты</div></div><div className="qa-arrow">&rarr;</div></div>
-        </div>
-
-        <div style={{height:60}} />
 
         {/* PROJECTS */}
         <section id="projects">
@@ -427,9 +418,9 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         <hr className="sep" />
 
-        {/* COOPERATION */}
+        {/* DOCUMENTS — Все прозрачно */}
         <section id="cooperation">
-          <div className="sh"><div className="sh-tag">Условия сотрудничества</div><h2>Всё прозрачно — <em>документы</em></h2></div>
+          <div className="sh"><div className="sh-tag">Условия сотрудничества</div><h2>Всё прозрачно — <em>документы</em></h2><p className="sh-sub">Брокер может заранее ознакомиться с условиями партнёрства до регистрации</p></div>
           <div className="coop-grid">
             <div className="coop-left">
               <p>Мы рассматриваем сотрудничество с позиции «выиграл-выиграл». Все условия зафиксированы в документах и доступны в личном кабинете.</p>
@@ -439,14 +430,45 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               <div className="doc-item"><div className="doc-name">Как начать сотрудничать с ST MICHAEL</div><div className="doc-dl">&darr;</div></div>
               <div className="doc-item"><div className="doc-name">Регламент работы с партнёрами</div><div className="doc-dl">&darr;</div></div>
               <div className="doc-item"><div className="doc-name">Условия комиссионного вознаграждения</div><div className="doc-dl">&darr;</div></div>
+              <div className="doc-item"><div className="doc-name">Договор оферты</div><div className="doc-dl">&darr;</div></div>
               <div className="doc-item"><div className="doc-name">Вопрос — ответ для брокеров</div><div className="doc-dl">&darr;</div></div>
             </div>
           </div>
         </section>
 
-        {/* COMMUNITY */}
+        <hr className="sep" />
+
+        {/* ANALYTICS — Аналитика */}
+        <section id="analytics" style={{background:'var(--bg)'}}>
+          <div className="sh"><div className="sh-tag">Аналитика</div><h2>Инструменты <em>инвестирования</em></h2><p className="sh-sub">Калькуляторы, презентации и аналитика для работы с клиентами-инвесторами</p></div>
+          <div className="ads-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div className="doc-item"><div className="doc-name">📊 Инвестиционный калькулятор доходности</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">📈 Сравнение инструментов инвестирования</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">📍 Обзор локаций — Зорге 9 / Серебряный Бор</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">📑 Презентация для инвесторов</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">💼 Программы рассрочки и ипотеки</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">🏦 Динамика рынка и прогнозы</div><div className="doc-dl">&rarr;</div></div>
+          </div>
+        </section>
+
+        <hr className="sep" />
+
+        {/* MARKETING — Материалы для продвижения */}
+        <section id="materials">
+          <div className="sh"><div className="sh-tag">Реклама</div><h2>Материалы для <em>продвижения</em></h2><p className="sh-sub">Готовые материалы для работы с клиентами. Часть доступна только в личном кабинете.</p></div>
+          <div className="ads-grid" style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+            <div className="doc-item"><div className="doc-name">📄 Презентации (по проектам и типам)</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">🎨 Рендеры (экстерьер, интерьеры)</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">📐 Планировки в высоком разрешении</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">🎬 Видеообзоры, 3D-туры, дрон-съёмка</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">💰 Прайс-листы, рассрочка, КВ</div><div className="doc-dl">&rarr;</div></div>
+            <div className="doc-item"><div className="doc-name">🎯 Логотипы, брендбук, шаблоны соцсетей</div><div className="doc-dl">&rarr;</div></div>
+          </div>
+        </section>
+
+        {/* COMMUNITY — Партнёрская программа */}
         <section className="s-comm">
-          <div><div className="sh-tag">Сообщество</div><h2><strong>ST MICHAEL</strong> Партнёры</h2></div>
+          <div><div className="sh-tag">Партнёрская программа</div><h2><strong>ST MICHAEL</strong> Партнёры</h2></div>
           <div className="comm-content">
             <div>
               <p className="comm-desc">Сообщество, объединяющее активных профессионалов рынка недвижимости. Приоритетные условия и доступ к закрытым мероприятиям.</p>
@@ -464,12 +486,33 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         <hr className="sep" />
 
+        {/* CONTACT — Всегда на связи */}
+        <section id="contact">
+          <div className="sh"><div className="sh-tag">Команда</div><h2>Всегда <em>на связи</em></h2></div>
+          <div className="coop-grid">
+            <div className="coop-left">
+              <p>В нашем бизнесе процессы запускают точные коммуникации с партнёрами. Мы всегда готовы найти индивидуальный подход к каждому брокеру и агентству.</p>
+              <div style={{padding:'16px 18px',background:'var(--bg)',borderRadius:'var(--r)',border:'1px solid var(--bw)'}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--gold)',marginBottom:8}}>Отдел по работе с партнёрами</div>
+                <div style={{fontSize:14,marginBottom:4}}><a href="tel:+74951504010" style={{color:'var(--black)',fontWeight:600}}>+7 (495) 150-40-10</a></div>
+                <div style={{fontSize:14}}><a href="mailto:broker@stmichael.ru" style={{color:'var(--black)'}}>broker@stmichael.ru</a></div>
+              </div>
+            </div>
+            <div style={{padding:'40px 32px',background:'var(--bg2)',borderRadius:'var(--r)',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--muted2)',fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',minHeight:200}}>
+              Фото команды
+            </div>
+          </div>
+        </section>
+
+        <hr className="sep" />
+
         {/* FINAL CTA */}
         <section className="s-cta">
           <div className="sh sh-center" style={{marginBottom:0}}><div className="sh-tag">Начните сегодня</div><h2>Присоединяйтесь к <em>партнёрской программе</em></h2><p className="sh-sub">Регистрация за 2 минуты. Личный кабинет, прозрачные условия, быстрые выплаты.</p></div>
           <div style={{display:'flex',justifyContent:'center',gap:12,flexWrap:'wrap',marginTop:36}}>
             <button className="btn-gold" onClick={handleRegister}>Стать партнёром</button>
             <button className="btn-outline" onClick={handleCabinet}>Войти в кабинет</button>
+            <a href="https://t.me/stmichaelBroker" target="_blank" rel="noopener noreferrer" className="btn-outline">Telegram-канал</a>
           </div>
         </section>
 
