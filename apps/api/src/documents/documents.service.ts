@@ -63,7 +63,9 @@ export class DocumentsService {
       throw new BadRequestException(`category must be one of: ${[...VALID_CATEGORIES].join(', ')}`);
     }
 
-    const ext = (path.extname(file.originalname) || '').toLowerCase();
+    // Multer decodes multipart filename as latin-1; re-decode to UTF-8 so Cyrillic survives.
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const ext = (path.extname(originalName) || '').toLowerCase();
     const fileName = `${randomUUID()}${ext}`;
     const targetDir = path.join(UPLOADS_ROOT, meta.category);
     const targetPath = path.join(targetDir, fileName);
@@ -76,7 +78,7 @@ export class DocumentsService {
 
     return this.prisma.document.create({
       data: {
-        name: meta.name?.trim() || file.originalname,
+        name: meta.name?.trim() || originalName,
         description: meta.description || null,
         type: typeLabel,
         category: meta.category,
