@@ -16,6 +16,8 @@ export class NotificationService {
     channel: NotificationChannel;
     subject?: string;
     body: string;
+    eventType?: string;
+    data?: { url?: string; tag?: string; icon?: string };
   }) {
     await this.notificationQueue.add('send', data, {
       attempts: 3,

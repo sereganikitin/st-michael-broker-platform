@@ -55,10 +55,23 @@ export class SchedulerService {
 
       // Only send for exact 7, 3, 1 day boundaries (avoid duplicates)
       if (daysLeft === 7 || daysLeft === 3 || daysLeft === 1) {
+        const subject = 'Истечение фиксации';
+        const body = `Уникальность клиента ${client.fullName} (${client.phone}) истекает через ${daysLeft} дн. Продлите или завершите фиксацию.`;
+
+        // Fan out to all channels — processor will respect broker preferences.
+        await this.notificationQueue.add('send', {
+          brokerId: client.brokerId, channel: 'SMS', body, eventType: 'FIXATION_EXPIRY',
+        });
+        await this.notificationQueue.add('send', {
+          brokerId: client.brokerId, channel: 'EMAIL', subject, body, eventType: 'FIXATION_EXPIRY',
+        });
         await this.notificationQueue.add('send', {
           brokerId: client.brokerId,
-          channel: 'SMS',
-          body: `Уникальность клиента ${client.fullName} (${client.phone}) истекает через ${daysLeft} дн. Продлите или завершите фиксацию.`,
+          channel: 'PUSH',
+          subject,
+          body,
+          eventType: 'FIXATION_EXPIRY',
+          data: { url: '/clients', tag: `fix-expiry-${client.id}` },
         });
 
         if (client.broker.telegramChatId) {
@@ -66,6 +79,7 @@ export class SchedulerService {
             brokerId: client.brokerId,
             channel: 'TELEGRAM',
             body: `⚠️ Уникальность клиента <b>${client.fullName}</b> истекает через <b>${daysLeft} дн.</b>\nТелефон: ${client.phone}`,
+            eventType: 'FIXATION_EXPIRY',
           });
         }
 
@@ -106,10 +120,17 @@ export class SchedulerService {
       });
 
       for (const client of expiredClients) {
+        const body = `Уникальность клиента ${client.fullName} (${client.phone}) истекла. Подайте новую заявку для продления.`;
+        await this.notificationQueue.add('send', {
+          brokerId: client.brokerId, channel: 'SMS', body, eventType: 'FIXATION_EXPIRY',
+        });
         await this.notificationQueue.add('send', {
           brokerId: client.brokerId,
-          channel: 'SMS',
-          body: `Уникальность клиента ${client.fullName} (${client.phone}) истекла. Подайте новую заявку для продления.`,
+          channel: 'PUSH',
+          subject: 'Фиксация истекла',
+          body,
+          eventType: 'FIXATION_EXPIRY',
+          data: { url: '/clients', tag: `fix-expired-${client.id}` },
         });
       }
     }
@@ -127,6 +148,91 @@ export class SchedulerService {
 
     if (expiredFixations.count > 0) {
       this.logger.log(`Expired ${expiredFixations.count} fixation records`);
+    }
+  }
+
+  // Run every 15 min — fire 24h and 1h reminders for upcoming meetings
+  @Cron('*/15 * * * *')
+  async handleMeetingReminders() {
+    const now = new Date();
+
+    // 24h-ahead window: [now+23h45m, now+24h15m]
+    const t24Lo = new Date(now.getTime() + (23 * 60 + 45) * 60 * 1000);
+    const t24Hi = new Date(now.getTime() + (24 * 60 + 15) * 60 * 1000);
+
+    const upcoming24 = await this.prisma.meeting.findMany({
+      where: {
+        status: { not: 'CANCELLED' },
+        reminded24h: false,
+        date: { gte: t24Lo, lte: t24Hi },
+      },
+      include: {
+        client: { select: { fullName: true, phone: true } },
+        broker: { select: { telegramChatId: true } },
+      },
+    });
+
+    for (const m of upcoming24) {
+      await this.fanOutMeetingReminder(m, '24 ч');
+      await this.prisma.meeting.update({ where: { id: m.id }, data: { reminded24h: true } });
+    }
+
+    // 1h-ahead window: [now+45m, now+1h15m]
+    const t1Lo = new Date(now.getTime() + 45 * 60 * 1000);
+    const t1Hi = new Date(now.getTime() + 75 * 60 * 1000);
+
+    const upcoming1 = await this.prisma.meeting.findMany({
+      where: {
+        status: { not: 'CANCELLED' },
+        reminded1h: false,
+        date: { gte: t1Lo, lte: t1Hi },
+      },
+      include: {
+        client: { select: { fullName: true, phone: true } },
+        broker: { select: { telegramChatId: true } },
+      },
+    });
+
+    for (const m of upcoming1) {
+      await this.fanOutMeetingReminder(m, '1 ч');
+      await this.prisma.meeting.update({ where: { id: m.id }, data: { reminded1h: true } });
+    }
+
+    if (upcoming24.length || upcoming1.length) {
+      this.logger.log(`Meeting reminders: 24h=${upcoming24.length}, 1h=${upcoming1.length}`);
+    }
+  }
+
+  private async fanOutMeetingReminder(
+    m: { id: string; brokerId: string; date: Date; type: string; client: { fullName: string; phone: string }; broker: { telegramChatId: bigint | null } },
+    when: string,
+  ) {
+    const dateStr = new Date(m.date).toLocaleString('ru-RU', {
+      day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit',
+    });
+    const typeLabel = m.type === 'OFFICE_VISIT' ? 'в офисе' : m.type === 'ONLINE' ? 'онлайн' : 'брокер-тур';
+    const subject = `Напоминание о встрече`;
+    const body = `Напоминание: встреча ${typeLabel} с ${m.client.fullName} (${m.client.phone}) через ${when} — ${dateStr}.`;
+
+    await this.notificationQueue.add('send', {
+      brokerId: m.brokerId, channel: 'PUSH', subject, body,
+      eventType: 'MEETING_REMINDER',
+      data: { url: '/meetings', tag: `meeting-${m.id}` },
+    });
+    await this.notificationQueue.add('send', {
+      brokerId: m.brokerId, channel: 'EMAIL', subject, body,
+      eventType: 'MEETING_REMINDER',
+    });
+    await this.notificationQueue.add('send', {
+      brokerId: m.brokerId, channel: 'SMS', body,
+      eventType: 'MEETING_REMINDER',
+    });
+    if (m.broker.telegramChatId) {
+      await this.notificationQueue.add('send', {
+        brokerId: m.brokerId, channel: 'TELEGRAM',
+        body: `📅 ${body}`,
+        eventType: 'MEETING_REMINDER',
+      });
     }
   }
 

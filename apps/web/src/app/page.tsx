@@ -27,7 +27,9 @@ function PhoneInput({ value, onChange, style }: { value: string; onChange: (v: s
 function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 'register'; onClose: () => void; onSwitch: () => void; onSuccess: () => void }) {
   const [phoneDigits, setPhoneDigits] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [middleName, setMiddleName] = useState('');
   const [email, setEmail] = useState('');
   const [agencyName, setAgencyName] = useState('');
   const [inn, setInn] = useState('');
@@ -70,12 +72,17 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   };
 
   const handleRegister = async () => {
+    if (password.length < 8) {
+      setError('Пароль должен быть не менее 8 символов');
+      return;
+    }
     setLoading(true); setError('');
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: fullPhone, fullName,
+          phone: fullPhone,
+          lastName, firstName, middleName: middleName || undefined,
           email: email || undefined,
           password,
           inn: inn || undefined,
@@ -122,7 +129,11 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             {mode === 'register' && (
               <>
-                <input placeholder="ФИО" value={fullName} onChange={e=>setFullName(e.target.value)}
+                <input placeholder="Фамилия *" value={lastName} onChange={e=>setLastName(e.target.value)}
+                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+                <input placeholder="Имя *" value={firstName} onChange={e=>setFirstName(e.target.value)}
+                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+                <input placeholder="Отчество (необязательно)" value={middleName} onChange={e=>setMiddleName(e.target.value)}
                   style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
                 <PhoneInput value={phoneDigits} onChange={setPhoneDigits} />
                 <input placeholder="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)}
@@ -147,7 +158,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
             {mode === 'login' && (
               <PhoneInput value={phoneDigits} onChange={setPhoneDigits} />
             )}
-            <input placeholder="Пароль" type="password" value={password} onChange={e=>setPassword(e.target.value)}
+            <input placeholder={mode === 'register' ? 'Пароль (минимум 8 символов)' : 'Пароль'} type="password" value={password} onChange={e=>setPassword(e.target.value)}
               onKeyDown={e=>e.key==='Enter' && (mode==='login' ? handleLogin() : handleRegister())}
               style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
             <button onClick={mode==='login' ? handleLogin : handleRegister}
@@ -156,7 +167,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                 !password ||
                 (mode === 'login'
                   ? phoneDigits.length !== 10
-                  : (!fullName || !email || phoneDigits.length !== 10 || (inn.length !== 10 && inn.length !== 12)))
+                  : (!firstName || !lastName || !email || phoneDigits.length !== 10 || (inn.length !== 10 && inn.length !== 12) || password.length < 8))
               }
               style={{padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
               {loading ? 'Подождите...' : mode==='login' ? 'ВОЙТИ' : 'ЗАРЕГИСТРИРОВАТЬСЯ'}
@@ -183,6 +194,83 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
             <span>Уже есть аккаунт? <button onClick={onSwitch} style={{background:'none',border:'none',color:'#B4936F',cursor:'pointer',fontWeight:600,fontSize:13}}>Войти</button></span>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ContactFormModal({ onClose, source = 'landing-contact', defaultMessage = '', eventId, title = 'Связаться с нами' }: { onClose: () => void; source?: string; defaultMessage?: string; eventId?: string; title?: string }) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState(defaultMessage);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [sent, setSent] = useState(false);
+
+  const formatPhone = (v: string) => {
+    const d = v.replace(/\D/g, '').slice(0, 11);
+    if (!d) return '';
+    return (d.startsWith('7') || d.startsWith('8')) ? '+7' + d.slice(1) : '+' + d;
+  };
+
+  const submit = async () => {
+    setError('');
+    if (!name.trim() || name.trim().length < 2) return setError('Введите имя');
+    if (!phone || phone.replace(/\D/g, '').length < 10) return setError('Введите телефон');
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/public/cms/contact', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          phone: formatPhone(phone),
+          email: email || undefined,
+          message: message || undefined,
+          source,
+          eventId,
+        }),
+      });
+      if (res.ok) setSent(true);
+      else {
+        const d = await res.json().catch(() => ({}));
+        setError(d.message || 'Ошибка отправки');
+      }
+    } catch { setError('Ошибка соединения'); }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:8,maxWidth:460,width:'100%',padding:'36px 32px',position:'relative'}} onClick={e=>e.stopPropagation()}>
+        <button onClick={onClose} style={{position:'absolute',top:16,right:16,background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#8a8680'}}>&times;</button>
+        <h2 style={{fontSize:22,fontWeight:700,marginBottom:4,color:'#1a1a1a'}}>{title}</h2>
+        <p style={{fontSize:13,color:'#8a8680',marginBottom:24}}>Менеджер свяжется с вами в течение часа</p>
+
+        {error && <div style={{padding:'10px 14px',background:'rgba(220,60,60,0.1)',color:'#c33',borderRadius:4,fontSize:13,marginBottom:16}}>{error}</div>}
+
+        {sent ? (
+          <div style={{padding:'14px',background:'rgba(60,140,80,0.1)',color:'#3a8a5c',borderRadius:4,fontSize:14,textAlign:'center'}}>
+            <div style={{fontWeight:700,marginBottom:4}}>✓ Заявка принята</div>
+            <div style={{fontSize:13}}>Мы свяжемся с вами в ближайшее время.</div>
+          </div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <input placeholder="Ваше имя *" value={name} onChange={e=>setName(e.target.value)}
+              style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            <input placeholder="Телефон * (+79991234567)" type="tel" value={phone} onChange={e=>setPhone(e.target.value)}
+              style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            <input placeholder="Email (необязательно)" type="email" value={email} onChange={e=>setEmail(e.target.value)}
+              style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            <textarea placeholder="Сообщение" rows={3} value={message} onChange={e=>setMessage(e.target.value)}
+              style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none',resize:'vertical',fontFamily:'inherit'}} />
+            <button onClick={submit} disabled={loading}
+              style={{padding:'14px',background:'#B4936F',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
+              {loading ? 'Отправка...' : 'ОТПРАВИТЬ'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -297,6 +385,28 @@ const DEFAULT_COMMISSION = {
   title: 'Прогрессивная шкала вознаграждения',
   titleAccent: 'шкала',
   subtitle: 'Чем больше продаёте — тем выше ставка. Накопление по агентству, по обоим проектам.',
+  // Per-project levels (preferred). Fallback to "levels" if absent.
+  levelsByProject: {
+    ZORGE9: [
+      { name: 'Start', range: '0-59 м2', rate: '5,0%', active: false },
+      { name: 'Basic', range: '60-119 м2', rate: '5,5%', active: false },
+      { name: 'Strong', range: '120-199 м2', rate: '6,0%', active: true },
+      { name: 'Premium', range: '200-319 м2', rate: '6,5%', active: false },
+      { name: 'Elite', range: '320-499 м2', rate: '7,0%', active: false },
+      { name: 'Champion', range: '500-699 м2', rate: '7,5%', active: false },
+      { name: 'Legend', range: '700+ м2', rate: '8,0%', active: false },
+    ],
+    SILVER_BOR: [
+      { name: 'Start', range: '0-59 м2', rate: '4,5%', active: false },
+      { name: 'Basic', range: '60-119 м2', rate: '5,0%', active: false },
+      { name: 'Strong', range: '120-199 м2', rate: '5,5%', active: true },
+      { name: 'Premium', range: '200-319 м2', rate: '6,0%', active: false },
+      { name: 'Elite', range: '320-499 м2', rate: '6,5%', active: false },
+      { name: 'Champion', range: '500-699 м2', rate: '7,0%', active: false },
+      { name: 'Legend', range: '700+ м2', rate: '7,5%', active: false },
+    ],
+  },
+  // Legacy: single shared scale
   levels: [
     { name: 'Start', range: '0-59 м2', rate: '5,0%', active: false },
     { name: 'Basic', range: '60-119 м2', rate: '5,5%', active: false },
@@ -348,12 +458,16 @@ function formatEventMeta(iso: string, location: string | null, isOnline: boolean
 export default function LandingPage() {
   const [authModal, setAuthModal] = useState<'login' | 'register' | null>(null);
   const [quickFixOpen, setQuickFixOpen] = useState(false);
+  const [contactModal, setContactModal] = useState<{ open: boolean; source?: string; eventId?: string; title?: string; defaultMessage?: string }>({ open: false });
+  const [commissionProject, setCommissionProject] = useState<'ZORGE9' | 'SILVER_BOR'>('ZORGE9');
   const [hero, setHero] = useState<any>(DEFAULT_HERO);
   const [advantages, setAdvantages] = useState<any>(DEFAULT_ADVANTAGES);
   const [commission, setCommission] = useState<any>(DEFAULT_COMMISSION);
   const [contact, setContact] = useState<any>(DEFAULT_CONTACT);
   const [projects, setProjects] = useState<any[]>(DEFAULT_PROJECTS);
   const [events, setEvents] = useState<any[]>([]);
+  const [promos, setPromos] = useState<any[]>([]);
+  const [promoIdx, setPromoIdx] = useState(0);
   const [cooperationDocs, setCooperationDocs] = useState<any[]>([]);
   const [analyticsDocs, setAnalyticsDocs] = useState<any[]>([]);
   const [marketingDocs, setMarketingDocs] = useState<any[]>([]);
@@ -377,10 +491,11 @@ export default function LandingPage() {
       catch { return null; }
     };
     (async () => {
-      const [content, evs, prjs, coop, anal, mark] = await Promise.all([
+      const [content, evs, prjs, prms, coop, anal, mark] = await Promise.all([
         safeFetch('/api/public/cms/content'),
         safeFetch('/api/public/cms/events'),
         safeFetch('/api/public/cms/projects'),
+        safeFetch('/api/public/cms/promos'),
         safeFetch('/api/public/documents?category=cooperation'),
         safeFetch('/api/public/documents?category=analytics'),
         safeFetch('/api/public/documents?category=marketing'),
@@ -393,11 +508,19 @@ export default function LandingPage() {
       }
       if (Array.isArray(evs)) setEvents(evs);
       if (Array.isArray(prjs) && prjs.length) setProjects(prjs);
+      if (Array.isArray(prms)) setPromos(prms);
       if (Array.isArray(coop)) setCooperationDocs(coop);
       if (Array.isArray(anal)) setAnalyticsDocs(anal);
       if (Array.isArray(mark)) setMarketingDocs(mark);
     })();
   }, []);
+
+  // Auto-advance promo slider every 6 seconds
+  useEffect(() => {
+    if (promos.length <= 1) return;
+    const id = setInterval(() => setPromoIdx((i) => (i + 1) % promos.length), 6000);
+    return () => clearInterval(id);
+  }, [promos.length]);
 
   return (
     <>
@@ -465,7 +588,15 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             <p className="hero-desc">{hero.description}</p>
             <div className="hero-btns" style={{marginBottom:24}}>
               <button className="btn-gold" onClick={handleCabinet}>📅 Записаться на встречу</button>
-              <a href="#events" className="btn-outline">🚌 Записаться на брокер-тур</a>
+              <button
+                className="btn-outline"
+                onClick={() => setContactModal({
+                  open: true,
+                  source: 'broker-tour',
+                  title: 'Запись на брокер-тур',
+                  defaultMessage: 'Хочу записаться на ближайший брокер-тур',
+                })}
+              >🚌 Записаться на брокер-тур</button>
               <button onClick={()=>setQuickFixOpen(true)} className="btn-outline" style={{borderColor:'#B4936F',color:'#B4936F'}}>⚡ Моментальная фиксация</button>
             </div>
           </div>
@@ -481,26 +612,109 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           <div className="sh"><div className="sh-tag">Проекты</div><h2>Проекты — <em>одна программа</em></h2><p className="sh-sub">Квадратные метры суммируются по всем проектам для роста вашей ставки комиссии</p></div>
           <div className="proj-grid">
             {projects.map((p: any) => (
-              <div key={p.id} className="proj-card" onClick={() => handleProjectClick(p)}>
+              <div key={p.id} className="proj-card" onClick={() => handleProjectClick(p)} style={p.imageUrl ? { backgroundImage: `linear-gradient(rgba(248,247,245,0.94), rgba(248,247,245,0.94)), url(${p.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', minHeight: 280 } : undefined}>
                 {p.tag && <div className="proj-tag">{p.tag}</div>}
                 <div className="proj-name"><strong>{p.name}</strong>{p.subtitle ? ` ${p.subtitle}` : ''}</div>
                 <div className="proj-info">{p.description}</div>
+
+                {(p.classType || p.address || p.readyYear || p.totalUnits || p.commissionFrom) && (
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 16px',fontSize:11,color:'var(--muted)',marginTop:8,marginBottom:12}}>
+                    {p.classType && <div><span style={{color:'var(--muted2)'}}>Класс:</span> <strong style={{color:'var(--black)'}}>{p.classType}</strong></div>}
+                    {p.address && <div><span style={{color:'var(--muted2)'}}>Адрес:</span> <strong style={{color:'var(--black)'}}>{p.address}</strong></div>}
+                    {p.readyYear && <div><span style={{color:'var(--muted2)'}}>Сдача:</span> <strong style={{color:'var(--black)'}}>{p.readyQuarter ? `${p.readyQuarter} кв. ` : ''}{p.readyYear}</strong></div>}
+                    {p.floorsTotal && <div><span style={{color:'var(--muted2)'}}>Этажей:</span> <strong style={{color:'var(--black)'}}>{p.floorsTotal}</strong></div>}
+                    {p.totalUnits && <div><span style={{color:'var(--muted2)'}}>Лотов:</span> <strong style={{color:'var(--black)'}}>{p.totalUnits}</strong></div>}
+                    {(p.commissionFrom || p.commissionTo) && <div><span style={{color:'var(--muted2)'}}>Комиссия:</span> <strong style={{color:'var(--gold)'}}>{p.commissionFrom}{p.commissionTo && p.commissionTo !== p.commissionFrom ? `–${p.commissionTo}` : ''}%</strong></div>}
+                  </div>
+                )}
+
                 <div className="proj-link">{p.ctaText || 'Смотреть каталог'} &rarr;</div>
               </div>
             ))}
           </div>
         </section>
 
+        {/* PROMO SLIDER (block 3) */}
+        {promos.length > 0 && (
+          <section id="promos" style={{padding:'40px 60px'}}>
+            <div style={{position:'relative',background:'var(--bg)',border:'1px solid var(--bw)',borderRadius:'var(--r)',overflow:'hidden',minHeight:200}}>
+              {promos.map((p, i) => (
+                <div key={p.id} style={{
+                  display: i === promoIdx ? 'flex' : 'none',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: '32px 40px',
+                  gap: 32,
+                  minHeight: 200,
+                  ...(p.imageUrl ? { backgroundImage: `linear-gradient(rgba(255,255,255,0.85), rgba(255,255,255,0.85)), url(${p.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
+                }}>
+                  <div style={{flex:1}}>
+                    {p.tag && <div style={{fontSize:10,fontWeight:700,letterSpacing:3,textTransform:'uppercase',color:'var(--gold)',marginBottom:10}}>{p.tag}</div>}
+                    <h3 style={{fontSize:'clamp(20px,2.5vw,30px)',fontWeight:300,marginBottom:8,color:'var(--black)'}}>
+                      <strong>{p.title}</strong>
+                    </h3>
+                    {p.subtitle && <div style={{fontSize:15,color:'var(--muted)',marginBottom:8}}>{p.subtitle}</div>}
+                    {p.description && <div style={{fontSize:14,color:'var(--light)',lineHeight:1.7,marginBottom:16,maxWidth:600}}>{p.description}</div>}
+                    {(p.ctaText || p.ctaHref) && (
+                      <a href={p.ctaHref || '#projects'} className="btn-gold" target={p.ctaHref?.startsWith('http') ? '_blank' : undefined} rel="noopener noreferrer">
+                        {p.ctaText || 'Подробнее'}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {promos.length > 1 && (
+                <div style={{position:'absolute',bottom:14,left:0,right:0,display:'flex',justifyContent:'center',gap:6}}>
+                  {promos.map((_, i) => (
+                    <button key={i} onClick={() => setPromoIdx(i)} style={{
+                      width: i === promoIdx ? 24 : 8, height: 8, borderRadius: 4,
+                      background: i === promoIdx ? 'var(--gold)' : 'rgba(0,0,0,0.2)',
+                      border: 'none', cursor: 'pointer', transition: 'all .25s',
+                    }} aria-label={`Слайд ${i+1}`} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         <hr className="sep" />
 
         {/* COMMISSION */}
         <section id="commission">
           <div className="sh"><div className="sh-tag">{commission.tag}</div><h2>{renderAccent(commission.title, commission.titleAccent)}</h2>{commission.subtitle && <p className="sh-sub">{commission.subtitle}</p>}</div>
+
+          {commission.levelsByProject && (
+            <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:24}}>
+              {(['ZORGE9', 'SILVER_BOR'] as const).map((proj) => (
+                <button
+                  key={proj}
+                  onClick={() => setCommissionProject(proj)}
+                  style={{
+                    padding: '10px 24px',
+                    background: commissionProject === proj ? 'var(--gold)' : 'var(--bg)',
+                    color: commissionProject === proj ? 'var(--white)' : 'var(--muted)',
+                    border: '1px solid ' + (commissionProject === proj ? 'var(--gold)' : 'var(--bw)'),
+                    borderRadius: 50,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    letterSpacing: 1.5,
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    transition: 'all .2s',
+                  }}
+                >
+                  {proj === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="comm-grid">
             <div>
               <div className="comm-table">
                 <div className="ct-head"><span>Уровень</span><span>Объём м2/кв.</span><span>Ставка</span></div>
-                {(commission.levels || []).map((lv: any, i: number) => (
+                {((commission.levelsByProject?.[commissionProject]) || commission.levels || []).map((lv: any, i: number) => (
                   <div key={i} className={`ct-row${lv.active ? ' active' : ''}`}>
                     <span className="ct-level">{lv.name}</span>
                     <span className="ct-range">{lv.range}</span>
@@ -531,8 +745,19 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             <div className="ev-grid">
               {events.map((ev: any) => {
                 const d = formatEventDate(ev.date);
+                const eventDate = new Date(ev.date).toLocaleString('ru-RU', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' });
                 return (
-                  <div key={ev.id} className="ev-card">
+                  <div
+                    key={ev.id}
+                    className="ev-card"
+                    onClick={() => setContactModal({
+                      open: true,
+                      source: 'event-signup',
+                      eventId: ev.id,
+                      title: `Запись: ${ev.title}`,
+                      defaultMessage: `Хочу записаться на «${ev.title}» — ${eventDate}`,
+                    })}
+                  >
                     <div className="ev-date"><div className="ev-day">{d.day}</div><div className="ev-mon">{d.mon}</div></div>
                     <div className="ev-info">
                       <div className="ev-title">{ev.title}</div>
@@ -653,8 +878,12 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                 {contact.email && <div style={{fontSize:14}}><a href={`mailto:${contact.email}`} style={{color:'var(--black)'}}>{contact.email}</a></div>}
               </div>
             </div>
-            <div style={{padding:'40px 32px',background:'var(--bg2)',borderRadius:'var(--r)',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--muted2)',fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',minHeight:200}}>
-              Фото команды
+            <div style={{padding:'24px 28px',background:'var(--bg)',borderRadius:'var(--r)',border:'1px solid var(--bw)'}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--gold)',marginBottom:14}}>Связаться с менеджером</div>
+              <p style={{fontSize:13,color:'var(--muted)',marginBottom:14,lineHeight:1.7}}>Оставьте заявку — наш менеджер партнёрской программы свяжется с вами в течение часа.</p>
+              <button className="btn-gold" onClick={() => setContactModal({ open: true, source: 'landing-contact', title: 'Связаться с нами' })}>
+                Оставить заявку
+              </button>
             </div>
           </div>
         </section>
@@ -695,6 +924,16 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
       )}
 
       {quickFixOpen && <QuickFixModal onClose={() => setQuickFixOpen(false)} />}
+
+      {contactModal.open && (
+        <ContactFormModal
+          onClose={() => setContactModal({ open: false })}
+          source={contactModal.source}
+          eventId={contactModal.eventId}
+          title={contactModal.title}
+          defaultMessage={contactModal.defaultMessage}
+        />
+      )}
     </>
   );
 }

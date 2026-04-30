@@ -14,6 +14,8 @@ import {
   Shield,
   Calendar,
   Sparkles,
+  BarChart3,
+  Megaphone,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -31,7 +33,11 @@ const navigation = [
 ];
 
 const adminNavigation = [
+  { name: 'Аналитика платформы', href: '/admin/analytics', icon: BarChart3 },
   { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
+  { name: 'Управление встречами', href: '/admin/meetings', icon: CalendarPlus },
+  { name: 'Расписание встреч', href: '/admin/meeting-slots', icon: Calendar },
+  { name: 'Рассылки', href: '/admin/mailings', icon: Megaphone },
   { name: 'Лендинг — Контент', href: '/admin/content', icon: Sparkles },
   { name: 'Лендинг — События', href: '/admin/events', icon: Calendar },
   { name: 'Лендинг — Проекты', href: '/admin/projects', icon: Building },

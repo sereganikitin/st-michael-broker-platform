@@ -39,8 +39,13 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
           </Link>
 
           <div className="flex items-center space-x-2 sm:space-x-3">
-            <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center flex-shrink-0">
-              <User className="w-4 h-4 text-white" />
+            <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {broker?.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={broker.avatarUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <User className="w-4 h-4 text-white" />
+              )}
             </div>
             <div className="text-sm hidden sm:block">
               <div className="font-medium">{broker?.fullName || 'Брокер'}</div>

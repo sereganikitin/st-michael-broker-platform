@@ -9,6 +9,8 @@ interface Broker {
   fullName: string;
   phone: string;
   email: string | null;
+  avatarUrl?: string | null;
+  birthDate?: string | null;
   role: string;
   status: string;
   funnelStage: string;

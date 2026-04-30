@@ -103,6 +103,18 @@ export class CatalogService {
       // Penthouse: only if property_type explicitly says so
       const isPenthouse = /пентхаус|penthouse/i.test(String(offer?.property_type || ''));
 
+      // Extended features (TZ catalog filters §7)
+      const isCornerLayout = isTruthyValue(getCF(/уголов/i));
+      const hasStorage = isTruthyValue(getCF(/кладов/i));
+      const twoBathrooms = isTruthyValue(getCF(/два сан|2 сан/i));
+      const hasMasterBedroom = isTruthyValue(getCF(/мастер.?спальн/i));
+      const isUrbanVilla = /урбан.?вилл/i.test(String(offer?.property_type || ''));
+      const isViewLot = isTruthyValue(getCF(/видов/i));
+      // Hi-flat: ceiling height ≥ 4.0 m
+      const ceilingValue = getCF(/потолк|потолок|высота потолк/i);
+      const ceilingNum = Number(ceilingValue.replace(',', '.'));
+      const isHighFlat = !isNaN(ceilingNum) && ceilingNum >= 4.0;
+
       // Parse special-offers (discount)
       const specialOffersRaw = offer?.['special-offers']?.['special-offer'];
       const specialOffers = Array.isArray(specialOffersRaw) ? specialOffersRaw : specialOffersRaw ? [specialOffersRaw] : [];
@@ -145,6 +157,13 @@ export class CatalogService {
         hasBalcony,
         hasTerrace,
         isPenthouse,
+        isCornerLayout,
+        hasStorage,
+        twoBathrooms,
+        hasMasterBedroom,
+        isUrbanVilla,
+        isViewLot,
+        isHighFlat,
         discountPrice,
         discountPercent,
         discountName,
@@ -208,6 +227,13 @@ export class CatalogService {
     hasBalcony?: boolean | string;
     hasTerrace?: boolean | string;
     isPenthouse?: boolean | string;
+    isCornerLayout?: boolean | string;
+    hasStorage?: boolean | string;
+    twoBathrooms?: boolean | string;
+    hasMasterBedroom?: boolean | string;
+    isUrbanVilla?: boolean | string;
+    isViewLot?: boolean | string;
+    isHighFlat?: boolean | string;
     page?: number;
     limit?: number;
     sortBy?: string;
@@ -240,6 +266,13 @@ export class CatalogService {
     if (filters.hasBalcony && toBool(filters.hasBalcony)) where.hasBalcony = true;
     if (filters.hasTerrace && toBool(filters.hasTerrace)) where.hasTerrace = true;
     if (filters.isPenthouse && toBool(filters.isPenthouse)) where.isPenthouse = true;
+    if (filters.isCornerLayout && toBool(filters.isCornerLayout)) where.isCornerLayout = true;
+    if (filters.hasStorage && toBool(filters.hasStorage)) where.hasStorage = true;
+    if (filters.twoBathrooms && toBool(filters.twoBathrooms)) where.twoBathrooms = true;
+    if (filters.hasMasterBedroom && toBool(filters.hasMasterBedroom)) where.hasMasterBedroom = true;
+    if (filters.isUrbanVilla && toBool(filters.isUrbanVilla)) where.isUrbanVilla = true;
+    if (filters.isViewLot && toBool(filters.isViewLot)) where.isViewLot = true;
+    if (filters.isHighFlat && toBool(filters.isHighFlat)) where.isHighFlat = true;
 
     if (filters.floor || filters.floorMin || filters.floorMax) {
       where.floor = {};
@@ -298,10 +331,21 @@ export class CatalogService {
     // Feature counts (respect project filter) — to hide checkboxes for features absent in project
     const featureWhere: any = { ...notSold };
     if (filters.project) featureWhere.project = filters.project;
-    const [balconyCount, terraceCount, penthouseCount] = await Promise.all([
+    const [
+      balconyCount, terraceCount, penthouseCount,
+      cornerCount, storageCount, twoBathCount,
+      masterBedroomCount, urbanVillaCount, viewLotCount, highFlatCount,
+    ] = await Promise.all([
       this.prisma.lot.count({ where: { ...featureWhere, hasBalcony: true } }),
       this.prisma.lot.count({ where: { ...featureWhere, hasTerrace: true } }),
       this.prisma.lot.count({ where: { ...featureWhere, isPenthouse: true } }),
+      this.prisma.lot.count({ where: { ...featureWhere, isCornerLayout: true } }),
+      this.prisma.lot.count({ where: { ...featureWhere, hasStorage: true } }),
+      this.prisma.lot.count({ where: { ...featureWhere, twoBathrooms: true } }),
+      this.prisma.lot.count({ where: { ...featureWhere, hasMasterBedroom: true } }),
+      this.prisma.lot.count({ where: { ...featureWhere, isUrbanVilla: true } }),
+      this.prisma.lot.count({ where: { ...featureWhere, isViewLot: true } }),
+      this.prisma.lot.count({ where: { ...featureWhere, isHighFlat: true } }),
     ]);
 
     // Distinct window views
@@ -335,6 +379,13 @@ export class CatalogService {
           hasBalcony: balconyCount,
           hasTerrace: terraceCount,
           isPenthouse: penthouseCount,
+          isCornerLayout: cornerCount,
+          hasStorage: storageCount,
+          twoBathrooms: twoBathCount,
+          hasMasterBedroom: masterBedroomCount,
+          isUrbanVilla: urbanVillaCount,
+          isViewLot: viewLotCount,
+          isHighFlat: highFlatCount,
         },
       },
     };

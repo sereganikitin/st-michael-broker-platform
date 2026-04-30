@@ -85,4 +85,47 @@ export class AdminController {
   async importBrokersFromAmo() {
     return this.adminService.importBrokersFromAmo();
   }
+
+  // ─── Mailings ─────────────────────────────────────────────
+
+  @Post('mailings/preview')
+  @ApiOperation({ summary: 'Preview recipients matching filters' })
+  async previewMailing(@Body() body: any) {
+    return this.adminService.previewMailing(body?.filters || {});
+  }
+
+  @Post('mailings/send')
+  @ApiOperation({ summary: 'Send broadcast to filtered brokers' })
+  async sendMailing(@CurrentUser() user: CurrentUserPayload, @Body() body: any) {
+    return this.adminService.sendMailing(user.id, {
+      subject: body.subject,
+      body: body.body,
+      channels: body.channels,
+      filters: body.filters || {},
+    });
+  }
+
+  @Get('mailings')
+  @ApiOperation({ summary: 'List broadcast history' })
+  async listMailings(@Query() query: any) {
+    return this.adminService.listMailings(query);
+  }
+
+  // ─── Meetings (admin-wide) ────────────────────────────────
+
+  @Get('meetings')
+  @ApiOperation({ summary: 'List all meetings (admin/manager)' })
+  async listAllMeetings(@Query() query: any) {
+    return this.adminService.listAllMeetings(query);
+  }
+
+  @Patch('meetings/:id/status')
+  @ApiOperation({ summary: 'Confirm or cancel a meeting (admin/manager)' })
+  async updateMeetingStatus(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() body: { status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' },
+  ) {
+    return this.adminService.updateMeetingStatus(id, body.status, user.id);
+  }
 }

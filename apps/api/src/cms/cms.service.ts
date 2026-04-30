@@ -160,13 +160,26 @@ export class CmsService {
     });
   }
 
+  async getProjectBySlug(slug: string) {
+    return this.prisma.landingProject.findUnique({ where: { slug } });
+  }
+
   async updateProject(id: string, data: any) {
     const patch: any = {};
-    for (const k of ['slug', 'tag', 'name', 'subtitle', 'description', 'ctaText', 'ctaHref'] as const) {
+    for (const k of ['slug', 'tag', 'name', 'subtitle', 'description', 'ctaText', 'ctaHref',
+                     'imageUrl', 'classType', 'address', 'district'] as const) {
       if (data[k] !== undefined) patch[k] = data[k] || null;
     }
-    if (patch.name === null) delete patch.name; // name required
+    if (patch.name === null) delete patch.name;
     if (patch.description === null) delete patch.description;
+    for (const k of ['totalUnits', 'floorsTotal', 'buildingsCount', 'readyQuarter', 'readyYear'] as const) {
+      if (data[k] !== undefined) patch[k] = data[k] === null ? null : Number(data[k]);
+    }
+    for (const k of ['pricePerSqmFrom', 'commissionFrom', 'commissionTo'] as const) {
+      if (data[k] !== undefined) patch[k] = data[k] === null ? null : Number(data[k]);
+    }
+    if (data.gallery !== undefined) patch.gallery = data.gallery;
+    if (data.characteristics !== undefined) patch.characteristics = data.characteristics;
     if (data.sortOrder !== undefined) patch.sortOrder = Number(data.sortOrder) || 0;
     if (data.isActive !== undefined) patch.isActive = !!data.isActive;
     return this.prisma.landingProject.update({ where: { id }, data: patch });
@@ -175,6 +188,108 @@ export class CmsService {
   async deleteProject(id: string) {
     await this.prisma.landingProject.delete({ where: { id } });
     return { deleted: true };
+  }
+
+  // ─── Promos (slider — block 3) ──────────────────
+
+  async listPromos(onlyActive = false) {
+    const where: any = {};
+    if (onlyActive) {
+      where.isActive = true;
+      where.OR = [{ expiresAt: null }, { expiresAt: { gt: new Date() } }];
+    }
+    return this.prisma.landingPromo.findMany({
+      where,
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  async createPromo(data: any) {
+    return this.prisma.landingPromo.create({
+      data: {
+        title: data.title,
+        subtitle: data.subtitle || null,
+        description: data.description || null,
+        tag: data.tag || null,
+        imageUrl: data.imageUrl || null,
+        ctaText: data.ctaText || null,
+        ctaHref: data.ctaHref || null,
+        project: data.project || null,
+        sortOrder: Number(data.sortOrder) || 0,
+        isActive: data.isActive !== false,
+        expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+      },
+    });
+  }
+
+  async updatePromo(id: string, data: any) {
+    const patch: any = {};
+    for (const k of ['title', 'subtitle', 'description', 'tag', 'imageUrl', 'ctaText', 'ctaHref', 'project'] as const) {
+      if (data[k] !== undefined) patch[k] = data[k] || null;
+    }
+    if (data.sortOrder !== undefined) patch.sortOrder = Number(data.sortOrder) || 0;
+    if (data.isActive !== undefined) patch.isActive = !!data.isActive;
+    if (data.expiresAt !== undefined) patch.expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
+    return this.prisma.landingPromo.update({ where: { id }, data: patch });
+  }
+
+  async deletePromo(id: string) {
+    await this.prisma.landingPromo.delete({ where: { id } });
+    return { deleted: true };
+  }
+
+  // ─── Contact requests / event signups ────────────
+
+  async createContactRequest(
+    data: { name: string; phone: string; email?: string; message?: string; source?: string; eventId?: string },
+    ip: string | null,
+    userAgent: string | null,
+  ) {
+    if (!data.name || data.name.trim().length < 2) throw new NotFoundException('name required');
+    if (!data.phone || data.phone.trim().length < 5) throw new NotFoundException('phone required');
+
+    return this.prisma.contactRequest.create({
+      data: {
+        name: data.name.trim(),
+        phone: data.phone.trim(),
+        email: data.email?.trim() || null,
+        message: data.message?.trim() || null,
+        source: data.source || 'landing-contact',
+        eventId: data.eventId || null,
+        ip,
+        userAgent,
+      },
+    });
+  }
+
+  async listContactRequests(query: { page?: number; limit?: number; source?: string; processed?: string }) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (query.source) where.source = query.source;
+    if (query.processed === 'true') where.processedAt = { not: null };
+    else if (query.processed === 'false') where.processedAt = null;
+
+    const [items, total] = await Promise.all([
+      this.prisma.contactRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.contactRequest.count({ where }),
+    ]);
+
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async markContactProcessed(id: string, userId: string) {
+    return this.prisma.contactRequest.update({
+      where: { id },
+      data: { processedAt: new Date(), processedBy: userId },
+    });
   }
 
   // ─── Bootstrap ─────────────────────────────────

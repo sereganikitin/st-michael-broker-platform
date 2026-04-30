@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, HeartHandshake, DollarSign, TrendingUp, Wallet } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   PENDING: { label: 'В работе', cls: 'bg-warning/20 text-warning' },
@@ -12,6 +12,13 @@ const statusLabels: Record<string, { label: string; cls: string }> = {
   CANCELLED: { label: 'Отменён', cls: 'bg-error/20 text-error' },
 };
 
+interface DealsSummary {
+  total: number;
+  totalAmount: number;
+  totalCommission: number;
+  payable: number;
+}
+
 export default function DealsPage() {
   const [deals, setDeals] = useState<any[]>([]);
   const [page, setPage] = useState(1);
@@ -19,6 +26,7 @@ export default function DealsPage() {
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<DealsSummary>({ total: 0, totalAmount: 0, totalCommission: 0, payable: 0 });
 
   useEffect(() => {
     setLoading(true);
@@ -34,11 +42,67 @@ export default function DealsPage() {
       .finally(() => setLoading(false));
   }, [page, statusFilter]);
 
+  // Load aggregate summary across ALL deals (not just current page)
+  useEffect(() => {
+    apiGet('/deals?limit=1000')
+      .then((data) => {
+        const all = data.deals || [];
+        const totalAmount = all.reduce((s: number, d: any) => s + Number(d.amount || 0), 0);
+        const earned = all
+          .filter((d: any) => d.status === 'PAID' || d.status === 'COMMISSION_PAID')
+          .reduce((s: number, d: any) => s + Number(d.commissionAmount || 0), 0);
+        const payable = all
+          .filter((d: any) => d.status === 'PAID')
+          .reduce((s: number, d: any) => s + Number(d.commissionAmount || 0), 0);
+        setSummary({
+          total: data.total || all.length,
+          totalAmount,
+          totalCommission: earned,
+          payable,
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU') + ' ₽';
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">Сделки</h1>
         <span className="text-text-muted text-sm">Всего: {total}</span>
+      </div>
+
+      {/* Summary KPIs (ТЗ §5 — сводные показатели) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="card">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-text-muted">Всего сделок</span>
+            <HeartHandshake className="w-5 h-5 text-accent" />
+          </div>
+          <div className="text-2xl font-bold">{summary.total}</div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-text-muted">Общая сумма сделок</span>
+            <DollarSign className="w-5 h-5 text-accent" />
+          </div>
+          <div className="text-xl font-bold">{fmt(summary.totalAmount)}</div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-text-muted">Начисленная комиссия</span>
+            <TrendingUp className="w-5 h-5 text-accent" />
+          </div>
+          <div className="text-xl font-bold text-accent">{fmt(summary.totalCommission)}</div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-text-muted">К выплате</span>
+            <Wallet className="w-5 h-5 text-accent" />
+          </div>
+          <div className="text-xl font-bold text-success">{fmt(summary.payable)}</div>
+        </div>
       </div>
 
       <div className="card mb-6">

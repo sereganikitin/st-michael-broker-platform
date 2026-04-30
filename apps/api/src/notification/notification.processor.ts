@@ -2,12 +2,30 @@ import { Process, Processor } from '@nestjs/bull';
 import { Logger, Inject } from '@nestjs/common';
 import { Job } from 'bull';
 import { PrismaClient } from '@st-michael/database';
+import * as webpush from 'web-push';
 
 interface NotificationJob {
   brokerId: string;
-  channel: 'SMS' | 'WHATSAPP' | 'TELEGRAM' | 'EMAIL';
+  channel: 'SMS' | 'WHATSAPP' | 'TELEGRAM' | 'EMAIL' | 'PUSH';
   subject?: string;
   body: string;
+  // Event type — if set, processor checks broker's notification preferences and
+  // skips sending when (eventType × channel) is disabled. Missing pref row = enabled.
+  eventType?: string;
+  // Optional payload for push — link to open, icon, tag for de-dup
+  data?: { url?: string; tag?: string; icon?: string };
+}
+
+let webPushConfigured = false;
+function configureWebPush() {
+  if (webPushConfigured) return;
+  const pub = process.env.VAPID_PUBLIC_KEY;
+  const prv = process.env.VAPID_PRIVATE_KEY;
+  const subject = process.env.VAPID_SUBJECT || 'mailto:broker@stmichael.ru';
+  if (pub && prv) {
+    webpush.setVapidDetails(subject, pub, prv);
+    webPushConfigured = true;
+  }
 }
 
 @Processor('notifications')
@@ -18,8 +36,19 @@ export class NotificationProcessor {
 
   @Process('send')
   async handleSend(job: Job<NotificationJob>) {
-    const { brokerId, channel, subject, body } = job.data;
-    this.logger.log(`Processing notification: ${channel} → broker ${brokerId}`);
+    const { brokerId, channel, subject, body, data, eventType } = job.data;
+    this.logger.log(`Processing notification: ${channel} → broker ${brokerId}${eventType ? ` (${eventType})` : ''}`);
+
+    // Honor broker preferences — skip silently if (eventType × channel) is disabled.
+    if (eventType) {
+      const pref = await this.prisma.notificationPreference.findUnique({
+        where: { brokerId_eventType_channel: { brokerId, eventType, channel: channel as any } },
+      });
+      if (pref && !pref.enabled) {
+        this.logger.log(`[Pref] Skipping ${channel}/${eventType} for broker ${brokerId}`);
+        return;
+      }
+    }
 
     // Save notification record
     const notification = await this.prisma.notification.create({
@@ -46,6 +75,9 @@ export class NotificationProcessor {
           break;
         case 'EMAIL':
           await this.sendEmail(broker.email, subject || 'Уведомление', body);
+          break;
+        case 'PUSH':
+          await this.sendPush(brokerId, subject || 'ST Michael', body, data);
           break;
       }
 
@@ -119,5 +151,52 @@ export class NotificationProcessor {
 
     this.logger.log(`[Email] Sending to ${email}: ${subject}`);
     // In production: integrate with nodemailer, SendGrid, etc.
+  }
+
+  private async sendPush(
+    brokerId: string,
+    title: string,
+    body: string,
+    data?: NotificationJob['data'],
+  ) {
+    configureWebPush();
+    if (!webPushConfigured) {
+      this.logger.warn('[Push] VAPID keys not configured — skip');
+      return;
+    }
+
+    const subs = await this.prisma.pushSubscription.findMany({ where: { brokerId } });
+    if (subs.length === 0) {
+      this.logger.warn(`[Push] Broker ${brokerId} has no subscriptions`);
+      return;
+    }
+
+    const payload = JSON.stringify({
+      title,
+      body,
+      url: data?.url || '/',
+      tag: data?.tag,
+      icon: data?.icon || '/icon-192.png',
+    });
+
+    for (const sub of subs) {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: { p256dh: sub.p256dh, auth: sub.auth },
+          },
+          payload,
+        );
+      } catch (e: any) {
+        // 404/410 — subscription is gone, drop it from DB
+        if (e?.statusCode === 404 || e?.statusCode === 410) {
+          this.logger.log(`[Push] Subscription ${sub.id} expired (${e.statusCode}) — removing`);
+          await this.prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
+        } else {
+          this.logger.error(`[Push] Failed for sub ${sub.id}: ${e?.message || e}`);
+        }
+      }
+    }
   }
 }

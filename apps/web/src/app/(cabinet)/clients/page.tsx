@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, AlertTriangle } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   CONDITIONALLY_UNIQUE: { label: 'Уникален', cls: 'bg-success/20 text-success' },
@@ -22,6 +22,22 @@ const projectLabels: Record<string, string> = {
   ZORGE9: 'Зорге 9',
   SILVER_BOR: 'Серебряный бор',
 };
+
+// Mask middle digits of a phone like "+7 (XXX) ***-**-XX"
+function maskPhone(phone: string | null | undefined): string {
+  if (!phone) return '—';
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 10) return phone;
+  // Take last 11 digits as RU phone
+  const d = digits.slice(-11);
+  return `+${d[0]} (${d.slice(1, 4)}) ***-**-${d.slice(9, 11)}`;
+}
+
+function daysUntilExpiry(expiresAt: string | null): number | null {
+  if (!expiresAt) return null;
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  return Math.ceil(ms / (24 * 60 * 60 * 1000));
+}
 
 function ClientDetail({ client, onClose }: { client: any; onClose: () => void }) {
   return (
@@ -139,6 +155,30 @@ export default function ClientsPage() {
         <span className="text-text-muted text-sm">Всего: {total}</span>
       </div>
 
+      {/* Expiring fixations banner */}
+      {(() => {
+        const expiring = clients.filter((c) => {
+          if (c.uniquenessStatus !== 'CONDITIONALLY_UNIQUE') return false;
+          const d = daysUntilExpiry(c.uniquenessExpiresAt);
+          return d !== null && d >= 0 && d <= 7;
+        });
+        if (expiring.length === 0) return null;
+        return (
+          <div className="mb-6 p-4 rounded-lg bg-warning/10 border border-warning/40 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-warning">
+                У {expiring.length} {expiring.length === 1 ? 'клиента' : 'клиентов'} скоро истекает фиксация
+              </div>
+              <div className="text-sm text-text-muted mt-1">
+                {expiring.slice(0, 3).map((c) => `${c.fullName} — ${daysUntilExpiry(c.uniquenessExpiresAt)} дн.`).join(' · ')}
+                {expiring.length > 3 && ` · и ещё ${expiring.length - 3}`}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="card mb-6">
         <div className="flex flex-wrap gap-4">
           <form onSubmit={handleSearch} className="flex-1 min-w-[200px] relative">
@@ -202,7 +242,7 @@ export default function ClientsPage() {
                       onClick={() => setSelectedClient(c)}
                     >
                       <td className="py-3 font-medium">{c.fullName}</td>
-                      <td className="py-3 text-text-muted">{c.phone}</td>
+                      <td className="py-3 text-text-muted">{maskPhone(c.phone)}</td>
                       <td className="py-3">{projectLabels[c.project] || c.project}</td>
                       <td className="py-3">
                         <span className={`text-xs px-2 py-1 rounded ${statusLabels[c.uniquenessStatus]?.cls || ''}`}>
@@ -213,6 +253,16 @@ export default function ClientsPage() {
                         <span className={fixationLabels[c.fixationStatus]?.cls || ''}>
                           {fixationLabels[c.fixationStatus]?.label || c.fixationStatus}
                         </span>
+                        {(() => {
+                          if (c.uniquenessStatus !== 'CONDITIONALLY_UNIQUE') return null;
+                          const d = daysUntilExpiry(c.uniquenessExpiresAt);
+                          if (d === null || d > 7 || d < 0) return null;
+                          return (
+                            <div className={`text-[10px] mt-1 ${d <= 1 ? 'text-error' : 'text-warning'}`}>
+                              ⚠ истекает через {d} дн.
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 text-text-muted">
                         {new Date(c.createdAt).toLocaleDateString('ru-RU')}
