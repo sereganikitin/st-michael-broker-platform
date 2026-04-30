@@ -11,12 +11,18 @@ export const uuidSchema = z.string().uuid();
 // Auth schemas
 export const registerDtoSchema = z.object({
   phone: phoneSchema,
-  fullName: z.string().min(2, 'Full name too short'),
+  // Allow either composite fullName OR last/first/middle separately
+  fullName: z.string().min(2).optional(),
+  lastName: z.string().min(1).optional(),
+  firstName: z.string().min(1).optional(),
+  middleName: z.string().optional(),
   email: z.string().email('Invalid email'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
   inn: z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits'),
   innType: z.enum(['PERSONAL', 'AGENCY']).optional(),
   agencyName: z.string().min(2).max(200).optional(),
+}).refine((d) => d.fullName || (d.firstName && d.lastName), {
+  message: 'Either fullName or firstName+lastName required',
 });
 
 export const forgotPasswordDtoSchema = z.object({
@@ -25,7 +31,7 @@ export const forgotPasswordDtoSchema = z.object({
 
 export const resetPasswordDtoSchema = z.object({
   token: z.string().min(10),
-  password: z.string().min(6),
+  password: z.string().min(8),
 });
 
 export const sendOtpDtoSchema = z.object({
@@ -113,9 +119,16 @@ export const attachAgencyDtoSchema = z.object({
 export const createMeetingDtoSchema = z.object({
   clientId: uuidSchema,
   type: z.nativeEnum(MeetingType),
-  date: z.string().datetime(),
+  // Either pick a configured slot...
+  slotId: uuidSchema.optional(),
+  // ...or supply a free-form datetime (legacy / manager override)
+  date: z.string().datetime().optional(),
   comment: z.string().optional(),
-});
+  extraPhone: z.string().optional(),
+  notifySms: z.boolean().optional(),
+  notifyEmail: z.boolean().optional(),
+  notifyReminder: z.boolean().optional(),
+}).refine((d) => d.slotId || d.date, { message: 'slotId or date is required' });
 
 export const updateMeetingDtoSchema = z.object({
   date: z.string().datetime().optional(),

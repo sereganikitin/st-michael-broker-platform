@@ -41,4 +41,15 @@ export class AnalyticsController {
       endDate: query.endDate,
     });
   }
+
+  @Get('admin/overview')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin platform-wide analytics (ТЗ §15.6)' })
+  async getAdminOverview(@Query() query: any) {
+    return this.analyticsService.getAdminOverview({
+      startDate: query.startDate,
+      endDate: query.endDate,
+    });
+  }
 }

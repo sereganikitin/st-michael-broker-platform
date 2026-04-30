@@ -120,11 +120,18 @@ function LotDetail({ lot, onClose, onBook, onVisit }: { lot: any; onClose: () =>
           {lot.windowView && <div className="bg-surface-secondary rounded-lg p-3 col-span-2"><span className="text-text-muted block text-xs">Вид из окна</span><span className="font-medium">{lot.windowView}</span></div>}
         </div>
 
-        {(lot.hasBalcony || lot.hasTerrace || lot.isPenthouse) && (
+        {(lot.hasBalcony || lot.hasTerrace || lot.isPenthouse || lot.isCornerLayout || lot.hasStorage || lot.twoBathrooms || lot.hasMasterBedroom || lot.isUrbanVilla || lot.isViewLot || lot.isHighFlat) && (
           <div className="flex flex-wrap gap-2 mb-4">
             {lot.hasBalcony && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">Балкон</span>}
             {lot.hasTerrace && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">Терраса</span>}
             {lot.isPenthouse && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">Пентхаус</span>}
+            {lot.isCornerLayout && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">Угловая</span>}
+            {lot.hasStorage && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">Кладовая</span>}
+            {lot.twoBathrooms && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">2 санузла</span>}
+            {lot.hasMasterBedroom && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">Мастер-спальня</span>}
+            {lot.isUrbanVilla && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">Урбан-вилла</span>}
+            {lot.isViewLot && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">Видовая</span>}
+            {lot.isHighFlat && <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent">Хайфлет 4м+</span>}
           </div>
         )}
 
@@ -196,13 +203,35 @@ function ContactModal({ lot, kind, onClose }: { lot: any; kind: 'book' | 'visit'
   const [phone, setPhone] = useState('');
   const [comment, setComment] = useState('');
   const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
 
   const title = kind === 'book' ? 'Забронировать лот' : 'Записаться на встречу в офис';
 
-  const handleSend = () => {
-    // For now — just show success. Later can send to backend / telegram / email
-    setSent(true);
-    setTimeout(onClose, 2500);
+  const handleSend = async () => {
+    setError(''); setSending(true);
+    const lotInfo = `Лот №${lot.number} · ${projectLabels[lot.project] || lot.project} · корпус ${lot.building || '—'} · ${lot.rooms} · ${lot.sqm} м² · ${Math.round(Number(lot.price)).toLocaleString('ru-RU')} ₽`;
+    const message = `${kind === 'book' ? 'БРОНИРОВАНИЕ' : 'ЗАПИСЬ В ОФИС'}\n${lotInfo}\nКлиент: ${name}\nТелефон клиента: ${phone}${comment ? '\nКомментарий: ' + comment : ''}`;
+    try {
+      const res = await fetch('/api/public/cms/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          phone,
+          message,
+          source: kind === 'book' ? 'catalog-booking' : 'catalog-office-visit',
+        }),
+      });
+      if (res.ok) {
+        setSent(true);
+        setTimeout(onClose, 2500);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d.message || 'Ошибка отправки');
+      }
+    } catch { setError('Ошибка соединения'); }
+    setSending(false);
   };
 
   return (
@@ -216,19 +245,23 @@ function ContactModal({ lot, kind, onClose }: { lot: any; kind: 'book' | 'visit'
 
         {sent ? (
           <div className="p-4 bg-success/20 text-success rounded-lg text-sm text-center">
-            ✓ Заявка отправлена. Мы свяжемся с вами в ближайшее время.
+            ✓ Заявка отправлена в отдел продаж. Менеджер свяжется с вами в течение часа.
           </div>
         ) : (
           <div className="space-y-3">
-            <input className="input" placeholder="Имя клиента" value={name} onChange={(e) => setName(e.target.value)} />
-            <input className="input" placeholder="Телефон клиента" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            {error && <div className="p-3 bg-error/20 text-error rounded text-sm">{error}</div>}
+            <input className="input" placeholder="Имя клиента *" value={name} onChange={(e) => setName(e.target.value)} />
+            <input className="input" placeholder="Телефон клиента *" value={phone} onChange={(e) => setPhone(e.target.value)} />
             <textarea className="input" rows={3} placeholder="Комментарий" value={comment} onChange={(e) => setComment(e.target.value)} />
+            <p className="text-xs text-text-muted">
+              Лот {lot.number} · {projectLabels[lot.project] || lot.project} · {Math.round(Number(lot.price)).toLocaleString('ru-RU')} ₽
+            </p>
             <button
               className="btn btn-primary w-full"
               onClick={handleSend}
-              disabled={!name || !phone}
+              disabled={!name || !phone || sending}
             >
-              Отправить
+              {sending ? 'Отправка...' : 'Отправить в отдел продаж'}
             </button>
           </div>
         )}
@@ -260,6 +293,13 @@ export default function CatalogPage() {
   const [hasBalcony, setHasBalcony] = useState(false);
   const [hasTerrace, setHasTerrace] = useState(false);
   const [isPenthouse, setIsPenthouse] = useState(false);
+  const [isCornerLayout, setIsCornerLayout] = useState(false);
+  const [hasStorage, setHasStorage] = useState(false);
+  const [twoBathrooms, setTwoBathrooms] = useState(false);
+  const [hasMasterBedroom, setHasMasterBedroom] = useState(false);
+  const [isUrbanVilla, setIsUrbanVilla] = useState(false);
+  const [isViewLot, setIsViewLot] = useState(false);
+  const [isHighFlat, setIsHighFlat] = useState(false);
 
   // Filter options from API
   const [propertyTypes, setPropertyTypes] = useState<{ type: string; count: number }[]>([]);
@@ -267,7 +307,7 @@ export default function CatalogPage() {
   const [buildings, setBuildings] = useState<{ building: string; count: number }[]>([]);
   const [views, setViews] = useState<{ view: string; count: number }[]>([]);
   const [years, setYears] = useState<{ year: number; count: number }[]>([]);
-  const [featureCounts, setFeatureCounts] = useState<{ hasBalcony: number; hasTerrace: number; isPenthouse: number }>({ hasBalcony: 0, hasTerrace: 0, isPenthouse: 0 });
+  const [featureCounts, setFeatureCounts] = useState<Record<string, number>>({});
 
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
@@ -297,9 +337,18 @@ export default function CatalogPage() {
     if (hasBalcony) p.set('hasBalcony', '1');
     if (hasTerrace) p.set('hasTerrace', '1');
     if (isPenthouse) p.set('isPenthouse', '1');
+    if (isCornerLayout) p.set('isCornerLayout', '1');
+    if (hasStorage) p.set('hasStorage', '1');
+    if (twoBathrooms) p.set('twoBathrooms', '1');
+    if (hasMasterBedroom) p.set('hasMasterBedroom', '1');
+    if (isUrbanVilla) p.set('isUrbanVilla', '1');
+    if (isViewLot) p.set('isViewLot', '1');
+    if (isHighFlat) p.set('isHighFlat', '1');
     return p.toString();
   }, [page, projectFilter, propertyTypeFilter, roomsFilter, buildingFilter, viewFilter, yearFilter,
-      priceMin, priceMax, sqmMin, sqmMax, floorMin, floorMax, hasBalcony, hasTerrace, isPenthouse]);
+      priceMin, priceMax, sqmMin, sqmMax, floorMin, floorMax,
+      hasBalcony, hasTerrace, isPenthouse,
+      isCornerLayout, hasStorage, twoBathrooms, hasMasterBedroom, isUrbanVilla, isViewLot, isHighFlat]);
 
   const fetchLots = () => {
     setLoading(true);
@@ -340,6 +389,8 @@ export default function CatalogPage() {
     setPriceMin(''); setPriceMax(''); setSqmMin(''); setSqmMax('');
     setFloorMin(''); setFloorMax('');
     setHasBalcony(false); setHasTerrace(false); setIsPenthouse(false);
+    setIsCornerLayout(false); setHasStorage(false); setTwoBathrooms(false);
+    setHasMasterBedroom(false); setIsUrbanVilla(false); setIsViewLot(false); setIsHighFlat(false);
     setPage(1);
   };
 
@@ -347,6 +398,7 @@ export default function CatalogPage() {
     projectFilter, propertyTypeFilter, roomsFilter, buildingFilter, viewFilter, yearFilter,
     priceMin, priceMax, sqmMin, sqmMax, floorMin, floorMax,
     hasBalcony, hasTerrace, isPenthouse,
+    isCornerLayout, hasStorage, twoBathrooms, hasMasterBedroom, isUrbanVilla, isViewLot, isHighFlat,
   ].filter(Boolean).length;
 
   return (
@@ -467,26 +519,33 @@ export default function CatalogPage() {
                   {views.map((v) => <option key={v.view} value={v.view}>{v.view} ({v.count})</option>)}
                 </select>
               </div>
-              <div className="flex flex-wrap items-center gap-4 pt-4 md:pt-0">
-                {featureCounts.hasBalcony > 0 && (
-                  <label className="flex items-center gap-2 cursor-pointer text-sm">
-                    <input type="checkbox" checked={hasBalcony} onChange={(e) => { setHasBalcony(e.target.checked); setPage(1); }} />
-                    Балкон / лоджия ({featureCounts.hasBalcony})
+              <div></div>
+            </div>
+
+            <div className="mt-4">
+              <div className="text-xs text-text-muted mb-2">Особенности планировки</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                {[
+                  { label: 'Балкон / лоджия', state: hasBalcony, setter: setHasBalcony, key: 'hasBalcony' as const },
+                  { label: 'Терраса', state: hasTerrace, setter: setHasTerrace, key: 'hasTerrace' as const },
+                  { label: 'Пентхаус', state: isPenthouse, setter: setIsPenthouse, key: 'isPenthouse' as const },
+                  { label: 'Угловая', state: isCornerLayout, setter: setIsCornerLayout, key: 'isCornerLayout' as const },
+                  { label: 'Кладовая', state: hasStorage, setter: setHasStorage, key: 'hasStorage' as const },
+                  { label: '2 санузла', state: twoBathrooms, setter: setTwoBathrooms, key: 'twoBathrooms' as const },
+                  { label: 'Мастер-спальня', state: hasMasterBedroom, setter: setHasMasterBedroom, key: 'hasMasterBedroom' as const },
+                  { label: 'Урбан-вилла', state: isUrbanVilla, setter: setIsUrbanVilla, key: 'isUrbanVilla' as const },
+                  { label: 'Видовая', state: isViewLot, setter: setIsViewLot, key: 'isViewLot' as const },
+                  { label: 'Хайфлет 4м+', state: isHighFlat, setter: setIsHighFlat, key: 'isHighFlat' as const },
+                ].filter((f) => (featureCounts[f.key] ?? 0) > 0).map((f) => (
+                  <label key={f.key} className={`flex items-center gap-2 cursor-pointer text-sm px-3 py-2 rounded-lg border transition ${f.state ? 'border-accent bg-accent/10 text-accent' : 'border-border hover:bg-surface-secondary'}`}>
+                    <input type="checkbox" checked={f.state} onChange={(e) => { f.setter(e.target.checked); setPage(1); }} />
+                    {f.label} <span className="text-xs text-text-muted ml-auto">{featureCounts[f.key]}</span>
                   </label>
-                )}
-                {featureCounts.hasTerrace > 0 && (
-                  <label className="flex items-center gap-2 cursor-pointer text-sm">
-                    <input type="checkbox" checked={hasTerrace} onChange={(e) => { setHasTerrace(e.target.checked); setPage(1); }} />
-                    Терраса ({featureCounts.hasTerrace})
-                  </label>
-                )}
-                {featureCounts.isPenthouse > 0 && (
-                  <label className="flex items-center gap-2 cursor-pointer text-sm">
-                    <input type="checkbox" checked={isPenthouse} onChange={(e) => { setIsPenthouse(e.target.checked); setPage(1); }} />
-                    Пентхаус ({featureCounts.isPenthouse})
-                  </label>
-                )}
+                ))}
               </div>
+              {Object.values(featureCounts).every((v) => !v) && (
+                <div className="text-xs text-text-muted">Нет лотов с особыми планировками для текущих фильтров</div>
+              )}
             </div>
           </div>
         )}

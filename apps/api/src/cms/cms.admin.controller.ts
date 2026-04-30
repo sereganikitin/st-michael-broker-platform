@@ -89,6 +89,43 @@ export class AdminCmsController {
     return this.cms.deleteProject(id);
   }
 
+  // ─── Promos ─────────────────────────────
+
+  @Get('promos')
+  async listPromos() {
+    return this.cms.listPromos(false);
+  }
+
+  @Post('promos')
+  @Roles(UserRole.ADMIN)
+  async createPromo(@Body() body: any) {
+    return this.cms.createPromo(body);
+  }
+
+  @Patch('promos/:id')
+  @Roles(UserRole.ADMIN)
+  async updatePromo(@Param('id') id: string, @Body() body: any) {
+    return this.cms.updatePromo(id, body);
+  }
+
+  @Delete('promos/:id')
+  @Roles(UserRole.ADMIN)
+  async deletePromo(@Param('id') id: string) {
+    return this.cms.deletePromo(id);
+  }
+
+  // ─── Contact requests ──────────────────
+
+  @Get('contact-requests')
+  async listContactRequests(@Query() query: any) {
+    return this.cms.listContactRequests(query);
+  }
+
+  @Patch('contact-requests/:id/processed')
+  async markProcessed(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.cms.markContactProcessed(id, user.id);
+  }
+
   // ─── Bootstrap ──────────────────────────
 
   @Post('seed-defaults')

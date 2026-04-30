@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
-import { TrendingUp } from 'lucide-react';
+import { TrendingUp, Wallet, Award, CreditCard, Building2 } from 'lucide-react';
 
 const levelNames: Record<string, string> = {
   START: 'Старт',
@@ -155,6 +155,62 @@ export default function CommissionPage() {
           </div>
         </div>
       )}
+
+      {/* Условия комиссии (ТЗ §6 — карточки условий) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        <div className="card">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center flex-shrink-0">
+              <Wallet className="w-5 h-5 text-success" />
+            </div>
+            <div className="flex-1">
+              <div className="text-xs font-bold uppercase tracking-wider text-success mb-1">Условия выплаты</div>
+              <p className="text-sm text-text-muted leading-relaxed">
+                Выплата в течение 5 рабочих дней с момента оплаты клиентом не менее 50% (Зорге 9) или 30% (Серебряный Бор) от суммы договора.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+              <Award className="w-5 h-5 text-accent" />
+            </div>
+            <div className="flex-1">
+              <div className="text-xs font-bold uppercase tracking-wider text-accent mb-1">Квартальный бонус</div>
+              <p className="text-sm text-text-muted leading-relaxed">
+                При уровне Strong и выше несколько кварталов подряд: +0,1% — +0,15% — +0,2% — +0,25% (максимум). Обнуляется при отсутствии продаж в квартале.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-info/10 flex items-center justify-center flex-shrink-0">
+              <CreditCard className="w-5 h-5 text-info" />
+            </div>
+            <div className="flex-1">
+              <div className="text-xs font-bold uppercase tracking-wider text-info mb-1">Рассрочка и ипотека</div>
+              <p className="text-sm text-text-muted leading-relaxed">
+                При рассрочке ставка уменьшается на 0,5%. При субсидированной ипотеке — фиксированные 4%.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-warning/10 flex items-center justify-center flex-shrink-0">
+              <Building2 className="w-5 h-5 text-warning" />
+            </div>
+            <div className="flex-1">
+              <div className="text-xs font-bold uppercase tracking-wider text-warning mb-1">Коммерческие помещения</div>
+              <p className="text-sm text-text-muted leading-relaxed">
+                Продажа — 3%. Фитнес — 3%. Отдельные здания — 2%. Аренда ритейл — 100% месячного платежа. Аренда фитнес — 50%.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card">

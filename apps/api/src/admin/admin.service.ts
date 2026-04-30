@@ -1,7 +1,18 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
 import { AmocrmService } from '../amocrm/amocrm.service';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+
+interface MailingFilters {
+  project?: string;        // ZORGE9 / SILVER_BOR
+  agencyId?: string;
+  commissionLevel?: string;
+  funnelStage?: string;
+  status?: string;
+  role?: string;
+}
 
 @Injectable()
 export class AdminService {
@@ -10,7 +21,184 @@ export class AdminService {
   constructor(
     @Inject('PrismaClient') private prisma: PrismaClient,
     private amocrmService: AmocrmService,
+    @InjectQueue('notifications') private notificationQueue: Queue,
   ) {}
+
+  // ─── Mailings (broadcasts) ─────────────────────────────────
+
+  private async resolveRecipients(filters: MailingFilters) {
+    const where: any = {};
+
+    if (filters.status) where.status = filters.status;
+    else where.status = { not: 'BLOCKED' };
+
+    if (filters.role) where.role = filters.role;
+    if (filters.funnelStage) where.funnelStage = filters.funnelStage;
+
+    // Agency / commissionLevel filters apply via brokerAgencies join
+    if (filters.agencyId || filters.commissionLevel) {
+      where.brokerAgencies = {
+        some: {
+          ...(filters.agencyId ? { agencyId: filters.agencyId } : {}),
+          ...(filters.commissionLevel
+            ? { agency: { commissionLevel: filters.commissionLevel as any } }
+            : {}),
+        },
+      };
+    }
+
+    // Project filter — broker has at least one client/deal in that project
+    if (filters.project) {
+      where.OR = [
+        { clients: { some: { project: filters.project as any } } },
+        { deals: { some: { project: filters.project as any } } },
+      ];
+    }
+
+    return this.prisma.broker.findMany({
+      where,
+      select: { id: true, fullName: true, phone: true, email: true, telegramChatId: true },
+    });
+  }
+
+  async previewMailing(filters: MailingFilters) {
+    const recipients = await this.resolveRecipients(filters);
+    return {
+      count: recipients.length,
+      sample: recipients.slice(0, 10).map((r) => ({ id: r.id, fullName: r.fullName, phone: r.phone })),
+    };
+  }
+
+  async sendMailing(
+    createdById: string,
+    data: { subject?: string; body: string; channels: string[]; filters: MailingFilters },
+  ) {
+    if (!data.body || !data.body.trim()) throw new BadRequestException('body required');
+    if (!Array.isArray(data.channels) || data.channels.length === 0) {
+      throw new BadRequestException('channels required');
+    }
+
+    const validChannels = new Set(['EMAIL', 'PUSH', 'TELEGRAM', 'SMS']);
+    const channels = data.channels.filter((c) => validChannels.has(c));
+    if (channels.length === 0) throw new BadRequestException('No valid channels');
+
+    const recipients = await this.resolveRecipients(data.filters || {});
+
+    let queued = 0;
+    for (const r of recipients) {
+      for (const channel of channels) {
+        await this.notificationQueue.add('send', {
+          brokerId: r.id,
+          channel,
+          subject: data.subject,
+          body: data.body,
+          eventType: 'ANNOUNCEMENTS',
+          data: channel === 'PUSH' ? { url: '/', tag: `mailing-${Date.now()}` } : undefined,
+        });
+        queued++;
+      }
+    }
+
+    const mailing = await this.prisma.mailing.create({
+      data: {
+        createdById,
+        subject: data.subject || null,
+        body: data.body,
+        channels: channels as any,
+        filters: (data.filters || {}) as any,
+        recipientsCount: recipients.length,
+      },
+    });
+
+    return { mailing, queued, recipientsCount: recipients.length };
+  }
+
+  async listMailings(query: { page?: number; limit?: number }) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      this.prisma.mailing.findMany({
+        orderBy: { sentAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.mailing.count(),
+    ]);
+
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  // ─── Meetings (admin-wide management) ───────────────────────
+
+  async listAllMeetings(query: { page?: number; limit?: number; status?: string; from?: string; to?: string; brokerId?: string }) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (query.status) where.status = query.status;
+    if (query.brokerId) where.brokerId = query.brokerId;
+    if (query.from || query.to) {
+      where.date = {};
+      if (query.from) where.date.gte = new Date(query.from);
+      if (query.to) where.date.lte = new Date(query.to);
+    }
+
+    const [meetings, total] = await Promise.all([
+      this.prisma.meeting.findMany({
+        where,
+        include: {
+          client: { select: { id: true, fullName: true, phone: true } },
+          broker: { select: { id: true, fullName: true, phone: true } },
+        },
+        orderBy: { date: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.meeting.count({ where }),
+    ]);
+
+    return { meetings, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async updateMeetingStatus(id: string, status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED', managerId: string) {
+    const meeting = await this.prisma.meeting.findUnique({ where: { id } });
+    if (!meeting) throw new NotFoundException('Meeting not found');
+
+    const updated = await this.prisma.meeting.update({
+      where: { id },
+      data: { status: status as any, managerId },
+    });
+
+    // Notify broker about status change
+    const subject = status === 'CONFIRMED' ? 'Встреча подтверждена'
+      : status === 'CANCELLED' ? 'Встреча отменена'
+      : 'Статус встречи обновлён';
+    const dateStr = new Date(meeting.date).toLocaleString('ru-RU', {
+      day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit',
+    });
+    const body = `${subject}: ${dateStr}.`;
+
+    await this.notificationQueue.add('send', {
+      brokerId: meeting.brokerId,
+      channel: 'PUSH',
+      subject,
+      body,
+      eventType: 'BOOKING_CONFIRMED',
+      data: { url: '/meetings', tag: `meeting-${meeting.id}` },
+    });
+    await this.notificationQueue.add('send', {
+      brokerId: meeting.brokerId,
+      channel: 'EMAIL',
+      subject,
+      body,
+      eventType: 'BOOKING_CONFIRMED',
+    });
+
+    return updated;
+  }
 
   async listBrokers(query: { page?: number; limit?: number; search?: string; role?: string; status?: string }) {
     const page = Number(query.page) || 1;

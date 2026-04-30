@@ -76,18 +76,40 @@ export class MeetingsService {
 
   async createMeeting(
     brokerId: string,
-    data: { clientId: string; type: string; date: string; comment?: string; extraPhone?: string; notifySms?: boolean; notifyEmail?: boolean; notifyReminder?: boolean },
+    data: { clientId: string; type: string; date?: string; slotId?: string; comment?: string; extraPhone?: string; notifySms?: boolean; notifyEmail?: boolean; notifyReminder?: boolean },
   ) {
     const client = await this.prisma.client.findUnique({ where: { id: data.clientId } });
     if (!client) throw new NotFoundException('Client not found');
     if (client.brokerId !== brokerId) throw new BadRequestException('Client does not belong to you');
 
+    let meetingDate: Date;
+    let slotId: string | undefined;
+
+    if (data.slotId) {
+      const slot = await this.prisma.meetingSlot.findUnique({ where: { id: data.slotId } });
+      if (!slot || !slot.isActive) throw new BadRequestException('Слот не существует или отключён');
+      if (slot.type && slot.type !== data.type) {
+        throw new BadRequestException('Тип встречи не соответствует слоту');
+      }
+      const booked = await this.prisma.meeting.count({
+        where: { slotId: slot.id, status: { not: 'CANCELLED' } },
+      });
+      if (booked >= slot.capacity) {
+        throw new BadRequestException('Слот полностью занят');
+      }
+      meetingDate = slot.startsAt;
+      slotId = slot.id;
+    } else if (data.date) {
+      meetingDate = new Date(data.date);
+      if (isNaN(meetingDate.getTime())) throw new BadRequestException('Invalid date');
+    } else {
+      throw new BadRequestException('Required: slotId or date');
+    }
+
     const commentParts = [
       data.comment,
       data.extraPhone ? `Доп. телефон: ${data.extraPhone}` : '',
     ].filter(Boolean);
-
-    const meetingDate = new Date(data.date);
 
     const meeting = await this.prisma.meeting.create({
       data: {
@@ -95,6 +117,7 @@ export class MeetingsService {
         brokerId,
         type: data.type as any,
         date: meetingDate,
+        slotId,
         comment: commentParts.join('. ') || null,
       },
       include: { client: { select: { id: true, fullName: true, phone: true, email: true } } },
@@ -171,6 +194,169 @@ export class MeetingsService {
 
   async cancelMeeting(id: string, brokerId: string) {
     return this.updateMeeting(id, brokerId, { status: 'CANCELLED' });
+  }
+
+  // ─── Slots ────────────────────────────────────────────────
+
+  async getAvailableSlots(query: { date?: string; from?: string; to?: string; type?: string }) {
+    let from: Date;
+    let to: Date;
+
+    if (query.date) {
+      const d = new Date(query.date);
+      if (isNaN(d.getTime())) throw new BadRequestException('Invalid date');
+      from = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+      to = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+    } else if (query.from && query.to) {
+      from = new Date(query.from);
+      to = new Date(query.to);
+    } else {
+      const now = new Date();
+      from = now;
+      to = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    }
+
+    const where: any = {
+      isActive: true,
+      startsAt: { gte: from, lte: to },
+    };
+    if (query.type) where.OR = [{ type: query.type as any }, { type: null }];
+
+    const slots = await this.prisma.meetingSlot.findMany({
+      where,
+      orderBy: { startsAt: 'asc' },
+    });
+
+    // Compute booked counts in one query
+    const slotIds = slots.map((s) => s.id);
+    const booked = slotIds.length
+      ? await this.prisma.meeting.groupBy({
+          by: ['slotId'],
+          where: { slotId: { in: slotIds }, status: { not: 'CANCELLED' } },
+          _count: true,
+        })
+      : [];
+    const bookedMap = new Map(booked.map((b) => [b.slotId, b._count]));
+
+    return slots.map((s) => {
+      const bookedCount = bookedMap.get(s.id) || 0;
+      return {
+        id: s.id,
+        startsAt: s.startsAt,
+        durationMin: s.durationMin,
+        capacity: s.capacity,
+        type: s.type,
+        booked: bookedCount,
+        available: Math.max(0, s.capacity - bookedCount),
+      };
+    });
+  }
+
+  async listSlotsAdmin(query: { from?: string; to?: string }) {
+    const where: any = {};
+    if (query.from || query.to) {
+      where.startsAt = {};
+      if (query.from) where.startsAt.gte = new Date(query.from);
+      if (query.to) where.startsAt.lte = new Date(query.to);
+    }
+    const slots = await this.prisma.meetingSlot.findMany({
+      where,
+      orderBy: { startsAt: 'asc' },
+      take: 500,
+    });
+    const slotIds = slots.map((s) => s.id);
+    const booked = slotIds.length
+      ? await this.prisma.meeting.groupBy({
+          by: ['slotId'],
+          where: { slotId: { in: slotIds }, status: { not: 'CANCELLED' } },
+          _count: true,
+        })
+      : [];
+    const bookedMap = new Map(booked.map((b) => [b.slotId, b._count]));
+    return slots.map((s) => ({
+      ...s,
+      booked: bookedMap.get(s.id) || 0,
+    }));
+  }
+
+  async createSlots(data: {
+    startsAt?: string;
+    durationMin?: number;
+    capacity?: number;
+    type?: string;
+    // Bulk: generate range days × times
+    days?: string[];          // ['2026-05-01', ...]
+    times?: string[];         // ['10:00', '11:00', ...]
+  }) {
+    if (Array.isArray(data.days) && Array.isArray(data.times) && data.days.length && data.times.length) {
+      const created: any[] = [];
+      for (const day of data.days) {
+        for (const time of data.times) {
+          const [h, m] = time.split(':').map(Number);
+          if (isNaN(h) || isNaN(m)) continue;
+          const dt = new Date(`${day}T00:00:00`);
+          if (isNaN(dt.getTime())) continue;
+          dt.setHours(h, m, 0, 0);
+          // Skip duplicates
+          const exists = await this.prisma.meetingSlot.findFirst({
+            where: { startsAt: dt, type: data.type as any || null },
+          });
+          if (exists) continue;
+          const slot = await this.prisma.meetingSlot.create({
+            data: {
+              startsAt: dt,
+              durationMin: data.durationMin || 60,
+              capacity: data.capacity || 1,
+              type: (data.type as any) || null,
+            },
+          });
+          created.push(slot);
+        }
+      }
+      return { created: created.length, slots: created };
+    }
+
+    if (!data.startsAt) throw new BadRequestException('startsAt or days+times required');
+    const dt = new Date(data.startsAt);
+    if (isNaN(dt.getTime())) throw new BadRequestException('Invalid startsAt');
+
+    const slot = await this.prisma.meetingSlot.create({
+      data: {
+        startsAt: dt,
+        durationMin: data.durationMin || 60,
+        capacity: data.capacity || 1,
+        type: (data.type as any) || null,
+      },
+    });
+    return { created: 1, slots: [slot] };
+  }
+
+  async updateSlot(id: string, data: { capacity?: number; durationMin?: number; isActive?: boolean; startsAt?: string }) {
+    const slot = await this.prisma.meetingSlot.findUnique({ where: { id } });
+    if (!slot) throw new NotFoundException('Slot not found');
+
+    const update: any = {};
+    if (data.capacity !== undefined) update.capacity = data.capacity;
+    if (data.durationMin !== undefined) update.durationMin = data.durationMin;
+    if (data.isActive !== undefined) update.isActive = data.isActive;
+    if (data.startsAt) {
+      const dt = new Date(data.startsAt);
+      if (!isNaN(dt.getTime())) update.startsAt = dt;
+    }
+
+    return this.prisma.meetingSlot.update({ where: { id }, data: update });
+  }
+
+  async deleteSlot(id: string) {
+    // Block delete if there are active meetings booked into this slot
+    const booked = await this.prisma.meeting.count({
+      where: { slotId: id, status: { not: 'CANCELLED' } },
+    });
+    if (booked > 0) {
+      throw new BadRequestException(`Слот используется в ${booked} активных встречах`);
+    }
+    await this.prisma.meetingSlot.delete({ where: { id } });
+    return { ok: true };
   }
 
   async signAct(id: string, brokerId: string) {

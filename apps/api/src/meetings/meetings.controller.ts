@@ -1,8 +1,11 @@
-import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Post, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../auth/current-user.decorator';
 import { MeetingsService } from './meetings.service';
+import { UserRole } from '@st-michael/shared';
 import { createMeetingDtoSchema, updateMeetingDtoSchema, paginationQuerySchema } from '@st-michael/shared';
 
 @ApiTags('meetings')
@@ -22,6 +25,61 @@ export class MeetingsController {
       status: query.status,
       type: query.type,
     });
+  }
+
+  // ─── Slots: list available slots (broker-facing) ─────────
+
+  @Get('slots/available')
+  @ApiOperation({ summary: 'List available slots (with capacity info)' })
+  async getAvailableSlots(@Query() query: any) {
+    return this.meetingsService.getAvailableSlots({
+      date: query.date,
+      from: query.from,
+      to: query.to,
+      type: query.type,
+    });
+  }
+
+  // ─── Slots: admin/manager management ────────────────────
+
+  @Get('slots')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async listSlots(@Query() query: any) {
+    return this.meetingsService.listSlotsAdmin({ from: query.from, to: query.to });
+  }
+
+  @Post('slots')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async createSlots(@Body() body: any) {
+    return this.meetingsService.createSlots({
+      startsAt: body.startsAt,
+      durationMin: body.durationMin,
+      capacity: body.capacity,
+      type: body.type,
+      days: body.days,
+      times: body.times,
+    });
+  }
+
+  @Patch('slots/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async updateSlot(@Param('id') id: string, @Body() body: any) {
+    return this.meetingsService.updateSlot(id, {
+      capacity: body.capacity,
+      durationMin: body.durationMin,
+      isActive: body.isActive,
+      startsAt: body.startsAt,
+    });
+  }
+
+  @Delete('slots/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async deleteSlot(@Param('id') id: string) {
+    return this.meetingsService.deleteSlot(id);
   }
 
   @Get(':id')

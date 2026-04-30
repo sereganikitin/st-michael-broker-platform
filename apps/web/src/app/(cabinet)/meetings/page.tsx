@@ -151,12 +151,17 @@ export default function MeetingsPage() {
     clientId: '',
     type: 'OFFICE_VISIT',
     date: '',
+    slotId: '',
     extraPhone: '',
     comment: '',
     notifySms: true,
     notifyEmail: true,
     notifyReminder: true,
   });
+  const [useSlots, setUseSlots] = useState(true);
+  const [slotDate, setSlotDate] = useState('');
+  const [slots, setSlots] = useState<Array<{ id: string; startsAt: string; durationMin: number; available: number; capacity: number; type: string | null }>>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -183,8 +188,20 @@ export default function MeetingsPage() {
   useEffect(() => { fetchMeetings(); }, [page]);
   useEffect(() => { fetchClients(); }, []);
 
+  // Load slots whenever date or type changes (in slots mode)
+  useEffect(() => {
+    if (!useSlots || !slotDate) { setSlots([]); return; }
+    setSlotsLoading(true);
+    apiGet(`/meetings/slots/available?date=${slotDate}&type=${form.type}`)
+      .then((d: any) => Array.isArray(d) ? setSlots(d) : setSlots([]))
+      .catch(() => setSlots([]))
+      .finally(() => setSlotsLoading(false));
+  }, [useSlots, slotDate, form.type]);
+
   const resetForm = () => {
-    setForm({ clientId: '', type: 'OFFICE_VISIT', date: '', extraPhone: '', comment: '', notifySms: true, notifyEmail: true, notifyReminder: true });
+    setForm({ clientId: '', type: 'OFFICE_VISIT', date: '', slotId: '', extraPhone: '', comment: '', notifySms: true, notifyEmail: true, notifyReminder: true });
+    setSlotDate('');
+    setSlots([]);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -192,16 +209,23 @@ export default function MeetingsPage() {
     setFormError('');
     setSubmitting(true);
     try {
-      await apiPost('/meetings', {
+      const payload: any = {
         clientId: form.clientId,
         type: form.type,
-        date: new Date(form.date).toISOString(),
         comment: form.comment || undefined,
         extraPhone: form.extraPhone || undefined,
         notifySms: form.notifySms,
         notifyEmail: form.notifyEmail,
         notifyReminder: form.notifyReminder,
-      });
+      };
+      if (useSlots && form.slotId) {
+        payload.slotId = form.slotId;
+      } else if (!useSlots && form.date) {
+        payload.date = new Date(form.date).toISOString();
+      } else {
+        throw new Error('Выберите слот или укажите дату');
+      }
+      await apiPost('/meetings', payload);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
       resetForm();
@@ -275,15 +299,73 @@ export default function MeetingsPage() {
             </div>
 
             <div>
-              <label className="label">Дата и время *</label>
-              <input
-                type="datetime-local"
-                className="input"
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-                min={new Date().toISOString().slice(0, 16)}
-                required
-              />
+              <div className="flex items-center justify-between mb-2">
+                <label className="label mb-0">Дата и время *</label>
+                <button
+                  type="button"
+                  className="text-xs text-accent hover:underline"
+                  onClick={() => { setUseSlots(!useSlots); setForm({ ...form, slotId: '', date: '' }); }}
+                >
+                  {useSlots ? 'Указать вручную' : 'Выбрать из доступных слотов'}
+                </button>
+              </div>
+
+              {useSlots ? (
+                <>
+                  <input
+                    type="date"
+                    className="input mb-3"
+                    value={slotDate}
+                    onChange={(e) => { setSlotDate(e.target.value); setForm({ ...form, slotId: '' }); }}
+                    min={new Date().toISOString().slice(0, 10)}
+                  />
+                  {slotDate && (
+                    <div>
+                      {slotsLoading ? (
+                        <div className="text-text-muted text-sm">Загрузка слотов…</div>
+                      ) : slots.length === 0 ? (
+                        <div className="text-text-muted text-sm">На эту дату нет доступных слотов. Попросите менеджера настроить расписание или укажите время вручную.</div>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                          {slots.map((s) => {
+                            const t = new Date(s.startsAt);
+                            const time = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+                            const disabled = s.available === 0;
+                            const selected = form.slotId === s.id;
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => setForm({ ...form, slotId: s.id })}
+                                className={`py-2 px-2 rounded-lg border text-sm transition ${
+                                  selected ? 'border-accent bg-accent/10 text-accent' :
+                                  disabled ? 'border-border opacity-40 cursor-not-allowed' :
+                                  'border-border hover:bg-surface-secondary'
+                                }`}
+                              >
+                                <div className="font-medium">{time}</div>
+                                <div className="text-[10px] text-text-muted">
+                                  {disabled ? 'занято' : `${s.available}/${s.capacity}`}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <input
+                  type="datetime-local"
+                  className="input"
+                  value={form.date}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  min={new Date().toISOString().slice(0, 16)}
+                  required={!useSlots}
+                />
+              )}
             </div>
 
             <div>
@@ -344,7 +426,7 @@ export default function MeetingsPage() {
             <button
               type="submit"
               className="btn btn-primary w-full"
-              disabled={submitting || !form.clientId || !form.date}
+              disabled={submitting || !form.clientId || (useSlots ? !form.slotId : !form.date)}
             >
               {submitting ? 'Создание...' : 'Запланировать встречу'}
             </button>

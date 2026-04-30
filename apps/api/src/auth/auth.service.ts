@@ -4,8 +4,14 @@ import { PrismaClient, UserStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as bcrypt from 'bcrypt';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { randomUUID } from 'crypto';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, mapMeetingStatus, leadToProject, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
+
+const UPLOADS_ROOT = process.env.UPLOADS_DIR || '/app/uploads';
+const AVATAR_PUBLIC_PREFIX = '/files';
 
 @Injectable()
 export class AuthService {
@@ -19,7 +25,14 @@ export class AuthService {
     private readonly catalogService: CatalogService,
   ) {}
 
-  async register(data: { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string }) {
+  async register(data: { phone: string; fullName?: string; firstName?: string; lastName?: string; middleName?: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string }) {
+    // Normalize composite fullName from parts if provided
+    if (!data.fullName && (data.firstName || data.lastName)) {
+      data.fullName = [data.lastName, data.firstName, data.middleName].filter(Boolean).join(' ').trim();
+    }
+    if (!data.fullName) {
+      throw new BadRequestException('ФИО обязательно');
+    }
     const existing = await this.prisma.broker.findUnique({
       where: { phone: data.phone },
     });
@@ -395,6 +408,8 @@ export class AuthService {
       fullName: broker.fullName,
       phone: broker.phone,
       email: broker.email,
+      avatarUrl: broker.avatarUrl,
+      birthDate: broker.birthDate,
       role: broker.role,
       status: broker.status,
       funnelStage: broker.funnelStage,
@@ -408,12 +423,33 @@ export class AuthService {
         inn: ba.agency.inn,
         isPrimary: ba.isPrimary,
         commissionLevel: ba.agency.commissionLevel,
+        legalAddress: ba.agency.legalAddress,
+        bankName: ba.agency.bankName,
+        bankBik: ba.agency.bankBik,
+        bankAccount: ba.agency.bankAccount,
+        correspondentAccount: ba.agency.correspondentAccount,
       })),
       createdAt: broker.createdAt,
     };
   }
 
-  async updateProfile(brokerId: string, data: { fullName?: string; email?: string; phone?: string }) {
+  async updateProfile(
+    brokerId: string,
+    data: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      birthDate?: string | null;
+      agency?: {
+        id?: string;
+        legalAddress?: string | null;
+        bankName?: string | null;
+        bankBik?: string | null;
+        bankAccount?: string | null;
+        correspondentAccount?: string | null;
+      };
+    },
+  ) {
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
     if (!broker) throw new UnauthorizedException('Broker not found');
 
@@ -422,21 +458,125 @@ export class AuthService {
       if (existing) throw new BadRequestException('Phone already in use');
     }
 
+    let birthDate: Date | null | undefined;
+    if (data.birthDate === null) {
+      birthDate = null;
+    } else if (typeof data.birthDate === 'string' && data.birthDate.trim()) {
+      const d = new Date(data.birthDate);
+      if (isNaN(d.getTime())) throw new BadRequestException('Invalid birthDate');
+      birthDate = d;
+    }
+
     const updated = await this.prisma.broker.update({
       where: { id: brokerId },
       data: {
         ...(data.fullName && { fullName: data.fullName }),
         ...(data.email !== undefined && { email: data.email || null }),
         ...(data.phone && { phone: data.phone }),
+        ...(birthDate !== undefined && { birthDate }),
       },
     });
+
+    if (data.agency) {
+      // Resolve target agency: explicit id (must belong to broker) or primary agency
+      let agencyId = data.agency.id;
+      if (!agencyId) {
+        const primary = await this.prisma.brokerAgency.findFirst({
+          where: { brokerId, isPrimary: true },
+        });
+        agencyId = primary?.agencyId;
+      } else {
+        const link = await this.prisma.brokerAgency.findFirst({
+          where: { brokerId, agencyId },
+        });
+        if (!link) throw new BadRequestException('Agency not linked to this broker');
+      }
+
+      if (agencyId) {
+        const a = data.agency;
+        await this.prisma.agency.update({
+          where: { id: agencyId },
+          data: {
+            ...(a.legalAddress !== undefined && { legalAddress: a.legalAddress || null }),
+            ...(a.bankName !== undefined && { bankName: a.bankName || null }),
+            ...(a.bankBik !== undefined && { bankBik: a.bankBik || null }),
+            ...(a.bankAccount !== undefined && { bankAccount: a.bankAccount || null }),
+            ...(a.correspondentAccount !== undefined && {
+              correspondentAccount: a.correspondentAccount || null,
+            }),
+          },
+        });
+      }
+    }
 
     return {
       id: updated.id,
       fullName: updated.fullName,
       phone: updated.phone,
       email: updated.email,
+      avatarUrl: updated.avatarUrl,
+      birthDate: updated.birthDate,
     };
+  }
+
+  async changePassword(brokerId: string, currentPassword: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Новый пароль должен быть не менее 8 символов');
+    }
+
+    const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
+    if (!broker || !broker.passwordHash) {
+      throw new UnauthorizedException('Broker not found');
+    }
+
+    const valid = await bcrypt.compare(currentPassword, broker.passwordHash);
+    if (!valid) {
+      throw new BadRequestException('Текущий пароль введён неверно');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.prisma.broker.update({
+      where: { id: brokerId },
+      data: { passwordHash },
+    });
+
+    return { ok: true, message: 'Пароль изменён' };
+  }
+
+  async uploadAvatar(brokerId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('File required');
+    if (file.size > 5 * 1024 * 1024) {
+      throw new BadRequestException('Avatar must be ≤ 5 MB');
+    }
+    const mime = (file.mimetype || '').toLowerCase();
+    if (!mime.startsWith('image/')) {
+      throw new BadRequestException('Avatar must be an image');
+    }
+
+    const ext = (path.extname(file.originalname) || '.png').toLowerCase();
+    const fileName = `${randomUUID()}${ext}`;
+    const targetDir = path.join(UPLOADS_ROOT, 'avatars');
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.writeFile(path.join(targetDir, fileName), file.buffer);
+
+    const fileUrl = `${AVATAR_PUBLIC_PREFIX}/avatars/${fileName}`;
+
+    // Best-effort cleanup of old avatar
+    const broker = await this.prisma.broker.findUnique({
+      where: { id: brokerId },
+      select: { avatarUrl: true },
+    });
+    if (broker?.avatarUrl?.startsWith(`${AVATAR_PUBLIC_PREFIX}/avatars/`)) {
+      const oldName = broker.avatarUrl.replace(`${AVATAR_PUBLIC_PREFIX}/avatars/`, '');
+      await fs.unlink(path.join(targetDir, oldName)).catch(() => {});
+    }
+
+    await this.prisma.broker.update({
+      where: { id: brokerId },
+      data: { avatarUrl: fileUrl },
+    });
+
+    return { avatarUrl: fileUrl };
   }
 
   async validateBroker(brokerId: string) {
