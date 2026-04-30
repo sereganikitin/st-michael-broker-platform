@@ -3,7 +3,7 @@ import { PrismaClient } from '@st-michael/database';
 
 const OFFER_KEY = 'offer_terms';
 
-interface OfferTerms {
+export interface OfferTerms {
   version: string;
   title: string;
   body: string;        // markdown / plain text
