@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { ArrowLeft, RefreshCw, Save, Shield } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Save, Shield, Trash2 } from 'lucide-react';
 
 const roleOptions = [
   { value: 'BROKER', label: 'Брокер' },
@@ -84,6 +84,18 @@ export default function AdminBrokerDetailPage() {
       load();
     } catch (e: any) { setMessage(e.message || 'Ошибка сохранения'); }
     setSaving(false);
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Удалить брокера "${broker.fullName}" со всеми его клиентами, сделками и встречами? Это действие необратимо.`)) return;
+    setSaving(true); setMessage('');
+    try {
+      await api(`/admin/brokers/${id}`, { method: 'DELETE' });
+      router.push('/admin/brokers');
+    } catch (e: any) {
+      setMessage(e.message || 'Ошибка удаления');
+      setSaving(false);
+    }
   };
 
   const handleSync = async () => {
@@ -169,9 +181,16 @@ export default function AdminBrokerDetailPage() {
             {broker.brokerAgencies?.length > 0 && <> · Агентств: {broker.brokerAgencies.length}</>}
           </div>
 
-          <button className="btn btn-primary flex items-center gap-2" onClick={handleSave} disabled={saving}>
-            <Save className="w-4 h-4" /> {saving ? 'Сохранение...' : 'Сохранить'}
-          </button>
+          <div className="flex gap-2">
+            <button className="btn btn-primary flex items-center gap-2" onClick={handleSave} disabled={saving}>
+              <Save className="w-4 h-4" /> {saving ? 'Сохранение...' : 'Сохранить'}
+            </button>
+            {isAdmin && (
+              <button className="btn btn-secondary flex items-center gap-2 text-error ml-auto" onClick={handleDelete} disabled={saving} title="Удалить брокера со всеми данными">
+                <Trash2 className="w-4 h-4" /> Удалить
+              </button>
+            )}
+          </div>
         </div>
       )}
 

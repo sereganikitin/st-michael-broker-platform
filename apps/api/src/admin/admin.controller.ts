@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -70,5 +70,19 @@ export class AdminController {
   @ApiOperation({ summary: 'Trigger amoCRM sync for specific broker' })
   async syncBrokerAmo(@Param('id') id: string) {
     return this.adminService.syncBrokerAmo(id);
+  }
+
+  @Delete('brokers/:id')
+  @ApiOperation({ summary: 'Delete broker with all related data (admin only)' })
+  @Roles(UserRole.ADMIN)
+  async deleteBroker(@Param('id') id: string) {
+    return this.adminService.deleteBroker(id);
+  }
+
+  @Post('brokers/import-from-amo')
+  @ApiOperation({ summary: 'Bulk import brokers from amoCRM broker pipeline (10787390)' })
+  @Roles(UserRole.ADMIN)
+  async importBrokersFromAmo() {
+    return this.adminService.importBrokersFromAmo();
   }
 }

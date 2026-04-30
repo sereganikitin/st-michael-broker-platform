@@ -225,6 +225,25 @@ export class AmoCrmAdapter {
     }
   }
 
+  async getLeadsByPipeline(pipelineId: number, limit = 250): Promise<AmoLead[]> {
+    const allLeads: AmoLead[] = [];
+    let page = 1;
+    try {
+      while (true) {
+        const data = await this.request<any>(
+          `/leads?filter[pipeline_id][]=${pipelineId}&limit=${limit}&page=${page}&with=contacts`,
+        );
+        const leads = data?._embedded?.leads || [];
+        if (leads.length === 0) break;
+        allLeads.push(...leads);
+        if (leads.length < limit) break;
+        page++;
+        if (page > 20) break; // safety
+      }
+    } catch {}
+    return allLeads;
+  }
+
   async getLeadsByResponsibleUser(userId: number, limit = 250): Promise<AmoLead[]> {
     const allLeads: AmoLead[] = [];
     let page = 1;

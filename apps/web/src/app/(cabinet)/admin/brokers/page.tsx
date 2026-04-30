@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { apiGet } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight, Shield } from 'lucide-react';
+import { api, apiGet, apiPost } from '@/lib/api';
+import { Search, ChevronLeft, ChevronRight, Shield, Download } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 const roleLabels: Record<string, string> = { BROKER: 'Брокер', MANAGER: 'Менеджер', ADMIN: 'Админ' };
@@ -23,6 +23,8 @@ export default function AdminBrokersPage() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string>('');
 
   if (broker && broker.role !== 'ADMIN' && broker.role !== 'MANAGER') {
     return <div className="card">Доступ запрещён</div>;
@@ -48,6 +50,20 @@ export default function AdminBrokersPage() {
 
   const handleSearch = (e: React.FormEvent) => { e.preventDefault(); setPage(1); fetchBrokers(); };
 
+  const handleImport = async () => {
+    if (!confirm('Импортировать брокеров из воронки брокеров amoCRM? Существующие будут обновлены.')) return;
+    setImporting(true);
+    setImportResult('');
+    try {
+      const r: any = await apiPost('/admin/brokers/import-from-amo', {});
+      setImportResult(`Найдено лидов: ${r.foundLeads}, уникальных контактов: ${r.uniqueContacts}. Добавлено: ${r.created}, обновлено: ${r.updated}, пропущено: ${r.skipped}`);
+      fetchBrokers();
+    } catch (e: any) {
+      setImportResult(e.message || 'Ошибка импорта');
+    }
+    setImporting(false);
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -55,7 +71,17 @@ export default function AdminBrokersPage() {
           <h1 className="text-3xl font-bold flex items-center gap-2"><Shield className="w-7 h-7 text-accent" />Брокеры</h1>
           <span className="text-text-muted text-sm">Всего в системе: {total}</span>
         </div>
+        {broker?.role === 'ADMIN' && (
+          <button onClick={handleImport} disabled={importing} className="btn btn-primary flex items-center gap-2">
+            <Download className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
+            {importing ? 'Импорт...' : 'Импорт из amoCRM'}
+          </button>
+        )}
       </div>
+
+      {importResult && (
+        <div className="mb-4 p-3 bg-info/20 text-info rounded-lg text-sm">{importResult}</div>
+      )}
 
       <div className="card mb-6">
         <div className="flex flex-wrap gap-4">
