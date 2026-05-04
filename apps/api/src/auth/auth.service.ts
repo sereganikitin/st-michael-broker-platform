@@ -9,6 +9,7 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, mapMeetingStatus, leadToProject, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
+import { levelForSqm, rateFor } from '../commission/commission.service';
 
 const UPLOADS_ROOT = process.env.UPLOADS_DIR || '/app/uploads';
 const AVATAR_PUBLIC_PREFIX = '/files';
@@ -309,18 +310,15 @@ export class AuthService {
           });
         }
 
-        // Calculate commission
+        // Calculate commission — use new project-specific scales (ТЗ §"Объединённая шкала")
         const amount = Number(lead.price || 0);
         const brokerAgency = await this.prisma.brokerAgency.findFirst({
           where: { brokerId, isPrimary: true },
           include: { agency: true },
         });
-        const level = brokerAgency?.agency?.commissionLevel || 'START';
-        const rates: Record<string, Record<string, number>> = {
-          ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
-          SILVER_BOR: { START: 4.5, BASIC: 5.0, STRONG: 5.5, PREMIUM: 6.0, ELITE: 6.5, CHAMPION: 7.0, LEGEND: 7.5 },
-        };
-        const rate = rates[project]?.[level] || 5.0;
+        const totalSqm = Number(brokerAgency?.agency?.totalSqmSold || 0);
+        const level = levelForSqm(project, totalSqm);
+        const rate = rateFor(project, level);
         const commissionAmount = Math.round(amount * rate / 100);
 
         const existingDeal = await this.prisma.deal.findFirst({ where: { amoDealId: BigInt(lead.id) } });

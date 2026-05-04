@@ -27,13 +27,19 @@ const statusLabels: Record<string, { label: string; cls: string }> = {
   CANCELLED: { label: 'Отменена', cls: 'bg-error/20 text-error' },
 };
 
-// Commission rate tables by project and level
+// Commission rate tables по новому ТЗ (с 1 января по 30 июня 2026)
+// Серебряный Бор не имеет уровня LEGEND — максимум CHAMPION 6.25%
 const RATE_TABLE: Record<string, Record<string, number>> = {
   ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
-  SILVER_BOR: { START: 4.5, BASIC: 5.0, STRONG: 5.5, PREMIUM: 6.0, ELITE: 6.5, CHAMPION: 7.0, LEGEND: 7.5 },
+  SILVER_BOR: { START: 5.0, BASIC: 5.25, STRONG: 5.5, PREMIUM: 5.75, ELITE: 6.0, CHAMPION: 6.25 },
 };
 
-const LEVEL_ORDER = ['START', 'BASIC', 'STRONG', 'PREMIUM', 'ELITE', 'CHAMPION', 'LEGEND'];
+const LEVEL_ORDER_BY_PROJECT: Record<string, string[]> = {
+  ZORGE9: ['START', 'BASIC', 'STRONG', 'PREMIUM', 'ELITE', 'CHAMPION', 'LEGEND'],
+  SILVER_BOR: ['START', 'BASIC', 'STRONG', 'PREMIUM', 'ELITE', 'CHAMPION'],
+};
+
+const LEVEL_ORDER = LEVEL_ORDER_BY_PROJECT.ZORGE9;
 
 export default function CommissionPage() {
   const [commission, setCommission] = useState<any>(null);
@@ -140,7 +146,7 @@ export default function CommissionPage() {
           <div className="card">
             <h3 className="text-sm text-text-muted mb-2">Шкала ставок — {projectLabels[selectedProject]}</h3>
             <div className="space-y-1">
-              {LEVEL_ORDER.map((lvl) => (
+              {LEVEL_ORDER_BY_PROJECT[selectedProject].map((lvl) => (
                 <div
                   key={lvl}
                   className={`flex justify-between text-sm py-1 px-2 rounded ${

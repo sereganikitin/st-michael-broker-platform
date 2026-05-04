@@ -5,6 +5,7 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
+import { levelForSqm, rateFor } from '../commission/commission.service';
 
 @Injectable()
 export class SchedulerService {
@@ -360,18 +361,15 @@ export class SchedulerService {
               totalClients++;
             }
 
-            // Calculate commission
+            // Calculate commission — use new project-specific scales (ТЗ §"Объединённая шкала")
             const amount = Number(lead.price || 0);
             const ba = await this.prisma.brokerAgency.findFirst({
               where: { brokerId: broker.id, isPrimary: true },
               include: { agency: true },
             });
-            const lvl = ba?.agency?.commissionLevel || 'START';
-            const rateMap: Record<string, Record<string, number>> = {
-              ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
-              SILVER_BOR: { START: 4.5, BASIC: 5.0, STRONG: 5.5, PREMIUM: 6.0, ELITE: 6.5, CHAMPION: 7.0, LEGEND: 7.5 },
-            };
-            const rate = rateMap[project]?.[lvl] || 5.0;
+            const totalSqm = Number(ba?.agency?.totalSqmSold || 0);
+            const lvl = levelForSqm(project, totalSqm);
+            const rate = rateFor(project, lvl);
             const commAmt = Math.round(amount * rate / 100);
 
             // Upsert deal

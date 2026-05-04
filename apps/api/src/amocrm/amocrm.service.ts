@@ -1,11 +1,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
-
-const COMMISSION_RATES: Record<string, Record<string, number>> = {
-  ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
-  SILVER_BOR: { START: 4.5, BASIC: 5.0, STRONG: 5.5, PREMIUM: 6.0, ELITE: 6.5, CHAMPION: 7.0, LEGEND: 7.5 },
-};
+import { levelForSqm, rateFor } from '../commission/commission.service';
 
 @Injectable()
 export class AmocrmService {
@@ -20,8 +16,9 @@ export class AmocrmService {
       where: { brokerId, isPrimary: true },
       include: { agency: true },
     });
-    const level = brokerAgency?.agency?.commissionLevel || 'START';
-    return COMMISSION_RATES[project]?.[level] || COMMISSION_RATES.ZORGE9[level] || 5.0;
+    const totalSqm = Number(brokerAgency?.agency?.totalSqmSold || 0);
+    const level = levelForSqm(project, totalSqm);
+    return rateFor(project, level);
   }
 
   private mapMeetingType(raw: string): 'OFFICE_VISIT' | 'ONLINE' | 'BROKER_TOUR' {

@@ -1,8 +1,9 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaClient, CommissionLevel } from '@st-michael/database';
 
-// Commission rates by project and level
-const COMMISSION_RATES: Record<string, Record<string, number>> = {
+// Commission rates by project and level (per ТЗ "Условия_вознаграждения_объединённая_шкала")
+// Period: with 1 January through 30 June 2026.
+export const COMMISSION_RATES: Record<string, Record<string, number>> = {
   ZORGE9: {
     START: 5.0,
     BASIC: 5.5,
@@ -13,26 +14,53 @@ const COMMISSION_RATES: Record<string, Record<string, number>> = {
     LEGEND: 8.0,
   },
   SILVER_BOR: {
-    START: 4.5,
-    BASIC: 5.0,
+    START: 5.0,
+    BASIC: 5.25,
     STRONG: 5.5,
-    PREMIUM: 6.0,
-    ELITE: 6.5,
-    CHAMPION: 7.0,
-    LEGEND: 7.5,
+    PREMIUM: 5.75,
+    ELITE: 6.0,
+    CHAMPION: 6.25,
+    // Серебряный Бор не имеет уровня LEGEND — максимум CHAMPION 6.25%
   },
 };
 
-// Thresholds in sqm sold for each level
-const LEVEL_THRESHOLDS: { level: CommissionLevel; minSqm: number }[] = [
-  { level: CommissionLevel.START, minSqm: 0 },
-  { level: CommissionLevel.BASIC, minSqm: 50 },
-  { level: CommissionLevel.STRONG, minSqm: 150 },
-  { level: CommissionLevel.PREMIUM, minSqm: 300 },
-  { level: CommissionLevel.ELITE, minSqm: 500 },
-  { level: CommissionLevel.CHAMPION, minSqm: 800 },
-  { level: CommissionLevel.LEGEND, minSqm: 1200 },
-];
+// Thresholds — РАЗНЫЕ для каждого проекта (минимум м² для уровня).
+// Уровень считается по общему накопленному метражу агентства, но шкала своя на проект.
+export const LEVEL_THRESHOLDS_BY_PROJECT: Record<string, { level: CommissionLevel; minSqm: number }[]> = {
+  ZORGE9: [
+    { level: CommissionLevel.LEGEND, minSqm: 700 },
+    { level: CommissionLevel.CHAMPION, minSqm: 500 },
+    { level: CommissionLevel.ELITE, minSqm: 320 },
+    { level: CommissionLevel.PREMIUM, minSqm: 200 },
+    { level: CommissionLevel.STRONG, minSqm: 120 },
+    { level: CommissionLevel.BASIC, minSqm: 60 },
+    { level: CommissionLevel.START, minSqm: 0 },
+  ],
+  SILVER_BOR: [
+    { level: CommissionLevel.CHAMPION, minSqm: 400 },
+    { level: CommissionLevel.ELITE, minSqm: 280 },
+    { level: CommissionLevel.PREMIUM, minSqm: 171 },
+    { level: CommissionLevel.STRONG, minSqm: 96 },
+    { level: CommissionLevel.BASIC, minSqm: 48 },
+    { level: CommissionLevel.START, minSqm: 0 },
+  ],
+};
+
+// Compute level for given total sqm sold within a specific project's scale.
+// Thresholds are sorted descending — pick first match.
+export function levelForSqm(project: string, totalSqm: number): CommissionLevel {
+  const scale = LEVEL_THRESHOLDS_BY_PROJECT[project] || LEVEL_THRESHOLDS_BY_PROJECT.ZORGE9;
+  for (const t of scale) {
+    if (totalSqm >= t.minSqm) return t.level;
+  }
+  return CommissionLevel.START;
+}
+
+// Get rate for project + level (with safe fallback if SB doesn't have LEGEND).
+export function rateFor(project: string, level: CommissionLevel | string): number {
+  const projectRates = COMMISSION_RATES[project] || COMMISSION_RATES.ZORGE9;
+  return projectRates[level as string] ?? projectRates.START ?? 5.0;
+}
 
 const INSTALLMENT_DISCOUNT = 0.5;
 
@@ -55,21 +83,27 @@ export class CommissionService {
     if (!broker) throw new NotFoundException('Broker not found');
 
     const primaryAgency = broker.brokerAgencies[0]?.agency;
-    const level = primaryAgency?.commissionLevel || CommissionLevel.START;
     const totalSqmSold = primaryAgency ? Number(primaryAgency.totalSqmSold) : 0;
 
-    // Find current level index and next level threshold
-    const currentLevelIndex = LEVEL_THRESHOLDS.findIndex((t) => t.level === level);
-    const nextLevel = LEVEL_THRESHOLDS[currentLevelIndex + 1];
+    // Уровень считается отдельно для каждого проекта по его шкале.
+    // Используем шкалу Зорге как «основную» для отображения.
+    const level = levelForSqm('ZORGE9', totalSqmSold);
+
+    // Next-level threshold based on Зорге scale (UI shows progress towards it)
+    const zorgeScale = LEVEL_THRESHOLDS_BY_PROJECT.ZORGE9;
+    const ascending = [...zorgeScale].sort((a, b) => a.minSqm - b.minSqm);
+    const currentIdx = ascending.findIndex((t) => t.level === level);
+    const nextLevel = ascending[currentIdx + 1];
 
     const progress = nextLevel
       ? Math.min(100, Math.round((totalSqmSold / nextLevel.minSqm) * 100))
       : 100;
 
-    // Calculate rates for each project
+    // Per-project rates (project may have a different level for the same total sqm)
     const rates: Record<string, number> = {};
     for (const project of Object.keys(COMMISSION_RATES)) {
-      rates[project] = COMMISSION_RATES[project][level] || 5.0;
+      const lvl = levelForSqm(project, totalSqmSold);
+      rates[project] = rateFor(project, lvl);
     }
 
     // Get commission stats
@@ -107,9 +141,9 @@ export class CommissionService {
       where: { inn: data.agencyInn },
     });
 
-    const level = agency?.commissionLevel || CommissionLevel.START;
-    const projectRates = COMMISSION_RATES[data.project] || COMMISSION_RATES.ZORGE9;
-    let rate = projectRates[level] || 5.0;
+    const totalSqm = agency ? Number(agency.totalSqmSold) : 0;
+    const level = levelForSqm(data.project, totalSqm);
+    let rate = rateFor(data.project, level);
 
     if (data.isInstallment) {
       rate -= INSTALLMENT_DISCOUNT;

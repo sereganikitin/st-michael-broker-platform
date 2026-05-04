@@ -199,6 +199,36 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   );
 }
 
+function FaqItem({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{borderBottom:'1px solid var(--bw)',background:'var(--white)'}}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          width:'100%', padding:'18px 20px', display:'flex', alignItems:'center', justifyContent:'space-between',
+          background:'none', border:'none', cursor:'pointer', textAlign:'left',
+          fontSize:15, fontWeight:600, color:'var(--black)', fontFamily:'inherit',
+        }}
+        aria-expanded={open}
+      >
+        <span style={{paddingRight:16}}>{q}</span>
+        <span style={{
+          flexShrink:0, width:28, height:28, borderRadius:'50%', border:'1px solid var(--bw2)',
+          display:'flex', alignItems:'center', justifyContent:'center',
+          color:'var(--gold)', fontSize:18, lineHeight:1,
+          transform: open ? 'rotate(45deg)' : 'none', transition:'transform .2s',
+        }}>+</span>
+      </button>
+      {open && (
+        <div style={{padding:'0 20px 20px',fontSize:14,color:'var(--light)',lineHeight:1.7,fontWeight:300}}>
+          {a}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ContactFormModal({ onClose, source = 'landing-contact', defaultMessage = '', eventId, title = 'Связаться с нами' }: { onClose: () => void; source?: string; defaultMessage?: string; eventId?: string; title?: string }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -357,13 +387,13 @@ function renderAccent(text: string | undefined | null, accent?: string | null): 
 
 const DEFAULT_HERO = {
   tag: 'Партнёрская программа',
-  title: 'Зарабатывайте от 5% до 8% комиссии',
-  titleAccent: '8% комиссии',
-  description: 'Продавайте апартаменты Зорге 9 и Квартал Серебряный Бор. Прогрессивная шкала, личный кабинет, выделенная поддержка на каждом этапе сделки.',
+  title: 'Доход растёт вместе с объёмом продаж агентства',
+  titleAccent: 'продаж агентства',
+  description: 'Суммируем сделки по Зорге 9 и Кварталу Серебряный Бор — вы быстрее выходите на более высокий уровень комиссии. До 8% по Зорге 9 и до 6,25% по Серебряному Бору.',
   stats: [
-    { number: '5–8%', label: 'Средняя комиссия по программе' },
-    { number: '5 дней', label: 'Скорость фиксации клиента' },
-    { number: '30 дней', label: 'Срок уникальности' },
+    { number: 'до 8%', label: 'Максимальная ставка по Зорге 9' },
+    { number: '7 дней', label: 'Выплата вознаграждения' },
+    { number: '30 дней', label: 'Срок уникальности клиента' },
     { number: '2', label: 'Активных проекта' },
   ],
 };
@@ -372,66 +402,74 @@ const DEFAULT_ADVANTAGES = {
   title: 'Почему брокеры выбирают нас',
   titleAccent: 'выбирают нас',
   items: [
-    { title: 'Выделенный отдел партнёров', description: 'Команда всегда на связи для решения любых вопросов по сделкам и клиентам.' },
-    { title: '30 дней фиксации клиента', description: 'Один из самых длинных сроков фиксации на рынке. С возможностью продления.' },
-    { title: 'Выплата за 5 рабочих дней', description: 'Один из самых коротких сроков выплаты комиссионного вознаграждения.' },
-    { title: 'Личный кабинет брокера', description: 'Фиксация клиентов, просмотр комиссии, каталог объектов, статусы сделок.' },
-    { title: 'Прогрессивная шкала 5-8%', description: 'Накопительная программа по агентству. Квартальные бонусы сверху.' },
-    { title: 'Рекламные материалы', description: 'Готовые тексты, визуалы для соцсетей, брошюры, планировки, видео.' },
+    { title: 'Выделенный отдел партнёров', description: 'Сопровождение на всех этапах сделки.' },
+    { title: 'Выделенная линия', description: 'Ответ без ожидания с 9:00 до 21:00.' },
+    { title: 'Быстрые выплаты', description: 'Вознаграждение — до 7 рабочих дней.' },
+    { title: 'Высокая комиссия', description: 'До 8% — одна из лучших на рынке.' },
+    { title: 'Партнёрство', description: 'Работаем на общий результат.' },
+    { title: 'Обучение', description: 'Брокер-туры для быстрого старта продаж.' },
   ],
 };
 const DEFAULT_COMMISSION = {
   tag: 'Комиссия и условия выплаты',
   title: 'Прогрессивная шкала вознаграждения',
   titleAccent: 'шкала',
-  subtitle: 'Чем больше продаёте — тем выше ставка. Накопление по агентству, по обоим проектам.',
+  subtitle: 'Метраж суммируется по обоим проектам в рамках одного агентства. Действует с 1 января по 30 июня 2026 года.',
   // Per-project levels (preferred). Fallback to "levels" if absent.
   levelsByProject: {
     ZORGE9: [
-      { name: 'Start', range: '0-59 м2', rate: '5,0%', active: false },
-      { name: 'Basic', range: '60-119 м2', rate: '5,5%', active: false },
-      { name: 'Strong', range: '120-199 м2', rate: '6,0%', active: true },
-      { name: 'Premium', range: '200-319 м2', rate: '6,5%', active: false },
-      { name: 'Elite', range: '320-499 м2', rate: '7,0%', active: false },
-      { name: 'Champion', range: '500-699 м2', rate: '7,5%', active: false },
-      { name: 'Legend', range: '700+ м2', rate: '8,0%', active: false },
+      { name: 'Start', range: '0–59 м²', rate: '5,0%', active: false },
+      { name: 'Basic', range: '60–119 м²', rate: '5,5%', active: false },
+      { name: 'Strong', range: '120–199 м²', rate: '6,0%', active: true },
+      { name: 'Premium', range: '200–319 м²', rate: '6,5%', active: false },
+      { name: 'Elite', range: '320–499 м²', rate: '7,0%', active: false },
+      { name: 'Champion', range: '500–699 м²', rate: '7,5%', active: false },
+      { name: 'Legend', range: '700+ м²', rate: '8,0%', active: false },
     ],
     SILVER_BOR: [
-      { name: 'Start', range: '0-59 м2', rate: '4,5%', active: false },
-      { name: 'Basic', range: '60-119 м2', rate: '5,0%', active: false },
-      { name: 'Strong', range: '120-199 м2', rate: '5,5%', active: true },
-      { name: 'Premium', range: '200-319 м2', rate: '6,0%', active: false },
-      { name: 'Elite', range: '320-499 м2', rate: '6,5%', active: false },
-      { name: 'Champion', range: '500-699 м2', rate: '7,0%', active: false },
-      { name: 'Legend', range: '700+ м2', rate: '7,5%', active: false },
+      { name: 'Start', range: '0–47 м²', rate: '5,0%', active: false },
+      { name: 'Basic', range: '48–95 м²', rate: '5,25%', active: false },
+      { name: 'Strong', range: '96–170 м²', rate: '5,5%', active: true },
+      { name: 'Premium', range: '171–279 м²', rate: '5,75%', active: false },
+      { name: 'Elite', range: '280–399 м²', rate: '6,0%', active: false },
+      { name: 'Champion', range: '400+ м²', rate: '6,25%', active: false },
     ],
   },
-  // Legacy: single shared scale
+  // Legacy fallback
   levels: [
-    { name: 'Start', range: '0-59 м2', rate: '5,0%', active: false },
-    { name: 'Basic', range: '60-119 м2', rate: '5,5%', active: false },
-    { name: 'Strong', range: '120-199 м2', rate: '6,0%', active: true },
-    { name: 'Premium', range: '200-319 м2', rate: '6,5%', active: false },
-    { name: 'Elite', range: '320-499 м2', rate: '7,0%', active: false },
-    { name: 'Champion', range: '500-699 м2', rate: '7,5%', active: false },
-    { name: 'Legend', range: '700+ м2', rate: '8,0%', active: false },
+    { name: 'Start', range: '0–59 м²', rate: '5,0%', active: false },
+    { name: 'Basic', range: '60–119 м²', rate: '5,5%', active: false },
+    { name: 'Strong', range: '120–199 м²', rate: '6,0%', active: true },
+    { name: 'Premium', range: '200–319 м²', rate: '6,5%', active: false },
+    { name: 'Elite', range: '320–499 м²', rate: '7,0%', active: false },
+    { name: 'Champion', range: '500–699 м²', rate: '7,5%', active: false },
+    { name: 'Legend', range: '700+ м²', rate: '8,0%', active: false },
   ],
   cards: [
-    { title: 'Условия выплаты', text: 'Выплата в течение 5 рабочих дней с момента оплаты клиентом не менее 50% (Зорге 9) или 30% (Серебряный Бор) от суммы договора.' },
-    { title: 'Квартальный бонус', text: 'При уровне Strong и выше несколько кварталов подряд: +0,1% — +0,15% — +0,2% — +0,25% (максимум).' },
-    { title: 'Рассрочка и ипотека', text: 'При рассрочке ставка уменьшается на 0,5%. При субсидированной ипотеке — фиксированные 4%.' },
-    { title: 'Коммерческие помещения', text: 'Продажа — 3%. Фитнес — 3%. Отдельные здания — 2%. Аренда ритейл — 100% месячного платежа.' },
+    { title: 'Условия выплаты', text: 'Вознаграждение выплачивается в течение 7 рабочих дней после оплаты клиентом. ПВ ≥ 50% (Зорге 9) или ≥ 30% (Серебряный Бор) — единовременно.' },
+    { title: 'Квартальный бонус', text: 'При уровне Strong+ несколько кварталов подряд: +0,1% → +0,15% → +0,2% → +0,25% (максимум). Обнуляется при отсутствии продаж в квартале.' },
+    { title: 'Бонус за скорость', text: '+0,1% к ставке, если от заявки клиента до платной брони проходит не более 10 рабочих дней. Действует на оба проекта.' },
+    { title: 'Годовой бонус', text: '100 000 ₽ + памятный кубок за минимум одну сделку раз в 2 месяца в течение года.' },
+    { title: 'Рассрочка и ипотека', text: 'При рассрочке —0,5% от базовой ставки. Субсидированная ипотека — 4% (м² идут в общий зачёт).' },
+    { title: 'Коммерческие помещения', text: 'Продажа: помещения и фитнес — 3%, отдельно стоящие здания — 2%. Аренда: ритейл — 100% мес. платежа, фитнес/офис — 50%.' },
+    { title: 'Реферальная программа', text: 'Дополнительное вознаграждение за привлечение новых партнёров в программу.' },
   ],
 };
 const DEFAULT_CONTACT = {
   tag: 'Команда',
   title: 'Всегда на связи',
   titleAccent: 'на связи',
-  description: 'В нашем бизнесе процессы запускают точные коммуникации с партнёрами. Мы всегда готовы найти индивидуальный подход к каждому брокеру и агентству.',
-  blockTitle: 'Отдел по работе с партнёрами',
-  phone: '+7 (495) 150-40-10',
+  description: 'В наши бизнес-процессы заложена тесная коммуникация с партнёрами. Горячая линия по работе с партнёрами работает каждый день с 9:00 до 21:00.',
+  blockTitle: 'Горячая линия по работе с партнёрами',
+  phone: '+7 (499) 226-22-49',
+  phoneHours: 'Ежедневно с 9:00 до 21:00',
   email: 'broker@stmichael.ru',
   telegram: 'https://t.me/stmichaelBroker',
+  manager: {
+    name: 'Ксения Цепляева',
+    role: 'Руководитель отдела по работе с партнёрами',
+    phone: '+7 (906) 061-78-00',
+  },
 };
 const DEFAULT_PROJECTS = [
   { id: 'p1', slug: 'zorge9', tag: 'Приоритетный проект', name: 'Зорге', subtitle: '9', description: 'Апартаменты бизнес-класса у метро Полежаевская. 3 корпуса, архитектура в стиле Арт-Москва. От 270 000 р/м2.', ctaText: 'Смотреть каталог', ctaHref: null },
@@ -575,7 +613,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             <a href="#contact">Контакты</a>
           </nav>
           <div className="h-right">
-            <a className="h-phone" href="tel:+74951504010">+7 (495) 150-40-10</a>
+            <a className="h-phone" href="tel:+74992262249">+7 (499) 226-22-49</a>
             <button className="btn-enter" onClick={handleCabinet}>{broker ? 'КАБИНЕТ' : 'ВОЙТИ'}</button>
           </div>
         </header>
@@ -770,6 +808,33 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           )}
         </section>
 
+        <hr className="sep" />
+
+        {/* HOW TO START — 4 шага старта */}
+        <section id="how-to-start">
+          <div className="sh sh-center"><div className="sh-tag">Старт</div><h2>Как начать сотрудничать с <em>ST Michael</em></h2><p className="sh-sub">Можно начать сотрудничество с первой сделки — даже с первого дня существования вашего ИП. Без дополнительных условий.</p></div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4, 1fr)',gap:16,maxWidth:1100,margin:'0 auto'}}>
+            {[
+              { n: '01', title: 'ИП или ООО', desc: 'Достаточно зарегистрированного юр. лица — ИП, ООО, АО.' },
+              { n: '02', title: 'Регистрация в кабинете', desc: 'Заполните анкету за 2 минуты — становитесь партнёром сразу.' },
+              { n: '03', title: 'Проверка клиента', desc: 'Зафиксируйте клиента в кабинете и получите статус уникальности.' },
+              { n: '04', title: 'Запись на встречу', desc: 'Запишите клиента на встречу — горячая линия +7 (499) 226-22-49.' },
+            ].map((s, i) => (
+              <div key={i} style={{padding:'24px 22px',background:'var(--bg)',border:'1px solid var(--bw)',borderRadius:'var(--r)'}}>
+                <div style={{fontSize:32,fontWeight:200,color:'var(--gold)',marginBottom:12,lineHeight:1}}>{s.n}</div>
+                <div style={{fontSize:15,fontWeight:600,marginBottom:6,color:'var(--black)'}}>{s.title}</div>
+                <div style={{fontSize:13,color:'var(--muted)',lineHeight:1.6}}>{s.desc}</div>
+              </div>
+            ))}
+          </div>
+          <p style={{textAlign:'center',fontSize:13,color:'var(--muted)',marginTop:20,maxWidth:700,marginLeft:'auto',marginRight:'auto',lineHeight:1.7}}>
+            Агентский договор заключается под конкретную сделку. Полные условия партнёрства — в кабинете брокера.
+          </p>
+          <div style={{textAlign:'center',marginTop:24}}>
+            <button className="btn-gold" onClick={handleRegister}>Стать партнёром</button>
+          </div>
+        </section>
+
         {/* ADVANTAGES */}
         <section className="s-adv">
           <div className="sh"><div className="sh-tag">{advantages.tag}</div><h2>{renderAccent(advantages.title, advantages.titleAccent)}</h2></div>
@@ -846,6 +911,43 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           </div>
         </section>
 
+        <hr className="sep" />
+
+        {/* FAQ — Часто задаваемые вопросы */}
+        <section id="faq" style={{background:'var(--bg)'}}>
+          <div className="sh sh-center"><div className="sh-tag">Вопросы</div><h2>Часто задаваемые <em>вопросы</em></h2></div>
+          <div style={{maxWidth:820,margin:'0 auto'}}>
+            {[
+              {
+                q: 'Как стать партнёром?',
+                a: 'Начать работу можно без заключения общего агентского договора. Достаточно зарегистрироваться в кабинете брокера, проверить клиента на уникальность и записать его на встречу. Агентский договор заключается под конкретную сделку. Для сотрудничества нужно зарегистрированное юр. лицо (ИП, ООО, АО).',
+              },
+              {
+                q: 'Как проверить клиента на уникальность?',
+                a: 'В личном кабинете во вкладке «Зафиксировать клиента» заполните данные и нажмите «Отправить». Получите статус «Условно уникален» (можно работать) или «Отклонён» (клиент уже в базе). Для дополнительных номеров (ЛПР, супруг, родители) используйте функцию «Дополнительные номера».',
+              },
+              {
+                q: 'Что делать, если статус «Отклонён»?',
+                a: 'Это значит клиент уже зарегистрирован другим брокером или обращался самостоятельно. Статус может быть изменён на «Условно уникален» после ручной проверки. Мы можем запросить подтверждение взаимодействия с клиентом (переписка, записи звонков, посещения офиса). Уведомление о решении придёт в WhatsApp / Telegram.',
+              },
+              {
+                q: 'Какой срок действия фиксации?',
+                a: 'Фиксация проходит в два этапа: до встречи с клиентом — 30 календарных дней, после встречи до сделки — ещё 30 дней. В обоих случаях возможна пролонгация по запросу через горячую линию +7 (499) 226-22-49. Брокер сам отслеживает сроки фиксации.',
+              },
+              {
+                q: 'Как записать клиента на встречу?',
+                a: 'Через горячую линию для брокеров: +7 (499) 226-22-49 (ежедневно с 9:00 до 21:00). Менеджер подберёт удобное время и проконсультирует по проектам. Клиент закрепляется за брокером после посещения офиса (или онлайн-встречи) и подписания акта осмотра.',
+              },
+              {
+                q: 'Как происходит выплата комиссии?',
+                a: 'Выплата производится после завершения сделки и полной оплаты со стороны клиента — в течение 7 рабочих дней. После сделки направьте информацию менеджеру — отправим инструкцию по получению выплаты.',
+              },
+            ].map((item, i) => (
+              <FaqItem key={i} q={item.q} a={item.a} />
+            ))}
+          </div>
+        </section>
+
         {/* COMMUNITY — Партнёрская программа */}
         <section className="s-comm">
           <div><div className="sh-tag">Партнёрская программа</div><h2><strong>ST MICHAEL</strong> Партнёры</h2></div>
@@ -872,11 +974,21 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           <div className="coop-grid">
             <div className="coop-left">
               <p>{contact.description}</p>
-              <div style={{padding:'16px 18px',background:'var(--bg)',borderRadius:'var(--r)',border:'1px solid var(--bw)'}}>
+              <div style={{padding:'16px 18px',background:'var(--bg)',borderRadius:'var(--r)',border:'1px solid var(--bw)',marginBottom:12}}>
                 <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--gold)',marginBottom:8}}>{contact.blockTitle}</div>
-                {contact.phone && <div style={{fontSize:14,marginBottom:4}}><a href={`tel:${contact.phone.replace(/\D/g,'')}`} style={{color:'var(--black)',fontWeight:600}}>{contact.phone}</a></div>}
-                {contact.email && <div style={{fontSize:14}}><a href={`mailto:${contact.email}`} style={{color:'var(--black)'}}>{contact.email}</a></div>}
+                {contact.phone && <div style={{fontSize:16,marginBottom:4}}><a href={`tel:${contact.phone.replace(/\D/g,'')}`} style={{color:'var(--black)',fontWeight:700}}>{contact.phone}</a></div>}
+                {contact.phoneHours && <div style={{fontSize:12,color:'var(--muted)',marginBottom:6}}>{contact.phoneHours}</div>}
+                {contact.email && <div style={{fontSize:14,marginBottom:4}}><a href={`mailto:${contact.email}`} style={{color:'var(--black)'}}>{contact.email}</a></div>}
+                {contact.telegram && <div style={{fontSize:14}}><a href={contact.telegram} target="_blank" rel="noopener noreferrer" style={{color:'var(--gold)'}}>Telegram</a></div>}
               </div>
+              {contact.manager && (
+                <div style={{padding:'14px 18px',background:'var(--white)',borderRadius:'var(--r)',border:'1px solid var(--gold-border)'}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--muted)',marginBottom:6}}>Персональный контакт</div>
+                  <div style={{fontSize:15,fontWeight:600,color:'var(--black)',marginBottom:2}}>{contact.manager.name}</div>
+                  {contact.manager.role && <div style={{fontSize:12,color:'var(--muted)',marginBottom:6}}>{contact.manager.role}</div>}
+                  {contact.manager.phone && <div style={{fontSize:14}}><a href={`tel:${contact.manager.phone.replace(/\D/g,'')}`} style={{color:'var(--black)',fontWeight:600}}>{contact.manager.phone}</a></div>}
+                </div>
+              )}
             </div>
             <div style={{padding:'24px 28px',background:'var(--bg)',borderRadius:'var(--r)',border:'1px solid var(--bw)'}}>
               <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--gold)',marginBottom:14}}>Связаться с менеджером</div>
@@ -911,7 +1023,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           <div className="foot-bottom"><span>&copy; 2026 ST MICHAEL. Все права защищены.</span><span>Данные носят ориентировочный характер.</span></div>
         </footer>
 
-        <button className="float-btn" onClick={()=>window.open('https://wa.me/74951504010','_blank')}>Связаться с нами</button>
+        <button className="float-btn" onClick={()=>window.open('https://wa.me/74992262249','_blank')}>Связаться с нами</button>
       </div>
 
       {authModal && (
