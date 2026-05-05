@@ -524,8 +524,10 @@ export default function LandingPage() {
   }, []);
 
   useEffect(() => {
+    // cache: 'no-store' — гарантирует свежие данные после правок в /admin/content,
+    // без необходимости рестартов или жёсткого Ctrl+F5
     const safeFetch = async (url: string) => {
-      try { const r = await fetch(url); return r.ok ? await r.json() : null; }
+      try { const r = await fetch(url, { cache: 'no-store' }); return r.ok ? await r.json() : null; }
       catch { return null; }
     };
     (async () => {
