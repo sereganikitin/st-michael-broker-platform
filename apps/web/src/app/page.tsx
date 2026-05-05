@@ -623,20 +623,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           <div className="hero-inner">
             <div className="hero-tag"><span>{hero.tag}</span></div>
             <h1><strong>{renderAccent(hero.title, hero.titleAccent)}</strong></h1>
-            <p className="hero-desc">{hero.description}</p>
-            <div className="hero-btns" style={{marginBottom:24}}>
-              <button className="btn-gold" onClick={handleCabinet}>📅 Записаться на встречу</button>
-              <button
-                className="btn-outline"
-                onClick={() => setContactModal({
-                  open: true,
-                  source: 'broker-tour',
-                  title: 'Запись на брокер-тур',
-                  defaultMessage: 'Хочу записаться на ближайший брокер-тур',
-                })}
-              >🚌 Записаться на брокер-тур</button>
-              <button onClick={()=>setQuickFixOpen(true)} className="btn-outline" style={{borderColor:'#B4936F',color:'#B4936F'}}>⚡ Моментальная фиксация</button>
-            </div>
+            <p className="hero-desc" style={{marginBottom:32}}>{hero.description}</p>
           </div>
           <div className="hero-stats">
             {(hero.stats || []).map((s: any, i: number) => (
