@@ -14,6 +14,7 @@ on:
           - all
           - seed-stmichael
           - sync-yandex-disk
+          - seed-cooperation-doc
           - refresh-cms-content
 
 jobs:
@@ -50,6 +51,12 @@ jobs:
               echo "=== sync-yandex-disk (материалы с Яндекс.Диска) ==="
               # URL по умолчанию зашит в скрипте, env-переменная не обязательна
               $COMPOSE_CMD exec -T api node /app/scripts/sync-yandex-disk.js
+            fi
+
+            if [ "$TASK" = "all" ] || [ "$TASK" = "seed-cooperation-doc" ]; then
+              echo ""
+              echo "=== seed-cooperation-doc (документ 'Как начать сотрудничать') ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/seed-cooperation-doc.js
             fi
 
             if [ "$TASK" = "refresh-cms-content" ]; then

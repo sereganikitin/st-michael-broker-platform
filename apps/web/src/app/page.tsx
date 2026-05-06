@@ -788,6 +788,7 @@ export default function LandingPage() {
   const [cooperationDocs, setCooperationDocs] = useState<any[]>([]);
   const [analyticsDocs, setAnalyticsDocs] = useState<any[]>([]);
   const [marketingDocs, setMarketingDocs] = useState<any[]>([]);
+  const [materialsDocs, setMaterialsDocs] = useState<any[]>([]);
   const [news, setNews] = useState<any[]>([]);
   const { broker } = useAuth();
   const router = useRouter();
@@ -811,7 +812,7 @@ export default function LandingPage() {
       catch { return null; }
     };
     (async () => {
-      const [content, evs, prjs, prms, coop, anal, mark, nws] = await Promise.all([
+      const [content, evs, prjs, prms, coop, anal, mark, mat, nws] = await Promise.all([
         safeFetch('/api/public/cms/content'),
         safeFetch('/api/public/cms/events'),
         safeFetch('/api/public/cms/projects'),
@@ -819,6 +820,7 @@ export default function LandingPage() {
         safeFetch('/api/public/documents?category=cooperation'),
         safeFetch('/api/public/documents?category=analytics'),
         safeFetch('/api/public/documents?category=marketing'),
+        safeFetch('/api/public/documents?category=materials'),
         safeFetch('/api/public/cms/news'),
       ]);
       if (Array.isArray(nws)) setNews(nws);
@@ -834,6 +836,7 @@ export default function LandingPage() {
       if (Array.isArray(coop)) setCooperationDocs(coop);
       if (Array.isArray(anal)) setAnalyticsDocs(anal);
       if (Array.isArray(mark)) setMarketingDocs(mark);
+      if (Array.isArray(mat)) setMaterialsDocs(mat);
     })();
   }, []);
 
@@ -893,9 +896,11 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .float-btn{position:fixed;bottom:28px;right:28px;z-index:100;padding:14px 28px;background:var(--black);color:var(--white);font-size:12px;font-weight:700;letter-spacing:1px;border-radius:50px;cursor:pointer;border:none;box-shadow:0 4px 20px rgba(0,0,0,0.2);transition:all .25s}.float-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,0.3)}
 .ev-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.ev-card{padding:24px 26px;border-radius:var(--r-card);display:flex;align-items:center;gap:20px;cursor:pointer;transition:all var(--t);background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,0.04)}.ev-card:hover{background:var(--gold-bg);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.06)}.ev-date{width:54px;height:54px;border-radius:var(--r-tag);background:var(--white);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0}.ev-day{font-size:22px;font-weight:700;line-height:1}.ev-mon{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}.ev-info{flex:1}.ev-title{font-size:15px;font-weight:500;margin-bottom:3px}.ev-meta{font-size:12px;color:var(--muted)}
 .coop-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}.coop-left p{font-size:15px;color:var(--muted);line-height:1.8;font-weight:300;margin-bottom:24px}.doc-list{display:flex;flex-direction:column;gap:8px}.doc-item{display:flex;align-items:center;gap:14px;padding:16px 20px;background:var(--white);border-radius:var(--r-card);cursor:pointer;transition:all var(--t);box-shadow:0 1px 2px rgba(0,0,0,0.04)}.doc-item:hover{background:var(--gold-bg);transform:translateX(4px);box-shadow:0 4px 16px rgba(0,0,0,0.06)}.doc-icon{width:36px;height:36px;border-radius:10px;background:var(--gold-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}.doc-name{font-size:13px;flex:1;font-weight:500}.doc-dl{color:var(--muted);display:flex;align-items:center}
+.mat-stack{display:flex;flex-direction:column;gap:32px}.mat-group-title{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;display:flex;align-items:center;gap:10px}.mat-group-count{font-size:10px;font-weight:600;color:var(--muted);background:var(--white);padding:3px 9px;border-radius:var(--r-pill);letter-spacing:0}
+.mat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.mat-card{display:flex;align-items:center;gap:14px;padding:18px 20px;background:var(--white);border-radius:var(--r-card);cursor:pointer;transition:all var(--t);box-shadow:0 1px 2px rgba(0,0,0,0.04);text-decoration:none;color:inherit}.mat-card:hover{background:var(--gold-bg);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.08)}.mat-card-icon{width:40px;height:40px;border-radius:10px;background:var(--gold-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}.mat-card-body{flex:1;min-width:0}.mat-card-name{font-size:13px;font-weight:500;color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mat-card-type{font-size:10px;font-weight:600;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:3px}.mat-card-dl{color:var(--muted);flex-shrink:0}.mat-card:hover .mat-card-dl{color:var(--gold)}
 @media(max-width:1279px){.lp section{padding:72px 40px}.s-adv,.s-comm,.s-cta{padding-left:40px;padding-right:40px}.lp header{padding:0 40px}.hero{padding:56px 40px 48px}.hero-grid{gap:40px}.lp footer{padding:40px 40px}.quick,.sep,.stats-band{margin-left:40px;margin-right:40px}}
-@media(max-width:1023px){.lp .h-nav{gap:16px}.lp .h-nav a{font-size:10px}.adv-grid,.proj-grid{grid-template-columns:repeat(2,1fr)}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-grid{grid-template-columns:1fr;gap:32px}.hero-slides{height:300px}.hero-inner{max-width:none}}
-@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp .h-nav{display:none}.h-burger{display:flex}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:36px 20px 36px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:32px}.hero-slides{height:240px}.hero h1{font-size:clamp(32px,8vw,42px)}}
+@media(max-width:1023px){.lp .h-nav{gap:16px}.lp .h-nav a{font-size:10px}.adv-grid,.proj-grid,.mat-grid{grid-template-columns:repeat(2,1fr)}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-grid{grid-template-columns:1fr;gap:32px}.hero-slides{height:300px}.hero-inner{max-width:none}}
+@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp .h-nav{display:none}.h-burger{display:flex}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:36px 20px 36px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:32px}.hero-slides{height:240px}.hero h1{font-size:clamp(32px,8vw,42px)}}
 @media(max-width:499px){.stats-band{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}.proj-card{min-height:180px;padding:24px 20px}.proj-name{font-size:24px}.adv-card{padding:28px 22px}.comm-grid{gap:24px}.h-phone{font-size:12px}}
 @media(max-width:374px){.hero-btns{flex-direction:column;align-items:stretch}.hero-btns .btn-gold{width:100%;justify-content:center}}
       `}} />
@@ -1271,22 +1276,48 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         <hr className="sep" />
 
-        {/* MARKETING — Материалы для продвижения */}
-        <section id="materials" style={{background:'var(--bg)'}}>
-          <div className="sh"><div className="sh-tag">Реклама</div><h2>Материалы для <em>продвижения</em></h2><p className="sh-sub">Готовые материалы для работы с клиентами. Часть доступна только в личном кабинете.</p></div>
-          <div className="ads-grid" style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
-            {marketingDocs.length === 0 ? (
-              <div className="doc-item" style={{cursor:'default',gridColumn:'span 3'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся материалы</div></div>
-            ) : (
-              marketingDocs.map((d: any) => (
-                <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="doc-item">
-                  <div className="doc-name">{d.name}</div>
-                  <div className="doc-dl">&rarr;</div>
-                </a>
-              ))
-            )}
-          </div>
-        </section>
+        {/* MARKETING — Материалы для продвижения.
+            По правке Рената (2026-05-06): оформлено как сетка карточек
+            с hover-выделением, как в advantages. Источник — Яндекс.Диск
+            (sync-yandex-disk.js, category=materials), плюс fallback на
+            старые marketing-документы (если есть). Группируется по подкатегории. */}
+        {(() => {
+          const all = [...materialsDocs, ...marketingDocs];
+          const groups = all.reduce((acc: Record<string, any[]>, d: any) => {
+            const key = d.subcategory || 'Материалы';
+            (acc[key] = acc[key] || []).push(d);
+            return acc;
+          }, {});
+          const groupNames = Object.keys(groups).sort();
+          return (
+            <section id="materials" style={{background:'var(--bg)'}}>
+              <div className="sh"><div className="sh-tag">Реклама</div><h2>Материалы для <em>продвижения</em></h2><p className="sh-sub">Готовые материалы для работы с клиентами. Изображения, презентации, шаблоны — скачать прямо отсюда.</p></div>
+              {all.length === 0 ? (
+                <div className="doc-item" style={{cursor:'default'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся материалы</div></div>
+              ) : (
+                <div className="mat-stack">
+                  {groupNames.map((group) => (
+                    <div key={group} className="mat-group">
+                      <div className="mat-group-title">{group} <span className="mat-group-count">{groups[group].length}</span></div>
+                      <div className="mat-grid">
+                        {groups[group].map((d: any) => (
+                          <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="mat-card">
+                            <div className="mat-card-icon"><FileText style={{width:18,height:18,color:'var(--gold)'}} /></div>
+                            <div className="mat-card-body">
+                              <div className="mat-card-name">{d.name}</div>
+                              {d.type && <div className="mat-card-type">{d.type}</div>}
+                            </div>
+                            <DownloadIcon className="mat-card-dl" style={{width:16,height:16}} />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })()}
 
         <hr className="sep" />
 
