@@ -18,7 +18,7 @@ on:
 
 jobs:
   run:
-    name: Run on ${{ secrets.DEPLOY_HOST }}
+    name: Run seed task on production
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
