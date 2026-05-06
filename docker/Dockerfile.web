@@ -1,5 +1,10 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
+# python3/make/g++ нужны для нативной компиляции bcrypt из workspace apps/api,
+# когда prebuilt-бинарник не качается. Без них `npm install` на root-уровне
+# падает с node-pre-gyp ERR (см. fail run #25439732478). Эти пакеты живут
+# только в throwaway-builder-stage — итоговый web-образ остаётся компактным.
+RUN apk add --no-cache python3 make g++
 COPY . .
 RUN npm install
 ENV NEXT_TELEMETRY_DISABLED=1
