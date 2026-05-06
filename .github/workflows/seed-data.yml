@@ -1,0 +1,64 @@
+name: Заполнить данные на сервере
+
+# Вручную через GitHub UI: Actions → Заполнить данные на сервере → Run workflow.
+# Запускает на проде сидеры/синки данных без SSH-доступа пользователя.
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Что запустить'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - seed-stmichael
+          - sync-yandex-disk
+          - refresh-cms-content
+
+jobs:
+  run:
+    name: Run on ${{ secrets.DEPLOY_HOST }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: SSH and run requested task
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            COMPOSE_CMD="docker compose"
+            if ! docker compose version &>/dev/null; then COMPOSE_CMD="docker-compose"; fi
+
+            TASK="${{ inputs.task }}"
+
+            if [ "$TASK" = "all" ] || [ "$TASK" = "seed-stmichael" ]; then
+              echo "=== seed-from-stmichael (проекты + акции с stmichael.ru) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/seed-from-stmichael.js
+            fi
+
+            if [ "$TASK" = "all" ] || [ "$TASK" = "sync-yandex-disk" ]; then
+              echo ""
+              echo "=== sync-yandex-disk (материалы с Яндекс.Диска) ==="
+              if [ -z "${YANDEX_DISK_PUBLIC_KEY:-}" ] && ! grep -q "^YANDEX_DISK_PUBLIC_KEY=" .env 2>/dev/null; then
+                echo "⚠ YANDEX_DISK_PUBLIC_KEY не настроен в .env — пропускаю"
+              else
+                $COMPOSE_CMD exec -T api node /app/scripts/sync-yandex-disk.js
+              fi
+            fi
+
+            if [ "$TASK" = "refresh-cms-content" ]; then
+              echo "=== refresh-cms-content (перезаписать дефолты CMS — ОПАСНО, перетирает админские правки) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/refresh-cms-content.js
+            fi
+
+            echo ""
+            echo "✓ Задача '$TASK' выполнена"
