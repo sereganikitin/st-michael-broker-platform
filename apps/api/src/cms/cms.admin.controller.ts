@@ -114,6 +114,31 @@ export class AdminCmsController {
     return this.cms.deletePromo(id);
   }
 
+  // ─── News ─────────────────────────────
+
+  @Get('news')
+  async listNews() {
+    return this.cms.listNews(false);
+  }
+
+  @Post('news')
+  @Roles(UserRole.ADMIN)
+  async createNews(@Body() body: any) {
+    return this.cms.createNews(body);
+  }
+
+  @Patch('news/:id')
+  @Roles(UserRole.ADMIN)
+  async updateNews(@Param('id') id: string, @Body() body: any) {
+    return this.cms.updateNews(id, body);
+  }
+
+  @Delete('news/:id')
+  @Roles(UserRole.ADMIN)
+  async deleteNews(@Param('id') id: string) {
+    return this.cms.deleteNews(id);
+  }
+
   // ─── Contact requests ──────────────────
 
   @Get('contact-requests')

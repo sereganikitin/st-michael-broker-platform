@@ -218,6 +218,48 @@ export class CmsService {
     return { deleted: true };
   }
 
+  // ─── News (нижний блок страницы — медиа/упоминания) ────────────
+
+  async listNews(onlyActive = false) {
+    const where: any = {};
+    if (onlyActive) where.isActive = true;
+    return this.prisma.landingNews.findMany({
+      where,
+      orderBy: [{ publishedAt: 'desc' }, { sortOrder: 'asc' }],
+    });
+  }
+
+  async createNews(data: any) {
+    return this.prisma.landingNews.create({
+      data: {
+        title: data.title,
+        source: data.source || null,
+        publishedAt: data.publishedAt ? new Date(data.publishedAt) : new Date(),
+        excerpt: data.excerpt || null,
+        imageUrl: data.imageUrl || null,
+        url: data.url,
+        sortOrder: Number(data.sortOrder) || 0,
+        isActive: data.isActive !== false,
+      },
+    });
+  }
+
+  async updateNews(id: string, data: any) {
+    const patch: any = {};
+    for (const k of ['title', 'source', 'excerpt', 'imageUrl', 'url'] as const) {
+      if (data[k] !== undefined) patch[k] = data[k] || null;
+    }
+    if (data.publishedAt !== undefined) patch.publishedAt = data.publishedAt ? new Date(data.publishedAt) : new Date();
+    if (data.sortOrder !== undefined) patch.sortOrder = Number(data.sortOrder) || 0;
+    if (data.isActive !== undefined) patch.isActive = !!data.isActive;
+    return this.prisma.landingNews.update({ where: { id }, data: patch });
+  }
+
+  async deleteNews(id: string) {
+    await this.prisma.landingNews.delete({ where: { id } });
+    return { deleted: true };
+  }
+
   // ─── Promos (slider — block 3) ──────────────────
 
   async listPromos(onlyActive = false) {

@@ -6,11 +6,7 @@
 #   1) Подтягивает свежий master из git origin
 #   2) Пересобирает Docker-образы и перезапускает контейнеры
 #   3) Прогоняет prisma db push (если есть изменения в schema.prisma)
-#
-# refresh-cms-content.js здесь НЕ запускается — он перетирает CMS-блоки, которые
-# админ редактирует через /admin/content. Запускать вручную только при обновлении
-# дефолтов в коде:
-#   docker compose exec -T api node /app/scripts/refresh-cms-content.js
+#   4) Прогоняет refresh-cms-content.js (синхронизирует CMS-блоки в БД с дефолтами)
 #
 # Идемпотентен — можно запускать сколько угодно раз подряд.
 
@@ -51,11 +47,21 @@ done
 
 # 4) Apply prisma schema changes (idempotent — если изменений нет, ничего не сделает)
 echo ""
-echo "==> [4/4] Применение schema.prisma..."
+echo "==> [4/4] Применение schema.prisma и обновление CMS-контента..."
 $COMPOSE_CMD exec -T api npx prisma db push \
     --schema=/app/packages/database/prisma/schema.prisma \
     --accept-data-loss --skip-generate 2>&1 || \
     echo "    (prisma db push не выполнен — может быть несовместимость, не фатально)"
+
+$COMPOSE_CMD exec -T api node /app/scripts/refresh-cms-content.js 2>&1 || \
+    echo "    (refresh-cms-content пропущен — не фатально)"
+
+# При первом деплое или по запросу — подтянуть актуальные проекты и акции
+# с https://stmichael.ru . Можно отключить установив SKIP_STMICHAEL_SEED=1.
+if [ "${SKIP_STMICHAEL_SEED:-0}" != "1" ]; then
+    $COMPOSE_CMD exec -T api node /app/scripts/seed-from-stmichael.js 2>&1 || \
+        echo "    (seed-from-stmichael пропущен — не фатально)"
+fi
 
 # Status check
 echo ""

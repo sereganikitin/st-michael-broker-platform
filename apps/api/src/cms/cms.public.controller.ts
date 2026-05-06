@@ -43,6 +43,12 @@ export class PublicCmsController {
     return this.cms.listPromos(true);
   }
 
+  @Get('news')
+  @ApiOperation({ summary: 'Active news cards' })
+  async news() {
+    return this.cms.listNews(true);
+  }
+
   @Post('contact')
   @ApiOperation({ summary: 'Submit contact / lead form (public)' })
   async submitContact(@Body() body: any, @Req() req: Request) {
