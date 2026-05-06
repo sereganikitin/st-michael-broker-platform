@@ -6,7 +6,11 @@
 #   1) Подтягивает свежий master из git origin
 #   2) Пересобирает Docker-образы и перезапускает контейнеры
 #   3) Прогоняет prisma db push (если есть изменения в schema.prisma)
-#   4) Прогоняет refresh-cms-content.js (синхронизирует CMS-блоки в БД с дефолтами)
+#
+# refresh-cms-content.js здесь НЕ запускается — он перетирает CMS-блоки, которые
+# админ редактирует через /admin/content. Запускать вручную только при обновлении
+# дефолтов в коде:
+#   docker compose exec -T api node /app/scripts/refresh-cms-content.js
 #
 # Идемпотентен — можно запускать сколько угодно раз подряд.
 
@@ -47,14 +51,11 @@ done
 
 # 4) Apply prisma schema changes (idempotent — если изменений нет, ничего не сделает)
 echo ""
-echo "==> [4/4] Применение schema.prisma и обновление CMS-контента..."
+echo "==> [4/4] Применение schema.prisma..."
 $COMPOSE_CMD exec -T api npx prisma db push \
     --schema=/app/packages/database/prisma/schema.prisma \
     --accept-data-loss --skip-generate 2>&1 || \
     echo "    (prisma db push не выполнен — может быть несовместимость, не фатально)"
-
-$COMPOSE_CMD exec -T api node /app/scripts/refresh-cms-content.js 2>&1 || \
-    echo "    (refresh-cms-content пропущен — не фатально)"
 
 # Status check
 echo ""

@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: SSH deploy to ${{ secrets.DEPLOY_HOST }}
+    name: SSH deploy to production
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -32,6 +32,9 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
+            echo "=== Bootstrap: подтягиваем свежий master (на случай если deploy-update.sh ещё нет на сервере) ==="
+            git fetch origin master
+            git reset --hard origin/master
             echo "=== Запуск deploy-update.sh ==="
             bash deploy-update.sh
             echo "=== Деплой завершён успешно ==="
