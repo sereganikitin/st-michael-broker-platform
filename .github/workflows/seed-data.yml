@@ -48,11 +48,8 @@ jobs:
             if [ "$TASK" = "all" ] || [ "$TASK" = "sync-yandex-disk" ]; then
               echo ""
               echo "=== sync-yandex-disk (материалы с Яндекс.Диска) ==="
-              if [ -z "${YANDEX_DISK_PUBLIC_KEY:-}" ] && ! grep -q "^YANDEX_DISK_PUBLIC_KEY=" .env 2>/dev/null; then
-                echo "⚠ YANDEX_DISK_PUBLIC_KEY не настроен в .env — пропускаю"
-              else
-                $COMPOSE_CMD exec -T api node /app/scripts/sync-yandex-disk.js
-              fi
+              # URL по умолчанию зашит в скрипте, env-переменная не обязательна
+              $COMPOSE_CMD exec -T api node /app/scripts/sync-yandex-disk.js
             fi
 
             if [ "$TASK" = "refresh-cms-content" ]; then

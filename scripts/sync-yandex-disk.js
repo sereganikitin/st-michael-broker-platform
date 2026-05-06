@@ -20,12 +20,10 @@
  * Cron: scheduler.service.ts — каждые 12 часов
  */
 
-const PUBLIC_KEY = process.argv[2] || process.env.YANDEX_DISK_PUBLIC_KEY;
-if (!PUBLIC_KEY) {
-  console.error('Usage: node scripts/sync-yandex-disk.js <public_url>');
-  console.error('Or set env: YANDEX_DISK_PUBLIC_KEY=https://disk.yandex.ru/d/xxx');
-  process.exit(1);
-}
+// Default: публичная папка "Брокерам" с материалами от заказчика (2026-05-06).
+// Можно переопределить аргументом или env YANDEX_DISK_PUBLIC_KEY.
+const DEFAULT_PUBLIC_KEY = 'https://disk.yandex.ru/d/8_w-xQ8PR3uz3w';
+const PUBLIC_KEY = process.argv[2] || process.env.YANDEX_DISK_PUBLIC_KEY || DEFAULT_PUBLIC_KEY;
 
 let PrismaClient;
 try {
