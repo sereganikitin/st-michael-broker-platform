@@ -868,11 +868,14 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .btn-outline{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:transparent;color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);border:1px solid var(--bw2);transition:all var(--t);cursor:pointer}.btn-outline:hover{border-color:var(--black);background:rgba(0,0,0,0.04)}
 .btn-tertiary{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--bg);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-tertiary:hover{background:var(--bg2)}
 .btn-white{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--white);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-white:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.15)}
-.hero{padding:72px 60px 48px}.hero-inner{max-width:620px;margin-bottom:56px}.hero-tag{display:inline-flex;align-items:center;gap:10px;margin-bottom:24px}.hero-tag::before{content:'';width:28px;height:1px;background:var(--gold)}.hero-tag span{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold)}
-.hero h1{font-size:var(--fs-h1);font-weight:200;line-height:1.05;letter-spacing:-1px;margin-bottom:24px}.hero h1 strong{font-weight:800}.hero h1 em{font-style:normal;color:var(--gold)}
-.hero-desc{font-size:16px;color:var(--muted);max-width:460px;line-height:1.8;font-weight:300;margin-bottom:32px}.hero-btns{display:flex;gap:12px;flex-wrap:wrap}
-.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--bw);border-radius:var(--r-card-lg);overflow:hidden;background:var(--white)}.hst{padding:28px 22px;text-align:center;border-right:1px solid var(--bw)}.hst:last-child{border-right:none}.hst-n{font-size:32px;font-weight:700;line-height:1;margin-bottom:6px;letter-spacing:-0.5px}.hst-l{font-size:11px;color:var(--muted)}
-.hero-slides{position:relative;width:100%;height:380px;border-radius:var(--r-card-lg);overflow:hidden;margin-top:24px;background:var(--bg2)}.hero-slide{position:absolute;inset:0;background-size:cover;background-position:center;display:flex;align-items:center;padding:0 56px;transition:opacity .8s ease}.hero-slide-text{max-width:560px;color:#fff}.hero-slide-tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:16px;padding:6px 14px;border:1px solid rgba(180,147,111,0.5);border-radius:var(--r-pill)}.hero-slide-title{font-size:clamp(28px,3.2vw,40px);font-weight:300;line-height:1.15;margin-bottom:14px;letter-spacing:-0.5px}.hero-slide-title strong{font-weight:700}.hero-slide-desc{font-size:14px;line-height:1.65;color:rgba(255,255,255,0.85);font-weight:300}.hero-slide-dots{position:absolute;bottom:20px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:3}
+.hero{padding:60px 60px 48px}
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:stretch;margin-bottom:32px}
+.hero-inner{display:flex;flex-direction:column;justify-content:center}
+.hero-tag{display:inline-flex;align-items:center;gap:10px;margin-bottom:20px}.hero-tag::before{content:'';width:28px;height:1px;background:var(--gold)}.hero-tag span{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold)}
+.hero h1{font-size:clamp(36px,3.8vw,52px);font-weight:200;line-height:1.08;letter-spacing:-0.5px;margin-bottom:20px}.hero h1 strong{font-weight:800}.hero h1 em{font-style:normal;color:var(--gold)}
+.hero-desc{font-size:15px;color:var(--muted);line-height:1.7;font-weight:300;margin-bottom:28px}.hero-btns{display:flex;gap:10px;flex-wrap:wrap}
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--bw);border-radius:var(--r-card-lg);overflow:hidden;background:var(--white)}.hst{padding:24px 16px;text-align:center;border-right:1px solid var(--bw)}.hst:last-child{border-right:none}.hst-n{font-size:26px;font-weight:700;line-height:1;margin-bottom:5px;letter-spacing:-0.5px}.hst-l{font-size:11px;color:var(--muted);line-height:1.4}
+.hero-slides{position:relative;width:100%;height:100%;min-height:440px;border-radius:var(--r-card-lg);overflow:hidden;background:var(--bg2)}.hero-slide{position:absolute;inset:0;background-size:cover;background-position:center;display:flex;align-items:flex-end;padding:32px 36px;transition:opacity .8s ease}.hero-slide-text{max-width:100%;color:#fff}.hero-slide-tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:12px;padding:5px 12px;border:1px solid rgba(180,147,111,0.5);border-radius:var(--r-pill)}.hero-slide-title{font-size:clamp(22px,2.4vw,32px);font-weight:300;line-height:1.15;margin-bottom:10px;letter-spacing:-0.3px}.hero-slide-title strong{font-weight:700}.hero-slide-desc{font-size:13px;line-height:1.6;color:rgba(255,255,255,0.85);font-weight:300}.hero-slide-dots{position:absolute;bottom:16px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:3}
 .quick{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--bw);border-radius:var(--r-card-lg);overflow:hidden;margin:0 60px}.qa{padding:28px 32px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:background var(--t);border-right:1px solid var(--bw)}.qa:last-child{border-right:none}.qa:hover{background:var(--bg)}.qa-title{font-size:15px;font-weight:500}.qa-sub{font-size:12px;color:var(--muted);margin-top:3px}.qa-arrow{width:36px;height:36px;border-radius:50%;border:1px solid var(--bw2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;transition:all var(--t);flex-shrink:0}.qa:hover .qa-arrow{background:var(--black);color:var(--white);border-color:var(--black)}
 .lp section{padding:80px 60px}.sep{border:none;border-top:1px solid var(--bw);margin:0 60px}
 .sh{margin-bottom:56px}.sh-center{text-align:center}.sh-tag{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:14px}.sh h2{font-size:var(--fs-h2);font-weight:200;line-height:1.1;letter-spacing:-0.5px}.sh h2 strong{font-weight:800}.sh h2 em{font-style:normal;color:var(--gold)}.sh-sub{color:var(--muted);font-size:15px;max-width:560px;margin-top:14px;line-height:1.7;font-weight:300}.sh-center .sh-sub{margin-left:auto;margin-right:auto}
@@ -887,9 +890,10 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .float-btn{position:fixed;bottom:28px;right:28px;z-index:100;padding:14px 28px;background:var(--black);color:var(--white);font-size:12px;font-weight:700;letter-spacing:1px;border-radius:50px;cursor:pointer;border:none;box-shadow:0 4px 20px rgba(0,0,0,0.2);transition:all .25s}.float-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,0.3)}
 .ev-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.ev-card{padding:24px 26px;border:1px solid var(--bw);border-radius:var(--r-card);display:flex;align-items:center;gap:20px;cursor:pointer;transition:all var(--t);background:var(--white)}.ev-card:hover{border-color:var(--gold-border);background:var(--gold-bg);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.05)}.ev-date{width:54px;height:54px;border-radius:var(--r-tag);background:var(--bg);border:1px solid var(--bw);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0}.ev-day{font-size:22px;font-weight:700;line-height:1}.ev-mon{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}.ev-info{flex:1}.ev-title{font-size:15px;font-weight:500;margin-bottom:3px}.ev-meta{font-size:12px;color:var(--muted)}
 .coop-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}.coop-left p{font-size:15px;color:var(--muted);line-height:1.8;font-weight:300;margin-bottom:24px}.doc-list{display:flex;flex-direction:column;gap:8px}.doc-item{display:flex;align-items:center;gap:14px;padding:16px 20px;background:var(--white);border:1px solid var(--bw);border-radius:var(--r-card);cursor:pointer;transition:all var(--t)}.doc-item:hover{border-color:var(--gold-border);background:var(--gold-bg);transform:translateX(4px)}.doc-icon{width:36px;height:36px;border-radius:10px;background:var(--gold-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}.doc-name{font-size:13px;flex:1;font-weight:500}.doc-dl{color:var(--muted);display:flex;align-items:center}
-@media(max-width:1279px){.lp section{padding:80px 40px}.s-adv,.s-comm,.s-cta{padding-left:40px;padding-right:40px}.lp header{padding:0 40px}.hero{padding:64px 40px 40px}.lp footer{padding:40px 40px}.quick,.sep{margin-left:40px;margin-right:40px}}
+@media(max-width:1279px){.lp section{padding:80px 40px}.s-adv,.s-comm,.s-cta{padding-left:40px;padding-right:40px}.lp header{padding:0 40px}.hero{padding:56px 40px 40px}.hero-grid{gap:32px}.lp footer{padding:40px 40px}.quick,.sep{margin-left:40px;margin-right:40px}}
 @media(max-width:1023px){.lp nav{gap:18px}.lp nav a{font-size:10px}.adv-grid,.proj-grid{grid-template-columns:repeat(2,1fr)}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp nav{display:none}.lp section{padding:64px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:48px 20px 32px}.hero-inner{margin-bottom:36px}.lp footer{padding:32px 20px}.quick,.sep{margin-left:20px;margin-right:20px}.hero-stats{grid-template-columns:repeat(2,1fr)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:36px}.hero-slides{height:280px}.hero-slide{padding:0 28px}}
+@media(max-width:1023px){.hero-grid{grid-template-columns:1fr;gap:24px}.hero-slides{min-height:340px;height:340px}}
+@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp nav{display:none}.lp section{padding:64px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:40px 20px 32px}.lp footer{padding:32px 20px}.quick,.sep{margin-left:20px;margin-right:20px}.hero-stats{grid-template-columns:repeat(2,1fr)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:36px}.hero-slides{min-height:280px;height:280px}.hero-slide{padding:24px 20px}}
 @media(max-width:499px){.hero-stats{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}.proj-card{min-height:180px;padding:24px 20px}.proj-name{font-size:24px}.adv-card{padding:28px 22px}.comm-grid{gap:24px}}
 @media(max-width:374px){.hero-btns{flex-direction:column}.hero-btns .btn-gold,.hero-btns .btn-outline{width:100%;justify-content:center}}
       `}} />
@@ -919,26 +923,35 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           </div>
         </header>
 
-        {/* HERO */}
+        {/* HERO — 2-column: текст слева, слайдер справа (зеркальные по высоте) */}
         <div className="hero">
-          <div className="hero-inner">
-            <div className="hero-tag"><span>{hero.tag}</span></div>
-            <h1><strong>{renderAccent(hero.title, hero.titleAccent)}</strong></h1>
-            <p className="hero-desc">{hero.description}</p>
-            <div className="hero-btns" style={{marginBottom:24}}>
-              <button className="btn-gold" onClick={handleCabinet}>Записаться на встречу</button>
-              <button
-                className="btn-outline"
-                onClick={() => setContactModal({
-                  open: true,
-                  source: 'broker-tour',
-                  title: 'Запись на брокер-тур',
-                  defaultMessage: 'Хочу записаться на ближайший брокер-тур',
-                })}
-              >Записаться на брокер-тур</button>
-              <button onClick={()=>setQuickFixOpen(true)} className="btn-outline" style={{borderColor:'#B4936F',color:'#B4936F'}}>Моментальная фиксация</button>
+          <div className="hero-grid">
+            <div className="hero-inner">
+              <div className="hero-tag"><span>{hero.tag}</span></div>
+              <h1><strong>{renderAccent(hero.title, hero.titleAccent)}</strong></h1>
+              <p className="hero-desc">{hero.description}</p>
+              <div className="hero-btns">
+                <button className="btn-gold" onClick={handleCabinet}>Записаться на встречу</button>
+                <button
+                  className="btn-outline"
+                  onClick={() => setContactModal({
+                    open: true,
+                    source: 'broker-tour',
+                    title: 'Запись на брокер-тур',
+                    defaultMessage: 'Хочу записаться на ближайший брокер-тур',
+                  })}
+                >Записаться на брокер-тур</button>
+                <button onClick={()=>setQuickFixOpen(true)} className="btn-outline" style={{borderColor:'#B4936F',color:'#B4936F'}}>Моментальная фиксация</button>
+              </div>
             </div>
+
+            {Array.isArray(hero.slides) && hero.slides.length > 0 ? (
+              <HeroSlides slides={hero.slides} />
+            ) : (
+              <div /> /* зарезервированное место чтобы layout не схлопывался */
+            )}
           </div>
+
           <Reveal>
             <div className="hero-stats">
               {(hero.stats || []).map((s: any, i: number) => (
@@ -946,12 +959,6 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               ))}
             </div>
           </Reveal>
-
-          {Array.isArray(hero.slides) && hero.slides.length > 0 && (
-            <Reveal>
-              <HeroSlides slides={hero.slides} />
-            </Reveal>
-          )}
         </div>
 
         {/* PROJECTS */}
