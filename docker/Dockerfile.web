@@ -12,6 +12,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
+# В standalone-режиме public/ НЕ копируется автоматически — нужно отдельно.
+# Без этой строки stmichael-logo.png, sw.js и другие статики из public/
+# отдают 404. См. https://nextjs.org/docs/app/api-reference/next-config-js/output#caveats
+COPY --from=builder /app/apps/web/public ./apps/web/public
 RUN chown -R nextjs:nodejs /app
 USER nextjs
 EXPOSE 3000
