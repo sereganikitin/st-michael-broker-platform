@@ -637,34 +637,33 @@ const DEFAULT_HERO = {
     { number: '30 дней', label: 'Срок уникальности клиента' },
     { number: '2', label: 'Активных проекта' },
   ],
-  // Слайдер УТП под Hero (по правке заказчика 2026-05-06).
-  // Размер компактный — 380px, не на всю высоту. Авто-смена 5с.
-  // Картинки с storage.yandexcloud.net (фото проектов ST Michael).
-  // Можно править через /admin/content (вкладка Hero, поле slides).
+  // Слайдер УТП — контент с реального сайта https://зорге9.рф/br (2026-05-06).
+  // 4 слайда, авто-смена 5с. Картинки с tildacdn (хостинг сайта-источника).
+  // Редактируется через /admin/content (вкладка Hero, поле slides).
   slides: [
     {
-      tag: 'Зорге 9',
-      title: 'Собственный парк 2 га',
-      description: 'Свыше 20 000 растений, теневые беседки, поющий фонтан, амфитеатр. Парк закрыт для посторонних — только для резидентов.',
-      imageUrl: 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/930e832d465dfa7eb54099e5a17f1a85e9fb2fe7.jpg',
+      tag: 'Активное строительство Большого Сити',
+      title: 'Доходность до 25%',
+      description: 'Спрос на аренду и рост стоимости объекта. Опция доверительного управления.',
+      imageUrl: 'https://optim.tildacdn.com/tild3439-6364-4532-b563-663530663865/-/format/webp/__1_-4_1.jpg.webp',
     },
     {
-      tag: 'Зорге 9',
-      title: 'Фитнес 3000 м² с бассейном',
-      description: '25-метровый бассейн, йога-студия, SPA-зона. Без дополнительной платы для жителей дома.',
-      imageUrl: 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/26d39dbae8795380a6a329595c2a1f3bc9f84c8e.jpg',
+      tag: 'Клубная инфраструктура',
+      title: 'Премиальные сервисы',
+      description: 'Беллмен и консьерж. Фитнес 3000 м² с бассейном 25 м. Широкий выбор ритейла.',
+      imageUrl: 'https://optim.tildacdn.com/tild6336-3562-4638-b166-623430323566/-/format/webp/2026-04-16_152634.jpg.webp',
     },
     {
-      tag: 'Награды',
-      title: 'Лауреат European Property Awards',
-      description: 'Архитектура и девелопмент признаны лучшими в Европе. 176 апартаментов с потолками 4,3 м, авторский гранд-лобби.',
-      imageUrl: 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/de99a0314df4cc1e64e46c213bac6d490e2315ce.jpg',
+      tag: 'Готовый дом бизнес-класса · м. Полежаевская',
+      title: 'Апартаменты от 12 млн ₽',
+      description: 'Комиссия до 8%, выплаты вознаграждения до 7 рабочих дней.',
+      imageUrl: 'https://optim.tildacdn.com/tild3333-6538-4231-a437-613537353665/-/format/webp/2026-05-04_145437.jpg.webp',
     },
     {
-      tag: 'Серебряный Бор',
-      title: 'Премиум у заповедника 340 га',
-      description: 'Архитектурное бюро Apex, бассейн-инфинити, гранд-лобби 7 м, приватный кинотеатр. Сдача 2 кв 2027.',
-      imageUrl: 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/15e0d86142a14b41200c6d7353a01a1f6a0f3663.jpg',
+      tag: 'Рассрочка 0% — ПВ 30%, 0,5%/мес на 12 мес',
+      title: 'Платеж от 65 тыс ₽/мес',
+      description: 'Индивидуальные программы рассрочки с ПВ от 10% и сроком до 18 месяцев.',
+      imageUrl: 'https://optim.tildacdn.com/tild3436-3066-4862-b537-393363373965/-/format/webp/15.jpg.webp',
     },
   ],
 };
