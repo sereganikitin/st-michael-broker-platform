@@ -56,6 +56,13 @@ $COMPOSE_CMD exec -T api npx prisma db push \
 $COMPOSE_CMD exec -T api node /app/scripts/refresh-cms-content.js 2>&1 || \
     echo "    (refresh-cms-content пропущен — не фатально)"
 
+# При первом деплое или по запросу — подтянуть актуальные проекты и акции
+# с https://stmichael.ru . Можно отключить установив SKIP_STMICHAEL_SEED=1.
+if [ "${SKIP_STMICHAEL_SEED:-0}" != "1" ]; then
+    $COMPOSE_CMD exec -T api node /app/scripts/seed-from-stmichael.js 2>&1 || \
+        echo "    (seed-from-stmichael пропущен — не фатально)"
+fi
+
 # Status check
 echo ""
 echo "==> Состояние контейнеров:"
