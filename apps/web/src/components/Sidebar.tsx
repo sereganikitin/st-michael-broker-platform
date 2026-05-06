@@ -39,6 +39,7 @@ const adminNavigation = [
   { name: 'Расписание встреч', href: '/admin/meeting-slots', icon: Calendar },
   { name: 'Рассылки', href: '/admin/mailings', icon: Megaphone },
   { name: 'Лендинг — Контент', href: '/admin/content', icon: Sparkles },
+  { name: 'Лендинг — Акции', href: '/admin/promos', icon: Megaphone },
   { name: 'Лендинг — События', href: '/admin/events', icon: Calendar },
   { name: 'Лендинг — Проекты', href: '/admin/projects', icon: Building },
   { name: 'Файлы и документы', href: '/admin/documents', icon: FileText },

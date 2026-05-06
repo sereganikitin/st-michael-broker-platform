@@ -188,8 +188,35 @@ function AdvantagesEditor({ content, updateField, updateArrayItem, addArrayItem,
 
 // ── COMMISSION ────────────────────────────────────────
 function CommissionEditor({ content, updateField, updateArrayItem, addArrayItem, removeArrayItem }: any) {
-  const levels = content.levels || [];
   const cards = content.cards || [];
+  const levelsByProject = content.levelsByProject || {};
+  const [activeProject, setActiveProject] = useState<'ZORGE9' | 'SILVER_BOR'>('ZORGE9');
+  const projectLevels = levelsByProject[activeProject] || [];
+
+  const updateProjectLevel = (idx: number, patch: any) => {
+    const next = { ...content };
+    const lp = { ...(next.levelsByProject || {}) };
+    const arr = [...(lp[activeProject] || [])];
+    arr[idx] = { ...arr[idx], ...patch };
+    lp[activeProject] = arr;
+    updateField('commission', 'levelsByProject', lp);
+  };
+  const addProjectLevel = () => {
+    const next = { ...content };
+    const lp = { ...(next.levelsByProject || {}) };
+    const arr = [...(lp[activeProject] || []), { name: '', range: '', rate: '', active: false }];
+    lp[activeProject] = arr;
+    updateField('commission', 'levelsByProject', lp);
+  };
+  const removeProjectLevel = (idx: number) => {
+    const next = { ...content };
+    const lp = { ...(next.levelsByProject || {}) };
+    const arr = [...(lp[activeProject] || [])];
+    arr.splice(idx, 1);
+    lp[activeProject] = arr;
+    updateField('commission', 'levelsByProject', lp);
+  };
+
   return (
     <div className="space-y-4">
       <FieldText label="Тег" value={content.tag || ''} onChange={(v) => updateField('commission', 'tag', v)} />
@@ -197,24 +224,45 @@ function CommissionEditor({ content, updateField, updateArrayItem, addArrayItem,
       <FieldText label="Акцент в заголовке" value={content.titleAccent || ''} onChange={(v) => updateField('commission', 'titleAccent', v)} />
       <FieldTextarea label="Подзаголовок" value={content.subtitle || ''} onChange={(v) => updateField('commission', 'subtitle', v)} />
 
-      <div>
-        <label className="label">Уровни шкалы</label>
+      <div className="border-t border-border pt-4 mt-2">
+        <label className="label flex items-center justify-between">
+          <span>Шкалы по проектам</span>
+          <span className="text-xs text-text-muted font-normal">переключатель Зорге 9 / Серебряный Бор на лендинге</span>
+        </label>
+        <div className="flex gap-2 mb-3">
+          {(['ZORGE9', 'SILVER_BOR'] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => setActiveProject(p)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                activeProject === p ? 'bg-accent text-white' : 'bg-surface-secondary text-text-muted hover:text-text'
+              }`}
+            >
+              {p === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}
+              <span className="ml-2 text-xs opacity-70">({(levelsByProject[p] || []).length} уровней)</span>
+            </button>
+          ))}
+        </div>
+
         <div className="space-y-2">
-          {levels.map((lv: any, i: number) => (
+          {projectLevels.map((lv: any, i: number) => (
             <div key={i} className="flex gap-2 items-center">
-              <input className="input flex-1" placeholder="Название (Start)" value={lv.name || ''} onChange={(e) => updateArrayItem('commission', 'levels', i, { name: e.target.value })} />
-              <input className="input flex-1" placeholder="Объём (0-59 м2)" value={lv.range || ''} onChange={(e) => updateArrayItem('commission', 'levels', i, { range: e.target.value })} />
-              <input className="input w-24" placeholder="Ставка (5,0%)" value={lv.rate || ''} onChange={(e) => updateArrayItem('commission', 'levels', i, { rate: e.target.value })} />
+              <input className="input flex-1" placeholder="Название (Start)" value={lv.name || ''} onChange={(e) => updateProjectLevel(i, { name: e.target.value })} />
+              <input className="input flex-1" placeholder="Объём (0–59 м²)" value={lv.range || ''} onChange={(e) => updateProjectLevel(i, { range: e.target.value })} />
+              <input className="input w-24" placeholder="Ставка (5,0%)" value={lv.rate || ''} onChange={(e) => updateProjectLevel(i, { rate: e.target.value })} />
               <label className="flex items-center gap-1 text-xs whitespace-nowrap">
-                <input type="checkbox" checked={!!lv.active} onChange={(e) => updateArrayItem('commission', 'levels', i, { active: e.target.checked })} /> active
+                <input type="checkbox" checked={!!lv.active} onChange={(e) => updateProjectLevel(i, { active: e.target.checked })} /> active
               </label>
-              <button className="btn btn-secondary text-error" onClick={() => removeArrayItem('commission', 'levels', i)}><Trash2 className="w-4 h-4" /></button>
+              <button className="btn btn-secondary text-error" onClick={() => removeProjectLevel(i)}><Trash2 className="w-4 h-4" /></button>
             </div>
           ))}
         </div>
-        <button className="btn btn-secondary mt-2 flex items-center gap-2 text-sm" onClick={() => addArrayItem('commission', 'levels', { name: '', range: '', rate: '', active: false })}>
-          <Plus className="w-4 h-4" /> Добавить уровень
+        <button className="btn btn-secondary mt-2 flex items-center gap-2 text-sm" onClick={addProjectLevel}>
+          <Plus className="w-4 h-4" /> Добавить уровень в {activeProject === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}
         </button>
+        <p className="text-xs text-text-muted mt-2">
+          Серебряный Бор по новому ТЗ имеет только 6 уровней (без Legend), максимум — Champion 6,25%.
+        </p>
       </div>
 
       <div>
@@ -241,16 +289,32 @@ function CommissionEditor({ content, updateField, updateArrayItem, addArrayItem,
 
 // ── CONTACT ───────────────────────────────────────────
 function ContactEditor({ content, updateField }: any) {
+  const manager = content.manager || {};
+  const updateManager = (field: string, value: string) => {
+    updateField('contact', 'manager', { ...manager, [field]: value });
+  };
   return (
     <div className="space-y-4">
       <FieldText label="Тег" value={content.tag || ''} onChange={(v) => updateField('contact', 'tag', v)} />
       <FieldText label="Заголовок" value={content.title || ''} onChange={(v) => updateField('contact', 'title', v)} />
       <FieldText label="Акцент в заголовке" value={content.titleAccent || ''} onChange={(v) => updateField('contact', 'titleAccent', v)} />
       <FieldTextarea label="Описание" value={content.description || ''} onChange={(v) => updateField('contact', 'description', v)} />
-      <FieldText label="Заголовок блока контактов" value={content.blockTitle || ''} onChange={(v) => updateField('contact', 'blockTitle', v)} />
-      <FieldText label="Телефон" value={content.phone || ''} onChange={(v) => updateField('contact', 'phone', v)} />
-      <FieldText label="Email" value={content.email || ''} onChange={(v) => updateField('contact', 'email', v)} />
-      <FieldText label="Telegram-канал (URL)" value={content.telegram || ''} onChange={(v) => updateField('contact', 'telegram', v)} />
+
+      <div className="border-t border-border pt-4 mt-2">
+        <h4 className="text-sm font-semibold mb-3">Горячая линия</h4>
+        <FieldText label="Заголовок блока контактов" value={content.blockTitle || ''} onChange={(v) => updateField('contact', 'blockTitle', v)} />
+        <FieldText label="Телефон" value={content.phone || ''} onChange={(v) => updateField('contact', 'phone', v)} />
+        <FieldText label="Часы работы (необязательно)" value={content.phoneHours || ''} onChange={(v) => updateField('contact', 'phoneHours', v)} hint="Например: Ежедневно с 9:00 до 21:00" />
+        <FieldText label="Email" value={content.email || ''} onChange={(v) => updateField('contact', 'email', v)} />
+        <FieldText label="Telegram-канал (URL)" value={content.telegram || ''} onChange={(v) => updateField('contact', 'telegram', v)} />
+      </div>
+
+      <div className="border-t border-border pt-4 mt-2">
+        <h4 className="text-sm font-semibold mb-3">Персональный менеджер (необязательно)</h4>
+        <FieldText label="Имя менеджера" value={manager.name || ''} onChange={(v) => updateManager('name', v)} />
+        <FieldText label="Должность" value={manager.role || ''} onChange={(v) => updateManager('role', v)} hint="Например: Руководитель отдела по работе с партнёрами" />
+        <FieldText label="Телефон менеджера" value={manager.phone || ''} onChange={(v) => updateManager('phone', v)} />
+      </div>
     </div>
   );
 }
