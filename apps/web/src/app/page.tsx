@@ -1,8 +1,86 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import {
+  Headphones, PhoneCall, Wallet, TrendingUp, Users2, GraduationCap,
+} from 'lucide-react';
+
+// ─── мини-компоненты для оживления лендинга ──────────────────
+
+// Анимирует число от 0 до конечного значения когда элемент попадает в viewport
+function CountUp({ value, duration = 1400, suffix = '' }: { value: number; duration?: number; suffix?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [n, setN] = useState(0);
+  const fired = useRef(false);
+  useEffect(() => {
+    if (!ref.current) return;
+    const obs = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting || fired.current) return;
+      fired.current = true;
+      const start = performance.now();
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        setN(Math.round(value * eased));
+        if (t < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, { threshold: 0.4 });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [value, duration]);
+  return <span ref={ref}>{n}{suffix}</span>;
+}
+
+// Парсит "до 8%", "7 дней", "30 дней", "2" → возвращает кортеж prefix/число/suffix для анимации
+function StatNumber({ raw }: { raw: string }) {
+  const m = raw.match(/^(до\s*)?(\d+)([\s\-–—]?\d*)?(.*)$/);
+  if (!m) return <>{raw}</>;
+  const prefix = m[1] || '';
+  const num = Number(m[2]);
+  const suffix = (m[3] || '') + (m[4] || '');
+  return <>{prefix}<CountUp value={num} suffix={suffix} /></>;
+}
+
+// Появление элемента через scroll-triggered fade-up (только при первом попадании в viewport)
+function Reveal({ children, delay = 0, as: Tag = 'div' }: { children: React.ReactNode; delay?: number; as?: any }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!ref.current) return;
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setTimeout(() => setShown(true), delay);
+        obs.disconnect();
+      }
+    }, { threshold: 0.15 });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [delay]);
+  return (
+    <Tag
+      ref={ref}
+      style={{
+        opacity: shown ? 1 : 0,
+        transform: shown ? 'none' : 'translateY(24px)',
+        transition: 'opacity .7s ease, transform .7s cubic-bezier(.2,.7,.3,1)',
+      }}
+    >
+      {children}
+    </Tag>
+  );
+}
+
+const ADVANTAGE_ICONS: Record<string, any> = {
+  'Выделенный отдел партнёров': Headphones,
+  'Выделенная линия': PhoneCall,
+  'Быстрые выплаты': Wallet,
+  'Высокая комиссия': TrendingUp,
+  'Партнёрство': Users2,
+  'Обучение': GraduationCap,
+};
 
 function PhoneInput({ value, onChange, style }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,8 +176,8 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   };
 
   return (
-    <div style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
-      <div style={{background:'#fff',borderRadius:8,maxWidth:420,width:'100%',padding:'36px 32px',position:'relative'}} onClick={e=>e.stopPropagation()}>
+    <div className="lp-overlay" style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
+      <div className="lp-popup" style={{background:'#fff',borderRadius:16,maxWidth:420,width:'100%',padding:'36px 32px',position:'relative'}} onClick={e=>e.stopPropagation()}>
         <button onClick={onClose} style={{position:'absolute',top:16,right:16,background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#8a8680'}}>&times;</button>
         <h2 style={{fontSize:24,fontWeight:700,marginBottom:4,color:'#1a1a1a'}}>
           {forgotMode ? 'Восстановление пароля' : mode === 'login' ? 'Вход в кабинет' : 'Регистрация'}
@@ -121,7 +199,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                 style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
               <button onClick={handleForgot} disabled={loading || !email}
                 style={{padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
-                {loading ? 'Отправка...' : 'ПОЛУЧИТЬ ССЫЛКУ'}
+                {loading ? <><span className="lp-spinner" />Отправка</> : 'ПОЛУЧИТЬ ССЫЛКУ'}
               </button>
             </div>
           )
@@ -170,7 +248,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                   : (!firstName || !lastName || !email || phoneDigits.length !== 10 || (inn.length !== 10 && inn.length !== 12) || password.length < 8))
               }
               style={{padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
-              {loading ? 'Подождите...' : mode==='login' ? 'ВОЙТИ' : 'ЗАРЕГИСТРИРОВАТЬСЯ'}
+              {loading ? <><span className="lp-spinner" />{mode==='login' ? 'Вход' : 'Регистрация'}</> : mode==='login' ? 'ВОЙТИ' : 'ЗАРЕГИСТРИРОВАТЬСЯ'}
             </button>
           </div>
         )}
@@ -272,8 +350,8 @@ function ContactFormModal({ onClose, source = 'landing-contact', defaultMessage 
   };
 
   return (
-    <div style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
-      <div style={{background:'#fff',borderRadius:8,maxWidth:460,width:'100%',padding:'36px 32px',position:'relative'}} onClick={e=>e.stopPropagation()}>
+    <div className="lp-overlay" style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
+      <div className="lp-popup" style={{background:'#fff',borderRadius:16,maxWidth:460,width:'100%',padding:'36px 32px',position:'relative'}} onClick={e=>e.stopPropagation()}>
         <button onClick={onClose} style={{position:'absolute',top:16,right:16,background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#8a8680'}}>&times;</button>
         <h2 style={{fontSize:22,fontWeight:700,marginBottom:4,color:'#1a1a1a'}}>{title}</h2>
         <p style={{fontSize:13,color:'#8a8680',marginBottom:24}}>Менеджер свяжется с вами в течение часа</p>
@@ -297,7 +375,7 @@ function ContactFormModal({ onClose, source = 'landing-contact', defaultMessage 
               style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none',resize:'vertical',fontFamily:'inherit'}} />
             <button onClick={submit} disabled={loading}
               style={{padding:'14px',background:'#B4936F',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
-              {loading ? 'Отправка...' : 'ОТПРАВИТЬ'}
+              {loading ? <><span className="lp-spinner" />Отправка</> : 'ОТПРАВИТЬ'}
             </button>
           </div>
         )}
@@ -339,8 +417,8 @@ function QuickFixModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
-      <div style={{background:'#fff',borderRadius:8,maxWidth:460,width:'100%',padding:'36px 32px',position:'relative'}} onClick={e=>e.stopPropagation()}>
+    <div className="lp-overlay" style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
+      <div className="lp-popup" style={{background:'#fff',borderRadius:16,maxWidth:460,width:'100%',padding:'36px 32px',position:'relative'}} onClick={e=>e.stopPropagation()}>
         <button onClick={onClose} style={{position:'absolute',top:16,right:16,background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#8a8680'}}>&times;</button>
         <h2 style={{fontSize:24,fontWeight:700,marginBottom:4,color:'#1a1a1a'}}>Моментальная фиксация</h2>
         <p style={{fontSize:13,color:'#8a8680',marginBottom:24}}>Зафиксируйте клиента за собой прямо сейчас, без входа в кабинет</p>
@@ -366,7 +444,7 @@ function QuickFixModal({ onClose }: { onClose: () => void }) {
             <button onClick={handleSubmit}
               disabled={loading || !clientPhone || !clientFullName || !brokerPhone}
               style={{padding:'14px',background:'#B4936F',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
-              {loading ? 'Отправка...' : 'ЗАФИКСИРОВАТЬ'}
+              {loading ? <><span className="lp-spinner" />Фиксация</> : 'ЗАФИКСИРОВАТЬ'}
             </button>
             <p style={{fontSize:12,color:'#8a8680',textAlign:'center',marginTop:4}}>
               Ваш номер должен быть зарегистрирован в ЛК. Уникальность действует 30 дней.
@@ -567,6 +645,12 @@ export default function LandingPage() {
       <style dangerouslySetInnerHTML={{__html: `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800&display=swap');
 html{scroll-behavior:smooth}
+@keyframes popupIn{from{opacity:0;transform:scale(0.96) translateY(12px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes overlayIn{from{opacity:0}to{opacity:1}}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.lp-overlay{animation:overlayIn .25s ease both}
+.lp-popup{animation:popupIn .35s cubic-bezier(.2,.7,.3,1) both}
+.lp-spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:8px}
 :root{--white:#ffffff;--bg:#f8f7f5;--bg2:#f0eeeb;--bg3:#e8e5e0;--black:#1a1a1a;--dark:#2c2c2a;--dark2:#3d3d3a;--gold:#B4936F;--gold2:#a07e5c;--gold3:#8c6b4a;--gold-bg:rgba(180,147,111,0.07);--gold-border:rgba(180,147,111,0.2);--gold-light:#f5efe8;--muted:#8a8680;--muted2:#a09b95;--light:#6b6660;--bw:rgba(0,0,0,0.08);--bw2:rgba(0,0,0,0.12);--green:#3a8a5c;--r:4px;--r-card:16px;--r-card-lg:24px;--r-tag:8px;--r-pill:50px;--fs-h1:clamp(48px,5.5vw,72px);--fs-h2:clamp(32px,3.8vw,48px);--fs-h3:clamp(22px,2.4vw,28px);--t:.2s ease}
 body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;font-size:15px;line-height:1.7;overflow-x:hidden}
 .lp a{text-decoration:none;color:inherit}
@@ -575,7 +659,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .lp nav{display:flex;align-items:center;gap:28px}.lp nav a{color:var(--muted);font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;transition:color .2s}.lp nav a:hover{color:var(--black)}
 .h-right{display:flex;align-items:center;gap:16px}.h-phone{font-size:13px;color:var(--muted)}
 .btn-enter{display:inline-flex;align-items:center;gap:8px;padding:11px 28px;background:var(--black);color:var(--white);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-enter:hover{background:var(--dark);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,0.15)}
-.btn-gold{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--gold);color:var(--white);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-gold:hover{background:var(--gold2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(180,147,111,0.3)}
+.btn-gold{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--gold);color:var(--white);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer;position:relative;overflow:hidden}.btn-gold::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.18),transparent);transform:translateX(-100%);transition:transform .6s ease}.btn-gold:hover::after{transform:translateX(100%)}.btn-gold:hover{background:var(--gold2);transform:translateY(-2px);box-shadow:0 12px 28px rgba(180,147,111,0.32)}
 .btn-outline{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:transparent;color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);border:1px solid var(--bw2);transition:all var(--t);cursor:pointer}.btn-outline:hover{border-color:var(--black);background:rgba(0,0,0,0.04)}
 .btn-tertiary{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--bg);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-tertiary:hover{background:var(--bg2)}
 .btn-white{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--white);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-white:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.15)}
@@ -589,7 +673,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .proj-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}.proj-card{border-radius:var(--r-card-lg);overflow:hidden;border:1px solid var(--bw);padding:36px 32px;display:flex;flex-direction:column;justify-content:flex-end;min-height:260px;transition:all .3s ease;cursor:pointer;background:var(--bg)}.proj-card:hover{border-color:var(--gold-border);transform:translateY(-3px);box-shadow:0 12px 32px rgba(0,0,0,0.07)}.proj-tag{font-size:9px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--gold);margin-bottom:10px}.proj-name{font-size:28px;font-weight:300;margin-bottom:8px;letter-spacing:-0.3px}.proj-name strong{font-weight:700}.proj-info{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.7}.proj-link{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);display:inline-flex;align-items:center;gap:6px}
 .comm-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}.comm-table{border:1px solid var(--bw);border-radius:var(--r-card);overflow:hidden;background:var(--white)}.ct-head{display:grid;grid-template-columns:1fr 1.2fr 0.8fr;padding:14px 22px;background:var(--bg);gap:8px}.ct-head span{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}.ct-row{display:grid;grid-template-columns:1fr 1.2fr 0.8fr;padding:14px 22px;border-top:1px solid var(--bw);gap:8px;transition:background var(--t)}.ct-row:hover{background:var(--gold-bg)}.ct-row.active{background:var(--gold-light);border-left:3px solid var(--gold)}.ct-level{font-size:14px;font-weight:500}.ct-row.active .ct-level{color:var(--gold2);font-weight:700}.ct-range{font-size:13px;color:var(--muted)}.ct-rate{font-size:14px;font-weight:600;text-align:right}.ct-row.active .ct-rate{color:var(--gold2)}
 .comm-info{display:flex;flex-direction:column;gap:14px}.comm-card{padding:22px 24px;background:var(--bg);border:1px solid var(--bw);border-radius:var(--r-card);transition:border-color var(--t),background var(--t)}.comm-card:hover{border-color:var(--gold-border);background:var(--gold-bg)}.comm-card-title{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:10px}.comm-card p{font-size:13px;color:var(--light);line-height:1.7;font-weight:300}
-.s-adv{background:var(--black);color:var(--white);padding:96px 60px}.s-adv .sh-tag{color:var(--gold)}.s-adv h2{color:var(--white)}.s-adv h2 em{color:var(--gold)}.adv-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r-card-lg);overflow:hidden}.adv-card{padding:36px 30px;background:var(--black);transition:background var(--t)}.adv-card:hover{background:var(--dark)}.adv-icon{width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:16px}.adv-title{font-size:16px;font-weight:600;color:var(--white);margin-bottom:10px}.adv-desc{font-size:13px;color:rgba(255,255,255,0.5);line-height:1.7;font-weight:300}
+.s-adv{background:var(--black);color:var(--white);padding:96px 60px;position:relative;overflow:hidden}.s-adv .sh-tag{color:var(--gold)}.s-adv h2{color:var(--white)}.s-adv h2 em{color:var(--gold)}.adv-bg-glow{position:absolute;inset:0;background:radial-gradient(circle at 20% 30%,rgba(180,147,111,0.18),transparent 45%),radial-gradient(circle at 85% 80%,rgba(180,147,111,0.12),transparent 50%);pointer-events:none;z-index:0}.s-adv .sh,.s-adv .adv-grid{position:relative;z-index:1}.adv-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r-card-lg);overflow:hidden}.adv-card{padding:36px 30px;background:var(--black);transition:background var(--t)}.adv-card:hover{background:var(--dark)}.adv-icon{width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:16px}.adv-title{font-size:16px;font-weight:600;color:var(--white);margin-bottom:10px}.adv-desc{font-size:13px;color:rgba(255,255,255,0.5);line-height:1.7;font-weight:300}
 .s-comm{background:var(--gold);padding:80px 60px;position:relative;overflow:hidden}.s-comm .sh-tag{color:rgba(255,255,255,0.6)}.s-comm h2{color:var(--white)}.comm-content{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:28px}.comm-desc{font-size:15px;color:rgba(255,255,255,0.8);line-height:1.8;font-weight:300;margin-bottom:24px}.comm-list{display:flex;flex-direction:column;gap:10px}.comm-list-item{display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.9)}.comm-list-dot{width:6px;height:6px;border-radius:50%;background:var(--white);flex-shrink:0;margin-top:7px}
 .s-cta{text-align:center;padding:100px 60px}
 .lp footer{padding:40px 60px;border-top:1px solid var(--bw);background:var(--bg)}.foot-grid{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:40px;margin-bottom:28px}.foot-logo{font-size:14px;font-weight:700;letter-spacing:2.5px;margin-bottom:2px}.foot-logo-sub{font-size:10px;color:var(--muted);letter-spacing:1px}.foot-col-title{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:12px}.foot-link{display:block;font-size:13px;color:var(--muted);margin-bottom:7px;transition:color .2s}.foot-link:hover{color:var(--black)}.foot-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:18px;border-top:1px solid var(--bw);font-size:12px;color:var(--muted2)}
@@ -643,19 +727,22 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               <button onClick={()=>setQuickFixOpen(true)} className="btn-outline" style={{borderColor:'#B4936F',color:'#B4936F'}}>Моментальная фиксация</button>
             </div>
           </div>
-          <div className="hero-stats">
-            {(hero.stats || []).map((s: any, i: number) => (
-              <div key={i} className="hst"><div className="hst-n">{s.number}</div><div className="hst-l">{s.label}</div></div>
-            ))}
-          </div>
+          <Reveal>
+            <div className="hero-stats">
+              {(hero.stats || []).map((s: any, i: number) => (
+                <div key={i} className="hst"><div className="hst-n"><StatNumber raw={s.number} /></div><div className="hst-l">{s.label}</div></div>
+              ))}
+            </div>
+          </Reveal>
         </div>
 
         {/* PROJECTS */}
         <section id="projects">
           <div className="sh"><div className="sh-tag">Проекты</div><h2>Проекты — <em>одна программа</em></h2><p className="sh-sub">Квадратные метры суммируются по всем проектам для роста вашей ставки комиссии</p></div>
           <div className="proj-grid">
-            {projects.map((p: any) => (
-              <div key={p.id} className="proj-card" onClick={() => handleProjectClick(p)} style={p.imageUrl ? { backgroundImage: `linear-gradient(rgba(248,247,245,0.94), rgba(248,247,245,0.94)), url(${p.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', minHeight: 280 } : undefined}>
+            {projects.map((p: any, i: number) => (
+              <Reveal key={p.id} delay={i * 120}>
+              <div className="proj-card" onClick={() => handleProjectClick(p)} style={p.imageUrl ? { backgroundImage: `linear-gradient(rgba(248,247,245,0.94), rgba(248,247,245,0.94)), url(${p.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', minHeight: 280 } : undefined}>
                 {p.tag && <div className="proj-tag">{p.tag}</div>}
                 <div className="proj-name"><strong>{p.name}</strong>{p.subtitle ? ` ${p.subtitle}` : ''}</div>
                 <div className="proj-info">{p.description}</div>
@@ -673,6 +760,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
                 <div className="proj-link">{p.ctaText || 'Смотреть каталог'} &rarr;</div>
               </div>
+              </Reveal>
             ))}
           </div>
         </section>
@@ -781,7 +869,21 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         {/* EVENTS */}
         <section id="events" style={{background:'var(--bg)'}}>
-          <div className="sh"><div className="sh-tag">Календарь событий</div><h2>Ближайшие <em>мероприятия</em></h2></div>
+          <div className="sh" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:24}}>
+            <div>
+              <div className="sh-tag">Календарь событий</div>
+              <h2>Ближайшие <em>мероприятия</em></h2>
+            </div>
+            <a
+              href="https://t.me/stmichaelBroker"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-outline"
+              style={{padding:'10px 24px',fontSize:10,marginBottom:4,whiteSpace:'nowrap'}}
+            >
+              Все события &rarr;
+            </a>
+          </div>
           {events.length === 0 ? (
             <div style={{textAlign:'center',color:'var(--muted)',fontSize:14,padding:'24px 0'}}>В ближайшее время мероприятий не запланировано</div>
           ) : (
@@ -842,14 +944,25 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         {/* ADVANTAGES */}
         <section className="s-adv">
+          <div className="adv-bg-glow" />
           <div className="sh"><div className="sh-tag">{advantages.tag}</div><h2>{renderAccent(advantages.title, advantages.titleAccent)}</h2></div>
           <div className="adv-grid">
-            {(advantages.items || []).map((it: any, i: number) => (
-              <div key={i} className="adv-card">
-                <div className="adv-title">{it.title}</div>
-                <div className="adv-desc">{it.description}</div>
-              </div>
-            ))}
+            {(advantages.items || []).map((it: any, i: number) => {
+              const Icon = ADVANTAGE_ICONS[it.title];
+              return (
+                <Reveal key={i} delay={i * 80}>
+                  <div className="adv-card">
+                    {Icon && (
+                      <div className="adv-icon" style={{ borderColor: 'rgba(180,147,111,0.3)' }}>
+                        <Icon style={{ width: 20, height: 20, color: 'var(--gold)' }} />
+                      </div>
+                    )}
+                    <div className="adv-title">{it.title}</div>
+                    <div className="adv-desc">{it.description}</div>
+                  </div>
+                </Reveal>
+              );
+            })}
           </div>
         </section>
 
