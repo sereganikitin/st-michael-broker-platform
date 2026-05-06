@@ -560,6 +560,24 @@ model LandingProject {
   @@map("landing_projects")
 }
 
+// News card block at the bottom of landing — refs to media coverage / announcements.
+model LandingNews {
+  id          String   @id @default(uuid())
+  title       String
+  source      String?                                   // e.g. "РБК", "Коммерсантъ", "Forbes"
+  publishedAt DateTime @map("published_at")
+  excerpt     String?                                   // 1-2 sentence preview
+  imageUrl    String?  @map("image_url")
+  url         String                                    // link to original article
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([publishedAt, isActive])
+  @@map("landing_news")
+}
+
 // Promotion slider on landing — block 3 of TZ.
 model LandingPromo {
   id          String   @id @default(uuid())
