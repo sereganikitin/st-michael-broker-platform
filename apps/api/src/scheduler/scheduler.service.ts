@@ -18,6 +18,32 @@ export class SchedulerService {
     private readonly catalogService: CatalogService,
   ) {}
 
+  // Yandex.Disk materials sync — каждые 12 часов (06:00 и 18:00).
+  // Тянет публичную папку с материалами для брокеров и обновляет Document таблицу.
+  @Cron('0 6,18 * * *')
+  async handleYandexDiskSync() {
+    const publicKey = process.env.YANDEX_DISK_PUBLIC_KEY;
+    if (!publicKey) {
+      this.logger.warn('YANDEX_DISK_PUBLIC_KEY не настроен — пропускаю синк материалов');
+      return;
+    }
+    this.logger.log('Yandex.Disk materials sync started...');
+    try {
+      const { spawnSync } = require('child_process');
+      const path = require('path');
+      const scriptPath = path.resolve(__dirname, '../../../../scripts/sync-yandex-disk.js');
+      const result = spawnSync('node', [scriptPath], {
+        env: { ...process.env, YANDEX_DISK_PUBLIC_KEY: publicKey },
+        encoding: 'utf-8',
+        timeout: 5 * 60 * 1000,
+      });
+      if (result.stdout) this.logger.log(result.stdout.trim());
+      if (result.stderr) this.logger.error(result.stderr.trim());
+    } catch (e) {
+      this.logger.error(`Yandex.Disk sync failed: ${e}`);
+    }
+  }
+
   // Daily catalog XML feed sync at 03:00
   @Cron('0 3 * * *')
   async handleCatalogSync() {

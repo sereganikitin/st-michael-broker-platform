@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import {
   Headphones, PhoneCall, Wallet, TrendingUp, Users2, GraduationCap,
+  FileText, Download as DownloadIcon, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 
 // ─── мини-компоненты для оживления лендинга ──────────────────
@@ -307,6 +308,168 @@ function FaqItem({ q, a }: { q: string; a: string }) {
   );
 }
 
+// Модал-календарь брокер-туров — открывается из кнопки "Все события" в блоке Календарь.
+// Сетка ПН-ПТ × 4 недели начиная с текущей недели. События подтягиваются из CMS.
+function BrokerToursCalendarModal({ events, onClose }: { events: any[]; onClose: () => void }) {
+  // Build a 4-week grid starting from this week's Monday.
+  const today = new Date();
+  const dow = (today.getDay() + 6) % 7; // 0 = Monday
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - dow);
+  monday.setHours(0, 0, 0, 0);
+
+  const weeks: Date[][] = [];
+  for (let w = 0; w < 4; w++) {
+    const week: Date[] = [];
+    for (let d = 0; d < 5; d++) {
+      const day = new Date(monday);
+      day.setDate(monday.getDate() + w * 7 + d);
+      week.push(day);
+    }
+    weeks.push(week);
+  }
+
+  const eventsByDay: Record<string, any[]> = {};
+  for (const e of events) {
+    const d = new Date(e.date);
+    const key = d.toISOString().slice(0, 10);
+    if (!eventsByDay[key]) eventsByDay[key] = [];
+    eventsByDay[key].push(e);
+  }
+
+  const monthsRu = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+  const fmtDate = (d: Date) => `${d.getDate()} ${monthsRu[d.getMonth()]}`;
+  const fmtTime = (iso: string) => {
+    const t = new Date(iso);
+    return `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+  };
+  const projectLabel = (raw: string) => {
+    if (!raw) return '';
+    const v = raw.toLowerCase();
+    if (v.includes('зорге') || v.includes('zorge')) return 'Зорге 9';
+    if (v.includes('сереб') || v.includes('silver') || v.includes('берз')) return 'Серебряный Бор';
+    return raw;
+  };
+
+  return (
+    <div className="lp-overlay" style={{position:'fixed',inset:0,zIndex:1100,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflowY:'auto'}} onClick={onClose}>
+      <div className="lp-popup" style={{background:'#1d1e23',color:'#fff',borderRadius:24,maxWidth:1280,width:'100%',padding:'40px 48px 32px',position:'relative'}} onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} aria-label="Закрыть" style={{position:'absolute',top:20,right:20,background:'none',border:'none',color:'#fff',fontSize:28,cursor:'pointer',opacity:0.6,lineHeight:1}}>&times;</button>
+
+        <div style={{display:'grid',gridTemplateColumns:'auto 1fr auto',alignItems:'center',gap:24,marginBottom:32}}>
+          <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:'#B4936F',textTransform:'uppercase'}}>Зорге №9</div>
+          <h2 style={{fontSize:32,fontWeight:300,textAlign:'center',margin:0,letterSpacing:'-0.5px'}}>Расписание брокер-туров</h2>
+          <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:'#B4936F',textTransform:'uppercase',textAlign:'right',lineHeight:1.4}}>Квартал<br />Серебряный Бор</div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14,marginBottom:18}}>
+          {['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ'].map((d) => (
+            <div key={d} style={{textAlign:'center',fontSize:11,letterSpacing:3,color:'rgba(255,255,255,0.4)',paddingBottom:10,borderBottom:'1px solid rgba(255,255,255,0.1)'}}>{d}</div>
+          ))}
+        </div>
+
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          {weeks.map((week, wi) => (
+            <div key={wi} style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14}}>
+              {week.map((day, di) => {
+                const key = day.toISOString().slice(0, 10);
+                const evs = eventsByDay[key] || [];
+                const isPast = day < new Date(today.toISOString().slice(0, 10));
+                if (evs.length === 0) {
+                  return (
+                    <div key={di} style={{
+                      borderRadius:16,
+                      background: isPast ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.06)',
+                      padding:16,
+                      minHeight:96,
+                      opacity: isPast ? 0.4 : 0.7,
+                    }}>
+                      <div style={{fontSize:18,fontWeight:600,marginBottom:8,color:'rgba(255,255,255,0.5)'}}>{fmtDate(day)}</div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={di} style={{
+                    borderRadius:16,
+                    background:'#fff',
+                    color:'#1d1e23',
+                    padding:'16px 18px',
+                    minHeight:96,
+                  }}>
+                    <div style={{fontSize:18,fontWeight:700,marginBottom:8,letterSpacing:'-0.3px'}}>{fmtDate(day)}</div>
+                    {evs.slice(0, 2).map((e, i) => (
+                      <div key={i} style={{display:'flex',alignItems:'baseline',gap:10,fontSize:13,marginBottom:i < evs.length - 1 ? 4 : 0}}>
+                        <strong style={{fontSize:14,fontWeight:700}}>{fmtTime(e.date)}</strong>
+                        <span style={{fontSize:11,color:'#8a8680',borderLeft:'1px solid #e8eaed',paddingLeft:8,lineHeight:1.3}}>{projectLabel(e.title || '') || e.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div style={{textAlign:'center',marginTop:28,fontSize:12,color:'rgba(255,255,255,0.4)'}}>
+          Запись на брокер-тур через личный кабинет или по телефону +7 (499) 226-22-49
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; description?: string; imageUrl?: string }> }) {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    if (slides.length <= 1) return;
+    const id = setInterval(() => setIdx((i) => (i + 1) % slides.length), 5500);
+    return () => clearInterval(id);
+  }, [slides.length]);
+  return (
+    <div className="hero-slides">
+      {slides.map((s, i) => (
+        <div
+          key={i}
+          className="hero-slide"
+          style={{
+            opacity: i === idx ? 1 : 0,
+            zIndex: i === idx ? 2 : 1,
+            backgroundImage: s.imageUrl ? `linear-gradient(105deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.55) 50%, rgba(0,0,0,0.18) 100%), url(${s.imageUrl})` : undefined,
+          }}
+        >
+          <div className="hero-slide-text">
+            {s.tag && <div className="hero-slide-tag">{s.tag}</div>}
+            <h3 className="hero-slide-title">{s.title}</h3>
+            {s.description && <p className="hero-slide-desc">{s.description}</p>}
+          </div>
+        </div>
+      ))}
+      {slides.length > 1 && (
+        <div className="hero-slide-dots">
+          {slides.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setIdx(i)}
+              aria-label={`Слайд ${i + 1}`}
+              style={{
+                width: i === idx ? 28 : 8,
+                height: 8,
+                borderRadius: 4,
+                background: i === idx ? '#fff' : 'rgba(255,255,255,0.4)',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'all .25s',
+                padding: 0,
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ContactFormModal({ onClose, source = 'landing-contact', defaultMessage = '', eventId, title = 'Связаться с нами' }: { onClose: () => void; source?: string; defaultMessage?: string; eventId?: string; title?: string }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -474,11 +637,42 @@ const DEFAULT_HERO = {
     { number: '30 дней', label: 'Срок уникальности клиента' },
     { number: '2', label: 'Активных проекта' },
   ],
+  // Слайдер УТП под Hero (по правке заказчика 2026-05-06).
+  // Размер компактный — 380px, не на всю высоту. Авто-смена 5с.
+  // Картинки с storage.yandexcloud.net (фото проектов ST Michael).
+  // Можно править через /admin/content (вкладка Hero, поле slides).
+  slides: [
+    {
+      tag: 'Зорге 9',
+      title: 'Собственный парк 2 га',
+      description: 'Свыше 20 000 растений, теневые беседки, поющий фонтан, амфитеатр. Парк закрыт для посторонних — только для резидентов.',
+      imageUrl: 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/930e832d465dfa7eb54099e5a17f1a85e9fb2fe7.jpg',
+    },
+    {
+      tag: 'Зорге 9',
+      title: 'Фитнес 3000 м² с бассейном',
+      description: '25-метровый бассейн, йога-студия, SPA-зона. Без дополнительной платы для жителей дома.',
+      imageUrl: 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/26d39dbae8795380a6a329595c2a1f3bc9f84c8e.jpg',
+    },
+    {
+      tag: 'Награды',
+      title: 'Лауреат European Property Awards',
+      description: 'Архитектура и девелопмент признаны лучшими в Европе. 176 апартаментов с потолками 4,3 м, авторский гранд-лобби.',
+      imageUrl: 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/de99a0314df4cc1e64e46c213bac6d490e2315ce.jpg',
+    },
+    {
+      tag: 'Серебряный Бор',
+      title: 'Премиум у заповедника 340 га',
+      description: 'Архитектурное бюро Apex, бассейн-инфинити, гранд-лобби 7 м, приватный кинотеатр. Сдача 2 кв 2027.',
+      imageUrl: 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/15e0d86142a14b41200c6d7353a01a1f6a0f3663.jpg',
+    },
+  ],
 };
 const DEFAULT_ADVANTAGES = {
   tag: 'Преимущества',
   title: 'Почему брокеры выбирают нас',
   titleAccent: 'выбирают нас',
+  subtitle: 'Мы выстроили сотрудничество так, чтобы вы могли начать работать сразу — с первой сделки и с первого дня существования вашего ИП. Без дополнительных условий.',
   items: [
     { title: 'Выделенный отдел партнёров', description: 'Сопровождение на всех этапах сделки.' },
     { title: 'Выделенная линия', description: 'Ответ без ожидания с 9:00 до 21:00.' },
@@ -524,13 +718,13 @@ const DEFAULT_COMMISSION = {
     { name: 'Legend', range: '700+ м²', rate: '8,0%', active: false },
   ],
   cards: [
-    { title: 'Условия выплаты', text: 'Вознаграждение выплачивается в течение 7 рабочих дней после оплаты клиентом. ПВ ≥ 50% (Зорге 9) или ≥ 30% (Серебряный Бор) — единовременно.' },
-    { title: 'Квартальный бонус', text: 'При уровне Strong+ несколько кварталов подряд: +0,1% → +0,15% → +0,2% → +0,25% (максимум). Обнуляется при отсутствии продаж в квартале.' },
-    { title: 'Бонус за скорость', text: '+0,1% к ставке, если от заявки клиента до платной брони проходит не более 10 рабочих дней. Действует на оба проекта.' },
-    { title: 'Годовой бонус', text: '100 000 ₽ + памятный кубок за минимум одну сделку раз в 2 месяца в течение года.' },
-    { title: 'Рассрочка и ипотека', text: 'При рассрочке —0,5% от базовой ставки. Субсидированная ипотека — 4% (м² идут в общий зачёт).' },
-    { title: 'Коммерческие помещения', text: 'Продажа: помещения и фитнес — 3%, отдельно стоящие здания — 2%. Аренда: ритейл — 100% мес. платежа, фитнес/офис — 50%.' },
-    { title: 'Реферальная программа', text: 'Дополнительное вознаграждение за привлечение новых партнёров в программу.' },
+    { title: 'Выплата 7 дней', text: 'Вознаграждение выплачивается в течение 7 рабочих дней после оплаты клиентом.' },
+    { title: 'Квартальный бонус', text: 'При уровне Strong+: +0,1% → +0,25% за стабильные продажи квартал-к-кварталу.' },
+    { title: 'Бонус за скорость', text: '+0,1% если от заявки до платной брони проходит ≤10 рабочих дней.' },
+    { title: 'Годовой бонус', text: '100 000 ₽ + кубок за минимум одну сделку в 2 месяца в течение года.' },
+    { title: 'Рассрочка и ипотека', text: 'Рассрочка: −0,5% от ставки. Субсидированная ипотека: 4% (м² в общий зачёт).' },
+    { title: 'Коммерческие помещения', text: 'Продажа 2-3%. Аренда: ритейл 100% мес. платежа, фитнес/офис 50%.' },
+    { title: 'Реферальная программа', text: 'Дополнительное вознаграждение за привлечение новых партнёров.' },
   ],
 };
 const DEFAULT_CONTACT = {
@@ -543,15 +737,22 @@ const DEFAULT_CONTACT = {
   phoneHours: 'Ежедневно с 9:00 до 21:00',
   email: 'broker@stmichael.ru',
   telegram: 'https://t.me/stmichaelBroker',
-  manager: {
-    name: 'Ксения Цепляева',
-    role: 'Руководитель отдела по работе с партнёрами',
-    phone: '+7 (906) 061-78-00',
-  },
+  managers: [
+    {
+      name: 'Ксения Цепляева',
+      role: 'Руководитель отдела по работе с партнёрами',
+      phone: '+7 (906) 061-78-00',
+    },
+    {
+      name: 'Дарья Великанова',
+      role: 'Менеджер по работе с брокерами',
+      phone: '+7 (930) 012-94-52',
+    },
+  ],
 };
 const DEFAULT_PROJECTS = [
-  { id: 'p1', slug: 'zorge9', tag: 'Приоритетный проект', name: 'Зорге', subtitle: '9', description: 'Апартаменты бизнес-класса у метро Полежаевская. 3 корпуса, архитектура в стиле Арт-Москва. От 270 000 р/м2.', ctaText: 'Смотреть каталог', ctaHref: null },
-  { id: 'p2', slug: 'silver-bor', tag: 'Новый проект', name: 'Квартал', subtitle: 'Серебряный Бор', description: 'Жилой комплекс премиум-класса рядом с Серебряным Бором. Уникальная локация и инфраструктура.', ctaText: 'Смотреть каталог', ctaHref: null },
+  { id: 'p1', slug: 'zorge9', tag: null, name: 'Зорге', subtitle: '9', description: '', ctaText: 'Смотреть каталог', ctaHref: 'https://stmichael.ru/lots?property_type=apartments' },
+  { id: 'p2', slug: 'silver-bor', tag: null, name: 'Квартал', subtitle: 'Серебряный Бор', description: '', ctaText: 'Смотреть каталог', ctaHref: 'https://stmichael.ru/lots?property_type=flat' },
 ];
 
 const MONTHS_RU = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
@@ -575,6 +776,7 @@ export default function LandingPage() {
   const [authModal, setAuthModal] = useState<'login' | 'register' | null>(null);
   const [quickFixOpen, setQuickFixOpen] = useState(false);
   const [contactModal, setContactModal] = useState<{ open: boolean; source?: string; eventId?: string; title?: string; defaultMessage?: string }>({ open: false });
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [commissionProject, setCommissionProject] = useState<'ZORGE9' | 'SILVER_BOR'>('ZORGE9');
   const [hero, setHero] = useState<any>(DEFAULT_HERO);
   const [advantages, setAdvantages] = useState<any>(DEFAULT_ADVANTAGES);
@@ -587,6 +789,7 @@ export default function LandingPage() {
   const [cooperationDocs, setCooperationDocs] = useState<any[]>([]);
   const [analyticsDocs, setAnalyticsDocs] = useState<any[]>([]);
   const [marketingDocs, setMarketingDocs] = useState<any[]>([]);
+  const [news, setNews] = useState<any[]>([]);
   const { broker } = useAuth();
   const router = useRouter();
 
@@ -609,7 +812,7 @@ export default function LandingPage() {
       catch { return null; }
     };
     (async () => {
-      const [content, evs, prjs, prms, coop, anal, mark] = await Promise.all([
+      const [content, evs, prjs, prms, coop, anal, mark, nws] = await Promise.all([
         safeFetch('/api/public/cms/content'),
         safeFetch('/api/public/cms/events'),
         safeFetch('/api/public/cms/projects'),
@@ -617,7 +820,9 @@ export default function LandingPage() {
         safeFetch('/api/public/documents?category=cooperation'),
         safeFetch('/api/public/documents?category=analytics'),
         safeFetch('/api/public/documents?category=marketing'),
+        safeFetch('/api/public/cms/news'),
       ]);
+      if (Array.isArray(nws)) setNews(nws);
       if (content) {
         if (content.hero) setHero({ ...DEFAULT_HERO, ...content.hero });
         if (content.advantages) setAdvantages({ ...DEFAULT_ADVANTAGES, ...content.advantages });
@@ -655,7 +860,7 @@ html{scroll-behavior:smooth}
 body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;font-size:15px;line-height:1.7;overflow-x:hidden}
 .lp a{text-decoration:none;color:inherit}
 .lp header{position:sticky;top:0;z-index:200;background:rgba(255,255,255,0.96);backdrop-filter:blur(20px);border-bottom:1px solid var(--bw);display:flex;align-items:center;justify-content:space-between;padding:0 60px;height:68px}
-.logo{display:flex;align-items:center;gap:12px}.logo-mark{width:34px;height:34px;background:var(--black);border-radius:var(--r-tag);display:flex;align-items:center;justify-content:center}.logo-mark span{font-size:10px;font-weight:800;color:var(--white);letter-spacing:1px}.logo-text{font-size:16px;font-weight:700;letter-spacing:2px}.logo-sub{font-size:10px;color:var(--muted);letter-spacing:1px}
+.logo{display:flex;align-items:center;gap:12px}.logo-img{height:34px;width:auto;display:block}.logo-sub{font-size:10px;color:var(--muted);letter-spacing:1px;border-left:1px solid var(--bw);padding-left:12px;margin-left:4px;text-transform:uppercase;font-weight:600}
 .lp nav{display:flex;align-items:center;gap:28px}.lp nav a{color:var(--muted);font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;transition:color .2s}.lp nav a:hover{color:var(--black)}
 .h-right{display:flex;align-items:center;gap:16px}.h-phone{font-size:13px;color:var(--muted)}
 .btn-enter{display:inline-flex;align-items:center;gap:8px;padding:11px 28px;background:var(--black);color:var(--white);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-enter:hover{background:var(--dark);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,0.15)}
@@ -667,6 +872,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .hero h1{font-size:var(--fs-h1);font-weight:200;line-height:1.05;letter-spacing:-1px;margin-bottom:24px}.hero h1 strong{font-weight:800}.hero h1 em{font-style:normal;color:var(--gold)}
 .hero-desc{font-size:16px;color:var(--muted);max-width:460px;line-height:1.8;font-weight:300;margin-bottom:32px}.hero-btns{display:flex;gap:12px;flex-wrap:wrap}
 .hero-stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--bw);border-radius:var(--r-card-lg);overflow:hidden;background:var(--white)}.hst{padding:28px 22px;text-align:center;border-right:1px solid var(--bw)}.hst:last-child{border-right:none}.hst-n{font-size:32px;font-weight:700;line-height:1;margin-bottom:6px;letter-spacing:-0.5px}.hst-l{font-size:11px;color:var(--muted)}
+.hero-slides{position:relative;width:100%;height:380px;border-radius:var(--r-card-lg);overflow:hidden;margin-top:24px;background:var(--bg2)}.hero-slide{position:absolute;inset:0;background-size:cover;background-position:center;display:flex;align-items:center;padding:0 56px;transition:opacity .8s ease}.hero-slide-text{max-width:560px;color:#fff}.hero-slide-tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:16px;padding:6px 14px;border:1px solid rgba(180,147,111,0.5);border-radius:var(--r-pill)}.hero-slide-title{font-size:clamp(28px,3.2vw,40px);font-weight:300;line-height:1.15;margin-bottom:14px;letter-spacing:-0.5px}.hero-slide-title strong{font-weight:700}.hero-slide-desc{font-size:14px;line-height:1.65;color:rgba(255,255,255,0.85);font-weight:300}.hero-slide-dots{position:absolute;bottom:20px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:3}
 .quick{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--bw);border-radius:var(--r-card-lg);overflow:hidden;margin:0 60px}.qa{padding:28px 32px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:background var(--t);border-right:1px solid var(--bw)}.qa:last-child{border-right:none}.qa:hover{background:var(--bg)}.qa-title{font-size:15px;font-weight:500}.qa-sub{font-size:12px;color:var(--muted);margin-top:3px}.qa-arrow{width:36px;height:36px;border-radius:50%;border:1px solid var(--bw2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;transition:all var(--t);flex-shrink:0}.qa:hover .qa-arrow{background:var(--black);color:var(--white);border-color:var(--black)}
 .lp section{padding:80px 60px}.sep{border:none;border-top:1px solid var(--bw);margin:0 60px}
 .sh{margin-bottom:56px}.sh-center{text-align:center}.sh-tag{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:14px}.sh h2{font-size:var(--fs-h2);font-weight:200;line-height:1.1;letter-spacing:-0.5px}.sh h2 strong{font-weight:800}.sh h2 em{font-style:normal;color:var(--gold)}.sh-sub{color:var(--muted);font-size:15px;max-width:560px;margin-top:14px;line-height:1.7;font-weight:300}.sh-center .sh-sub{margin-left:auto;margin-right:auto}
@@ -676,13 +882,14 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .s-adv{background:var(--black);color:var(--white);padding:96px 60px;position:relative;overflow:hidden}.s-adv .sh-tag{color:var(--gold)}.s-adv h2{color:var(--white)}.s-adv h2 em{color:var(--gold)}.adv-bg-glow{position:absolute;inset:0;background:radial-gradient(circle at 20% 30%,rgba(180,147,111,0.18),transparent 45%),radial-gradient(circle at 85% 80%,rgba(180,147,111,0.12),transparent 50%);pointer-events:none;z-index:0}.s-adv .sh,.s-adv .adv-grid{position:relative;z-index:1}.adv-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r-card-lg);overflow:hidden}.adv-card{padding:36px 30px;background:var(--black);transition:background var(--t)}.adv-card:hover{background:var(--dark)}.adv-icon{width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:16px}.adv-title{font-size:16px;font-weight:600;color:var(--white);margin-bottom:10px}.adv-desc{font-size:13px;color:rgba(255,255,255,0.5);line-height:1.7;font-weight:300}
 .s-comm{background:var(--gold);padding:80px 60px;position:relative;overflow:hidden}.s-comm .sh-tag{color:rgba(255,255,255,0.6)}.s-comm h2{color:var(--white)}.comm-content{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:28px}.comm-desc{font-size:15px;color:rgba(255,255,255,0.8);line-height:1.8;font-weight:300;margin-bottom:24px}.comm-list{display:flex;flex-direction:column;gap:10px}.comm-list-item{display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.9)}.comm-list-dot{width:6px;height:6px;border-radius:50%;background:var(--white);flex-shrink:0;margin-top:7px}
 .s-cta{text-align:center;padding:100px 60px}
+.news-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.news-card{display:flex;flex-direction:column;border-radius:var(--r-card);overflow:hidden;background:var(--white);border:1px solid var(--bw);transition:all var(--t);text-decoration:none;color:inherit}.news-card:hover{border-color:var(--gold-border);transform:translateY(-3px);box-shadow:0 12px 28px rgba(0,0,0,0.06)}.news-img{height:160px;background-size:cover;background-position:center;background-color:var(--bg2)}.news-body{padding:18px 20px;display:flex;flex-direction:column;gap:6px;flex:1}.news-source{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold)}.news-title{font-size:14px;font-weight:500;line-height:1.45}.news-meta{font-size:11px;color:var(--muted);margin-top:auto;padding-top:8px}
 .lp footer{padding:40px 60px;border-top:1px solid var(--bw);background:var(--bg)}.foot-grid{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:40px;margin-bottom:28px}.foot-logo{font-size:14px;font-weight:700;letter-spacing:2.5px;margin-bottom:2px}.foot-logo-sub{font-size:10px;color:var(--muted);letter-spacing:1px}.foot-col-title{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:12px}.foot-link{display:block;font-size:13px;color:var(--muted);margin-bottom:7px;transition:color .2s}.foot-link:hover{color:var(--black)}.foot-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:18px;border-top:1px solid var(--bw);font-size:12px;color:var(--muted2)}
 .float-btn{position:fixed;bottom:28px;right:28px;z-index:100;padding:14px 28px;background:var(--black);color:var(--white);font-size:12px;font-weight:700;letter-spacing:1px;border-radius:50px;cursor:pointer;border:none;box-shadow:0 4px 20px rgba(0,0,0,0.2);transition:all .25s}.float-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,0.3)}
 .ev-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.ev-card{padding:24px 26px;border:1px solid var(--bw);border-radius:var(--r-card);display:flex;align-items:center;gap:20px;cursor:pointer;transition:all var(--t);background:var(--white)}.ev-card:hover{border-color:var(--gold-border);background:var(--gold-bg);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.05)}.ev-date{width:54px;height:54px;border-radius:var(--r-tag);background:var(--bg);border:1px solid var(--bw);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0}.ev-day{font-size:22px;font-weight:700;line-height:1}.ev-mon{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}.ev-info{flex:1}.ev-title{font-size:15px;font-weight:500;margin-bottom:3px}.ev-meta{font-size:12px;color:var(--muted)}
-.coop-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}.coop-left p{font-size:15px;color:var(--muted);line-height:1.8;font-weight:300;margin-bottom:24px}.doc-list{display:flex;flex-direction:column;gap:8px}.doc-item{display:flex;align-items:center;gap:12px;padding:16px 20px;background:var(--white);border:1px solid var(--bw);border-radius:var(--r-card);cursor:pointer;transition:all var(--t)}.doc-item:hover{border-color:var(--gold-border);background:var(--gold-bg);transform:translateX(4px)}.doc-name{font-size:13px;flex:1}.doc-dl{color:var(--muted);font-size:14px}
+.coop-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}.coop-left p{font-size:15px;color:var(--muted);line-height:1.8;font-weight:300;margin-bottom:24px}.doc-list{display:flex;flex-direction:column;gap:8px}.doc-item{display:flex;align-items:center;gap:14px;padding:16px 20px;background:var(--white);border:1px solid var(--bw);border-radius:var(--r-card);cursor:pointer;transition:all var(--t)}.doc-item:hover{border-color:var(--gold-border);background:var(--gold-bg);transform:translateX(4px)}.doc-icon{width:36px;height:36px;border-radius:10px;background:var(--gold-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}.doc-name{font-size:13px;flex:1;font-weight:500}.doc-dl{color:var(--muted);display:flex;align-items:center}
 @media(max-width:1279px){.lp section{padding:80px 40px}.s-adv,.s-comm,.s-cta{padding-left:40px;padding-right:40px}.lp header{padding:0 40px}.hero{padding:64px 40px 40px}.lp footer{padding:40px 40px}.quick,.sep{margin-left:40px;margin-right:40px}}
-@media(max-width:1023px){.lp nav{gap:18px}.lp nav a{font-size:10px}.adv-grid,.proj-grid{grid-template-columns:repeat(2,1fr)}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}}
-@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp nav{display:none}.lp section{padding:64px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:48px 20px 32px}.hero-inner{margin-bottom:36px}.lp footer{padding:32px 20px}.quick,.sep{margin-left:20px;margin-right:20px}.hero-stats{grid-template-columns:repeat(2,1fr)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:36px}}
+@media(max-width:1023px){.lp nav{gap:18px}.lp nav a{font-size:10px}.adv-grid,.proj-grid{grid-template-columns:repeat(2,1fr)}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp nav{display:none}.lp section{padding:64px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:48px 20px 32px}.hero-inner{margin-bottom:36px}.lp footer{padding:32px 20px}.quick,.sep{margin-left:20px;margin-right:20px}.hero-stats{grid-template-columns:repeat(2,1fr)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:36px}.hero-slides{height:280px}.hero-slide{padding:0 28px}}
 @media(max-width:499px){.hero-stats{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}.proj-card{min-height:180px;padding:24px 20px}.proj-name{font-size:24px}.adv-card{padding:28px 22px}.comm-grid{gap:24px}}
 @media(max-width:374px){.hero-btns{flex-direction:column}.hero-btns .btn-gold,.hero-btns .btn-outline{width:100%;justify-content:center}}
       `}} />
@@ -690,8 +897,13 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
       <div className="lp">
         <header>
           <a className="logo" href="#">
-            <div className="logo-mark"><span>SM</span></div>
-            <div><div className="logo-text">ST MICHAEL</div><div className="logo-sub">Кабинет брокера</div></div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/stmichael-logo.png"
+              alt="ST Michael"
+              className="logo-img"
+            />
+            <div className="logo-sub">Кабинет брокера</div>
           </a>
           <nav>
             <a href="#projects">Проекты</a>
@@ -734,6 +946,12 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               ))}
             </div>
           </Reveal>
+
+          {Array.isArray(hero.slides) && hero.slides.length > 0 && (
+            <Reveal>
+              <HeroSlides slides={hero.slides} />
+            </Reveal>
+          )}
         </div>
 
         {/* PROJECTS */}
@@ -745,7 +963,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               <div className="proj-card" onClick={() => handleProjectClick(p)} style={p.imageUrl ? { backgroundImage: `linear-gradient(rgba(248,247,245,0.94), rgba(248,247,245,0.94)), url(${p.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', minHeight: 280 } : undefined}>
                 {p.tag && <div className="proj-tag">{p.tag}</div>}
                 <div className="proj-name"><strong>{p.name}</strong>{p.subtitle ? ` ${p.subtitle}` : ''}</div>
-                <div className="proj-info">{p.description}</div>
+                {p.description && <div className="proj-info">{p.description}</div>}
 
                 {(p.classType || p.address || p.readyYear || p.totalUnits || p.commissionFrom) && (
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 16px',fontSize:11,color:'var(--muted)',marginTop:8,marginBottom:12}}>
@@ -874,15 +1092,14 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               <div className="sh-tag">Календарь событий</div>
               <h2>Ближайшие <em>мероприятия</em></h2>
             </div>
-            <a
-              href="https://t.me/stmichaelBroker"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => setCalendarOpen(true)}
               className="btn-outline"
               style={{padding:'10px 24px',fontSize:10,marginBottom:4,whiteSpace:'nowrap'}}
             >
               Все события &rarr;
-            </a>
+            </button>
           </div>
           {events.length === 0 ? (
             <div style={{textAlign:'center',color:'var(--muted)',fontSize:14,padding:'24px 0'}}>В ближайшее время мероприятий не запланировано</div>
@@ -945,7 +1162,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
         {/* ADVANTAGES */}
         <section className="s-adv">
           <div className="adv-bg-glow" />
-          <div className="sh"><div className="sh-tag">{advantages.tag}</div><h2>{renderAccent(advantages.title, advantages.titleAccent)}</h2></div>
+          <div className="sh"><div className="sh-tag">{advantages.tag}</div><h2>{renderAccent(advantages.title, advantages.titleAccent)}</h2>{advantages.subtitle && <p className="sh-sub" style={{color:'rgba(255,255,255,0.6)'}}>{advantages.subtitle}</p>}</div>
           <div className="adv-grid">
             {(advantages.items || []).map((it: any, i: number) => {
               const Icon = ADVANTAGE_ICONS[it.title];
@@ -978,12 +1195,16 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             </div>
             <div className="doc-list">
               {cooperationDocs.length === 0 ? (
-                <div className="doc-item" style={{cursor:'default'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся документы</div></div>
+                <div className="doc-item" style={{cursor:'default'}}>
+                  <div className="doc-icon"><FileText style={{width:18,height:18,color:'var(--gold)'}} /></div>
+                  <div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся документы</div>
+                </div>
               ) : (
                 cooperationDocs.map((d: any) => (
                   <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="doc-item">
+                    <div className="doc-icon"><FileText style={{width:18,height:18,color:'var(--gold)'}} /></div>
                     <div className="doc-name">{d.name}</div>
-                    <div className="doc-dl">&darr;</div>
+                    <div className="doc-dl"><DownloadIcon style={{width:16,height:16}} /></div>
                   </a>
                 ))
               )}
@@ -991,24 +1212,25 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           </div>
         </section>
 
-        <hr className="sep" />
-
-        {/* ANALYTICS — Аналитика */}
-        <section id="analytics">
-          <div className="sh"><div className="sh-tag">Аналитика</div><h2>Инструменты <em>инвестирования</em></h2><p className="sh-sub">Калькуляторы, презентации и аналитика для работы с клиентами-инвесторами</p></div>
-          <div className="ads-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            {analyticsDocs.length === 0 ? (
-              <div className="doc-item" style={{cursor:'default',gridColumn:'span 2'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся материалы</div></div>
-            ) : (
-              analyticsDocs.map((d: any) => (
-                <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="doc-item">
-                  <div className="doc-name">{d.name}</div>
-                  <div className="doc-dl">&rarr;</div>
-                </a>
-              ))
-            )}
-          </div>
-        </section>
+        {/* ANALYTICS — скрыт с лендинга по правке заказчика 2026-05-06.
+            Блок появляется только если в /admin/documents (category=analytics)
+            добавлены документы. Иначе секция не рендерится вообще. */}
+        {analyticsDocs.length > 0 && (
+          <>
+            <hr className="sep" />
+            <section id="analytics">
+              <div className="sh"><div className="sh-tag">Аналитика</div><h2>Инструменты <em>инвестирования</em></h2><p className="sh-sub">Калькуляторы, презентации и аналитика для работы с клиентами-инвесторами</p></div>
+              <div className="ads-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                {analyticsDocs.map((d: any) => (
+                  <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="doc-item">
+                    <div className="doc-name">{d.name}</div>
+                    <div className="doc-dl">&rarr;</div>
+                  </a>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
 
         <hr className="sep" />
 
@@ -1089,34 +1311,80 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
         {/* CONTACT — Всегда на связи */}
         <section id="contact">
           <div className="sh"><div className="sh-tag">{contact.tag}</div><h2>{renderAccent(contact.title, contact.titleAccent)}</h2></div>
-          <div className="coop-grid">
-            <div className="coop-left">
-              <p>{contact.description}</p>
-              <div style={{padding:'16px 18px',background:'var(--bg)',borderRadius:'var(--r)',border:'1px solid var(--bw)',marginBottom:12}}>
-                <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--gold)',marginBottom:8}}>{contact.blockTitle}</div>
-                {contact.phone && <div style={{fontSize:16,marginBottom:4}}><a href={`tel:${contact.phone.replace(/\D/g,'')}`} style={{color:'var(--black)',fontWeight:700}}>{contact.phone}</a></div>}
-                {contact.phoneHours && <div style={{fontSize:12,color:'var(--muted)',marginBottom:6}}>{contact.phoneHours}</div>}
+          <div className="coop-grid" style={{alignItems:'stretch'}}>
+            <div className="coop-left" style={{display:'flex',flexDirection:'column',gap:12}}>
+              <p style={{marginBottom:0}}>{contact.description}</p>
+              <div style={{padding:'18px 20px',background:'var(--bg)',borderRadius:'var(--r-card)',border:'1px solid var(--bw)'}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--gold)',marginBottom:10}}>{contact.blockTitle}</div>
+                {contact.phone && <div style={{fontSize:18,marginBottom:4,fontWeight:700}}><a href={`tel:${contact.phone.replace(/\D/g,'')}`} style={{color:'var(--black)'}}>{contact.phone}</a></div>}
+                {contact.phoneHours && <div style={{fontSize:12,color:'var(--muted)',marginBottom:8}}>{contact.phoneHours}</div>}
                 {contact.email && <div style={{fontSize:14,marginBottom:4}}><a href={`mailto:${contact.email}`} style={{color:'var(--black)'}}>{contact.email}</a></div>}
-                {contact.telegram && <div style={{fontSize:14}}><a href={contact.telegram} target="_blank" rel="noopener noreferrer" style={{color:'var(--gold)'}}>Telegram</a></div>}
+                {contact.telegram && <div style={{fontSize:14}}><a href={contact.telegram} target="_blank" rel="noopener noreferrer" style={{color:'var(--gold)'}}>Telegram-канал</a></div>}
               </div>
-              {contact.manager && (
-                <div style={{padding:'14px 18px',background:'var(--white)',borderRadius:'var(--r)',border:'1px solid var(--gold-border)'}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--muted)',marginBottom:6}}>Персональный контакт</div>
-                  <div style={{fontSize:15,fontWeight:600,color:'var(--black)',marginBottom:2}}>{contact.manager.name}</div>
-                  {contact.manager.role && <div style={{fontSize:12,color:'var(--muted)',marginBottom:6}}>{contact.manager.role}</div>}
-                  {contact.manager.phone && <div style={{fontSize:14}}><a href={`tel:${contact.manager.phone.replace(/\D/g,'')}`} style={{color:'var(--black)',fontWeight:600}}>{contact.manager.phone}</a></div>}
-                </div>
-              )}
+
+              {/* Персональные менеджеры — массив, поддерживает legacy одиночный manager */}
+              {(() => {
+                const list = Array.isArray(contact.managers) && contact.managers.length > 0
+                  ? contact.managers
+                  : (contact.manager ? [contact.manager] : []);
+                if (list.length === 0) return null;
+                return (
+                  <div style={{display:'grid',gridTemplateColumns: list.length > 1 ? '1fr 1fr' : '1fr',gap:10}}>
+                    {list.map((m: any, i: number) => (
+                      <div key={i} style={{padding:'14px 16px',background:'var(--white)',borderRadius:'var(--r-card)',border:'1px solid var(--gold-border)'}}>
+                        <div style={{fontSize:9,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--muted)',marginBottom:6}}>Персональный контакт</div>
+                        <div style={{fontSize:15,fontWeight:600,color:'var(--black)',marginBottom:2}}>{m.name}</div>
+                        {m.role && <div style={{fontSize:11,color:'var(--muted)',marginBottom:6,lineHeight:1.5}}>{m.role}</div>}
+                        {m.phone && <div style={{fontSize:13}}><a href={`tel:${m.phone.replace(/\D/g,'')}`} style={{color:'var(--black)',fontWeight:600}}>{m.phone}</a></div>}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
-            <div style={{padding:'24px 28px',background:'var(--bg)',borderRadius:'var(--r)',border:'1px solid var(--bw)'}}>
+
+            <div style={{padding:'32px 32px',background:'var(--bg)',borderRadius:'var(--r-card-lg)',border:'1px solid var(--bw)',display:'flex',flexDirection:'column',justifyContent:'center'}}>
               <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'var(--gold)',marginBottom:14}}>Связаться с менеджером</div>
-              <p style={{fontSize:13,color:'var(--muted)',marginBottom:14,lineHeight:1.7}}>Оставьте заявку — наш менеджер партнёрской программы свяжется с вами в течение часа.</p>
-              <button className="btn-gold" onClick={() => setContactModal({ open: true, source: 'landing-contact', title: 'Связаться с нами' })}>
+              <h3 style={{fontSize:24,fontWeight:200,marginBottom:14,lineHeight:1.2}}>Оставьте заявку — <strong style={{fontWeight:700}}>перезвоним за час</strong></h3>
+              <p style={{fontSize:13,color:'var(--muted)',marginBottom:20,lineHeight:1.7}}>Менеджер партнёрской программы ответит на любые вопросы по проектам, фиксации клиентов и условиям комиссии.</p>
+              <button className="btn-gold" style={{alignSelf:'flex-start'}} onClick={() => setContactModal({ open: true, source: 'landing-contact', title: 'Связаться с нами' })}>
                 Оставить заявку
               </button>
             </div>
           </div>
         </section>
+
+        {/* NEWS — упоминания / статьи (как у Stone). Скрыт если БД пуста. */}
+        {news.length > 0 && (
+          <>
+            <hr className="sep" />
+            <section id="news" style={{background:'var(--bg)'}}>
+              <div className="sh" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:24}}>
+                <div>
+                  <div className="sh-tag">СМИ о нас</div>
+                  <h2>Новости</h2>
+                </div>
+                <a href="https://t.me/stmichaelBroker" target="_blank" rel="noopener noreferrer" className="btn-outline" style={{padding:'10px 24px',fontSize:10,marginBottom:4,whiteSpace:'nowrap'}}>
+                  Все новости &rarr;
+                </a>
+              </div>
+              <div className="news-grid">
+                {news.slice(0, 6).map((n: any) => (
+                  <a key={n.id} href={n.url} target="_blank" rel="noopener noreferrer" className="news-card">
+                    {n.imageUrl && <div className="news-img" style={{backgroundImage:`url(${n.imageUrl})`}} />}
+                    <div className="news-body">
+                      {n.source && <div className="news-source">{n.source}</div>}
+                      <div className="news-title">{n.title}</div>
+                      <div className="news-meta">
+                        {n.publishedAt && new Date(n.publishedAt).toLocaleDateString('ru-RU', {day:'numeric',month:'long',year:'numeric'})}
+                      </div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
 
         <hr className="sep" />
 
@@ -1133,7 +1401,15 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
         {/* FOOTER */}
         <footer>
           <div className="foot-grid">
-            <div><div className="foot-logo">ST MICHAEL</div><div className="foot-logo-sub">Кабинет брокера</div></div>
+            <div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/stmichael-logo.png"
+                alt="ST Michael"
+                style={{ height: 28, width: 'auto', display: 'block', marginBottom: 8 }}
+              />
+              <div className="foot-logo-sub">Кабинет брокера</div>
+            </div>
             <div><div className="foot-col-title">Условия</div><a className="foot-link" href="#cooperation">Условия сотрудничества</a><a className="foot-link" href="#events">Календарь событий</a><a className="foot-link" href="#commission">Комиссия</a></div>
             <div><div className="foot-col-title">Проекты</div>{projects.map((p: any) => (<span key={p.id} className="foot-link" onClick={() => handleProjectClick(p)} style={{cursor:'pointer'}}>{p.name}{p.subtitle ? ` ${p.subtitle}` : ''}</span>))}</div>
             <div><div className="foot-col-title">Партнёрам</div>{contact.phone && <a className="foot-link" href={`tel:${contact.phone.replace(/\D/g,'')}`}>{contact.phone}</a>}{contact.email && <a className="foot-link" href={`mailto:${contact.email}`}>{contact.email}</a>}{contact.telegram && <a className="foot-link" href={contact.telegram}>Telegram</a>}</div>
@@ -1154,6 +1430,13 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
       )}
 
       {quickFixOpen && <QuickFixModal onClose={() => setQuickFixOpen(false)} />}
+
+      {calendarOpen && (
+        <BrokerToursCalendarModal
+          events={events}
+          onClose={() => setCalendarOpen(false)}
+        />
+      )}
 
       {contactModal.open && (
         <ContactFormModal
