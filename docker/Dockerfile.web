@@ -1,27 +1,40 @@
+# syntax=docker/dockerfile:1.6
 FROM node:20-alpine AS builder
 WORKDIR /app
 # python3/make/g++ нужны для нативной компиляции bcrypt из workspace apps/api,
-# когда prebuilt-бинарник не качается. Без них `npm install` на root-уровне
-# падает с node-pre-gyp ERR (см. fail run #25439732478). Эти пакеты живут
-# только в throwaway-builder-stage — итоговый web-образ остаётся компактным.
+# когда prebuilt-бинарник не качается. Эти пакеты живут только в throwaway-builder-stage.
 RUN apk add --no-cache python3 make g++
+
+# 1) Сначала только манифесты — слой npm install кешируется.
+COPY package.json package-lock.json* ./
+COPY apps/api/package.json apps/api/
+COPY apps/telegram/package.json apps/telegram/
+COPY apps/web/package.json apps/web/
+COPY packages/database/package.json packages/database/
+COPY packages/integrations/package.json packages/integrations/
+COPY packages/shared/package.json packages/shared/
+
+# 2) npm install с BuildKit cache mount.
+RUN --mount=type=cache,target=/root/.npm npm install
+
+# 3) Остальной код.
 COPY . .
-RUN npm install
+
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build --workspace=apps/web 2>/dev/null || (cd apps/web && npx next build)
 
+# ─── runtime ───
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
-COPY --from=builder /app/apps/web/.next/standalone ./
-COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 # В standalone-режиме public/ НЕ копируется автоматически — нужно отдельно.
 # Без этой строки stmichael-logo.png, sw.js и другие статики из public/
 # отдают 404. См. https://nextjs.org/docs/app/api-reference/next-config-js/output#caveats
-COPY --from=builder /app/apps/web/public ./apps/web/public
-RUN chown -R nextjs:nodejs /app
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000

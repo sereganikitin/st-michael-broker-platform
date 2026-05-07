@@ -13,6 +13,14 @@
 set -e
 cd "$(dirname "$0")"
 
+# Включаем BuildKit — нужен для:
+#   - cache mounts в Dockerfile (RUN --mount=type=cache,target=/root/.npm)
+#   - syntax=docker/dockerfile:1.6 директивы
+# Без BuildKit npm install прогоняется с нуля каждый раз → сборка ~40 минут
+# вместо ~5. См. docker/Dockerfile.api и docker/Dockerfile.web.
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 echo "==> Рабочая директория: $(pwd)"
 
 # Detect docker compose command (новый "docker compose" или старый "docker-compose")
