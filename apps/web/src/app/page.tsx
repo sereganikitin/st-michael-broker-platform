@@ -493,12 +493,10 @@ function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; d
     const id = setInterval(() => setIdx((i) => (i + 1) % slides.length), 6000);
     return () => clearInterval(id);
   }, [slides.length]);
-  // Правка "Корректировка 2" (2026-05-07): слайдер в Stone-style.
-  // Вместо большой картинки на весь баннер с тёмным оверлеем — горизонтальная
-  // карточка-слайд: слева текст на светлом фоне, справа квадратный рендер
-  // как отдельная картинка. Высота ~200px (вместо 480px) — компактнее.
-  // Оба слайда (с фото и без) теперь выглядят одинаково — просто карточка
-  // с текстом и при наличии imageUrl справа есть рендер.
+  // Правка от заказчика 2026-05-07 (после правок 16:06): возврат к
+  // ПОЛНОШИРИННОЙ картинке-фону с тёмным градиентом и текстом-оверлеем.
+  // Stone-style (текст-карточка слева + рендер справа) — отменён, заказчик
+  // хочет картинки во всю ширину как раньше.
   return (
     <div className="hero-slides">
       {slides.map((s, i) => (
@@ -509,6 +507,9 @@ function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; d
             opacity: i === idx ? 1 : 0,
             zIndex: i === idx ? 2 : 1,
             visibility: i === idx ? 'visible' : 'hidden',
+            backgroundImage: s.imageUrl
+              ? `linear-gradient(95deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 55%, rgba(0,0,0,0.1) 100%), url(${s.imageUrl})`
+              : 'linear-gradient(135deg, var(--dark) 0%, var(--black) 100%)',
           }}
         >
           <div className="hero-slide-content">
@@ -519,13 +520,6 @@ function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; d
               <a className="btn-gold btn-lg" href={s.ctaHref} target="_blank" rel="noopener noreferrer">{s.ctaText}</a>
             )}
           </div>
-          {s.imageUrl && (
-            <div
-              className="hero-slide-image"
-              style={{ backgroundImage: `url(${s.imageUrl})` }}
-              aria-hidden="true"
-            />
-          )}
         </div>
       ))}
       {slides.length > 1 && (
@@ -558,7 +552,7 @@ function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; d
                   width: i === idx ? 28 : 8,
                   height: 8,
                   borderRadius: 4,
-                  background: i === idx ? 'var(--gold)' : 'rgba(0,0,0,0.18)',
+                  background: i === idx ? 'var(--gold)' : 'rgba(255,255,255,0.45)',
                   border: 'none',
                   cursor: 'pointer',
                   transition: 'all .25s',
@@ -1003,19 +997,21 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .btn-tertiary{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--bg);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-tertiary:hover{background:var(--bg2)}
 .btn-white{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--white);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-white:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.15)}
 .hero-banner{padding:0 60px;margin-top:20px}
-.hero-slides{position:relative;width:100%;height:220px;border-radius:var(--r-card);overflow:hidden;background:var(--bg)}
-.hero-slide{position:absolute;inset:0;display:grid;grid-template-columns:1fr 320px;gap:0;transition:opacity .6s ease;background:var(--bg)}
-.hero-slide-content{padding:36px 40px;display:flex;flex-direction:column;justify-content:center;background:var(--bg)}
-.hero-slide-tag{font-size:10px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--gold);margin-bottom:10px}
-.hero-slide-title{font-size:clamp(22px,2.4vw,30px);font-weight:600;line-height:1.15;margin-bottom:10px;letter-spacing:-0.4px;color:var(--black)}
+/* Возврат к полноширинному стилю: картинка во весь блок с тёмным градиентом
+   слева → прозрачным справа, текст поверх. Высота 380px чтобы рендер было
+   хорошо видно. Правка от 2026-05-07 после Stone-style. */
+.hero-slides{position:relative;width:100%;height:380px;border-radius:var(--r-card);overflow:hidden;background:var(--bg2)}
+.hero-slide{position:absolute;inset:0;display:flex;align-items:flex-end;padding:44px 56px;background-size:cover;background-position:center;transition:opacity .6s ease}
+.hero-slide-content{max-width:680px;color:#fff;display:flex;flex-direction:column;align-items:flex-start;gap:0}
+.hero-slide-tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;padding:6px 14px;border:1px solid rgba(180,147,111,0.6);border-radius:var(--r-pill);background:rgba(0,0,0,0.25);backdrop-filter:blur(8px)}
+.hero-slide-title{font-size:clamp(26px,3vw,40px);font-weight:300;line-height:1.1;margin:0 0 12px;letter-spacing:-0.5px;color:#fff}
 .hero-slide-title strong{font-weight:700}
-.hero-slide-desc{font-size:13px;line-height:1.55;color:var(--muted);font-weight:400;max-width:560px;margin-bottom:14px}
-.hero-slide-content .btn-gold{align-self:flex-start;padding:12px 24px;font-size:11px}
-.hero-slide-image{background-size:cover;background-position:center;background-color:var(--bg2)}
-.hero-slide-dots{position:absolute;bottom:14px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:3}
-.hero-slide-arrow{position:absolute;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.92);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--black);box-shadow:0 4px 16px rgba(0,0,0,0.12);transition:all var(--t);z-index:4}
-.hero-slide-arrow:hover{background:var(--gold);color:var(--white);box-shadow:0 6px 20px rgba(180,147,111,0.32)}
-.hero-slide-arrow-prev{left:14px}.hero-slide-arrow-next{right:14px}
+.hero-slide-desc{font-size:14px;line-height:1.6;color:rgba(255,255,255,0.9);font-weight:300;max-width:560px;margin:0 0 16px}
+.hero-slide-content .btn-gold{padding:12px 24px;font-size:11px}
+.hero-slide-dots{position:absolute;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:3}
+.hero-slide-arrow{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,0.92);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--black);box-shadow:0 4px 16px rgba(0,0,0,0.18);transition:all var(--t);z-index:4}
+.hero-slide-arrow:hover{background:var(--gold);color:var(--white);box-shadow:0 6px 20px rgba(180,147,111,0.4)}
+.hero-slide-arrow-prev{left:18px}.hero-slide-arrow-next{right:18px}
 .hero{padding:56px 60px 44px}
 .hero-compact{max-width:920px;margin:0 auto;text-align:center}
 .hero-tag{display:inline-flex;align-items:center;gap:10px;margin-bottom:18px}.hero-compact .hero-tag{justify-content:center}.hero-tag::before{content:'';width:28px;height:1px;background:var(--gold)}.hero-tag span{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold)}
@@ -1051,8 +1047,8 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .mat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .mat-card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg);border-radius:10px;cursor:pointer;transition:all var(--t);text-decoration:none;color:inherit}.mat-card:hover{background:var(--gold-bg);transform:translateX(2px)}.mat-card-icon{width:32px;height:32px;border-radius:8px;background:var(--white);display:flex;align-items:center;justify-content:center;color:var(--gold);flex-shrink:0}.mat-card-body{flex:1;min-width:0}.mat-card-name{font-size:12px;font-weight:500;color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mat-card-type{font-size:9px;font-weight:600;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:2px}.mat-card-dl{color:var(--muted);flex-shrink:0}.mat-card:hover .mat-card-dl{color:var(--gold)}
 @media(max-width:1279px){.lp section{padding:72px 40px}.s-adv,.s-comm,.s-cta{padding-left:40px;padding-right:40px}.lp header{padding:0 40px}.hero{padding:48px 40px 40px}.hero-banner{padding:0 40px}.lp footer{padding:40px 40px}.quick,.sep,.stats-band{margin-left:40px;margin-right:40px}}
-@media(max-width:1023px){.adv-grid,.proj-grid{grid-template-columns:repeat(2,1fr)}.mat-groups{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-slide{grid-template-columns:1fr 240px}.hero-slide-content{padding:28px 32px}.h-burger-menu{right:40px}}
-@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:28px 20px 28px}.hero-banner{padding:0 20px;margin-top:16px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid,.mat-groups{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:28px}.hero-slides{height:auto;min-height:280px}.hero-slide{grid-template-columns:1fr;height:auto}.hero-slide-content{padding:24px 24px}.hero-slide-image{display:none}.hero-slide-title{font-size:clamp(20px,5vw,26px)}.hero h1{font-size:clamp(28px,8vw,40px)}.h-burger-menu{right:20px}.h-phone{display:none}}
+@media(max-width:1023px){.adv-grid,.proj-grid{grid-template-columns:repeat(2,1fr)}.mat-groups{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-slides{height:320px}.hero-slide{padding:36px 40px}.h-burger-menu{right:40px}}
+@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:28px 20px 28px}.hero-banner{padding:0 20px;margin-top:16px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid,.mat-groups{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:28px}.hero-slides{height:280px}.hero-slide{padding:24px 22px}.hero-slide-title{font-size:clamp(20px,5vw,28px)}.hero h1{font-size:clamp(28px,8vw,40px)}.h-burger-menu{right:20px}.h-phone{display:none}}
 @media(max-width:499px){.stats-band{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}.proj-card{min-height:180px;padding:24px 20px}.proj-name{font-size:24px}.adv-card{padding:28px 22px}.comm-grid{gap:24px}.h-phone{font-size:12px}}
 @media(max-width:374px){.hero-btns{flex-direction:column;align-items:stretch}.hero-btns .btn-gold{width:100%;justify-content:center}}
       `}} />
@@ -1168,19 +1164,20 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           </div>
         </section>
 
-        {/* PROMO SLIDER — переделан 2026-05-07 (корректировка 16:06):
-            - все слайды единообразные (раньше слайды с imageUrl имели
-              faded bg image, без imageUrl — нет; теперь все одинаковые)
-            - добавлены кнопки prev/next для ручного листания
-            - картинка справа как отдельный блок (Stone-style), а не fade-bg */}
+        {/* PROMO SLIDER — full-width стиль (revert от 2026-05-07):
+            картинка во весь блок с тёмным градиентом + текст-оверлей.
+            Использует тот же класс .hero-slides что и Hero. */}
         {promos.length > 0 && (
           <section id="promos" style={{padding:'40px 60px'}}>
-            <div className="hero-slides" style={{height:200}}>
+            <div className="hero-slides" style={{height:280}}>
               {promos.map((p, i) => (
                 <div key={p.id} className="hero-slide" style={{
                   opacity: i === promoIdx ? 1 : 0,
                   zIndex: i === promoIdx ? 2 : 1,
                   visibility: i === promoIdx ? 'visible' : 'hidden',
+                  backgroundImage: p.imageUrl
+                    ? `linear-gradient(95deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 55%, rgba(0,0,0,0.1) 100%), url(${p.imageUrl})`
+                    : 'linear-gradient(135deg, var(--gold3) 0%, var(--gold) 100%)',
                 }}>
                   <div className="hero-slide-content">
                     {p.tag && <div className="hero-slide-tag">{p.tag}</div>}
@@ -1193,19 +1190,12 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                         className="btn-gold btn-lg"
                         target={p.ctaHref?.startsWith('http') ? '_blank' : undefined}
                         rel="noopener noreferrer"
-                        style={{alignSelf:'flex-start',padding:'12px 24px',fontSize:11}}
+                        style={{padding:'12px 24px',fontSize:11}}
                       >
                         {p.ctaText || 'Подробнее'}
                       </a>
                     )}
                   </div>
-                  {p.imageUrl && (
-                    <div
-                      className="hero-slide-image"
-                      style={{ backgroundImage: `url(${p.imageUrl})` }}
-                      aria-hidden="true"
-                    />
-                  )}
                 </div>
               ))}
               {promos.length > 1 && (
@@ -1230,7 +1220,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                     {promos.map((_, i) => (
                       <button key={i} onClick={() => setPromoIdx(i)} style={{
                         width: i === promoIdx ? 24 : 8, height: 8, borderRadius: 4,
-                        background: i === promoIdx ? 'var(--gold)' : 'rgba(0,0,0,0.2)',
+                        background: i === promoIdx ? 'var(--gold)' : 'rgba(255,255,255,0.45)',
                         border: 'none', cursor: 'pointer', transition: 'all .25s', padding: 0,
                       }} aria-label={`Слайд ${i+1}`} />
                     ))}
