@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /**
- * Сидит документ "Как начать сотрудничать с St Michael" в категорию cooperation.
- * Файл лежит как статика в apps/web/public/docs/ — fileUrl ведёт туда.
+ * Сидит документы в категорию cooperation. Идемпотентен (UPSERT по description).
  *
- * Идемпотентен: если документ с таким description уже есть — обновляет его,
- * иначе создаёт. Безопасно запускать многократно.
+ * Текущий список (по правкам заказчика):
+ *   - "Условия вознаграждения партнёром St Michael (новая объединённая шкала)" —
+ *     актуальный документ с условиями вознаграждения, объединённая шкала по
+ *     обоим проектам (по правке "Корректировка 16:06" от 2026-05-07).
  *
- * Запуск (на сервере): node /app/scripts/seed-cooperation-doc.js
- * Через workflow_dispatch — task=seed-cooperation-doc.
+ * Старый файл "Как начать сотрудничать" удалён по правке заказчика — см.
+ * scripts/cleanup-cooperation-docs.js.
+ *
+ * Запуск через workflow: task=seed-cooperation-doc
  */
 
 let PrismaClient;
@@ -17,34 +20,38 @@ try {
   ({ PrismaClient } = require('../packages/database/node_modules/@prisma/client'));
 }
 
-const DOC = {
-  name: 'Как начать сотрудничать с St Michael',
-  description: '[seed:cooperation-doc-howto]',
-  type: 'DOCX',
-  category: 'cooperation',
-  // Путь /cooperation/* — статика веб-контейнера. Раньше был /docs/* но
-  // конфликтует со Swagger UI на API: nginx роутит /docs к API, и docx 404'ит.
-  fileUrl: '/cooperation/how-to-start-cooperation.docx',
-  isPublic: true,
-  sortOrder: 1,
-};
+const DOCS = [
+  {
+    name: 'Условия вознаграждения партнёром St Michael',
+    description: '[seed:cooperation-rewards-conditions]',
+    type: 'DOCX',
+    category: 'cooperation',
+    // Путь /cooperation/* — статика веб-контейнера. /docs/* конфликтует со
+    // Swagger UI на API (nginx роутит /docs → API).
+    fileUrl: '/cooperation/conditions-of-rewards-st-michael.docx',
+    isPublic: true,
+    sortOrder: 1,
+  },
+];
 
 (async () => {
   const prisma = new PrismaClient();
 
-  const existing = await prisma.document.findFirst({
-    where: { description: DOC.description },
-  });
-
-  if (existing) {
-    await prisma.document.update({
-      where: { id: existing.id },
-      data: DOC,
+  for (const DOC of DOCS) {
+    const existing = await prisma.document.findFirst({
+      where: { description: DOC.description },
     });
-    console.log(`✓ Обновлён: ${DOC.name}`);
-  } else {
-    await prisma.document.create({ data: DOC });
-    console.log(`✓ Создан: ${DOC.name}`);
+
+    if (existing) {
+      await prisma.document.update({
+        where: { id: existing.id },
+        data: DOC,
+      });
+      console.log(`✓ Обновлён: ${DOC.name}`);
+    } else {
+      await prisma.document.create({ data: DOC });
+      console.log(`✓ Создан: ${DOC.name}`);
+    }
   }
 
   await prisma.$disconnect();

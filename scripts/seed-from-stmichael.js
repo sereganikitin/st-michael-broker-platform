@@ -77,7 +77,9 @@ const PROJECTS = [
       'Награды': 'European Property Awards (архитектура и девелопмент)',
     },
     ctaText: 'Смотреть каталог',
-    ctaHref: null,
+    // Каталог Зорге 9 на основном сайте stmichael.ru. Раньше было null →
+    // кнопка не работала. Правка "Корректировка 16:06" 2026-05-07.
+    ctaHref: 'https://stmichael.ru/lots?property_type=apartments',
     sortOrder: 0,
     isActive: true,
   },
@@ -117,7 +119,8 @@ const PROJECTS = [
       'Безопасность': '450+ камер видеонаблюдения, Face ID',
     },
     ctaText: 'Смотреть каталог',
-    ctaHref: null,
+    // Каталог Серебряного Бора на stmichael.ru.
+    ctaHref: 'https://stmichael.ru/lots?property_type=flat',
     sortOrder: 1,
     isActive: true,
   },
