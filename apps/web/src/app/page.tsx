@@ -425,8 +425,10 @@ function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; d
     const id = setInterval(() => setIdx((i) => (i + 1) % slides.length), 5500);
     return () => clearInterval(id);
   }, [slides.length]);
-  // По правке Рената (2026-05-06): слайдер справа — чистый, без текстовых
-  // оверлеев. Картинки воспринимаются как "паузы", текст живёт слева.
+  // Правка заказчика 2026-05-06 (второй проход): слайдер вернулся НА САМЫЙ
+  // ВЕРХ как стартовая точка сайта. Текст слайда (тег/заголовок/описание)
+  // показывается прямо на картинке как оверлей-блок слева — это и есть
+  // "тот текст, который раньше был на картинках, перенесён на уровень выше".
   return (
     <div className="hero-slides">
       {slides.map((s, i) => (
@@ -436,10 +438,15 @@ function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; d
           style={{
             opacity: i === idx ? 1 : 0,
             zIndex: i === idx ? 2 : 1,
-            backgroundImage: s.imageUrl ? `url(${s.imageUrl})` : undefined,
+            backgroundImage: s.imageUrl ? `linear-gradient(95deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.4) 55%, rgba(0,0,0,0.05) 100%), url(${s.imageUrl})` : undefined,
           }}
-          aria-label={s.title}
-        />
+        >
+          <div className="hero-slide-text">
+            {s.tag && <div className="hero-slide-tag">{s.tag}</div>}
+            <h2 className="hero-slide-title">{s.title}</h2>
+            {s.description && <p className="hero-slide-desc">{s.description}</p>}
+          </div>
+        </div>
       ))}
       {slides.length > 1 && (
         <div className="hero-slide-dots">
@@ -713,16 +720,12 @@ const DEFAULT_COMMISSION = {
     { name: 'Champion', range: '500–699 м²', rate: '7,5%', active: false },
     { name: 'Legend', range: '700+ м²', rate: '8,0%', active: false },
   ],
+  // Карточки правой колонки — содержание из "Условия вознаграждения.docx"
+  // (правка 2026-05-06): только 3 ключевых блока, без перегруза.
   cards: [
-    { title: 'Условия выплаты', text: '7 рабочих дней после оплаты клиентом' },
-    { title: 'Квартальный бонус', text: '+0,1% → +0,25% за стабильные продажи' },
-    { title: 'Бонус за скорость', text: '+0,1% если до платной брони ≤10 рабочих дней' },
-    { title: 'Годовой бонус', text: '100 000 ₽ + памятный кубок' },
-    { title: 'Рассрочка', text: '−0,5% от ставки' },
-    { title: 'Субсидированная ипотека', text: '4% (м² в общий зачёт)' },
-    { title: 'Коммерция: продажа', text: 'Помещения и фитнес — 3%, отдельные здания — 2%' },
-    { title: 'Коммерция: аренда', text: 'Ритейл — 100% мес. платежа, фитнес/офис — 50%' },
-    { title: 'Реферальная программа', text: 'Бонус за привлечение партнёров' },
+    { title: 'Условия выплаты', text: 'Вознаграждение выплачивается в течение 7 рабочих дней после оплаты клиентом.' },
+    { title: 'Квартальный бонус', text: 'Дополнительный рост ставки при уровне Strong+: +0,1% → +0,15% → +0,2% → +0,25%. Ставка увеличивается при стабильных продажах.' },
+    { title: 'Годовой бонус', text: 'За продуктивную работу в течение года: 100 000 ₽ + памятный кубок.' },
   ],
 };
 const DEFAULT_CONTACT = {
@@ -872,16 +875,16 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .btn-outline{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:transparent;color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);border:1px solid var(--bw2);transition:all var(--t);cursor:pointer}.btn-outline:hover{border-color:var(--black);background:rgba(0,0,0,0.04)}
 .btn-tertiary{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--bg);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-tertiary:hover{background:var(--bg2)}
 .btn-white{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--white);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-white:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.15)}
-.hero{padding:72px 60px 56px}
-.hero-grid{display:grid;grid-template-columns:1fr 1.2fr;gap:56px;align-items:center;margin-bottom:0}
-.hero-inner{display:flex;flex-direction:column;justify-content:center;max-width:560px}
-.hero-tag{display:inline-flex;align-items:center;gap:10px;margin-bottom:24px}.hero-tag::before{content:'';width:28px;height:1px;background:var(--gold)}.hero-tag span{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold)}
-.hero h1{font-size:var(--fs-h1);font-weight:300;line-height:1.05;letter-spacing:-1px;margin-bottom:24px}.hero h1 strong{font-weight:700}.hero h1 em{font-style:normal;color:var(--gold);font-weight:700}
-.hero-desc{font-size:16px;color:var(--light);line-height:1.65;font-weight:400;margin-bottom:36px;max-width:520px}.hero-btns{display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+.hero-banner{padding:0 60px;margin-top:24px}
+.hero-slides{position:relative;width:100%;height:480px;border-radius:var(--r-card);overflow:hidden;background:var(--bg2)}.hero-slide{position:absolute;inset:0;background-size:cover;background-position:center;display:flex;align-items:flex-end;padding:48px 60px;transition:opacity .8s ease}.hero-slide-text{max-width:680px;color:#fff}.hero-slide-tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;padding:6px 14px;border:1px solid rgba(180,147,111,0.6);border-radius:var(--r-pill);background:rgba(0,0,0,0.25);backdrop-filter:blur(8px)}.hero-slide-title{font-size:clamp(28px,3.4vw,44px);font-weight:300;line-height:1.1;margin-bottom:14px;letter-spacing:-0.5px}.hero-slide-title strong{font-weight:700}.hero-slide-desc{font-size:15px;line-height:1.6;color:rgba(255,255,255,0.9);font-weight:300;max-width:560px}.hero-slide-dots{position:absolute;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:3}
+.hero{padding:64px 60px 48px}
+.hero-compact{max-width:880px;margin:0 auto;text-align:center}
+.hero-tag{display:inline-flex;align-items:center;gap:10px;margin-bottom:20px}.hero-compact .hero-tag{justify-content:center}.hero-tag::before{content:'';width:28px;height:1px;background:var(--gold)}.hero-tag span{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold)}
+.hero h1{font-size:var(--fs-h1);font-weight:300;line-height:1.08;letter-spacing:-1px;margin-bottom:22px}.hero h1 strong{font-weight:700}.hero h1 em{font-style:normal;color:var(--gold);font-weight:700}
+.hero-desc{font-size:16px;color:var(--light);line-height:1.65;font-weight:400;margin-bottom:32px;max-width:680px}.hero-compact .hero-desc{margin-left:auto;margin-right:auto}
+.hero-btns{display:flex;gap:14px;flex-wrap:wrap;align-items:center}.hero-compact .hero-btns{justify-content:center}
 .btn-lg{padding:18px 40px;font-size:12px}
-.hero-link{background:transparent;border:none;font-size:13px;font-weight:600;letter-spacing:0.3px;color:var(--black);cursor:pointer;padding:8px 0;border-bottom:1px solid var(--gold);transition:color var(--t),border-color var(--t)}.hero-link:hover{color:var(--gold)}
 .stats-band{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--bw);border-bottom:1px solid var(--bw);background:var(--white);margin:0 60px}.hst{padding:32px 24px;text-align:center;border-right:1px solid var(--bw)}.hst:last-child{border-right:none}.hst-n{font-size:32px;font-weight:700;line-height:1;margin-bottom:8px;letter-spacing:-0.8px;color:var(--black)}.hst-l{font-size:11px;color:var(--muted);line-height:1.4;font-weight:500;letter-spacing:0.3px}
-.hero-slides{position:relative;width:100%;height:380px;border-radius:var(--r-card);overflow:hidden;background:var(--bg2)}.hero-slide{position:absolute;inset:0;background-size:cover;background-position:center;transition:opacity .8s ease}.hero-slide-dots{position:absolute;bottom:16px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:3}
 .quick{display:grid;grid-template-columns:repeat(3,1fr);border-radius:var(--r-card);overflow:hidden;margin:0 60px;background:var(--bg)}.qa{padding:28px 32px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:background var(--t);border-right:1px solid rgba(0,0,0,0.04)}.qa:last-child{border-right:none}.qa:hover{background:var(--bg2)}.qa-title{font-size:15px;font-weight:500}.qa-sub{font-size:12px;color:var(--muted);margin-top:3px}.qa-arrow{width:36px;height:36px;border-radius:50%;background:var(--white);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;transition:all var(--t);flex-shrink:0}.qa:hover .qa-arrow{background:var(--black);color:var(--white)}
 .lp section{padding:80px 60px}.sep{border:none;border-top:1px solid var(--bw);margin:0 60px}
 .sh{margin-bottom:48px}.sh-center{text-align:center}.sh-tag{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:14px}.sh h2{font-size:var(--fs-h2);font-weight:300;line-height:1.1;letter-spacing:-0.5px}.sh h2 strong{font-weight:700}.sh h2 em{font-style:normal;color:var(--gold);font-weight:700}.sh-sub{color:var(--muted);font-size:15px;max-width:560px;margin-top:14px;line-height:1.7;font-weight:400}.sh-center .sh-sub{margin-left:auto;margin-right:auto}
@@ -898,9 +901,9 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .coop-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}.coop-left p{font-size:15px;color:var(--muted);line-height:1.8;font-weight:300;margin-bottom:24px}.doc-list{display:flex;flex-direction:column;gap:8px}.doc-item{display:flex;align-items:center;gap:14px;padding:16px 20px;background:var(--white);border-radius:var(--r-card);cursor:pointer;transition:all var(--t);box-shadow:0 1px 2px rgba(0,0,0,0.04)}.doc-item:hover{background:var(--gold-bg);transform:translateX(4px);box-shadow:0 4px 16px rgba(0,0,0,0.06)}.doc-icon{width:36px;height:36px;border-radius:10px;background:var(--gold-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}.doc-name{font-size:13px;flex:1;font-weight:500}.doc-dl{color:var(--muted);display:flex;align-items:center}
 .mat-stack{display:flex;flex-direction:column;gap:32px}.mat-group-title{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;display:flex;align-items:center;gap:10px}.mat-group-count{font-size:10px;font-weight:600;color:var(--muted);background:var(--white);padding:3px 9px;border-radius:var(--r-pill);letter-spacing:0}
 .mat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.mat-card{display:flex;align-items:center;gap:14px;padding:18px 20px;background:var(--white);border-radius:var(--r-card);cursor:pointer;transition:all var(--t);box-shadow:0 1px 2px rgba(0,0,0,0.04);text-decoration:none;color:inherit}.mat-card:hover{background:var(--gold-bg);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.08)}.mat-card-icon{width:40px;height:40px;border-radius:10px;background:var(--gold-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}.mat-card-body{flex:1;min-width:0}.mat-card-name{font-size:13px;font-weight:500;color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mat-card-type{font-size:10px;font-weight:600;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:3px}.mat-card-dl{color:var(--muted);flex-shrink:0}.mat-card:hover .mat-card-dl{color:var(--gold)}
-@media(max-width:1279px){.lp section{padding:72px 40px}.s-adv,.s-comm,.s-cta{padding-left:40px;padding-right:40px}.lp header{padding:0 40px}.hero{padding:56px 40px 48px}.hero-grid{gap:40px}.lp footer{padding:40px 40px}.quick,.sep,.stats-band{margin-left:40px;margin-right:40px}}
-@media(max-width:1023px){.lp .h-nav{gap:16px}.lp .h-nav a{font-size:10px}.adv-grid,.proj-grid,.mat-grid{grid-template-columns:repeat(2,1fr)}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-grid{grid-template-columns:1fr;gap:32px}.hero-slides{height:300px}.hero-inner{max-width:none}}
-@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp .h-nav{display:none}.h-burger{display:flex}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:36px 20px 36px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:32px}.hero-slides{height:240px}.hero h1{font-size:clamp(32px,8vw,42px)}}
+@media(max-width:1279px){.lp section{padding:72px 40px}.s-adv,.s-comm,.s-cta{padding-left:40px;padding-right:40px}.lp header{padding:0 40px}.hero{padding:48px 40px 40px}.hero-banner{padding:0 40px}.lp footer{padding:40px 40px}.quick,.sep,.stats-band{margin-left:40px;margin-right:40px}}
+@media(max-width:1023px){.lp .h-nav{gap:14px}.lp .h-nav a{font-size:10px}.adv-grid,.proj-grid,.mat-grid{grid-template-columns:repeat(2,1fr)}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-slides{height:380px}.hero-slide{padding:36px 40px}}
+@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp .h-nav{display:none}.h-burger{display:flex}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:32px 20px 32px}.hero-banner{padding:0 20px;margin-top:16px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:32px}.hero-slides{height:340px}.hero-slide{padding:28px 24px}.hero-slide-title{font-size:clamp(24px,5.5vw,32px)}.hero h1{font-size:clamp(28px,7vw,38px)}}
 @media(max-width:499px){.stats-band{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}.proj-card{min-height:180px;padding:24px 20px}.proj-name{font-size:24px}.adv-card{padding:28px 22px}.comm-grid{gap:24px}.h-phone{font-size:12px}}
 @media(max-width:374px){.hero-btns{flex-direction:column;align-items:stretch}.hero-btns .btn-gold{width:100%;justify-content:center}}
       `}} />
@@ -916,12 +919,14 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             />
             <div className="logo-sub">Кабинет брокера</div>
           </a>
-          {/* По правке Рената (2026-05-06): шапка облегчена. Большая часть
-              ссылок переехала в бургер-меню — лендинг одностраничный, и
-              постоянный доступ ко всем разделам не нужен. В шапке остались
-              телефон и ключевая кнопка КАБИНЕТ/ВОЙТИ. */}
+          {/* Шапка: по правке заказчика (2026-05-06, второй проход) меню
+              упрощалось слишком сильно — возвращаем 5 основных пунктов.
+              Бургер используется только на мобильном (max-width: 767px). */}
           <nav className="h-nav">
+            <a href="#projects">Проекты</a>
             <a href="#commission">Комиссия</a>
+            <a href="#cooperation">Документы</a>
+            <a href="#materials">Материалы</a>
             <a href="#contact">Контакты</a>
           </nav>
           <div className="h-right">
@@ -949,41 +954,36 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           )}
         </header>
 
-        {/* HERO — переработан 2026-05-06 по правкам Рената:
-            - левая часть: H1 + подзаголовок + ОДИН CTA (3 кнопки → 1)
-            - правая часть: чистый слайдер без текстовых оверлеев
-            - цифры (30 дней / 7 дней / до 8% / 2) вынесены в отдельный блок ниже
-            - баннер растянут шире, ниже по высоте → больше воздуха */}
-        <div className="hero">
-          <div className="hero-grid">
-            <div className="hero-inner">
-              <div className="hero-tag"><span>{hero.tag}</span></div>
-              <h1><strong>{renderAccent(hero.title, hero.titleAccent)}</strong></h1>
-              <p className="hero-desc">{hero.description}</p>
-              <div className="hero-btns">
-                <button className="btn-gold btn-lg" onClick={handleRegister}>Стать партнёром</button>
-                <button
-                  type="button"
-                  className="hero-link"
-                  onClick={() => setContactModal({
-                    open: true,
-                    source: 'broker-tour',
-                    title: 'Запись на брокер-тур',
-                    defaultMessage: 'Хочу записаться на ближайший брокер-тур',
-                  })}
-                >Записаться на брокер-тур →</button>
-              </div>
-            </div>
+        {/* HERO v3 — структура по правке заказчика 2026-05-06 (второй проход):
+            1) НАВЕРХУ — слайдер с текстом-оверлеем (стартовая точка сайта)
+            2) НИЖЕ — компактный единый блок: H1 + описание + 2 кнопки
+            3) ПОТОМ — stats band с цифрами
+            Без 2-колонного грида — Hero стал стандартной вертикальной формой. */}
+        {Array.isArray(hero.slides) && hero.slides.length > 0 && (
+          <div className="hero-banner">
+            <HeroSlides slides={hero.slides} />
+          </div>
+        )}
 
-            {Array.isArray(hero.slides) && hero.slides.length > 0 ? (
-              <HeroSlides slides={hero.slides} />
-            ) : (
-              <div /> /* зарезервированное место чтобы layout не схлопывался */
-            )}
+        <div className="hero hero-compact">
+          <div className="hero-tag"><span>{hero.tag}</span></div>
+          <h1><strong>{renderAccent(hero.title, hero.titleAccent)}</strong></h1>
+          <p className="hero-desc">{hero.description}</p>
+          <div className="hero-btns">
+            <button className="btn-gold btn-lg" onClick={handleRegister}>Стать партнёром</button>
+            <button
+              type="button"
+              className="btn-outline btn-lg"
+              onClick={() => setContactModal({
+                open: true,
+                source: 'broker-tour',
+                title: 'Запись на брокер-тур',
+                defaultMessage: 'Хочу записаться на ближайший брокер-тур',
+              })}
+            >Записаться на брокер-тур</button>
           </div>
         </div>
 
-        {/* STATS BAND — цифры из Hero вынесены сюда (Ренат: "убрать в скролл"). */}
         <Reveal>
           <div className="stats-band">
             {(hero.stats || []).map((s: any, i: number) => (

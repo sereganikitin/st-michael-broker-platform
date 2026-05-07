@@ -22,7 +22,9 @@ const DOC = {
   description: '[seed:cooperation-doc-howto]',
   type: 'DOCX',
   category: 'cooperation',
-  fileUrl: '/docs/how-to-start-cooperation.docx',
+  // Путь /cooperation/* — статика веб-контейнера. Раньше был /docs/* но
+  // конфликтует со Swagger UI на API: nginx роутит /docs к API, и docx 404'ит.
+  fileUrl: '/cooperation/how-to-start-cooperation.docx',
   isPublic: true,
   sortOrder: 1,
 };
