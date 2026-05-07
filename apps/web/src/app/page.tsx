@@ -1357,7 +1357,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               { n: '03', title: 'Проверка клиента', desc: 'Зафиксируйте клиента в кабинете и получите статус уникальности.' },
               { n: '04', title: 'Запись на встречу', desc: 'Запишите клиента на встречу — горячая линия +7 (499) 226-22-49.' },
             ].map((s, i) => (
-              <div key={i} style={{padding:'24px 22px',background:'var(--bg)',border:'1px solid var(--bw)',borderRadius:'var(--r)'}}>
+              <div key={i} style={{padding:'24px 22px',background:'var(--bg)',borderRadius:'var(--r-card)',boxShadow:'0 1px 2px rgba(0,0,0,0.04)'}}>
                 <div style={{fontSize:32,fontWeight:200,color:'var(--gold)',marginBottom:12,lineHeight:1}}>{s.n}</div>
                 <div style={{fontSize:15,fontWeight:600,marginBottom:6,color:'var(--black)'}}>{s.title}</div>
                 <div style={{fontSize:13,color:'var(--muted)',lineHeight:1.6}}>{s.desc}</div>
