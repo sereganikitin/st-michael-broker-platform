@@ -15,6 +15,7 @@ on:
           - seed-stmichael
           - sync-yandex-disk
           - seed-cooperation-doc
+          - cleanup-cooperation-docs
           - refresh-cms-content
 
 jobs:
@@ -57,6 +58,12 @@ jobs:
               echo ""
               echo "=== seed-cooperation-doc (документ 'Как начать сотрудничать') ==="
               $COMPOSE_CMD exec -T api node /app/scripts/seed-cooperation-doc.js
+            fi
+
+            if [ "$TASK" = "cleanup-cooperation-docs" ]; then
+              echo ""
+              echo "=== cleanup-cooperation-docs (удалить неверные документы) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/cleanup-cooperation-docs.js
             fi
 
             if [ "$TASK" = "refresh-cms-content" ]; then

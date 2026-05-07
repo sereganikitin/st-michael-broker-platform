@@ -104,8 +104,14 @@ async function collectFiles(path, parentName, files) {
     const ext = (f.name.match(/\.([a-z0-9]+)$/i)?.[1] || 'FILE').toUpperCase();
     const description = `[yandex-disk:${f.path}]`;
 
-    // Use direct download link if Yandex returned one (lasts hours), else fallback to public folder URL
-    const fileUrl = f.directLink || f.publicUrl;
+    // ВАЖНО: directLink (it.file) от Я.Диска истекает за ~3 часа — для лендинга
+    // непригоден. Сохраняем ТОЛЬКО публичную ссылку папки/файла (publicUrl) —
+    // она вечная. Клик ведёт на Я.Диск, где видно превью и можно скачать.
+    // Минус: пользователю нужен один лишний клик (Я.Диск → Скачать).
+    // Идеальное решение — API-proxy endpoint /api/public/documents/:id/download
+    // который на запрос получает свежий directLink через Я.API и редиректит.
+    // Делать в отдельном PR.
+    const fileUrl = f.publicUrl || f.directLink;
 
     const found = existing.find((d) => d.description === description);
     if (found) {
