@@ -1164,20 +1164,21 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           </div>
         </section>
 
-        {/* PROMO SLIDER — full-width стиль (revert от 2026-05-07):
-            картинка во весь блок с тёмным градиентом + текст-оверлей.
-            Использует тот же класс .hero-slides что и Hero. */}
+        {/* PROMO SLIDER — full-width стиль с картинкой во весь блок.
+            Если у промо нет imageUrl — fallback на дефолтное здание Зорге 9
+            (правка 2026-05-07: каждый слайд должен быть с картинкой). */}
         {promos.length > 0 && (
           <section id="promos" style={{padding:'40px 60px'}}>
             <div className="hero-slides" style={{height:280}}>
-              {promos.map((p, i) => (
+              {promos.map((p, i) => {
+                const FALLBACK = 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/bd2e855b408722fb61fa362b50d7f83282d3a86e.jpg';
+                const img = p.imageUrl || FALLBACK;
+                return (
                 <div key={p.id} className="hero-slide" style={{
                   opacity: i === promoIdx ? 1 : 0,
                   zIndex: i === promoIdx ? 2 : 1,
                   visibility: i === promoIdx ? 'visible' : 'hidden',
-                  backgroundImage: p.imageUrl
-                    ? `linear-gradient(95deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 55%, rgba(0,0,0,0.1) 100%), url(${p.imageUrl})`
-                    : 'linear-gradient(135deg, var(--gold3) 0%, var(--gold) 100%)',
+                  backgroundImage: `linear-gradient(95deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 55%, rgba(0,0,0,0.1) 100%), url(${img})`,
                 }}>
                   <div className="hero-slide-content">
                     {p.tag && <div className="hero-slide-tag">{p.tag}</div>}
@@ -1197,7 +1198,8 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {promos.length > 1 && (
                 <>
                   <button
@@ -1355,7 +1357,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               { n: '03', title: 'Проверка клиента', desc: 'Зафиксируйте клиента в кабинете и получите статус уникальности.' },
               { n: '04', title: 'Запись на встречу', desc: 'Запишите клиента на встречу — горячая линия +7 (499) 226-22-49.' },
             ].map((s, i) => (
-              <div key={i} style={{padding:'24px 22px',background:'var(--bg)',border:'1px solid var(--bw)',borderRadius:'var(--r)'}}>
+              <div key={i} style={{padding:'24px 22px',background:'var(--bg)',borderRadius:'var(--r-card)',boxShadow:'0 1px 2px rgba(0,0,0,0.04)'}}>
                 <div style={{fontSize:32,fontWeight:200,color:'var(--gold)',marginBottom:12,lineHeight:1}}>{s.n}</div>
                 <div style={{fontSize:15,fontWeight:600,marginBottom:6,color:'var(--black)'}}>{s.title}</div>
                 <div style={{fontSize:13,color:'var(--muted)',lineHeight:1.6}}>{s.desc}</div>
