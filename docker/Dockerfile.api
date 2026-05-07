@@ -1,24 +1,50 @@
+# syntax=docker/dockerfile:1.6
 FROM node:20-alpine AS builder
 WORKDIR /app
-# python3/make/g++ нужны для компиляции нативных модулей (bcrypt) когда
-# prebuilt-бинарник не скачивается с GitHub releases. Эти пакеты остаются
-# только в throwaway-builder-stage — runtime-образ остаётся компактным.
+
+# python3/make/g++ нужны для компиляции нативных модулей (bcrypt), когда
+# prebuilt-бинарник не качается с GitHub releases. Живут только в builder-stage.
 RUN apk add --no-cache openssl python3 make g++
+
+# 1) КОПИРУЕМ ТОЛЬКО ФАЙЛЫ ЗАВИСИМОСТЕЙ (всех workspace'ов).
+# Это стартует слой `npm install`, который инвалидируется ТОЛЬКО при изменении
+# package.json/package-lock.json. Любая правка кода (page.tsx, *.ts) больше
+# НЕ запускает npm install с нуля → сборка с 40 мин падает до 3-5 мин на хитах.
+COPY package.json package-lock.json* ./
+COPY apps/api/package.json apps/api/
+COPY apps/telegram/package.json apps/telegram/
+COPY apps/web/package.json apps/web/
+COPY packages/database/package.json packages/database/
+COPY packages/integrations/package.json packages/integrations/
+COPY packages/shared/package.json packages/shared/
+
+# 2) NPM INSTALL с BuildKit cache mount.
+# /root/.npm выживает между сборками внутри билдера → на втором прогоне
+# install читает почти всё из локального кеша вместо registry.
+RUN --mount=type=cache,target=/root/.npm npm install
+
+# 3) КОПИРУЕМ ОСТАЛЬНОЙ КОД (только теперь, когда node_modules уже стоит).
 COPY . .
-RUN npm install
+
+# 4) BUILD STEPS.
 RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
 RUN npm run build --workspace=packages/shared 2>/dev/null || (cd packages/shared && npx tsc)
 RUN npm run build --workspace=packages/integrations 2>/dev/null || (cd packages/integrations && npx tsc)
 RUN npm run build --workspace=apps/api 2>/dev/null || (cd apps/api && npx nest build)
 
+# ─── runtime ───
 FROM node:20-alpine
 WORKDIR /app
 RUN apk add --no-cache openssl
-COPY --from=builder /app /app
-COPY docker/entrypoint-api.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
 RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
-RUN mkdir -p /app/uploads && chown -R nestjs:nodejs /app
+
+# COPY с уже выставленным владельцем → больше не нужен медленный `chown -R`
+# (в прошлой версии `mkdir + chown -R nestjs:nodejs /app` занимал 9.5 минут).
+COPY --from=builder --chown=nestjs:nodejs /app /app
+COPY --chown=nestjs:nodejs docker/entrypoint-api.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+RUN mkdir -p /app/uploads && chown nestjs:nodejs /app/uploads
+
 USER nestjs
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
