@@ -1164,20 +1164,21 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           </div>
         </section>
 
-        {/* PROMO SLIDER — full-width стиль (revert от 2026-05-07):
-            картинка во весь блок с тёмным градиентом + текст-оверлей.
-            Использует тот же класс .hero-slides что и Hero. */}
+        {/* PROMO SLIDER — full-width стиль с картинкой во весь блок.
+            Если у промо нет imageUrl — fallback на дефолтное здание Зорге 9
+            (правка 2026-05-07: каждый слайд должен быть с картинкой). */}
         {promos.length > 0 && (
           <section id="promos" style={{padding:'40px 60px'}}>
             <div className="hero-slides" style={{height:280}}>
-              {promos.map((p, i) => (
+              {promos.map((p, i) => {
+                const FALLBACK = 'https://storage.yandexcloud.net/st-michael-media/media/p/p/i/bd2e855b408722fb61fa362b50d7f83282d3a86e.jpg';
+                const img = p.imageUrl || FALLBACK;
+                return (
                 <div key={p.id} className="hero-slide" style={{
                   opacity: i === promoIdx ? 1 : 0,
                   zIndex: i === promoIdx ? 2 : 1,
                   visibility: i === promoIdx ? 'visible' : 'hidden',
-                  backgroundImage: p.imageUrl
-                    ? `linear-gradient(95deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 55%, rgba(0,0,0,0.1) 100%), url(${p.imageUrl})`
-                    : 'linear-gradient(135deg, var(--gold3) 0%, var(--gold) 100%)',
+                  backgroundImage: `linear-gradient(95deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 55%, rgba(0,0,0,0.1) 100%), url(${img})`,
                 }}>
                   <div className="hero-slide-content">
                     {p.tag && <div className="hero-slide-tag">{p.tag}</div>}
@@ -1197,7 +1198,8 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {promos.length > 1 && (
                 <>
                   <button
