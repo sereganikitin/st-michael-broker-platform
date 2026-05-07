@@ -420,6 +420,72 @@ function BrokerToursCalendarModal({ events, onClose }: { events: any[]; onClose:
   );
 }
 
+// Раздел "Материалы для продвижения" — компактные группы по папкам Я.Диска.
+// Каждая группа сворачивается в одну карточку: иконка + имя папки + счётчик +
+// "Скачать с Я.Диска" (открывает родительскую папку). По клику разворачивается
+// и показывает все файлы. Правка "Корректировка 16:06" 2026-05-07.
+function MaterialsSection({ materials }: { materials: any[] }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const groups = materials.reduce((acc: Record<string, any[]>, d: any) => {
+    const key = d.subcategory?.trim() || 'Материалы';
+    (acc[key] = acc[key] || []).push(d);
+    return acc;
+  }, {});
+  const groupNames = Object.keys(groups).sort();
+  const toggle = (g: string) => setExpanded((e) => ({ ...e, [g]: !e[g] }));
+  return (
+    <section id="materials" style={{background:'var(--bg)'}}>
+      <div className="sh"><div className="sh-tag">Реклама</div><h2>Материалы для <em>продвижения</em></h2><p className="sh-sub">Изображения, рендеры, видео и презентации — сгруппированы по папкам Яндекс.Диска. Кликните на группу, чтобы развернуть.</p></div>
+      {materials.length === 0 ? (
+        <div className="doc-item" style={{cursor:'default'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся материалы</div></div>
+      ) : (
+        <div className="mat-groups">
+          {groupNames.map((group) => {
+            const docs = groups[group];
+            const isOpen = !!expanded[group];
+            // Берём первый publicUrl из группы — если все файлы из одной папки
+            // Я.Диска, ссылка приведёт прямо в эту папку (можно "Скачать всё").
+            const folderUrl = docs[0]?.fileUrl || '';
+            return (
+              <div key={group} className={`mat-group${isOpen ? ' open' : ''}`}>
+                <button type="button" className="mat-group-header" onClick={() => toggle(group)}>
+                  <div className="mat-group-icon"><FileText size={18} /></div>
+                  <div className="mat-group-info">
+                    <div className="mat-group-name">{group}</div>
+                    <div className="mat-group-meta">{docs.length} {docs.length === 1 ? 'файл' : docs.length < 5 ? 'файла' : 'файлов'}</div>
+                  </div>
+                  <ChevronRight className="mat-group-chev" size={20} />
+                </button>
+                {isOpen && (
+                  <div className="mat-group-body">
+                    <div className="mat-grid">
+                      {docs.map((d: any) => (
+                        <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="mat-card">
+                          <div className="mat-card-icon"><FileText size={18} /></div>
+                          <div className="mat-card-body">
+                            <div className="mat-card-name">{d.name}</div>
+                            {d.type && <div className="mat-card-type">{d.type}</div>}
+                          </div>
+                          <DownloadIcon className="mat-card-dl" size={16} />
+                        </a>
+                      ))}
+                    </div>
+                    {folderUrl && (
+                      <a href={folderUrl} target="_blank" rel="noopener noreferrer" className="btn-outline" style={{display:'inline-flex',marginTop:14,padding:'10px 22px',fontSize:11}}>
+                        Открыть папку на Я.Диске →
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; description?: string; imageUrl?: string; ctaText?: string; ctaHref?: string }> }) {
   const [idx, setIdx] = useState(0);
   useEffect(() => {
@@ -463,26 +529,45 @@ function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; d
         </div>
       ))}
       {slides.length > 1 && (
-        <div className="hero-slide-dots">
-          {slides.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => setIdx(i)}
-              aria-label={`Слайд ${i + 1}`}
-              style={{
-                width: i === idx ? 28 : 8,
-                height: 8,
-                borderRadius: 4,
-                background: i === idx ? 'var(--gold)' : 'rgba(0,0,0,0.18)',
-                border: 'none',
-                cursor: 'pointer',
-                transition: 'all .25s',
-                padding: 0,
-              }}
-            />
-          ))}
-        </div>
+        <>
+          {/* Кнопки ручного листания. Правка "Корректировка 16:06". */}
+          <button
+            type="button"
+            className="hero-slide-arrow hero-slide-arrow-prev"
+            onClick={() => setIdx((i) => (i - 1 + slides.length) % slides.length)}
+            aria-label="Предыдущий слайд"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <button
+            type="button"
+            className="hero-slide-arrow hero-slide-arrow-next"
+            onClick={() => setIdx((i) => (i + 1) % slides.length)}
+            aria-label="Следующий слайд"
+          >
+            <ChevronRight size={20} />
+          </button>
+          <div className="hero-slide-dots">
+            {slides.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setIdx(i)}
+                aria-label={`Слайд ${i + 1}`}
+                style={{
+                  width: i === idx ? 28 : 8,
+                  height: 8,
+                  borderRadius: 4,
+                  background: i === idx ? 'var(--gold)' : 'rgba(0,0,0,0.18)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'all .25s',
+                  padding: 0,
+                }}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -863,7 +948,21 @@ export default function LandingPage() {
         if (content.contact) setContact({ ...DEFAULT_CONTACT, ...content.contact });
       }
       if (Array.isArray(evs)) setEvents(evs);
-      if (Array.isArray(prjs) && prjs.length) setProjects(prjs);
+      if (Array.isArray(prjs) && prjs.length) {
+        // Merge: если в БД ctaHref/ctaText null/пусто — берём из DEFAULT_PROJECTS
+        // (по slug). Раньше seed-from-stmichael записывал ctaHref:null →
+        // кнопка "Смотреть каталог" не вела на stmichael.ru/lots.
+        // Правка "Корректировка 16:06" 2026-05-07.
+        const merged = prjs.map((p: any) => {
+          const def = DEFAULT_PROJECTS.find((d) => d.slug === p.slug);
+          return {
+            ...p,
+            ctaHref: p.ctaHref || def?.ctaHref || null,
+            ctaText: p.ctaText || def?.ctaText || 'Смотреть каталог',
+          };
+        });
+        setProjects(merged);
+      }
       if (Array.isArray(prms)) setPromos(prms);
       if (Array.isArray(coop)) setCooperationDocs(coop);
       if (Array.isArray(anal)) setAnalyticsDocs(anal);
@@ -914,6 +1013,9 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .hero-slide-content .btn-gold{align-self:flex-start;padding:12px 24px;font-size:11px}
 .hero-slide-image{background-size:cover;background-position:center;background-color:var(--bg2)}
 .hero-slide-dots{position:absolute;bottom:14px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:3}
+.hero-slide-arrow{position:absolute;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.92);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--black);box-shadow:0 4px 16px rgba(0,0,0,0.12);transition:all var(--t);z-index:4}
+.hero-slide-arrow:hover{background:var(--gold);color:var(--white);box-shadow:0 6px 20px rgba(180,147,111,0.32)}
+.hero-slide-arrow-prev{left:14px}.hero-slide-arrow-next{right:14px}
 .hero{padding:56px 60px 44px}
 .hero-compact{max-width:920px;margin:0 auto;text-align:center}
 .hero-tag{display:inline-flex;align-items:center;gap:10px;margin-bottom:18px}.hero-compact .hero-tag{justify-content:center}.hero-tag::before{content:'';width:28px;height:1px;background:var(--gold)}.hero-tag span{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold)}
@@ -939,11 +1041,18 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .float-btn{position:fixed;bottom:28px;right:28px;z-index:100;padding:14px 28px;background:var(--black);color:var(--white);font-size:12px;font-weight:700;letter-spacing:1px;border-radius:50px;cursor:pointer;border:none;box-shadow:0 4px 20px rgba(0,0,0,0.2);transition:all .25s}.float-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,0.3)}
 .ev-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.ev-card{padding:24px 26px;border-radius:var(--r-card);display:flex;align-items:center;gap:20px;cursor:pointer;transition:all var(--t);background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,0.04)}.ev-card:hover{background:var(--gold-bg);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.06)}.ev-date{width:54px;height:54px;border-radius:var(--r-tag);background:var(--white);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0}.ev-day{font-size:22px;font-weight:700;line-height:1}.ev-mon{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}.ev-info{flex:1}.ev-title{font-size:15px;font-weight:500;margin-bottom:3px}.ev-meta{font-size:12px;color:var(--muted)}
 .coop-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}.coop-left p{font-size:15px;color:var(--muted);line-height:1.8;font-weight:300;margin-bottom:24px}.doc-list{display:flex;flex-direction:column;gap:8px}.doc-item{display:flex;align-items:center;gap:14px;padding:16px 20px;background:var(--white);border-radius:var(--r-card);cursor:pointer;transition:all var(--t);box-shadow:0 1px 2px rgba(0,0,0,0.04)}.doc-item:hover{background:var(--gold-bg);transform:translateX(4px);box-shadow:0 4px 16px rgba(0,0,0,0.06)}.doc-icon{width:36px;height:36px;border-radius:10px;background:var(--gold-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}.doc-name{font-size:13px;flex:1;font-weight:500}.doc-dl{color:var(--muted);display:flex;align-items:center}
-.mat-stack{display:flex;flex-direction:column;gap:32px}.mat-group-title{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;display:flex;align-items:center;gap:10px}.mat-group-count{font-size:10px;font-weight:600;color:var(--muted);background:var(--white);padding:3px 9px;border-radius:var(--r-pill);letter-spacing:0}
-.mat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.mat-card{display:flex;align-items:center;gap:14px;padding:18px 20px;background:var(--white);border-radius:var(--r-card);cursor:pointer;transition:all var(--t);box-shadow:0 1px 2px rgba(0,0,0,0.04);text-decoration:none;color:inherit}.mat-card:hover{background:var(--gold-bg);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.08)}.mat-card-icon{width:40px;height:40px;border-radius:10px;background:var(--gold-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}.mat-card-body{flex:1;min-width:0}.mat-card-name{font-size:13px;font-weight:500;color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mat-card-type{font-size:10px;font-weight:600;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:3px}.mat-card-dl{color:var(--muted);flex-shrink:0}.mat-card:hover .mat-card-dl{color:var(--gold)}
+.mat-groups{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.mat-group{background:var(--white);border-radius:var(--r-card);overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.04);transition:box-shadow var(--t)}.mat-group.open{box-shadow:0 6px 24px rgba(0,0,0,0.08)}
+.mat-group-header{width:100%;display:flex;align-items:center;gap:14px;padding:18px 22px;background:transparent;border:none;cursor:pointer;text-align:left;transition:background var(--t)}.mat-group-header:hover{background:var(--gold-bg)}
+.mat-group-icon{width:42px;height:42px;border-radius:10px;background:var(--gold-bg);display:flex;align-items:center;justify-content:center;color:var(--gold);flex-shrink:0}
+.mat-group-info{flex:1;min-width:0}.mat-group-name{font-size:14px;font-weight:600;color:var(--black);margin-bottom:2px}.mat-group-meta{font-size:11px;color:var(--muted);font-weight:500}
+.mat-group-chev{color:var(--muted);transition:transform var(--t)}.mat-group.open .mat-group-chev{transform:rotate(90deg);color:var(--gold)}
+.mat-group-body{padding:0 22px 22px;border-top:1px solid var(--bw);padding-top:18px}
+.mat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.mat-card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg);border-radius:10px;cursor:pointer;transition:all var(--t);text-decoration:none;color:inherit}.mat-card:hover{background:var(--gold-bg);transform:translateX(2px)}.mat-card-icon{width:32px;height:32px;border-radius:8px;background:var(--white);display:flex;align-items:center;justify-content:center;color:var(--gold);flex-shrink:0}.mat-card-body{flex:1;min-width:0}.mat-card-name{font-size:12px;font-weight:500;color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mat-card-type{font-size:9px;font-weight:600;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:2px}.mat-card-dl{color:var(--muted);flex-shrink:0}.mat-card:hover .mat-card-dl{color:var(--gold)}
 @media(max-width:1279px){.lp section{padding:72px 40px}.s-adv,.s-comm,.s-cta{padding-left:40px;padding-right:40px}.lp header{padding:0 40px}.hero{padding:48px 40px 40px}.hero-banner{padding:0 40px}.lp footer{padding:40px 40px}.quick,.sep,.stats-band{margin-left:40px;margin-right:40px}}
-@media(max-width:1023px){.adv-grid,.proj-grid,.mat-grid{grid-template-columns:repeat(2,1fr)}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-slide{grid-template-columns:1fr 240px}.hero-slide-content{padding:28px 32px}.h-burger-menu{right:40px}}
-@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:28px 20px 28px}.hero-banner{padding:0 20px;margin-top:16px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:28px}.hero-slides{height:auto;min-height:280px}.hero-slide{grid-template-columns:1fr;height:auto}.hero-slide-content{padding:24px 24px}.hero-slide-image{display:none}.hero-slide-title{font-size:clamp(20px,5vw,26px)}.hero h1{font-size:clamp(28px,8vw,40px)}.h-burger-menu{right:20px}.h-phone{display:none}}
+@media(max-width:1023px){.adv-grid,.proj-grid{grid-template-columns:repeat(2,1fr)}.mat-groups{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-slide{grid-template-columns:1fr 240px}.hero-slide-content{padding:28px 32px}.h-burger-menu{right:40px}}
+@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:28px 20px 28px}.hero-banner{padding:0 20px;margin-top:16px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid,.mat-groups{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:28px}.hero-slides{height:auto;min-height:280px}.hero-slide{grid-template-columns:1fr;height:auto}.hero-slide-content{padding:24px 24px}.hero-slide-image{display:none}.hero-slide-title{font-size:clamp(20px,5vw,26px)}.hero h1{font-size:clamp(28px,8vw,40px)}.h-burger-menu{right:20px}.h-phone{display:none}}
 @media(max-width:499px){.stats-band{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}.proj-card{min-height:180px;padding:24px 20px}.proj-name{font-size:24px}.adv-card{padding:28px 22px}.comm-grid{gap:24px}.h-phone{font-size:12px}}
 @media(max-width:374px){.hero-btns{flex-direction:column;align-items:stretch}.hero-btns .btn-gold{width:100%;justify-content:center}}
       `}} />
@@ -1059,45 +1168,74 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           </div>
         </section>
 
-        {/* PROMO SLIDER (block 3) */}
+        {/* PROMO SLIDER — переделан 2026-05-07 (корректировка 16:06):
+            - все слайды единообразные (раньше слайды с imageUrl имели
+              faded bg image, без imageUrl — нет; теперь все одинаковые)
+            - добавлены кнопки prev/next для ручного листания
+            - картинка справа как отдельный блок (Stone-style), а не fade-bg */}
         {promos.length > 0 && (
           <section id="promos" style={{padding:'40px 60px'}}>
-            <div style={{position:'relative',background:'var(--bg)',border:'1px solid var(--bw)',borderRadius:'var(--r)',overflow:'hidden',minHeight:200}}>
+            <div className="hero-slides" style={{height:200}}>
               {promos.map((p, i) => (
-                <div key={p.id} style={{
-                  display: i === promoIdx ? 'flex' : 'none',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  padding: '32px 40px',
-                  gap: 32,
-                  minHeight: 200,
-                  ...(p.imageUrl ? { backgroundImage: `linear-gradient(rgba(255,255,255,0.85), rgba(255,255,255,0.85)), url(${p.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
+                <div key={p.id} className="hero-slide" style={{
+                  opacity: i === promoIdx ? 1 : 0,
+                  zIndex: i === promoIdx ? 2 : 1,
+                  visibility: i === promoIdx ? 'visible' : 'hidden',
                 }}>
-                  <div style={{flex:1}}>
-                    {p.tag && <div style={{fontSize:10,fontWeight:700,letterSpacing:3,textTransform:'uppercase',color:'var(--gold)',marginBottom:10}}>{p.tag}</div>}
-                    <h3 style={{fontSize:'clamp(20px,2.5vw,30px)',fontWeight:300,marginBottom:8,color:'var(--black)'}}>
-                      <strong>{p.title}</strong>
-                    </h3>
-                    {p.subtitle && <div style={{fontSize:15,color:'var(--muted)',marginBottom:8}}>{p.subtitle}</div>}
-                    {p.description && <div style={{fontSize:14,color:'var(--light)',lineHeight:1.7,marginBottom:16,maxWidth:600}}>{p.description}</div>}
+                  <div className="hero-slide-content">
+                    {p.tag && <div className="hero-slide-tag">{p.tag}</div>}
+                    <h3 className="hero-slide-title">{p.title}</h3>
+                    {p.subtitle && <p className="hero-slide-desc" style={{marginBottom:6}}>{p.subtitle}</p>}
+                    {p.description && <p className="hero-slide-desc">{p.description}</p>}
                     {(p.ctaText || p.ctaHref) && (
-                      <a href={p.ctaHref || '#projects'} className="btn-gold" target={p.ctaHref?.startsWith('http') ? '_blank' : undefined} rel="noopener noreferrer">
+                      <a
+                        href={p.ctaHref || '#projects'}
+                        className="btn-gold btn-lg"
+                        target={p.ctaHref?.startsWith('http') ? '_blank' : undefined}
+                        rel="noopener noreferrer"
+                        style={{alignSelf:'flex-start',padding:'12px 24px',fontSize:11}}
+                      >
                         {p.ctaText || 'Подробнее'}
                       </a>
                     )}
                   </div>
+                  {p.imageUrl && (
+                    <div
+                      className="hero-slide-image"
+                      style={{ backgroundImage: `url(${p.imageUrl})` }}
+                      aria-hidden="true"
+                    />
+                  )}
                 </div>
               ))}
               {promos.length > 1 && (
-                <div style={{position:'absolute',bottom:14,left:0,right:0,display:'flex',justifyContent:'center',gap:6}}>
-                  {promos.map((_, i) => (
-                    <button key={i} onClick={() => setPromoIdx(i)} style={{
-                      width: i === promoIdx ? 24 : 8, height: 8, borderRadius: 4,
-                      background: i === promoIdx ? 'var(--gold)' : 'rgba(0,0,0,0.2)',
-                      border: 'none', cursor: 'pointer', transition: 'all .25s',
-                    }} aria-label={`Слайд ${i+1}`} />
-                  ))}
-                </div>
+                <>
+                  <button
+                    type="button"
+                    className="hero-slide-arrow hero-slide-arrow-prev"
+                    onClick={() => setPromoIdx((i) => (i - 1 + promos.length) % promos.length)}
+                    aria-label="Предыдущий слайд"
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  <button
+                    type="button"
+                    className="hero-slide-arrow hero-slide-arrow-next"
+                    onClick={() => setPromoIdx((i) => (i + 1) % promos.length)}
+                    aria-label="Следующий слайд"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                  <div className="hero-slide-dots">
+                    {promos.map((_, i) => (
+                      <button key={i} onClick={() => setPromoIdx(i)} style={{
+                        width: i === promoIdx ? 24 : 8, height: 8, borderRadius: 4,
+                        background: i === promoIdx ? 'var(--gold)' : 'rgba(0,0,0,0.2)',
+                        border: 'none', cursor: 'pointer', transition: 'all .25s', padding: 0,
+                      }} aria-label={`Слайд ${i+1}`} />
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           </section>
@@ -1322,43 +1460,8 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             с hover-выделением, как в advantages. Источник — Яндекс.Диск
             (sync-yandex-disk.js, category=materials), плюс fallback на
             старые marketing-документы (если есть). Группируется по подкатегории. */}
-        {(() => {
-          const all = [...materialsDocs, ...marketingDocs];
-          const groups = all.reduce((acc: Record<string, any[]>, d: any) => {
-            const key = d.subcategory || 'Материалы';
-            (acc[key] = acc[key] || []).push(d);
-            return acc;
-          }, {});
-          const groupNames = Object.keys(groups).sort();
-          return (
-            <section id="materials" style={{background:'var(--bg)'}}>
-              <div className="sh"><div className="sh-tag">Реклама</div><h2>Материалы для <em>продвижения</em></h2><p className="sh-sub">Готовые материалы для работы с клиентами. Изображения, презентации, шаблоны — скачать прямо отсюда.</p></div>
-              {all.length === 0 ? (
-                <div className="doc-item" style={{cursor:'default'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся материалы</div></div>
-              ) : (
-                <div className="mat-stack">
-                  {groupNames.map((group) => (
-                    <div key={group} className="mat-group">
-                      <div className="mat-group-title">{group} <span className="mat-group-count">{groups[group].length}</span></div>
-                      <div className="mat-grid">
-                        {groups[group].map((d: any) => (
-                          <a key={d.id} href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="mat-card">
-                            <div className="mat-card-icon"><FileText style={{width:18,height:18,color:'var(--gold)'}} /></div>
-                            <div className="mat-card-body">
-                              <div className="mat-card-name">{d.name}</div>
-                              {d.type && <div className="mat-card-type">{d.type}</div>}
-                            </div>
-                            <DownloadIcon className="mat-card-dl" style={{width:16,height:16}} />
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          );
-        })()}
+        <MaterialsSection materials={[...materialsDocs, ...marketingDocs]} />
+
 
         <hr className="sep" />
 
