@@ -739,7 +739,10 @@ const DEFAULT_HERO = {
   // Акцентная строка с em — самая длинная.
   title: 'Доход растёт\nвместе с объёмом\nпродаж агентства',
   titleAccent: 'продаж агентства',
-  description: 'Суммируем сделки по Зорге 9 и Кварталу Серебряный Бор — вы быстрее выходите на более высокий уровень комиссии. До 8% по Зорге 9 и до 6,25% по Серебряному Бору.',
+  // Правка заказчика 2026-05-08: "Мы не суммируем сделки между проектами".
+  // Метраж считается в рамках одного проекта. Текст переписан: фокус на
+  // ставке вознаграждения, а не на суммировании.
+  description: 'Прогрессивная шкала комиссии: до 8% по Зорге 9 и до 6,25% по Кварталу Серебряный Бор. Чем больше квадратных метров продаёте в одном проекте — тем выше ваша ставка.',
   stats: [
     { number: 'до 8%', label: 'Максимальная ставка по Зорге 9' },
     { number: '7 дней', label: 'Выплата вознаграждения' },
@@ -803,7 +806,7 @@ const DEFAULT_COMMISSION = {
     ZORGE9: [
       { name: 'Start', range: '0–59 м²', rate: '5,0%', active: false },
       { name: 'Basic', range: '60–119 м²', rate: '5,5%', active: false },
-      { name: 'Strong', range: '120–199 м²', rate: '6,0%', active: true },
+      { name: 'Strong', range: '120–199 м²', rate: '6,0%', active: false },
       { name: 'Premium', range: '200–319 м²', rate: '6,5%', active: false },
       { name: 'Elite', range: '320–499 м²', rate: '7,0%', active: false },
       { name: 'Champion', range: '500–699 м²', rate: '7,5%', active: false },
@@ -812,7 +815,7 @@ const DEFAULT_COMMISSION = {
     SILVER_BOR: [
       { name: 'Start', range: '0–47 м²', rate: '5,0%', active: false },
       { name: 'Basic', range: '48–95 м²', rate: '5,25%', active: false },
-      { name: 'Strong', range: '96–170 м²', rate: '5,5%', active: true },
+      { name: 'Strong', range: '96–170 м²', rate: '5,5%', active: false },
       { name: 'Premium', range: '171–279 м²', rate: '5,75%', active: false },
       { name: 'Elite', range: '280–399 м²', rate: '6,0%', active: false },
       { name: 'Champion', range: '400+ м²', rate: '6,25%', active: false },
@@ -997,11 +1000,12 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .btn-tertiary{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--bg);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-tertiary:hover{background:var(--bg2)}
 .btn-white{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--white);color:var(--black);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:var(--r-pill);transition:all var(--t);border:none;cursor:pointer}.btn-white:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.15)}
 .hero-banner{padding:0 60px;margin-top:20px}
-/* Возврат к полноширинному стилю: картинка во весь блок с тёмным градиентом
-   слева → прозрачным справа, текст поверх. Высота 380px чтобы рендер было
-   хорошо видно. Правка от 2026-05-07 после Stone-style. */
+/* Полноширинный стиль с картинкой и тёмным градиентом, текст поверх.
+   align-items:flex-start — текст начинается СВЕРХУ (раньше был flex-end,
+   из-за чего длинные тайтлы съезжали и тег пропадал из видимости).
+   Правка заказчика 2026-05-08. */
 .hero-slides{position:relative;width:100%;height:380px;border-radius:var(--r-card);overflow:hidden;background:var(--bg2)}
-.hero-slide{position:absolute;inset:0;display:flex;align-items:flex-end;padding:44px 56px;background-size:cover;background-position:center;transition:opacity .6s ease}
+.hero-slide{position:absolute;inset:0;display:flex;align-items:flex-start;padding:44px 56px;background-size:cover;background-position:center;transition:opacity .6s ease}
 .hero-slide-content{max-width:680px;color:#fff;display:flex;flex-direction:column;align-items:flex-start;gap:0}
 .hero-slide-tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;padding:6px 14px;border:1px solid rgba(180,147,111,0.6);border-radius:var(--r-pill);background:rgba(0,0,0,0.25);backdrop-filter:blur(8px)}
 .hero-slide-title{font-size:clamp(26px,3vw,40px);font-weight:300;line-height:1.1;margin:0 0 12px;letter-spacing:-0.5px;color:#fff}
@@ -1027,7 +1031,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .lp section{padding:80px 60px}.sep{border:none;border-top:1px solid var(--bw);margin:0 60px}
 .sh{margin-bottom:48px}.sh-center{text-align:center}.sh-tag{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:14px}.sh h2{font-size:var(--fs-h2);font-weight:300;line-height:1.1;letter-spacing:-0.5px}.sh h2 strong{font-weight:700}.sh h2 em{font-style:normal;color:var(--gold);font-weight:700}.sh-sub{color:var(--muted);font-size:15px;max-width:560px;margin-top:14px;line-height:1.7;font-weight:400}.sh-center .sh-sub{margin-left:auto;margin-right:auto}
 .proj-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}.proj-card{border-radius:var(--r-card);padding:36px 32px;display:flex;flex-direction:column;justify-content:flex-end;min-height:240px;transition:all .3s ease;cursor:pointer;background:var(--bg)}.proj-card:hover{transform:translateY(-3px);box-shadow:0 12px 32px rgba(0,0,0,0.06)}.proj-tag{font-size:9px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--gold);margin-bottom:10px}.proj-name{font-size:28px;font-weight:300;margin-bottom:8px;letter-spacing:-0.3px}.proj-name strong{font-weight:700}.proj-info{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.7}.proj-link{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);display:inline-flex;align-items:center;gap:6px}
-.comm-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:28px;align-items:start}.comm-table{border-radius:var(--r-card);overflow:hidden;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,0.04)}.ct-head{display:grid;grid-template-columns:1fr 1.2fr 0.8fr;padding:14px 22px;background:var(--bg);gap:8px}.ct-head span{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}.ct-row{display:grid;grid-template-columns:1fr 1.2fr 0.8fr;padding:14px 22px;border-top:1px solid var(--bw);gap:8px;transition:background var(--t)}.ct-row:hover{background:var(--gold-bg)}.ct-row.active{background:var(--gold-light);border-left:3px solid var(--gold)}.ct-level{font-size:14px;font-weight:500}.ct-row.active .ct-level{color:var(--gold2);font-weight:700}.ct-range{font-size:13px;color:var(--muted)}.ct-rate{font-size:14px;font-weight:600;text-align:right}.ct-row.active .ct-rate{color:var(--gold2)}
+.comm-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:28px;align-items:start}.comm-table{border-radius:var(--r-card);overflow:hidden;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,0.04)}.ct-head{display:grid;grid-template-columns:1fr 1.2fr 0.8fr;padding:14px 22px;background:var(--bg);gap:8px}.ct-head span{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}.ct-row{display:grid;grid-template-columns:1fr 1.2fr 0.8fr;padding:14px 22px;border-top:1px solid var(--bw);gap:8px;transition:background var(--t)}.ct-row:hover{background:var(--gold-bg)}.ct-level{font-size:14px;font-weight:500}.ct-range{font-size:13px;color:var(--muted)}.ct-rate{font-size:14px;font-weight:600;text-align:right}
 .comm-info{display:flex;flex-direction:column;gap:10px}.comm-card{padding:18px 22px;background:var(--bg);border-radius:var(--r-card);transition:background var(--t)}.comm-card:hover{background:var(--gold-bg)}.comm-card-title{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:8px}.comm-card p{font-size:13px;color:var(--light);line-height:1.6;font-weight:400;margin:0}
 .s-adv{background:var(--black);color:var(--white);padding:64px 60px;position:relative;overflow:hidden}.s-adv .sh{margin-bottom:32px}.s-adv .sh-tag{color:var(--gold)}.s-adv h2{color:var(--white)}.s-adv h2 em{color:var(--gold)}.adv-bg-glow{position:absolute;inset:0;background:radial-gradient(circle at 20% 30%,rgba(180,147,111,0.18),transparent 45%),radial-gradient(circle at 85% 80%,rgba(180,147,111,0.12),transparent 50%);pointer-events:none;z-index:0}.s-adv .sh,.s-adv .adv-grid{position:relative;z-index:1}.adv-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.08);border-radius:var(--r-card);overflow:hidden}.adv-card{padding:24px 24px;background:var(--black)}.adv-icon{width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:12px}.adv-title{font-size:15px;font-weight:600;color:var(--white);margin-bottom:6px}.adv-desc{font-size:12px;color:rgba(255,255,255,0.5);line-height:1.55;font-weight:300}
 .s-comm{background:var(--gold);padding:80px 60px;position:relative;overflow:hidden}.s-comm .sh-tag{color:rgba(255,255,255,0.6)}.s-comm h2{color:var(--white)}.comm-content{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:28px}.comm-desc{font-size:15px;color:rgba(255,255,255,0.8);line-height:1.8;font-weight:300;margin-bottom:24px}.comm-list{display:flex;flex-direction:column;gap:10px}.comm-list-item{display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.9)}.comm-list-dot{width:6px;height:6px;border-radius:50%;background:var(--white);flex-shrink:0;margin-top:7px}

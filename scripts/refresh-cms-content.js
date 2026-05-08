@@ -32,8 +32,9 @@ const HERO = {
   // По правке заказчика 2026-05-07.
   title: 'Доход растёт\nвместе с объёмом\nпродаж агентства',
   titleAccent: 'продаж агентства',
+  // Правка заказчика 2026-05-08: убрано "суммируем сделки" (не суммируем).
   description:
-    'Суммируем сделки по Зорге 9 и Кварталу Серебряный Бор — вы быстрее выходите на более высокий уровень комиссии. До 8% по Зорге 9 и до 6,25% по Серебряному Бору.',
+    'Прогрессивная шкала комиссии: до 8% по Зорге 9 и до 6,25% по Кварталу Серебряный Бор. Чем больше квадратных метров продаёте в одном проекте — тем выше ваша ставка.',
   stats: [
     { number: 'до 8%', label: 'Максимальная ставка по Зорге 9' },
     { number: '7 дней', label: 'Выплата вознаграждения' },
@@ -68,7 +69,7 @@ const COMMISSION = {
     ZORGE9: [
       { name: 'Start', range: '0–59 м²', rate: '5,0%', active: false },
       { name: 'Basic', range: '60–119 м²', rate: '5,5%', active: false },
-      { name: 'Strong', range: '120–199 м²', rate: '6,0%', active: true },
+      { name: 'Strong', range: '120–199 м²', rate: '6,0%', active: false },
       { name: 'Premium', range: '200–319 м²', rate: '6,5%', active: false },
       { name: 'Elite', range: '320–499 м²', rate: '7,0%', active: false },
       { name: 'Champion', range: '500–699 м²', rate: '7,5%', active: false },
@@ -77,7 +78,7 @@ const COMMISSION = {
     SILVER_BOR: [
       { name: 'Start', range: '0–47 м²', rate: '5,0%', active: false },
       { name: 'Basic', range: '48–95 м²', rate: '5,25%', active: false },
-      { name: 'Strong', range: '96–170 м²', rate: '5,5%', active: true },
+      { name: 'Strong', range: '96–170 м²', rate: '5,5%', active: false },
       { name: 'Premium', range: '171–279 м²', rate: '5,75%', active: false },
       { name: 'Elite', range: '280–399 м²', rate: '6,0%', active: false },
       { name: 'Champion', range: '400+ м²', rate: '6,25%', active: false },
@@ -86,7 +87,7 @@ const COMMISSION = {
   levels: [
     { name: 'Start', range: '0–59 м²', rate: '5,0%', active: false },
     { name: 'Basic', range: '60–119 м²', rate: '5,5%', active: false },
-    { name: 'Strong', range: '120–199 м²', rate: '6,0%', active: true },
+    { name: 'Strong', range: '120–199 м²', rate: '6,0%', active: false },
     { name: 'Premium', range: '200–319 м²', rate: '6,5%', active: false },
     { name: 'Elite', range: '320–499 м²', rate: '7,0%', active: false },
     { name: 'Champion', range: '500–699 м²', rate: '7,5%', active: false },
