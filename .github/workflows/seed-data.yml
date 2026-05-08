@@ -17,6 +17,17 @@ on:
           - seed-cooperation-doc
           - cleanup-cooperation-docs
           - refresh-cms-content
+          - create-admin
+      admin_phone:
+        description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
+        required: false
+      admin_password:
+        description: 'Пароль админа (для task=create-admin), будет скрыт в логах'
+        required: false
+      admin_name:
+        description: 'Имя админа (для task=create-admin)'
+        required: false
+        default: 'Администратор'
 
 jobs:
   run:
@@ -69,6 +80,17 @@ jobs:
             if [ "$TASK" = "refresh-cms-content" ]; then
               echo "=== refresh-cms-content (перезаписать дефолты CMS — ОПАСНО, перетирает админские правки) ==="
               $COMPOSE_CMD exec -T api node /app/scripts/refresh-cms-content.js
+            fi
+
+            if [ "$TASK" = "create-admin" ]; then
+              echo "=== create-admin (одноразовое создание ADMIN-аккаунта) ==="
+              # Маскируем пароль в логах GitHub Actions
+              echo "::add-mask::${{ inputs.admin_password }}"
+              $COMPOSE_CMD exec -T \
+                -e ADMIN_PHONE="${{ inputs.admin_phone }}" \
+                -e ADMIN_PASSWORD="${{ inputs.admin_password }}" \
+                -e ADMIN_NAME="${{ inputs.admin_name }}" \
+                api node /app/scripts/create-admin.js
             fi
 
             echo ""
