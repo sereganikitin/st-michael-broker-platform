@@ -133,10 +133,32 @@ export default function AdminBrokersPage() {
                       </td>
                       <td className="py-3 text-text-muted">{b.phone}</td>
                       <td className="py-3 text-text-muted text-xs">{b.email || '—'}</td>
-                      <td className="py-3">
-                        <span className={`text-xs px-2 py-1 rounded ${b.role === 'ADMIN' ? 'bg-accent/20 text-accent' : b.role === 'MANAGER' ? 'bg-info/20 text-info' : 'bg-text-muted/20 text-text-muted'}`}>
-                          {roleLabels[b.role] || b.role}
-                        </span>
+                      <td className="py-3" onClick={(e) => e.stopPropagation()}>
+                        {broker?.role === 'ADMIN' ? (
+                          <select
+                            className={`text-xs px-2 py-1 rounded border-0 cursor-pointer ${b.role === 'ADMIN' ? 'bg-accent/20 text-accent' : b.role === 'MANAGER' ? 'bg-info/20 text-info' : 'bg-text-muted/20 text-text-muted'}`}
+                            value={b.role}
+                            onChange={async (e) => {
+                              const newRole = e.target.value;
+                              if (newRole === b.role) return;
+                              if (!confirm(`Сменить роль "${b.fullName}" с ${roleLabels[b.role]} на ${roleLabels[newRole]}?`)) return;
+                              try {
+                                await api(`/admin/brokers/${b.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: newRole }) });
+                                fetchBrokers();
+                              } catch (err: any) {
+                                alert(`Ошибка смены роли: ${err?.message || err}`);
+                              }
+                            }}
+                          >
+                            <option value="BROKER">Брокер</option>
+                            <option value="MANAGER">Менеджер</option>
+                            <option value="ADMIN">Админ</option>
+                          </select>
+                        ) : (
+                          <span className={`text-xs px-2 py-1 rounded ${b.role === 'ADMIN' ? 'bg-accent/20 text-accent' : b.role === 'MANAGER' ? 'bg-info/20 text-info' : 'bg-text-muted/20 text-text-muted'}`}>
+                            {roleLabels[b.role] || b.role}
+                          </span>
+                        )}
                       </td>
                       <td className="py-3">
                         <span className={`text-xs px-2 py-1 rounded ${statusLabels[b.status]?.cls || ''}`}>
