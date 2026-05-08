@@ -1020,7 +1020,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
    Раньше был text-align:center + margin:0 auto. Теперь содержимое
    прижато к левому краю; padding/margin уменьшены. */
 .hero{padding:40px 60px 36px}
-.hero-compact{max-width:920px;margin:0 auto;text-align:left}
+.hero-compact{max-width:720px;margin:0;text-align:left}
 .hero-tag{display:inline-flex;align-items:center;gap:10px;margin-bottom:14px}.hero-tag::before{content:'';width:28px;height:1px;background:var(--gold)}.hero-tag span{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold)}
 /* H1 "треугольник" — каждая строка чуть длиннее предыдущей. \n в title
    рендерится как <br/>. line-height:1 уплотняет блок. */
@@ -1029,7 +1029,9 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .hero-desc{font-size:15px;color:var(--light);line-height:1.6;font-weight:400;margin-bottom:22px;max-width:640px}
 .hero-btns{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
 .btn-lg{padding:18px 40px;font-size:12px}
-.stats-band{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--bw);border-bottom:1px solid var(--bw);background:var(--white);margin:0 60px}.hst{padding:32px 24px;text-align:center;border-right:1px solid var(--bw)}.hst:last-child{border-right:none}.hst-n{font-size:32px;font-weight:700;line-height:1;margin-bottom:8px;letter-spacing:-0.8px;color:var(--black)}.hst-l{font-size:11px;color:var(--muted);line-height:1.4;font-weight:500;letter-spacing:0.3px}
+/* Stats-band (до 8% / 7 дней / 30 дней / 2) — компактнее по правке
+   2026-05-08: padding 32→18px, шрифт цифр 32→24px, margin 8→4px. */
+.stats-band{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--bw);border-bottom:1px solid var(--bw);background:var(--white);margin:0 60px}.hst{padding:18px 20px;text-align:center;border-right:1px solid var(--bw)}.hst:last-child{border-right:none}.hst-n{font-size:24px;font-weight:700;line-height:1;margin-bottom:4px;letter-spacing:-0.6px;color:var(--black)}.hst-l{font-size:10px;color:var(--muted);line-height:1.3;font-weight:500;letter-spacing:0.3px}
 .quick{display:grid;grid-template-columns:repeat(3,1fr);border-radius:var(--r-card);overflow:hidden;margin:0 60px;background:var(--bg)}.qa{padding:28px 32px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:background var(--t);border-right:1px solid rgba(0,0,0,0.04)}.qa:last-child{border-right:none}.qa:hover{background:var(--bg2)}.qa-title{font-size:15px;font-weight:500}.qa-sub{font-size:12px;color:var(--muted);margin-top:3px}.qa-arrow{width:36px;height:36px;border-radius:50%;background:var(--white);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;transition:all var(--t);flex-shrink:0}.qa:hover .qa-arrow{background:var(--black);color:var(--white)}
 .lp section{padding:80px 60px}.sep{border:none;border-top:1px solid var(--bw);margin:0 60px}
 .sh{margin-bottom:48px}.sh-center{text-align:center}.sh-tag{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:14px}.sh h2{font-size:var(--fs-h2);font-weight:300;line-height:1.1;letter-spacing:-0.5px}.sh h2 strong{font-weight:700}.sh h2 em{font-style:normal;color:var(--gold);font-weight:700}.sh-sub{color:var(--muted);font-size:15px;max-width:560px;margin-top:14px;line-height:1.7;font-weight:400}.sh-center .sh-sub{margin-left:auto;margin-right:auto}
