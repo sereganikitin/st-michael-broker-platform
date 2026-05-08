@@ -1034,7 +1034,11 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 /* Stats-band — карточка со скруглёнными углами (правка 2026-05-08).
    Раньше: прямоугольная полоса с border-top/bottom. Теперь: рамка
    border + radius:16px вокруг всего блока, аккуратнее. */
-.stats-band{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--bw);border-radius:var(--r-card);background:var(--white);margin:0 60px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.04)}.hst{padding:18px 20px;text-align:center;border-right:1px solid var(--bw)}.hst:last-child{border-right:none}.hst-n{font-size:24px;font-weight:700;line-height:1;margin-bottom:4px;letter-spacing:-0.6px;color:var(--black)}.hst-l{font-size:10px;color:var(--muted);line-height:1.3;font-weight:500;letter-spacing:0.3px}
+/* Stats-band — увеличены отступы и шрифт по правке 2026-05-08:
+   - margin сверху 28px (раньше 0 → прилипал к слайдеру)
+   - margin снизу −24px (от секции; делает дистанцию равной верхней)
+   - hst padding 18→24px, hst-n 24→30px, hst-l 10→11px */
+.stats-band{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--bw);border-radius:var(--r-card);background:var(--white);margin:28px 60px 0;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.04)}.hst{padding:24px 22px;text-align:center;border-right:1px solid var(--bw)}.hst:last-child{border-right:none}.hst-n{font-size:30px;font-weight:700;line-height:1;margin-bottom:6px;letter-spacing:-0.7px;color:var(--black)}.hst-l{font-size:11px;color:var(--muted);line-height:1.3;font-weight:500;letter-spacing:0.3px}
 .quick{display:grid;grid-template-columns:repeat(3,1fr);border-radius:var(--r-card);overflow:hidden;margin:0 60px;background:var(--bg)}.qa{padding:28px 32px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:background var(--t);border-right:1px solid rgba(0,0,0,0.04)}.qa:last-child{border-right:none}.qa:hover{background:var(--bg2)}.qa-title{font-size:15px;font-weight:500}.qa-sub{font-size:12px;color:var(--muted);margin-top:3px}.qa-arrow{width:36px;height:36px;border-radius:50%;background:var(--white);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;transition:all var(--t);flex-shrink:0}.qa:hover .qa-arrow{background:var(--black);color:var(--white)}
 .lp section{padding:80px 60px}.sep{border:none;border-top:1px solid var(--bw);margin:0 60px}
 .sh{margin-bottom:48px}.sh-center{text-align:center}.sh-tag{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:14px}.sh h2{font-size:var(--fs-h2);font-weight:300;line-height:1.1;letter-spacing:-0.5px}.sh h2 strong{font-weight:700}.sh h2 em{font-style:normal;color:var(--gold);font-weight:700}.sh-sub{color:var(--muted);font-size:15px;max-width:560px;margin-top:14px;line-height:1.7;font-weight:400}.sh-center .sh-sub{margin-left:auto;margin-right:auto}
@@ -1149,8 +1153,11 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             - заголовок изменён: "Проекты — одна программа" → "Наш проект"
               (комиссия суммируется только в рамках одного проекта, не общая)
             - убран фоновой полупрозрачный image на карточках (устарело,
-              не несёт смысла, перегружает текст). Карточки чистые. */}
-        <section id="projects">
+              не несёт смысла, перегружает текст). Карточки чистые.
+            - padding-top уменьшен до 36px (правка 2026-05-08): расстояние
+              от stats-band до projects теперь сравнимо с расстоянием от
+              слайдера до stats-band (28px). */}
+        <section id="projects" style={{paddingTop:36}}>
           <div className="sh"><div className="sh-tag">Проекты</div><h2><em>Наши проекты</em></h2><p className="sh-sub">Зорге 9 и Квартал Серебряный Бор. Каждый проект — отдельная прогрессивная шкала комиссии.</p></div>
           <div className="proj-grid">
             {projects.map((p: any, i: number) => (
