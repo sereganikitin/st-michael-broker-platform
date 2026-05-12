@@ -18,6 +18,7 @@ on:
           - cleanup-cooperation-docs
           - refresh-cms-content
           - create-admin
+          - sync-amocrm-all
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -33,7 +34,7 @@ jobs:
   run:
     name: Run seed task on production
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - name: SSH and run requested task
         uses: appleboy/ssh-action@v1.0.3
@@ -43,7 +44,9 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           script_stop: true
-          command_timeout: 10m
+          # 35m нужно для task=sync-amocrm-all (30+ брокеров × ~1 мин каждый).
+          # Прочим таскам хватает 10m, но это глобальный таймаут SSH-сессии.
+          command_timeout: 35m
           script: |
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
@@ -80,6 +83,13 @@ jobs:
             if [ "$TASK" = "refresh-cms-content" ]; then
               echo "=== refresh-cms-content (перезаписать дефолты CMS — ОПАСНО, перетирает админские правки) ==="
               $COMPOSE_CMD exec -T api node /app/scripts/refresh-cms-content.js
+            fi
+
+            if [ "$TASK" = "sync-amocrm-all" ]; then
+              echo "=== sync-amocrm-all (пересинк всех брокеров с amoCRM) ==="
+              # Запускает scheduler.handleAmoCrmSync() через NestJS standalone.
+              # Долгая операция: ~1 мин на брокера × количество активных брокеров.
+              $COMPOSE_CMD exec -T api node /app/scripts/sync-amocrm-all.js
             fi
 
             if [ "$TASK" = "create-admin" ]; then
