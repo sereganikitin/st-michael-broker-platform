@@ -14,13 +14,14 @@
   // Импортируем скомпилированный NestJS-приложение (внутри docker /app — это apps/api).
   const { NestFactory } = require('@nestjs/core');
 
-  // AppModule находится в /app/dist/app.module.js после `nest build`.
+  // AppModule находится в /app/apps/api/dist/ (monorepo layout, entrypoint
+  // запускает `node apps/api/dist/main.js`).
   let AppModule, SchedulerService;
   try {
-    ({ AppModule } = require('/app/dist/app.module'));
-    ({ SchedulerService } = require('/app/dist/scheduler/scheduler.service'));
+    ({ AppModule } = require('/app/apps/api/dist/app.module'));
+    ({ SchedulerService } = require('/app/apps/api/dist/scheduler/scheduler.service'));
   } catch (e) {
-    console.error('Cannot load Nest modules from /app/dist. Did `nest build` run?');
+    console.error('Cannot load Nest modules from /app/apps/api/dist. Did nest build run?');
     console.error(e);
     process.exit(1);
   }
