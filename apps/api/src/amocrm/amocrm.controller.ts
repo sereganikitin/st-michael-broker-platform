@@ -1,6 +1,9 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '@prisma/client';
 import { CurrentUser, CurrentUserPayload } from '../auth/current-user.decorator';
 import { AmocrmService } from './amocrm.service';
 
@@ -10,6 +13,16 @@ import { AmocrmService } from './amocrm.service';
 @ApiBearerAuth()
 export class AmocrmController {
   constructor(private readonly amocrmService: AmocrmService) {}
+
+  // Диагностический эндпоинт: возвращает raw lead JSON с custom_fields_values.
+  // Только админ. Нужен для аудита полей amoCRM (sqm, цена и т.д.). Правка 2026-05-12.
+  @Get('inspect-lead/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin: inspect raw amoCRM lead by id (with all custom fields)' })
+  async inspectLead(@Param('id') id: string) {
+    return this.amocrmService.inspectLead(Number(id));
+  }
 
   @Post('sync-my-deals')
   @ApiOperation({ summary: 'Pull all deals/clients from amoCRM linked to current broker' })
