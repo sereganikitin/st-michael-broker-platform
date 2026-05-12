@@ -11,26 +11,20 @@ const statusLabels: Record<string, { label: string; cls: string }> = {
   EXPIRED: { label: 'Истёк', cls: 'bg-text-muted/20 text-text-muted' },
 };
 
-const fixationLabels: Record<string, { label: string; cls: string }> = {
-  NOT_FIXED: { label: 'Не зафикс.', cls: 'text-text-muted' },
-  FIXED: { label: 'Зафикс.', cls: 'text-success' },
-  EXPIRED: { label: 'Истёк', cls: 'text-error' },
-  ANNULLED: { label: 'Аннулир.', cls: 'text-error' },
-};
-
 const projectLabels: Record<string, string> = {
   ZORGE9: 'Зорге 9',
   SILVER_BOR: 'Серебряный бор',
 };
 
-// Mask middle digits of a phone like "+7 (XXX) ***-**-XX"
-function maskPhone(phone: string | null | undefined): string {
+// Форматирование телефона в формат +7 (XXX) XXX-XX-XX.
+// Правка 2026-05-12: брокеры видят СВОИХ клиентов полным телефоном
+// (маска убрана — раньше показывалось "+7 (999) ***-**-67", непригодно для звонка).
+function formatPhone(phone: string | null | undefined): string {
   if (!phone) return '—';
   const digits = phone.replace(/\D/g, '');
   if (digits.length < 10) return phone;
-  // Take last 11 digits as RU phone
   const d = digits.slice(-11);
-  return `+${d[0]} (${d.slice(1, 4)}) ***-**-${d.slice(9, 11)}`;
+  return `+${d[0]} (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7, 9)}-${d.slice(9, 11)}`;
 }
 
 function daysUntilExpiry(expiresAt: string | null): number | null {
@@ -51,14 +45,11 @@ function ClientDetail({ client, onClose }: { client: any; onClose: () => void })
         </button>
 
         <h2 className="text-xl font-bold mb-1">{client.fullName}</h2>
-        <p className="text-text-muted text-sm mb-4">{client.phone}</p>
+        <p className="text-text-muted text-sm mb-4">{formatPhone(client.phone)}</p>
 
         <div className="flex gap-2 mb-4">
           <span className={`text-xs px-2 py-1 rounded ${statusLabels[client.uniquenessStatus]?.cls || 'bg-text-muted/20'}`}>
             {statusLabels[client.uniquenessStatus]?.label || client.uniquenessStatus}
-          </span>
-          <span className={`text-xs px-2 py-1 rounded ${fixationLabels[client.fixationStatus]?.cls || ''}`}>
-            {fixationLabels[client.fixationStatus]?.label || client.fixationStatus}
           </span>
         </div>
 
@@ -230,7 +221,6 @@ export default function ClientsPage() {
                     <th className="pb-3 font-medium">Телефон</th>
                     <th className="pb-3 font-medium">Проект</th>
                     <th className="pb-3 font-medium">Уникальность</th>
-                    <th className="pb-3 font-medium">Фиксация</th>
                     <th className="pb-3 font-medium">Дата</th>
                   </tr>
                 </thead>
@@ -242,16 +232,11 @@ export default function ClientsPage() {
                       onClick={() => setSelectedClient(c)}
                     >
                       <td className="py-3 font-medium">{c.fullName}</td>
-                      <td className="py-3 text-text-muted">{maskPhone(c.phone)}</td>
+                      <td className="py-3 text-text-muted">{formatPhone(c.phone)}</td>
                       <td className="py-3">{projectLabels[c.project] || c.project}</td>
                       <td className="py-3">
                         <span className={`text-xs px-2 py-1 rounded ${statusLabels[c.uniquenessStatus]?.cls || ''}`}>
                           {statusLabels[c.uniquenessStatus]?.label || c.uniquenessStatus}
-                        </span>
-                      </td>
-                      <td className="py-3">
-                        <span className={fixationLabels[c.fixationStatus]?.cls || ''}>
-                          {fixationLabels[c.fixationStatus]?.label || c.fixationStatus}
                         </span>
                         {(() => {
                           if (c.uniquenessStatus !== 'CONDITIONALLY_UNIQUE') return null;
