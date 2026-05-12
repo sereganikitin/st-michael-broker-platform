@@ -345,30 +345,47 @@ export class AmocrmService {
         const rate = await this.getCommissionRate(brokerId, project);
         const commissionAmount = Math.round(amount * rate / 100);
 
-        // Дедупликация: если у этого лида есть cc_id_parent — это копия сделки,
-        // которая уже могла быть синхронизирована под id родителя.
-        // Ищем существующую Deal сначала по amoDealId, затем по cc_id_parent
-        // (если в БД уже есть запись на родителя — обновляем ЕЁ, не создаём дубль).
+        // Дедупликация: на одну реальную сделку в amoCRM может быть 2-3 карточки
+        // (КЦ, проектная воронка, воронка брокеров). Связь child→parent через cc_id_parent.
+        // Ищем существующий Deal по любой из связанных карточек:
+        //   1. По собственному amoDealId
+        //   2. По cc_id_parent текущего лида (если он child — родитель уже мог попасть в БД)
+        //   3. По amoParentDealId == lead.id (если этот лид — родитель, а его child уже в БД)
         let existingDeal = await this.prisma.deal.findFirst({
           where: { amoDealId: BigInt(lead.id) },
         });
         if (!existingDeal && ccIdParent) {
           existingDeal = await this.prisma.deal.findFirst({
-            where: { amoDealId: BigInt(ccIdParent) },
+            where: {
+              OR: [
+                { amoDealId: BigInt(ccIdParent) },
+                { amoParentDealId: BigInt(ccIdParent) },
+              ],
+            },
+          });
+        }
+        if (!existingDeal) {
+          existingDeal = await this.prisma.deal.findFirst({
+            where: { amoParentDealId: BigInt(lead.id) },
           });
         }
 
-        const dealData = {
+        // При апдейте существующего Deal не перетираем sqm/amount нулями,
+        // если новые данные пустые — данные могут быть в parent-карточке.
+        const dealData: any = {
           clientId: client.id,
           brokerId,
           project: project as any,
-          amount,
-          sqm,
           commissionRate: rate,
           commissionAmount,
           status: status as any,
           amoDealId: BigInt(lead.id),
+          amoParentDealId: ccIdParent ? BigInt(ccIdParent) : null,
         };
+        // Заполняем sqm/amount ТОЛЬКО если новое значение > 0
+        // (приоритет child-карточек где эти поля заполнены).
+        if (sqm > 0 || !existingDeal) dealData.sqm = sqm;
+        if (amount > 0 || !existingDeal) dealData.amount = amount;
 
         if (existingDeal) {
           await this.prisma.deal.update({ where: { id: existingDeal.id }, data: dealData });
