@@ -26,8 +26,18 @@ export class MeetingsService {
     const skip = (page - 1) * limit;
 
     const where: any = { brokerId };
-    if (query.status) where.status = query.status;
-    else where.status = { not: 'CANCELLED' };
+    if (query.status) {
+      // Поддержка "upcoming" — только запланированные (PENDING/CONFIRMED).
+      // Правка заказчика 2026-05-12: на /meetings показывать только не-завершённые.
+      if (query.status === 'upcoming') {
+        where.status = { in: ['PENDING', 'CONFIRMED'] };
+      } else {
+        where.status = query.status;
+      }
+    } else {
+      // По умолчанию исключаем CANCELLED И COMPLETED (только запланированные).
+      where.status = { notIn: ['CANCELLED', 'COMPLETED'] };
+    }
     if (query.type) where.type = query.type;
 
     const orderBy: any = {};
