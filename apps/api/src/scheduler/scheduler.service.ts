@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
 import { levelForSqm, rateFor } from '../commission/commission.service';
 
@@ -387,8 +387,13 @@ export class SchedulerService {
               totalClients++;
             }
 
-            // Calculate commission — use new project-specific scales (ТЗ §"Объединённая шкала")
-            const amount = Number(lead.price || 0);
+            // Извлекаем sqm/price из custom_fields. Правка 2026-05-12 — раньше sqm=0
+            // и amount=lead.price (без учёта скидок). Теперь приоритет custom-полям.
+            const sqm = getLeadCustomFieldNumber(lead, AMO_LEAD_FIELDS.SQM);
+            const priceNoDiscount = getLeadCustomFieldNumber(lead, AMO_LEAD_FIELDS.PRICE_NO_DISCOUNT);
+            const amount = priceNoDiscount > 0 ? priceNoDiscount : Number(lead.price || 0);
+            const ccIdParent = getLeadCustomFieldValue(lead, AMO_LEAD_FIELDS.CC_ID_PARENT);
+
             const ba = await this.prisma.brokerAgency.findFirst({
               where: { brokerId: broker.id, isPrimary: true },
               include: { agency: true },
@@ -398,14 +403,30 @@ export class SchedulerService {
             const rate = rateFor(project, lvl);
             const commAmt = Math.round(amount * rate / 100);
 
-            // Upsert deal
-            const existing = await this.prisma.deal.findFirst({ where: { amoDealId: BigInt(lead.id) } });
-            const dealData = {
+            // Upsert deal — двусторонний дедуп через cc_id_parent.
+            let existing = await this.prisma.deal.findFirst({ where: { amoDealId: BigInt(lead.id) } });
+            if (!existing && ccIdParent) {
+              existing = await this.prisma.deal.findFirst({
+                where: {
+                  OR: [
+                    { amoDealId: BigInt(ccIdParent) },
+                    { amoParentDealId: BigInt(ccIdParent) },
+                  ],
+                },
+              });
+            }
+            if (!existing) {
+              existing = await this.prisma.deal.findFirst({ where: { amoParentDealId: BigInt(lead.id) } });
+            }
+            const dealData: any = {
               clientId: client.id, brokerId: broker.id,
-              project: project as any, amount,
-              sqm: 0, commissionRate: rate, commissionAmount: commAmt,
+              project: project as any,
+              commissionRate: rate, commissionAmount: commAmt,
               status: status as any, amoDealId: BigInt(lead.id),
+              amoParentDealId: ccIdParent ? BigInt(ccIdParent) : null,
             };
+            if (sqm > 0 || !existing) dealData.sqm = sqm;
+            if (amount > 0 || !existing) dealData.amount = amount;
             if (existing) {
               await this.prisma.deal.update({ where: { id: existing.id }, data: dealData });
             } else {
@@ -448,6 +469,25 @@ export class SchedulerService {
               }
             } catch {}
           } catch {}
+        }
+        // Пересчёт totalSqmSold у primary agency после синка всех сделок брокера.
+        // Иначе level всегда = START. Правка 2026-05-12.
+        try {
+          const baFinal = await this.prisma.brokerAgency.findFirst({
+            where: { brokerId: broker.id, isPrimary: true },
+          });
+          if (baFinal?.agencyId) {
+            const agg = await this.prisma.deal.aggregate({
+              where: { brokerId: broker.id, status: { in: ['PAID', 'COMMISSION_PAID'] } },
+              _sum: { sqm: true },
+            });
+            await this.prisma.agency.update({
+              where: { id: baFinal.agencyId },
+              data: { totalSqmSold: Number(agg._sum.sqm || 0) },
+            });
+          }
+        } catch (e) {
+          this.logger.error(`Recalc totalSqmSold failed for ${broker.fullName}: ${e}`);
         }
       } catch (e) {
         this.logger.error(`amoCRM sync failed for broker ${broker.fullName}: ${e}`);

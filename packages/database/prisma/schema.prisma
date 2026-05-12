@@ -306,6 +306,10 @@ model Deal {
   lotId            String?      @map("lot_id")
   lot              Lot?         @relation(fields: [lotId], references: [id])
   amoDealId        BigInt?      @map("amo_deal_id")
+  // ID родительской карточки в amoCRM (custom field "cc_id_parent" 839249).
+  // На одну реальную продажу в amoCRM может быть 2-3 карточки в разных воронках,
+  // связанные через это поле. Используется для дедупа: child→parent ссылка.
+  amoParentDealId  BigInt?      @map("amo_parent_deal_id")
   project          Project      @default(ZORGE9)
   contractType     ContractType? @map("contract_type")
   amount           Decimal      @db.Decimal(14, 2)

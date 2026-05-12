@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { levelForSqm, rateFor } from '../commission/commission.service';
 
 @Injectable()
@@ -333,27 +333,59 @@ export class AmocrmService {
           clientsCreated++;
         }
 
-        // Calculate commission
-        const amount = Number(lead.price || 0);
+        // Извлекаем sqm/price/lotId из custom_fields (правка 2026-05-12).
+        // Раньше: amount=lead.price, sqm=0. Теперь — приоритет custom-полей.
+        const sqm = getLeadCustomFieldNumber(lead, AMO_LEAD_FIELDS.SQM);
+        const priceNoDiscount = getLeadCustomFieldNumber(lead, AMO_LEAD_FIELDS.PRICE_NO_DISCOUNT);
+        // amount: приоритет "Стоимость без скидок" → fallback lead.price
+        const amount = priceNoDiscount > 0 ? priceNoDiscount : Number(lead.price || 0);
+        const profitbaseLotId = getLeadCustomFieldValue(lead, AMO_LEAD_FIELDS.PROFITBASE_LOT_ID);
+        const ccIdParent = getLeadCustomFieldValue(lead, AMO_LEAD_FIELDS.CC_ID_PARENT);
+
         const rate = await this.getCommissionRate(brokerId, project);
         const commissionAmount = Math.round(amount * rate / 100);
 
-        // Upsert deal
-        const existingDeal = await this.prisma.deal.findFirst({
+        // Дедупликация: на одну реальную сделку в amoCRM может быть 2-3 карточки
+        // (КЦ, проектная воронка, воронка брокеров). Связь child→parent через cc_id_parent.
+        // Ищем существующий Deal по любой из связанных карточек:
+        //   1. По собственному amoDealId
+        //   2. По cc_id_parent текущего лида (если он child — родитель уже мог попасть в БД)
+        //   3. По amoParentDealId == lead.id (если этот лид — родитель, а его child уже в БД)
+        let existingDeal = await this.prisma.deal.findFirst({
           where: { amoDealId: BigInt(lead.id) },
         });
+        if (!existingDeal && ccIdParent) {
+          existingDeal = await this.prisma.deal.findFirst({
+            where: {
+              OR: [
+                { amoDealId: BigInt(ccIdParent) },
+                { amoParentDealId: BigInt(ccIdParent) },
+              ],
+            },
+          });
+        }
+        if (!existingDeal) {
+          existingDeal = await this.prisma.deal.findFirst({
+            where: { amoParentDealId: BigInt(lead.id) },
+          });
+        }
 
-        const dealData = {
+        // При апдейте существующего Deal не перетираем sqm/amount нулями,
+        // если новые данные пустые — данные могут быть в parent-карточке.
+        const dealData: any = {
           clientId: client.id,
           brokerId,
           project: project as any,
-          amount,
-          sqm: 0,
           commissionRate: rate,
           commissionAmount,
           status: status as any,
           amoDealId: BigInt(lead.id),
+          amoParentDealId: ccIdParent ? BigInt(ccIdParent) : null,
         };
+        // Заполняем sqm/amount ТОЛЬКО если новое значение > 0
+        // (приоритет child-карточек где эти поля заполнены).
+        if (sqm > 0 || !existingDeal) dealData.sqm = sqm;
+        if (amount > 0 || !existingDeal) dealData.amount = amount;
 
         if (existingDeal) {
           await this.prisma.deal.update({ where: { id: existingDeal.id }, data: dealData });
@@ -370,6 +402,34 @@ export class AmocrmService {
       }
     }
 
+    // Пересчёт totalSqmSold для primary agency брокера — после всех апдейтов сделок.
+    // Раньше это поле никогда не записывалось → level всегда START. Правка 2026-05-12.
+    await this.recalcAgencyTotalSqm(brokerId);
+
     return { dealsCreated, dealsUpdated, clientsCreated, skipped, totalLeads: allLeadIds.length, amoContactId, amoUserId };
+  }
+
+  /**
+   * Пересчитывает agency.totalSqmSold = SUM(sqm) по всем PAID/COMMISSION_PAID
+   * сделкам брокера. Зовётся после синхронизации, чтобы уровень комиссии
+   * (levelForSqm) обновлялся.
+   */
+  private async recalcAgencyTotalSqm(brokerId: string): Promise<void> {
+    const ba = await this.prisma.brokerAgency.findFirst({
+      where: { brokerId, isPrimary: true },
+      include: { agency: true },
+    });
+    if (!ba?.agency) return;
+
+    const result = await this.prisma.deal.aggregate({
+      where: { brokerId, status: { in: ['PAID', 'COMMISSION_PAID'] } },
+      _sum: { sqm: true },
+    });
+    const totalSqm = Number(result._sum.sqm || 0);
+
+    await this.prisma.agency.update({
+      where: { id: ba.agency.id },
+      data: { totalSqmSold: totalSqm },
+    });
   }
 }

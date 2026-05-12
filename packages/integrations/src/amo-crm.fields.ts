@@ -116,3 +116,55 @@ export const AMO_CONTACT_FIELDS = {
   PRESENTATION_SENT: 835955,
   ADDITIONAL_COMPANIES: 842329,
 } as const;
+
+/**
+ * Custom field IDs on Lead entity. Discovered 2026-05-12 via inspect-lead/32112013.
+ * Применяются при синхронизации сделок (amocrm.service.ts, scheduler.service.ts).
+ */
+export const AMO_LEAD_FIELDS = {
+  // Метраж сделки в м² — основное поле для расчёта commission level.
+  // Раньше всегда было 0, поэтому level=START.
+  SQM: 604555,                       // text "Метраж, м2"
+  // ID помещения в Profitbase — для привязки к Lot.
+  PROFITBASE_LOT_ID: 604559,         // text "ID помещения"
+  PRICE_PER_SQM: 604557,             // text "Цена за м2, руб"
+  FLOOR: 604551,                     // text "Этаж"
+  BUILDING: 604547,                  // text "Дом" (например "Корпус 1. Gold")
+  ROOMS_COUNT: 617501,               // text "Кол-во комнат"
+  LIVING_AREA: 617505,               // text "Жилая площадь"
+  PRICE_NO_DISCOUNT: 833045,         // text "Стоимость без скидок, руб"
+  PRICE_WITH_DISCOUNT: 833069,       // text "Стоимость с учетом скидки, руб"
+  PRICE_DDU: 833065,                 // text "Стоимость в ДДУ, руб"
+  CONTRACT_NUMBER: 558577,           // text "№ договора"
+  CONTRACT_TYPE: 617493,             // text "Тип договора" (fz214 и т.д.)
+  CONTRACT_DATE: 558353,             // date "Дата договора" (unix sec)
+  // Объект интереса (используется как fallback к pipeline_id для маппинга проекта).
+  INTEREST_OBJECT: 839179,           // text "Объект интереса"
+  // ДЕДУПЛИКАЦИЯ: amoCRM хранит связь между дубликатами карточек.
+  // У дочерней карточки cc_id_parent указывает на ID родительской.
+  // Используем это для объединения дублей при синке.
+  CC_ID_PARENT: 839249,              // text "cc_id_parent" — id парной сделки
+  // Ссылка на сделку в "Воронке брокеров" (третья копия одной и той же сделки).
+  BROKER_PIPELINE_LINK: 842387,      // text "Сделка в Брокерах"
+} as const;
+
+/**
+ * Helper: достать значение custom field по field_id.
+ * Возвращает строку или null.
+ */
+export function getLeadCustomFieldValue(lead: any, fieldId: number): string | null {
+  const cf = (lead?.custom_fields_values || []).find((f: any) => f?.field_id === fieldId);
+  const v = cf?.values?.[0]?.value;
+  return v != null && v !== '' ? String(v) : null;
+}
+
+/**
+ * Helper: достать число из custom field. Возвращает 0 если нет/невалид.
+ */
+export function getLeadCustomFieldNumber(lead: any, fieldId: number): number {
+  const v = getLeadCustomFieldValue(lead, fieldId);
+  if (!v) return 0;
+  // Поля типа "46.85" или "29637780" — стандартный парсинг.
+  const n = Number(String(v).replace(/\s/g, '').replace(/,/g, '.'));
+  return isNaN(n) ? 0 : n;
+}
