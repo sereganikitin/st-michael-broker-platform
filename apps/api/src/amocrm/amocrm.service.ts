@@ -81,6 +81,33 @@ export class AmocrmService {
     return this.amo.getAccount();
   }
 
+  /**
+   * Diagnostic: fetch lead with all custom_fields. Used to discover field names/ids
+   * for sqm/price/profitbase. Returns sanitized data (no contacts/PII).
+   */
+  async inspectLead(leadId: number) {
+    const lead: any = await this.amo.getLead(leadId);
+    if (!lead) return { error: 'Lead not found', leadId };
+    const customFields = (lead.custom_fields_values || []).map((f: any) => ({
+      field_id: f.field_id,
+      field_name: f.field_name,
+      field_code: f.field_code,
+      values: f.values,
+    }));
+    return {
+      id: lead.id,
+      name: lead.name,
+      pipeline_id: lead.pipeline_id,
+      status_id: lead.status_id,
+      price: lead.price,
+      created_at: lead.created_at,
+      updated_at: lead.updated_at,
+      responsible_user_id: lead.responsible_user_id,
+      custom_fields_count: customFields.length,
+      custom_fields: customFields,
+    };
+  }
+
   async getPipelines() {
     const pipelines = await this.amo.getPipelines();
     return pipelines.map((p: any) => ({
@@ -275,10 +302,14 @@ export class AmocrmService {
               (f: any) => f.field_id === AMO_CONTACT_FIELDS.PHONE || f.field_code === 'PHONE',
             );
             const rawPhone = phoneField?.values?.[0]?.value || '';
-            let p = String(rawPhone).replace(/[\s\-()'"]/g, '');
-            if (p.startsWith('8') && p.length === 11) p = '+7' + p.slice(1);
-            if (p && !p.startsWith('+')) p = '+' + p;
-            if (p) phone = p;
+            // Агрессивная нормализация: убрать ВСЁ кроме цифр, затем +7XXXXXXXXXX.
+            // Правка 2026-05-12: amoCRM хранит phone в разных форматах ("8 925...", "(925)...",
+            // "+7-925..."), и наш прежний parser плохо ловил пробелы внутри числа.
+            // Теперь — single source of truth: всегда +7 и 11 цифр или +<digits>.
+            let p = String(rawPhone).replace(/\D/g, '');
+            if (p.length === 11 && p.startsWith('8')) p = '7' + p.slice(1);
+            if (p.length === 10) p = '7' + p;
+            if (p) phone = '+' + p;
 
             const emailField = (clientContact.custom_fields_values || []).find(
               (f: any) => f.field_id === AMO_CONTACT_FIELDS.EMAIL || f.field_code === 'EMAIL',
