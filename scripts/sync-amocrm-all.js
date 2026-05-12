@@ -1,107 +1,45 @@
-name: Заполнить данные на сервере
+#!/usr/bin/env node
+/**
+ * Пересинхронизирует все сделки и клиентов из amoCRM для ВСЕХ активных брокеров.
+ * Использует существующий SchedulerService.handleAmoCrmSync() через NestJS
+ * standalone application context.
+ *
+ * Запуск через workflow: task=sync-amocrm-all (никакого JWT не нужно — запускается
+ * через GitHub Actions SSH в docker контейнер).
+ *
+ * После запуска: Agency.totalSqmSold пересчитается, уровни комиссий обновятся.
+ */
 
-# Вручную через GitHub UI: Actions → Заполнить данные на сервере → Run workflow.
-# Запускает на проде сидеры/синки данных без SSH-доступа пользователя.
-on:
-  workflow_dispatch:
-    inputs:
-      task:
-        description: 'Что запустить'
-        required: true
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - seed-stmichael
-          - sync-yandex-disk
-          - seed-cooperation-doc
-          - cleanup-cooperation-docs
-          - refresh-cms-content
-          - create-admin
-          - sync-amocrm-all
-      admin_phone:
-        description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
-        required: false
-      admin_password:
-        description: 'Пароль админа (для task=create-admin), будет скрыт в логах'
-        required: false
-      admin_name:
-        description: 'Имя админа (для task=create-admin)'
-        required: false
-        default: 'Администратор'
+(async () => {
+  // Импортируем скомпилированный NestJS-приложение (внутри docker /app — это apps/api).
+  const { NestFactory } = require('@nestjs/core');
 
-jobs:
-  run:
-    name: Run seed task on production
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: SSH and run requested task
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_PORT || 22 }}
-          script_stop: true
-          # 35m нужно для task=sync-amocrm-all (30+ брокеров × ~1 мин каждый).
-          # Прочим таскам хватает 10m, но это глобальный таймаут SSH-сессии.
-          command_timeout: 35m
-          script: |
-            set -e
-            cd ${{ secrets.DEPLOY_PATH }}
+  // AppModule находится в /app/dist/app.module.js после `nest build`.
+  let AppModule, SchedulerService;
+  try {
+    ({ AppModule } = require('/app/dist/app.module'));
+    ({ SchedulerService } = require('/app/dist/scheduler/scheduler.service'));
+  } catch (e) {
+    console.error('Cannot load Nest modules from /app/dist. Did `nest build` run?');
+    console.error(e);
+    process.exit(1);
+  }
 
-            COMPOSE_CMD="docker compose"
-            if ! docker compose version &>/dev/null; then COMPOSE_CMD="docker-compose"; fi
+  console.log('Bootstrapping Nest standalone context...');
+  const app = await NestFactory.createApplicationContext(AppModule, {
+    logger: ['log', 'error', 'warn'],
+  });
 
-            TASK="${{ inputs.task }}"
-
-            if [ "$TASK" = "all" ] || [ "$TASK" = "seed-stmichael" ]; then
-              echo "=== seed-from-stmichael (проекты + акции с stmichael.ru) ==="
-              $COMPOSE_CMD exec -T api node /app/scripts/seed-from-stmichael.js
-            fi
-
-            if [ "$TASK" = "all" ] || [ "$TASK" = "sync-yandex-disk" ]; then
-              echo ""
-              echo "=== sync-yandex-disk (материалы с Яндекс.Диска) ==="
-              # URL по умолчанию зашит в скрипте, env-переменная не обязательна
-              $COMPOSE_CMD exec -T api node /app/scripts/sync-yandex-disk.js
-            fi
-
-            if [ "$TASK" = "all" ] || [ "$TASK" = "seed-cooperation-doc" ]; then
-              echo ""
-              echo "=== seed-cooperation-doc (документ 'Как начать сотрудничать') ==="
-              $COMPOSE_CMD exec -T api node /app/scripts/seed-cooperation-doc.js
-            fi
-
-            if [ "$TASK" = "cleanup-cooperation-docs" ]; then
-              echo ""
-              echo "=== cleanup-cooperation-docs (удалить неверные документы) ==="
-              $COMPOSE_CMD exec -T api node /app/scripts/cleanup-cooperation-docs.js
-            fi
-
-            if [ "$TASK" = "refresh-cms-content" ]; then
-              echo "=== refresh-cms-content (перезаписать дефолты CMS — ОПАСНО, перетирает админские правки) ==="
-              $COMPOSE_CMD exec -T api node /app/scripts/refresh-cms-content.js
-            fi
-
-            if [ "$TASK" = "sync-amocrm-all" ]; then
-              echo "=== sync-amocrm-all (пересинк всех брокеров с amoCRM) ==="
-              # Запускает scheduler.handleAmoCrmSync() через NestJS standalone.
-              # Долгая операция: ~1 мин на брокера × количество активных брокеров.
-              $COMPOSE_CMD exec -T api node /app/scripts/sync-amocrm-all.js
-            fi
-
-            if [ "$TASK" = "create-admin" ]; then
-              echo "=== create-admin (одноразовое создание ADMIN-аккаунта) ==="
-              # Маскируем пароль в логах GitHub Actions
-              echo "::add-mask::${{ inputs.admin_password }}"
-              $COMPOSE_CMD exec -T \
-                -e ADMIN_PHONE="${{ inputs.admin_phone }}" \
-                -e ADMIN_PASSWORD="${{ inputs.admin_password }}" \
-                -e ADMIN_NAME="${{ inputs.admin_name }}" \
-                api node /app/scripts/create-admin.js
-            fi
-
-            echo ""
-            echo "✓ Задача '$TASK' выполнена"
+  try {
+    const scheduler = app.get(SchedulerService);
+    console.log('Running handleAmoCrmSync()...');
+    await scheduler.handleAmoCrmSync();
+    console.log('✓ Sync complete');
+  } finally {
+    await app.close();
+  }
+})().catch((e) => {
+  console.error('Error:', e?.message || e);
+  if (e?.stack) console.error(e.stack);
+  process.exit(1);
+});
