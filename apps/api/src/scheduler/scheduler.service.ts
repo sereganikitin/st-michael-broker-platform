@@ -507,6 +507,30 @@ export class SchedulerService {
               where: { id: baFinal.agencyId },
               data: { totalSqmSold: Number(agg._sum.sqm || 0) },
             });
+            // Second-pass: пересчёт commission_rate/amount у всех deal'ов брокера
+            // по СВЕЖЕМУ totalSqmSold. На первом проходе rate брался по СТАРОМУ
+            // значению — поэтому Зорге9 со ставкой 5% (START), даже если у брокера
+            // уже накоплено >60 м² для BASIC. Правка 2026-05-13.
+            const freshTotalSqm = Number(agg._sum.sqm || 0);
+            const brokerDeals = await this.prisma.deal.findMany({
+              where: { brokerId: broker.id, status: { in: ['SIGNED', 'PAID', 'COMMISSION_PAID'] } },
+              select: {
+                id: true, project: true, amount: true,
+                commissionRate: true, commissionAmount: true,
+                signedAt: true, createdAt: true,
+              },
+            });
+            for (const d of brokerDeals) {
+              const dealDateForRate = d.signedAt || d.createdAt;
+              const r = await rateForWithPolicy(this.prisma, d.project, freshTotalSqm, dealDateForRate);
+              const freshAmount = Math.round(Number(d.amount) * r.rate / 100);
+              if (Number(d.commissionRate) !== r.rate || Number(d.commissionAmount) !== freshAmount) {
+                await this.prisma.deal.update({
+                  where: { id: d.id },
+                  data: { commissionRate: r.rate, commissionAmount: freshAmount },
+                });
+              }
+            }
           }
         } catch (e) {
           this.logger.error(`Recalc totalSqmSold failed for ${broker.fullName}: ${e}`);
