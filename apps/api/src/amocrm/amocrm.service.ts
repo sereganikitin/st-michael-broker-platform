@@ -436,7 +436,33 @@ export class AmocrmService {
     // Раньше это поле никогда не записывалось → level всегда START. Правка 2026-05-12.
     await this.recalcAgencyTotalSqm(brokerId);
 
-    return { dealsCreated, dealsUpdated, clientsCreated, skipped, totalLeads: allLeadIds.length, amoContactId, amoUserId };
+    // Second-pass: пересчёт commission_rate/amount по всем deal'ам брокера
+    // используя СВЕЖИЙ totalSqmSold. На первом проходе rate брался по СТАРОМУ
+    // totalSqmSold (часто 0 → START → 5%), что давало неверные комиссии.
+    // Правка 2026-05-13.
+    let commissionRecalced = 0;
+    const brokerDeals = await this.prisma.deal.findMany({
+      where: { brokerId, status: { in: ['SIGNED', 'PAID', 'COMMISSION_PAID'] } },
+      select: {
+        id: true, project: true, amount: true,
+        commissionRate: true, commissionAmount: true,
+        signedAt: true, createdAt: true,
+      },
+    });
+    for (const d of brokerDeals) {
+      const dealDateForRate = d.signedAt || d.createdAt;
+      const freshRate = await this.getCommissionRate(brokerId, d.project, dealDateForRate);
+      const freshAmount = Math.round(Number(d.amount) * freshRate / 100);
+      if (Number(d.commissionRate) !== freshRate || Number(d.commissionAmount) !== freshAmount) {
+        await this.prisma.deal.update({
+          where: { id: d.id },
+          data: { commissionRate: freshRate, commissionAmount: freshAmount },
+        });
+        commissionRecalced++;
+      }
+    }
+
+    return { dealsCreated, dealsUpdated, clientsCreated, skipped, totalLeads: allLeadIds.length, amoContactId, amoUserId, commissionRecalced };
   }
 
   /**
