@@ -3,12 +3,13 @@
  * DRY-RUN дедупликации сделок. НИЧЕГО НЕ УДАЛЯЕТ — только выводит план действий.
  *
  * Логика та же что в amocrm.service.ts post-fix дедупа: группируем Deal'ы по
- * "корневой" сделке (через amoParentDealId/amoDealId связь) и для каждой группы
- * с >1 элементом выбираем что оставить и что удалить.
+ * прямой parent↔child / siblings / amoDealId-дубликат связи. Транзитивные
+ * цепочки НЕ строим (раньше давало ложные мега-группы).
  *
  * Запуск:
  *   BROKER_ID=<uuid> node /app/scripts/dry-run-dedup.js  (для одного брокера)
- *   node /app/scripts/dry-run-dedup.js                   (для всех активных брокеров)
+ *   node /app/scripts/dry-run-dedup.js                   (все брокеры — по умолчанию)
+ *   STATUS_FILTER=ACTIVE node ...                        (фильтр по статусу)
  *
  * Через workflow: task=dry-run-dedup
  */
@@ -22,7 +23,7 @@ try {
 
 const STATUS_RANK = { CANCELLED: -1, PENDING: 0, SIGNED: 1, PAID: 2, COMMISSION_PAID: 3 };
 
-async function analyzeBroker(prisma, brokerId, brokerName) {
+async function analyzeBroker(prisma, brokerId, brokerName, brokerStatus) {
   const deals = await prisma.deal.findMany({
     where: { brokerId },
     select: {
@@ -33,15 +34,12 @@ async function analyzeBroker(prisma, brokerId, brokerName) {
     },
     orderBy: { createdAt: 'asc' },
   });
-  if (deals.length === 0) return 0;
+  if (deals.length === 0) {
+    return { dups: 0, total: 0, withParent: 0 };
+  }
 
-  // Точная логика соответствует amocrm.service.ts post-fix dedup:
-  //   - Deal A и B группируются ТОЛЬКО если:
-  //     a) A.amoDealId == B.amoDealId (дубликат по самому ID)
-  //     b) A.amoDealId == B.amoParentDealId (A — parent for B)
-  //     c) A.amoParentDealId == B.amoDealId (B — parent for A)
-  //     d) A.amoParentDealId == B.amoParentDealId (оба child одного parent)
-  // Транзитивные цепочки НЕ строим — это слишком жадно (даст ложные группы).
+  const withParent = deals.filter((d) => d.amoParentDealId).length;
+
   function related(a, b) {
     const aD = a.amoDealId ? String(a.amoDealId) : null;
     const bD = b.amoDealId ? String(b.amoDealId) : null;
@@ -61,7 +59,6 @@ async function analyzeBroker(prisma, brokerId, brokerName) {
     seen.add(d.id);
     const groupKey = String(d.amoParentDealId || d.amoDealId || d.id);
     const collected = [d];
-    // Только один проход — без транзитивных связей.
     for (const other of deals) {
       if (seen.has(other.id)) continue;
       if (related(d, other)) {
@@ -78,17 +75,13 @@ async function analyzeBroker(prisma, brokerId, brokerName) {
     if (group.length <= 1) continue;
     if (!printed) {
       console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`Broker: ${brokerName} (${brokerId})`);
+      console.log(`Broker: ${brokerName} (${brokerId})  status=${brokerStatus}`);
       printed = true;
     }
     console.log(`\nГруппа root=${key} (${group.length} Deal):`);
     for (const d of group) {
       console.log(`  · id=${d.id.slice(0, 8)} amo=${d.amoDealId} parent=${d.amoParentDealId || '-'}  proj=${d.project} amount=${d.amount} sqm=${d.sqm} status=${d.status}`);
     }
-    // Выбираем кого оставить:
-    //   1. наибольший sqm (есть данные из child-карточки)
-    //   2. при равном — финальный статус
-    //   3. самый ранний (createdAt asc)
     const sorted = [...group].sort((a, b) => {
       const sqmDiff = Number(b.sqm || 0) - Number(a.sqm || 0);
       if (sqmDiff !== 0) return sqmDiff;
@@ -104,35 +97,62 @@ async function analyzeBroker(prisma, brokerId, brokerName) {
       dups++;
     }
   }
-  return dups;
+  return { dups, total: deals.length, withParent };
 }
 
 (async () => {
   const prisma = new PrismaClient();
   const brokerIdEnv = process.env.BROKER_ID;
+  const statusFilter = process.env.STATUS_FILTER || ''; // пусто = все статусы
   console.log('═══════════════════════════════════');
   console.log('DRY-RUN DEDUP — ничего не удаляет');
   console.log('═══════════════════════════════════');
-  let total = 0;
+  let totalDups = 0;
+  let summary = [];
   if (brokerIdEnv) {
-    const b = await prisma.broker.findUnique({ where: { id: brokerIdEnv }, select: { id: true, fullName: true } });
+    const b = await prisma.broker.findUnique({
+      where: { id: brokerIdEnv },
+      select: { id: true, fullName: true, status: true },
+    });
     if (!b) {
       console.log('Broker not found');
       process.exit(1);
     }
-    total += await analyzeBroker(prisma, b.id, b.fullName);
+    const r = await analyzeBroker(prisma, b.id, b.fullName, b.status);
+    summary.push({ name: b.fullName, status: b.status, ...r });
+    totalDups += r.dups;
   } else {
+    const where = statusFilter ? { status: statusFilter } : {};
     const brokers = await prisma.broker.findMany({
-      where: { status: 'ACTIVE' },
-      select: { id: true, fullName: true },
+      where,
+      select: { id: true, fullName: true, status: true },
+      orderBy: { fullName: 'asc' },
     });
-    console.log(`Анализирую ${brokers.length} активных брокеров...`);
+    console.log(`Анализирую ${brokers.length} брокеров (фильтр: ${statusFilter || 'ВСЕ'})...`);
     for (const b of brokers) {
-      total += await analyzeBroker(prisma, b.id, b.fullName);
+      const r = await analyzeBroker(prisma, b.id, b.fullName, b.status);
+      summary.push({ name: b.fullName, status: b.status, ...r });
+      totalDups += r.dups;
     }
   }
+
+  // Per-broker breakdown (всегда показываем — даже если 0 дублей).
   console.log(`\n═══════════════════════════════════`);
-  console.log(`ИТОГО к удалению: ${total} Deal'ов`);
+  console.log('Брокер                              | статус   | Deal | сParent | дубли');
+  console.log('────────────────────────────────────┼──────────┼──────┼─────────┼──────');
+  for (const s of summary) {
+    const name = (s.name || '').padEnd(35, ' ').slice(0, 35);
+    const st = (s.status || '').padEnd(8, ' ').slice(0, 8);
+    const t = String(s.total).padStart(4, ' ');
+    const wp = String(s.withParent).padStart(7, ' ');
+    const d = String(s.dups).padStart(4, ' ');
+    console.log(`${name} | ${st} | ${t} | ${wp} | ${d}`);
+  }
+  console.log(`\n═══════════════════════════════════`);
+  console.log(`ИТОГО к удалению: ${totalDups} Deal'ов`);
+  console.log(`Брокеров проверено: ${summary.length}`);
+  console.log(`Всего Deal в БД (у проверенных): ${summary.reduce((s, x) => s + x.total, 0)}`);
+  console.log(`Из них с amoParentDealId: ${summary.reduce((s, x) => s + x.withParent, 0)}`);
   console.log(`БД не изменена.`);
   console.log(`═══════════════════════════════════`);
   await prisma.$disconnect();
