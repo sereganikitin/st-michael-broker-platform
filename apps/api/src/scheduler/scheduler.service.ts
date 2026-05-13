@@ -418,6 +418,8 @@ export class SchedulerService {
             if (!existing) {
               existing = await this.prisma.deal.findFirst({ where: { amoParentDealId: BigInt(lead.id) } });
             }
+            // signedAt = lead.created_at (правка 2026-05-13).
+            const amoCreatedAt = lead.created_at ? new Date(lead.created_at * 1000) : null;
             const dealData: any = {
               clientId: client.id, brokerId: broker.id,
               project: project as any,
@@ -425,10 +427,29 @@ export class SchedulerService {
               status: status as any, amoDealId: BigInt(lead.id),
               amoParentDealId: ccIdParent ? BigInt(ccIdParent) : null,
             };
+            if (amoCreatedAt) dealData.signedAt = amoCreatedAt;
             if (sqm > 0 || !existing) dealData.sqm = sqm;
             if (amount > 0 || !existing) dealData.amount = amount;
             if (existing) {
               await this.prisma.deal.update({ where: { id: existing.id }, data: dealData });
+              // Post-fix дедуп: удалить дубликаты parent/child Deal'ов которые остались
+              // от старых синхронизаций до введения cc_id_parent логики.
+              if (ccIdParent) {
+                const dupParent = await this.prisma.deal.findFirst({
+                  where: { amoDealId: BigInt(ccIdParent), id: { not: existing.id } },
+                });
+                if (dupParent) await this.prisma.deal.delete({ where: { id: dupParent.id } });
+              }
+              const dupChild = await this.prisma.deal.findFirst({
+                where: { amoParentDealId: BigInt(lead.id), id: { not: existing.id } },
+              });
+              if (dupChild) {
+                if (Number(dupChild.sqm) > 0 && Number(existing.sqm || 0) === 0) {
+                  await this.prisma.deal.delete({ where: { id: existing.id } });
+                } else {
+                  await this.prisma.deal.delete({ where: { id: dupChild.id } });
+                }
+              }
             } else {
               await this.prisma.deal.create({ data: dealData });
               totalDeals++;
