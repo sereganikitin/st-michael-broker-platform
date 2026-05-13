@@ -35,6 +35,7 @@ const navigation = [
 const adminNavigation = [
   { name: 'Аналитика платформы', href: '/admin/analytics', icon: BarChart3 },
   { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
+  { name: 'Комиссия — политики', href: '/admin/commission-policies', icon: Calculator },
   { name: 'Управление встречами', href: '/admin/meetings', icon: CalendarPlus },
   { name: 'Расписание встреч', href: '/admin/meeting-slots', icon: Calendar },
   { name: 'Рассылки', href: '/admin/mailings', icon: Megaphone },
