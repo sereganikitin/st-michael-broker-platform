@@ -29,8 +29,12 @@ export class DealsService {
     }
     if (query.project) where.project = query.project;
 
+    // Сортировка по дате сделки (signedAt от amoCRM), fallback на createdAt.
+    // Правка 2026-05-13: пользователь видит сделки в реальном временном порядке,
+    // а не в порядке нашего синка.
     const orderBy: any = {};
-    orderBy[query.sortBy || 'createdAt'] = query.sortOrder || 'desc';
+    const sortField = query.sortBy || 'signedAt';
+    orderBy[sortField] = query.sortOrder || 'desc';
 
     const [deals, total] = await Promise.all([
       this.prisma.deal.findMany({
