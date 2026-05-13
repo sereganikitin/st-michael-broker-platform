@@ -35,46 +35,38 @@ async function analyzeBroker(prisma, brokerId, brokerName) {
   });
   if (deals.length === 0) return 0;
 
-  // Группируем: ключ = amoParentDealId если есть, иначе amoDealId.
-  const byRoot = new Map();
-  for (const d of deals) {
-    const root = String(d.amoParentDealId || d.amoDealId || d.id);
-    if (!byRoot.has(root)) byRoot.set(root, []);
-    byRoot.get(root).push(d);
+  // Точная логика соответствует amocrm.service.ts post-fix dedup:
+  //   - Deal A и B группируются ТОЛЬКО если:
+  //     a) A.amoDealId == B.amoDealId (дубликат по самому ID)
+  //     b) A.amoDealId == B.amoParentDealId (A — parent for B)
+  //     c) A.amoParentDealId == B.amoDealId (B — parent for A)
+  //     d) A.amoParentDealId == B.amoParentDealId (оба child одного parent)
+  // Транзитивные цепочки НЕ строим — это слишком жадно (даст ложные группы).
+  function related(a, b) {
+    const aD = a.amoDealId ? String(a.amoDealId) : null;
+    const bD = b.amoDealId ? String(b.amoDealId) : null;
+    const aP = a.amoParentDealId ? String(a.amoParentDealId) : null;
+    const bP = b.amoParentDealId ? String(b.amoParentDealId) : null;
+    if (aD && bD && aD === bD) return true;       // одинаковый amoDealId
+    if (aD && bP && aD === bP) return true;       // A parent B
+    if (aP && bD && aP === bD) return true;       // B parent A
+    if (aP && bP && aP === bP) return true;       // siblings
+    return false;
   }
-  // Дополнительно — если есть Deal где amoDealId совпадает с чьим-то amoParentDealId,
-  // соединяем их группы под меньшим ключом.
-  const indexByAmoDealId = new Map();
-  for (const d of deals) {
-    if (d.amoDealId) indexByAmoDealId.set(String(d.amoDealId), d);
-  }
-  // Простое объединение: для каждого Deal с amoParentDealId — если parent в индексе,
-  // соединяем группы.
+
   const finalGroups = new Map();
   const seen = new Set();
   for (const d of deals) {
     if (seen.has(d.id)) continue;
-    let groupKey = String(d.amoParentDealId || d.amoDealId || d.id);
-    const collected = [];
-    const queue = [d];
-    while (queue.length) {
-      const cur = queue.shift();
-      if (seen.has(cur.id)) continue;
-      seen.add(cur.id);
-      collected.push(cur);
-      // Найти всех связанных
-      for (const other of deals) {
-        if (seen.has(other.id)) continue;
-        const ids = [
-          cur.amoDealId && String(cur.amoDealId),
-          cur.amoParentDealId && String(cur.amoParentDealId),
-          other.amoDealId && String(other.amoDealId),
-          other.amoParentDealId && String(other.amoParentDealId),
-        ].filter(Boolean);
-        const sharing =
-          ids.includes(String(other.amoDealId)) ||
-          ids.includes(String(other.amoParentDealId));
-        if (sharing) queue.push(other);
+    seen.add(d.id);
+    const groupKey = String(d.amoParentDealId || d.amoDealId || d.id);
+    const collected = [d];
+    // Только один проход — без транзитивных связей.
+    for (const other of deals) {
+      if (seen.has(other.id)) continue;
+      if (related(d, other)) {
+        collected.push(other);
+        seen.add(other.id);
       }
     }
     finalGroups.set(groupKey, collected);
