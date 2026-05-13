@@ -60,7 +60,7 @@ export default function DealsPage() {
 
   // Load aggregate summary across ALL deals (not just current page)
   useEffect(() => {
-    apiGet('/deals?limit=1000')
+    apiGet('/deals?limit=100')
       .then((data) => {
         const all = data.deals || [];
         const totalAmount = all.reduce((s: number, d: any) => s + Number(d.amount || 0), 0);
@@ -166,7 +166,6 @@ export default function DealsPage() {
                       <td className="py-3">{Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽</td>
                       <td className="py-3 text-accent">
                         {Math.round(Number(deal.commissionAmount)).toLocaleString('ru-RU')} ₽
-                        <span className="text-xs text-text-muted ml-1">({Number(deal.commissionRate)}%)</span>
                       </td>
                       <td className="py-3">
                         <span className={`text-xs px-2 py-1 rounded ${statusLabels[deal.status]?.cls || ''}`}>
