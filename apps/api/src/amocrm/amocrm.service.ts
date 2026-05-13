@@ -370,6 +370,10 @@ export class AmocrmService {
           });
         }
 
+        // Дата сделки — из amoCRM (lead.created_at), не текущая.
+        // Правка 2026-05-13: раньше Deal.createdAt = день синка → искажение в UI.
+        const amoCreatedAt = lead.created_at ? new Date(lead.created_at * 1000) : null;
+
         // При апдейте существующего Deal не перетираем sqm/amount нулями,
         // если новые данные пустые — данные могут быть в parent-карточке.
         const dealData: any = {
@@ -382,6 +386,9 @@ export class AmocrmService {
           amoDealId: BigInt(lead.id),
           amoParentDealId: ccIdParent ? BigInt(ccIdParent) : null,
         };
+        // signedAt — для отображения «когда сделка появилась/закрылась».
+        // Используем lead.created_at от amoCRM (исторически верная дата).
+        if (amoCreatedAt) dealData.signedAt = amoCreatedAt;
         // Заполняем sqm/amount ТОЛЬКО если новое значение > 0
         // (приоритет child-карточек где эти поля заполнены).
         if (sqm > 0 || !existingDeal) dealData.sqm = sqm;
@@ -390,6 +397,31 @@ export class AmocrmService {
         if (existingDeal) {
           await this.prisma.deal.update({ where: { id: existingDeal.id }, data: dealData });
           dealsUpdated++;
+          // Пост-фикс дедупа (правка 2026-05-13): если в БД есть ДВЕ записи на одну
+          // реальную сделку (родитель + child были засинканы РАЗДЕЛЬНО до апдейта
+          // логики), здесь объединяем — оставляем существующий Deal, удаляем дубликат.
+          if (ccIdParent) {
+            const dupParent = await this.prisma.deal.findFirst({
+              where: { amoDealId: BigInt(ccIdParent), id: { not: existingDeal.id } },
+            });
+            if (dupParent) {
+              await this.prisma.deal.delete({ where: { id: dupParent.id } });
+            }
+          }
+          // Если этот лид сам родитель и есть Deal с amoParentDealId=lead.id — это child
+          // которого мы только что обновили. Тогда родительский Deal в БД дубликат, удаляем.
+          const dupChild = await this.prisma.deal.findFirst({
+            where: { amoParentDealId: BigInt(lead.id), id: { not: existingDeal.id } },
+          });
+          if (dupChild) {
+            // child имеет более актуальные данные → оставляем child, удаляем текущий
+            // только если у child заполнен sqm и у нас не заполнен
+            if (Number(dupChild.sqm) > 0 && Number(existingDeal.sqm || 0) === 0) {
+              await this.prisma.deal.delete({ where: { id: existingDeal.id } });
+            } else {
+              await this.prisma.deal.delete({ where: { id: dupChild.id } });
+            }
+          }
         } else {
           await this.prisma.deal.create({ data: dealData });
           dealsCreated++;
