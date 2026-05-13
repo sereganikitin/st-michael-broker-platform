@@ -19,6 +19,7 @@ on:
           - refresh-cms-content
           - create-admin
           - sync-amocrm-all
+          - seed-commission-policies
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -83,6 +84,11 @@ jobs:
             if [ "$TASK" = "refresh-cms-content" ]; then
               echo "=== refresh-cms-content (перезаписать дефолты CMS — ОПАСНО, перетирает админские правки) ==="
               $COMPOSE_CMD exec -T api node /app/scripts/refresh-cms-content.js
+            fi
+
+            if [ "$TASK" = "seed-commission-policies" ]; then
+              echo "=== seed-commission-policies (начальные политики комиссии Зорге 9) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/seed-commission-policies.js
             fi
 
             if [ "$TASK" = "sync-amocrm-all" ]; then
