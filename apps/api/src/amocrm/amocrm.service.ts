@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, AMO_PIPELINES, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
 
 @Injectable()
@@ -278,15 +278,16 @@ export class AmocrmService {
         const lead: any = await this.amo.getLead(leadId);
         if (!lead) continue;
 
-        // Skip leads from "Воронка брокеров" — они отслеживают самих брокеров, не клиентов
+        // Skip leads from "Воронка брокеров" — они отслеживают самих брокеров, не клиентов.
         if (lead.pipeline_id === BROKER_PIPELINE_ID) { skipped++; continue; }
-        // Skip closed-not-realized
-        if (lead.status_id === 143) { skipped++; continue; }
-        // Sync only deal-stage leads
-        if (!isDealStage(lead.status_id)) { skipped++; continue; }
+
+        // КЦ-карточки: status 142 у них = "встреча проведена" (успех КЦ), не "клиент купил".
+        // Не создаём Deal из них, но meeting-sync проходит как обычно. Правка 2026-05-13.
+        const isKcPipeline = lead.pipeline_id === AMO_PIPELINES.KC;
+        const status_id = lead.status_id;
+        const isDealLead = !isKcPipeline && status_id !== 143 && isDealStage(status_id);
 
         const project = leadToProject(lead);
-        const status = statusToDealStatus(lead.status_id);
 
         // Find client contact in lead (any contact that is NOT the broker)
         const leadContacts = lead?._embedded?.contacts || [];
@@ -336,6 +337,32 @@ export class AmocrmService {
           });
           clientsCreated++;
         }
+
+        // КЦ-карточки: cleanup существующего Deal (если был создан до фикса) и сразу
+        // к meeting-sync — НЕ создаём/обновляем Deal.
+        if (isKcPipeline) {
+          const existingKcDeal = await this.prisma.deal.findFirst({ where: { amoDealId: BigInt(lead.id) } });
+          if (existingKcDeal) {
+            await this.prisma.deal.delete({ where: { id: existingKcDeal.id } });
+          }
+          try { await this.syncMeetingFromLead(lead, brokerId, client.id); } catch {}
+          continue;
+        }
+
+        // Лиды не на стадии сделки или 143 («Закрыто и не реализовано») — удаляем
+        // ошибочный Deal из БД (если был синкан раньше при другом статусе) и
+        // переходим к meeting-sync. Правка 2026-05-13.
+        if (!isDealLead) {
+          const staleDeal = await this.prisma.deal.findFirst({ where: { amoDealId: BigInt(lead.id) } });
+          if (staleDeal) {
+            await this.prisma.deal.delete({ where: { id: staleDeal.id } });
+          }
+          try { await this.syncMeetingFromLead(lead, brokerId, client.id); } catch {}
+          skipped++;
+          continue;
+        }
+
+        const status = statusToDealStatus(status_id);
 
         // Извлекаем sqm/price/lotId из custom_fields (правка 2026-05-12).
         // Раньше: amount=lead.price, sqm=0. Теперь — приоритет custom-полей.

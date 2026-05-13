@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, AMO_PIPELINES, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
 import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
 
@@ -340,11 +340,13 @@ export class SchedulerService {
             if (!lead) continue;
             // Skip broker pipeline (это про самого брокера)
             if (lead.pipeline_id === BROKER_PIPELINE_ID) continue;
-            if (lead.status_id === 143) continue;
-            if (!isDealStage(lead.status_id)) continue;
+
+            // КЦ-карточки: status 142 = "встреча проведена", не "клиент купил".
+            // Не создаём Deal, но meeting-sync проходит. Правка 2026-05-13.
+            const isKcPipeline = lead.pipeline_id === AMO_PIPELINES.KC;
+            const isDealLead = !isKcPipeline && lead.status_id !== 143 && isDealStage(lead.status_id);
 
             const project = leadToProject(lead);
-            const status = statusToDealStatus(lead.status_id);
 
             // Find client contact in lead
             const leadContacts = lead?._embedded?.contacts || [];
@@ -386,6 +388,18 @@ export class SchedulerService {
               });
               totalClients++;
             }
+
+            // КЦ: cleanup существующего Deal + ранний переход к meeting-sync.
+            // КЦ / 143 / не-deal-stage — удалить ошибочный Deal из БД (если был синкан раньше).
+            // Правка 2026-05-13. Лена-style stale-записи теперь пропадают при первом же sync.
+            if (!isDealLead) {
+              const staleDeal = await this.prisma.deal.findFirst({ where: { amoDealId: BigInt(lead.id) } });
+              if (staleDeal) {
+                await this.prisma.deal.delete({ where: { id: staleDeal.id } });
+              }
+            }
+
+            const status = isDealLead ? statusToDealStatus(lead.status_id) : null;
 
             // Извлекаем sqm/price из custom_fields. Правка 2026-05-12 — раньше sqm=0
             // и amount=lead.price (без учёта скидок). Теперь приоритет custom-полям.
@@ -432,7 +446,7 @@ export class SchedulerService {
             if (lead.created_at) dealData.signedAt = new Date(lead.created_at * 1000);
             if (sqm > 0 || !existing) dealData.sqm = sqm;
             if (amount > 0 || !existing) dealData.amount = amount;
-            if (existing) {
+            if (isDealLead && existing) {
               await this.prisma.deal.update({ where: { id: existing.id }, data: dealData });
               // Post-fix дедуп: удалить дубликат parent/child из БД.
               if (ccIdParent) {
@@ -451,7 +465,7 @@ export class SchedulerService {
                   await this.prisma.deal.delete({ where: { id: dupChild.id } });
                 }
               }
-            } else {
+            } else if (isDealLead) {
               await this.prisma.deal.create({ data: dealData });
               totalDeals++;
             }
