@@ -5,7 +5,7 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
-import { levelForSqm, rateFor } from '../commission/commission.service';
+import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
 
 @Injectable()
 export class SchedulerService {
@@ -399,8 +399,11 @@ export class SchedulerService {
               include: { agency: true },
             });
             const totalSqm = Number(ba?.agency?.totalSqmSold || 0);
-            const lvl = levelForSqm(project, totalSqm);
-            const rate = rateFor(project, lvl);
+            // Правка 2026-05-13: ставка через активную политику комиссии.
+            const dealDate = lead.created_at ? new Date(lead.created_at * 1000) : new Date();
+            const policyResult = await rateForWithPolicy(this.prisma, project, totalSqm, dealDate);
+            const rate = policyResult.rate;
+            const lvl = policyResult.level || levelForSqm(project, totalSqm);
             const commAmt = Math.round(amount * rate / 100);
 
             // Upsert deal — двусторонний дедуп через cc_id_parent.
