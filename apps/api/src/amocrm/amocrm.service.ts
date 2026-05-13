@@ -11,6 +11,18 @@ export class AmocrmService {
     this.amo = new AmoCrmAdapter();
   }
 
+  /**
+   * Чистит имя клиента от служебных суффиксов amoCRM: "от брокера", "от Владимира",
+   * "от боркера" (опечатка) и т.п. Убираем всё начиная от слова "от ".
+   * Правка 2026-05-13: чтобы в кабинете брокера ФИО клиентов были как при ручном
+   * заведении, без приписок "от <кого-то>".
+   */
+  private cleanClientName(raw: string | null | undefined): string {
+    if (!raw) return 'Без имени';
+    const cleaned = String(raw).replace(/\s+от\s+.+$/iu, '').trim();
+    return cleaned || 'Без имени';
+  }
+
   private async getCommissionRate(brokerId: string, project: string, dealDate?: Date): Promise<number> {
     const brokerAgency = await this.prisma.brokerAgency.findFirst({
       where: { brokerId, isPrimary: true },
@@ -295,14 +307,15 @@ export class AmocrmService {
           (c: any) => !amoContactId || Number(c.id) !== amoContactId,
         ) || leadContacts[0];
 
-        let fullName = lead.name || 'Без имени';
+        let fullName = this.cleanClientName(lead.name);
         let phone = `+70000${leadId}`;
         let email: string | null = null;
 
         if (clientContactRef) {
           const clientContact: any = await this.amo.getContact(clientContactRef.id);
           if (clientContact) {
-            fullName = clientContact.name || fullName;
+            const contactCleaned = this.cleanClientName(clientContact.name);
+            if (contactCleaned !== 'Без имени') fullName = contactCleaned;
             const phoneField = (clientContact.custom_fields_values || []).find(
               (f: any) => f.field_id === AMO_CONTACT_FIELDS.PHONE || f.field_code === 'PHONE',
             );
