@@ -128,4 +128,35 @@ export class AdminController {
   ) {
     return this.adminService.updateMeetingStatus(id, body.status, user.id);
   }
+
+  // ─── Commission Policies (admin only) ─────────────────────
+  // CRUD политик начисления комиссии (PROGRESSIVE/FLAT с периодом действия).
+  // Правка 2026-05-13.
+
+  @Get('commission-policies')
+  @ApiOperation({ summary: 'List all commission policies' })
+  async listCommissionPolicies(@Query() query: any) {
+    return this.adminService.listCommissionPolicies(query);
+  }
+
+  @Post('commission-policies')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Create commission policy (admin only)' })
+  async createCommissionPolicy(@Body() body: any) {
+    return this.adminService.createCommissionPolicy(body);
+  }
+
+  @Patch('commission-policies/:id')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Update commission policy (admin only)' })
+  async updateCommissionPolicy(@Param('id') id: string, @Body() body: any) {
+    return this.adminService.updateCommissionPolicy(id, body);
+  }
+
+  @Delete('commission-policies/:id')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Delete commission policy (admin only)' })
+  async deleteCommissionPolicy(@Param('id') id: string) {
+    return this.adminService.deleteCommissionPolicy(id);
+  }
 }

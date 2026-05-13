@@ -66,7 +66,13 @@ export default function CommissionPage() {
     [projectDeals],
   );
 
-  const currentRate = RATE_TABLE[selectedProject][commission?.level || 'START'];
+  // currentRate теперь берётся из API (commission.rates[project]) — это учитывает
+  // активную политику (PROGRESSIVE или FLAT). Fallback на старую логику если API
+  // не вернул rates. Правка 2026-05-13.
+  const currentRate = commission?.rates?.[selectedProject]
+    ?? RATE_TABLE[selectedProject][commission?.level || 'START'];
+  const currentMode = commission?.modes?.[selectedProject];
+  const isFlat = currentMode === 'FLAT';
 
   const handleCalculate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,31 +108,44 @@ export default function CommissionPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="card">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm text-text-muted">Текущий уровень</h3>
+              <h3 className="text-sm text-text-muted">
+                {isFlat ? 'Текущая ставка' : 'Текущий уровень'}
+              </h3>
               <TrendingUp className="w-5 h-5 text-accent" />
             </div>
-            <p className="text-2xl font-bold text-accent">
-              {levelNames[commission.level] || commission.level}
-            </p>
-            <p className="text-sm text-text-muted mt-1">
-              Ставка {projectLabels[selectedProject]}: <span className="text-accent font-bold">{currentRate}%</span>
-            </p>
-            {commission.nextLevel && (
-              <div className="mt-3">
-                <div className="flex justify-between text-xs text-text-muted mb-1">
-                  <span>Прогресс до {levelNames[commission.nextLevel]}</span>
-                  <span>{commission.progress}%</span>
-                </div>
-                <div className="w-full bg-surface-secondary rounded-full h-2">
-                  <div
-                    className="bg-accent rounded-full h-2 transition-all"
-                    style={{ width: `${commission.progress}%` }}
-                  />
-                </div>
-                <p className="text-xs text-text-muted mt-1">
-                  {commission.totalSqmSold} / {commission.nextLevelSqm} м²
+            {isFlat ? (
+              <>
+                <p className="text-4xl font-bold text-accent">{currentRate}%</p>
+                <p className="text-sm text-text-muted mt-1">
+                  Фиксированная ставка по {projectLabels[selectedProject]}
                 </p>
-              </div>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-accent">
+                  {levelNames[commission.level] || commission.level}
+                </p>
+                <p className="text-sm text-text-muted mt-1">
+                  Ставка {projectLabels[selectedProject]}: <span className="text-accent font-bold">{currentRate}%</span>
+                </p>
+                {commission.nextLevel && (
+                  <div className="mt-3">
+                    <div className="flex justify-between text-xs text-text-muted mb-1">
+                      <span>Прогресс до {levelNames[commission.nextLevel]}</span>
+                      <span>{commission.progress}%</span>
+                    </div>
+                    <div className="w-full bg-surface-secondary rounded-full h-2">
+                      <div
+                        className="bg-accent rounded-full h-2 transition-all"
+                        style={{ width: `${commission.progress}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-text-muted mt-1">
+                      {commission.totalSqmSold} / {commission.nextLevelSqm} м²
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

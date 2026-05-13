@@ -31,6 +31,14 @@ enum CommissionLevel {
   LEGEND
 }
 
+// Режим расчёта комиссии (политика для проекта в заданный период).
+// PROGRESSIVE — традиционная шкала по м² (накопительно).
+// FLAT — фиксированный процент для всех сделок (например 4% по Зорге 9 с 07.05.2026).
+enum CommissionMode {
+  PROGRESSIVE
+  FLAT
+}
+
 enum Project {
   ZORGE9
   SILVER_BOR
@@ -622,3 +630,31 @@ model ContactRequest {
   @@index([createdAt])
   @@map("contact_requests")
 }
+
+// Политика начисления комиссии для проекта в определённый период.
+// Админ может создавать несколько политик; для каждой сделки активной считается
+// та, у которой startDate ≤ deal.signedAt (или deal.createdAt) ≤ endDate.
+// Перекрытие диапазонов для одного project запрещено на уровне API-валидации.
+//
+// Пример (правка 2026-05-13):
+//   Зорге 9: PROGRESSIVE 01.01.2026—06.05.2026 (старая шкала)
+//   Зорге 9: FLAT 4% 07.05.2026—31.12.2099 (новая, действует сейчас)
+model CommissionPolicy {
+  id        String          @id @default(uuid())
+  project   Project
+  mode      CommissionMode
+  // Для FLAT — единая ставка (например 4.00).
+  flatRate  Decimal?        @map("flat_rate") @db.Decimal(5, 2)
+  // Для PROGRESSIVE — JSON со шкалой: [{level: 'START', minSqm: 0, rate: 5.0}, ...]
+  levels    Json?
+  startDate DateTime        @map("start_date")
+  endDate   DateTime        @map("end_date")
+  isActive  Boolean         @default(true) @map("is_active")
+  notes     String?
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  @@index([project, startDate, endDate])
+  @@map("commission_policies")
+}
+

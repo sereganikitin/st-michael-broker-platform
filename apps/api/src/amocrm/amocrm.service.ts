@@ -1,7 +1,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
-import { levelForSqm, rateFor } from '../commission/commission.service';
+import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
 
 @Injectable()
 export class AmocrmService {
@@ -11,14 +11,18 @@ export class AmocrmService {
     this.amo = new AmoCrmAdapter();
   }
 
-  private async getCommissionRate(brokerId: string, project: string): Promise<number> {
+  private async getCommissionRate(brokerId: string, project: string, dealDate?: Date): Promise<number> {
     const brokerAgency = await this.prisma.brokerAgency.findFirst({
       where: { brokerId, isPrimary: true },
       include: { agency: true },
     });
     const totalSqm = Number(brokerAgency?.agency?.totalSqmSold || 0);
-    const level = levelForSqm(project, totalSqm);
-    return rateFor(project, level);
+    // Правка 2026-05-13: учитываем активную политику на дату сделки.
+    // PROGRESSIVE — берём rate из шкалы политики по totalSqm.
+    // FLAT — берём policy.flatRate (всегда одна и та же).
+    // FALLBACK — старая хардкод-шкала.
+    const result = await rateForWithPolicy(this.prisma, project, totalSqm, dealDate);
+    return result.rate;
   }
 
   private mapMeetingType(raw: string): 'OFFICE_VISIT' | 'ONLINE' | 'BROKER_TOUR' {
@@ -342,7 +346,10 @@ export class AmocrmService {
         const profitbaseLotId = getLeadCustomFieldValue(lead, AMO_LEAD_FIELDS.PROFITBASE_LOT_ID);
         const ccIdParent = getLeadCustomFieldValue(lead, AMO_LEAD_FIELDS.CC_ID_PARENT);
 
-        const rate = await this.getCommissionRate(brokerId, project);
+        // Дата сделки для определения активной политики комиссии.
+        // Используем lead.created_at от amoCRM (если есть), иначе текущую дату.
+        const dealDate = lead.created_at ? new Date(lead.created_at * 1000) : new Date();
+        const rate = await this.getCommissionRate(brokerId, project, dealDate);
         const commissionAmount = Math.round(amount * rate / 100);
 
         // Дедупликация: на одну реальную сделку в amoCRM может быть 2-3 карточки

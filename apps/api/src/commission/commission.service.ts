@@ -1,5 +1,62 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { PrismaClient, CommissionLevel } from '@st-michael/database';
+import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaClient, CommissionLevel, CommissionMode } from '@st-michael/database';
+
+/**
+ * Найти активную политику комиссии для проекта на заданную дату.
+ * Если политика не найдена — возвращает null (вызывающий должен fallback на хардкод).
+ *
+ * Правка 2026-05-13: реализация политик с переключением PROGRESSIVE↔FLAT
+ * с произвольными периодами действия.
+ */
+export async function findActivePolicy(
+  prisma: any,
+  project: string,
+  date: Date = new Date(),
+): Promise<any | null> {
+  const policy = await prisma.commissionPolicy.findFirst({
+    where: {
+      project,
+      isActive: true,
+      startDate: { lte: date },
+      endDate: { gte: date },
+    },
+    orderBy: { startDate: 'desc' },
+  });
+  return policy;
+}
+
+/**
+ * Расчёт ставки комиссии с учётом активной политики на дату.
+ * Если policy.mode = FLAT → возвращает policy.flatRate.
+ * Если policy.mode = PROGRESSIVE → ищет уровень в policy.levels по totalSqm.
+ * Если policy не найдена → fallback на хардкод COMMISSION_RATES.
+ */
+export async function rateForWithPolicy(
+  prisma: any,
+  project: string,
+  totalSqm: number,
+  date: Date = new Date(),
+): Promise<{ rate: number; level: string | null; mode: CommissionMode | 'FALLBACK' }> {
+  const policy = await findActivePolicy(prisma, project, date);
+  if (!policy) {
+    // Fallback на хардкод (старая логика на случай если БД пуста).
+    const level = levelForSqm(project, totalSqm);
+    return { rate: rateFor(project, level), level, mode: 'FALLBACK' };
+  }
+  if (policy.mode === 'FLAT') {
+    return { rate: Number(policy.flatRate || 0), level: null, mode: 'FLAT' };
+  }
+  // PROGRESSIVE — берём шкалу из policy.levels.
+  const levels = (policy.levels as any[]) || [];
+  // Сортируем по minSqm desc и берём первый matching.
+  const sorted = [...levels].sort((a, b) => Number(b.minSqm) - Number(a.minSqm));
+  const matched = sorted.find((l: any) => totalSqm >= Number(l.minSqm)) || sorted[sorted.length - 1];
+  return {
+    rate: Number(matched?.rate || 0),
+    level: matched?.level || 'START',
+    mode: 'PROGRESSIVE',
+  };
+}
 
 // Commission rates by project and level (per ТЗ "Условия_вознаграждения_объединённая_шкала")
 // Period: with 1 January through 30 June 2026.
@@ -85,25 +142,28 @@ export class CommissionService {
     const primaryAgency = broker.brokerAgencies[0]?.agency;
     const totalSqmSold = primaryAgency ? Number(primaryAgency.totalSqmSold) : 0;
 
-    // Уровень считается отдельно для каждого проекта по его шкале.
-    // Используем шкалу Зорге как «основную» для отображения.
-    const level = levelForSqm('ZORGE9', totalSqmSold);
-
-    // Next-level threshold based on Зорге scale (UI shows progress towards it)
-    const zorgeScale = LEVEL_THRESHOLDS_BY_PROJECT.ZORGE9;
-    const ascending = [...zorgeScale].sort((a, b) => a.minSqm - b.minSqm);
-    const currentIdx = ascending.findIndex((t) => t.level === level);
-    const nextLevel = ascending[currentIdx + 1];
-
-    const progress = nextLevel
-      ? Math.min(100, Math.round((totalSqmSold / nextLevel.minSqm) * 100))
-      : 100;
-
-    // Per-project rates (project may have a different level for the same total sqm)
+    // Per-project rates через активные политики на сегодня (правка 2026-05-13).
+    // Если политики нет — fallback на хардкод-шкалу.
     const rates: Record<string, number> = {};
-    for (const project of Object.keys(COMMISSION_RATES)) {
-      const lvl = levelForSqm(project, totalSqmSold);
-      rates[project] = rateFor(project, lvl);
+    const modes: Record<string, string> = {};
+    for (const project of ['ZORGE9', 'SILVER_BOR']) {
+      const r = await rateForWithPolicy(this.prisma, project, totalSqmSold);
+      rates[project] = r.rate;
+      modes[project] = r.mode;
+    }
+
+    // Прогресс к следующему уровню — только если у Зорге активна PROGRESSIVE-политика
+    // (или fallback на хардкод). Для FLAT прогресс скрываем — будет null.
+    let level: any = null;
+    let nextLevel: any = null;
+    let progress = 0;
+    if (modes.ZORGE9 !== 'FLAT') {
+      level = levelForSqm('ZORGE9', totalSqmSold);
+      const zorgeScale = LEVEL_THRESHOLDS_BY_PROJECT.ZORGE9;
+      const ascending = [...zorgeScale].sort((a, b) => a.minSqm - b.minSqm);
+      const currentIdx = ascending.findIndex((t) => t.level === level);
+      nextLevel = ascending[currentIdx + 1];
+      progress = nextLevel ? Math.min(100, Math.round((totalSqmSold / nextLevel.minSqm) * 100)) : 100;
     }
 
     // Get commission stats
@@ -118,6 +178,7 @@ export class CommissionService {
     return {
       level,
       rates,
+      modes, // ← добавлено 2026-05-13: { ZORGE9: 'FLAT' | 'PROGRESSIVE' | 'FALLBACK', SILVER_BOR: ... }
       totalSqmSold,
       progress,
       nextLevel: nextLevel?.level || null,

@@ -469,4 +469,96 @@ export class AdminService {
       errors: errors.slice(0, 10),
     };
   }
+
+  // ─── Commission Policies CRUD (правка 2026-05-13) ──────────────────
+
+  async listCommissionPolicies(query: any) {
+    const where: any = {};
+    if (query.project) where.project = query.project;
+    if (query.isActive !== undefined) where.isActive = query.isActive === 'true' || query.isActive === true;
+    return this.prisma.commissionPolicy.findMany({
+      where,
+      orderBy: [{ project: 'asc' }, { startDate: 'desc' }],
+    });
+  }
+
+  async createCommissionPolicy(body: any) {
+    const { project, mode, flatRate, levels, startDate, endDate, isActive, notes } = body;
+    if (!project || !mode || !startDate || !endDate) {
+      throw new BadRequestException('project, mode, startDate, endDate обязательны');
+    }
+    if (mode === 'FLAT' && (flatRate == null || isNaN(Number(flatRate)))) {
+      throw new BadRequestException('Для mode=FLAT нужен flatRate');
+    }
+    if (mode === 'PROGRESSIVE' && (!Array.isArray(levels) || levels.length === 0)) {
+      throw new BadRequestException('Для mode=PROGRESSIVE нужен массив levels');
+    }
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (start >= end) throw new BadRequestException('startDate должна быть раньше endDate');
+    // Проверка пересечения с другими активными политиками этого же project.
+    const overlap = await this.prisma.commissionPolicy.findFirst({
+      where: {
+        project,
+        isActive: true,
+        startDate: { lte: end },
+        endDate: { gte: start },
+      },
+    });
+    if (overlap) {
+      throw new BadRequestException(
+        `Период пересекается с активной политикой ${overlap.id} (${overlap.startDate.toISOString().slice(0, 10)} — ${overlap.endDate.toISOString().slice(0, 10)})`,
+      );
+    }
+    return this.prisma.commissionPolicy.create({
+      data: {
+        project,
+        mode,
+        flatRate: mode === 'FLAT' ? Number(flatRate) : null,
+        levels: mode === 'PROGRESSIVE' ? levels : null,
+        startDate: start,
+        endDate: end,
+        isActive: isActive !== false,
+        notes: notes || null,
+      },
+    });
+  }
+
+  async updateCommissionPolicy(id: string, body: any) {
+    const existing = await this.prisma.commissionPolicy.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Policy not found');
+    const newStart = body.startDate ? new Date(body.startDate) : existing.startDate;
+    const newEnd = body.endDate ? new Date(body.endDate) : existing.endDate;
+    if (newStart >= newEnd) throw new BadRequestException('startDate должна быть раньше endDate');
+    const project = body.project || existing.project;
+    const overlap = await this.prisma.commissionPolicy.findFirst({
+      where: {
+        id: { not: id },
+        project,
+        isActive: true,
+        startDate: { lte: newEnd },
+        endDate: { gte: newStart },
+      },
+    });
+    if (overlap && body.isActive !== false) {
+      throw new BadRequestException(`Период пересекается с активной политикой ${overlap.id}`);
+    }
+    const data: any = {};
+    if (body.project) data.project = body.project;
+    if (body.mode) data.mode = body.mode;
+    if (body.flatRate !== undefined) data.flatRate = body.flatRate != null ? Number(body.flatRate) : null;
+    if (body.levels !== undefined) data.levels = body.levels;
+    if (body.startDate) data.startDate = newStart;
+    if (body.endDate) data.endDate = newEnd;
+    if (body.isActive !== undefined) data.isActive = body.isActive;
+    if (body.notes !== undefined) data.notes = body.notes;
+    return this.prisma.commissionPolicy.update({ where: { id }, data });
+  }
+
+  async deleteCommissionPolicy(id: string) {
+    const existing = await this.prisma.commissionPolicy.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Policy not found');
+    await this.prisma.commissionPolicy.delete({ where: { id } });
+    return { deleted: true };
+  }
 }
