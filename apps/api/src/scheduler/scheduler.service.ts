@@ -4,6 +4,17 @@ import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, AMO_PIPELINES, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+
+/**
+ * Чистит имя клиента от служебных суффиксов amoCRM: "от брокера", "от Владимира",
+ * "от боркера" (опечатка) и т.п. Убираем всё начиная от слова "от ".
+ * Правка 2026-05-13.
+ */
+function cleanClientName(raw: string | null | undefined): string {
+  if (!raw) return 'Без имени';
+  const cleaned = String(raw).replace(/\s+от\s+.+$/iu, '').trim();
+  return cleaned || 'Без имени';
+}
 import { CatalogService } from '../catalog/catalog.service';
 import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
 
@@ -352,14 +363,15 @@ export class SchedulerService {
             const leadContacts = lead?._embedded?.contacts || [];
             const clientRef = leadContacts.find((c: any) => c.id !== contactId) || leadContacts[0];
 
-            let fullName = lead.name || 'Без имени';
+            let fullName = cleanClientName(lead.name);
             let phone = `+70000${leadRef.id}`;
             let email: string | null = null;
 
             if (clientRef) {
               const cc: any = await this.amo.getContact(clientRef.id);
               if (cc) {
-                fullName = cc.name || fullName;
+                const ccCleaned = cleanClientName(cc.name);
+                if (ccCleaned !== 'Без имени') fullName = ccCleaned;
                 const pf = (cc.custom_fields_values || []).find(
                   (f: any) => f.field_id === AMO_CONTACT_FIELDS.PHONE || f.field_code === 'PHONE',
                 );
