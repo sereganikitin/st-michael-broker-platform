@@ -174,10 +174,14 @@ export class CommissionService {
       lotNumber: deal.lot?.number || null,
       project: deal.project,
       amount: Number(deal.amount),
+      sqm: Number(deal.sqm),
       rate: Number(deal.commissionRate),
       commission: Number(deal.commissionAmount),
       status: deal.status,
       isInstallment: deal.isInstallment,
+      // Правка 2026-05-13: signedAt — дата из amoCRM (lead.created_at),
+      // createdAt — день нашего синка. Фронт берёт signedAt с fallback.
+      signedAt: deal.signedAt,
       createdAt: deal.createdAt,
     }));
   }
