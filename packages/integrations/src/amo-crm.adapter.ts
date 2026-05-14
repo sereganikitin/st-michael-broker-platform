@@ -313,6 +313,11 @@ export class AmoCrmAdapter {
     agencyInn: string;
     comment: string;
     project: Project;
+    // Новые поля 2026-05-14 — мапятся в amoCRM custom_fields_values.
+    propertyType?: string;
+    roomsCount?: string;
+    amount?: number;
+    sqm?: number;
   }): Promise<AmoLead> {
     let contact = await this.findContactByPhone(data.clientPhone);
     if (!contact) {
@@ -324,9 +329,23 @@ export class AmoCrmAdapter {
       });
     }
 
-    return this.createLead({
+    // Заполняем custom_fields на лиде (правка 2026-05-14):
+    //   587387 — "Тип объекта"
+    //   583447 — "Сколько комнат рассматривает"
+    //   833045 — "Стоимость без скидок, руб" (= бюджет покупки)
+    //   604555 — "Метраж, м2"
+    const customFields: any[] = [];
+    if (data.propertyType) customFields.push({ field_id: 587387, values: [{ value: data.propertyType }] });
+    if (data.roomsCount) customFields.push({ field_id: 583447, values: [{ value: data.roomsCount }] });
+    if (data.amount && data.amount > 0) customFields.push({ field_id: 833045, values: [{ value: String(data.amount) }] });
+    if (data.sqm && data.sqm > 0) customFields.push({ field_id: 604555, values: [{ value: String(data.sqm) }] });
+
+    const leadData: any = {
       name: `Фиксация: ${data.clientName} (${data.project})`,
       contacts: contact ? [{ id: contact.id }] : undefined,
-    });
+    };
+    if (customFields.length > 0) leadData.custom_fields_values = customFields;
+
+    return this.createLead(leadData);
   }
 }
