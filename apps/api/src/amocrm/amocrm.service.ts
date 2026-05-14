@@ -2,15 +2,12 @@ import { Injectable, Inject, BadRequestException, NotFoundException } from '@nes
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, AMO_PIPELINES, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
-
 @Injectable()
 export class AmocrmService {
   private amo: AmoCrmAdapter;
-
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {
     this.amo = new AmoCrmAdapter();
   }
-
   /**
    * Чистит имя клиента от служебных суффиксов amoCRM: "от брокера", "от Владимира",
    * "от боркера" (опечатка) и т.п. Убираем всё начиная от слова "от ".
@@ -22,7 +19,6 @@ export class AmocrmService {
     const cleaned = String(raw).replace(/\s+от\s+.+$/iu, '').trim();
     return cleaned || 'Без имени';
   }
-
   private async getCommissionRate(brokerId: string, project: string, dealDate?: Date): Promise<number> {
     const brokerAgency = await this.prisma.brokerAgency.findFirst({
       where: { brokerId, isPrimary: true },
@@ -36,14 +32,12 @@ export class AmocrmService {
     const result = await rateForWithPolicy(this.prisma, project, totalSqm, dealDate);
     return result.rate;
   }
-
   private mapMeetingType(raw: string): 'OFFICE_VISIT' | 'ONLINE' | 'BROKER_TOUR' {
     const v = (raw || '').toLowerCase();
     if (v.includes('онлайн') || v.includes('online') || v.includes('zoom')) return 'ONLINE';
     if (v.includes('тур') || v.includes('брокер')) return 'BROKER_TOUR';
     return 'OFFICE_VISIT';
   }
-
   /**
    * Sync meeting from a lead if it has meeting date field. Creates/updates Meeting linked to broker.
    */
@@ -55,24 +49,18 @@ export class AmocrmService {
     const customFields = lead?.custom_fields_values || [];
     const dateField = customFields.find((f: any) => f.field_name === 'Дата и время встречи');
     const typeField = customFields.find((f: any) => f.field_name === 'Встреча');
-
     const rawDate = dateField?.values?.[0]?.value;
     if (!rawDate) return false;
-
     // amoCRM stores date as Unix timestamp (seconds)
     const meetingDate = new Date(Number(rawDate) * 1000);
     if (isNaN(meetingDate.getTime())) return false;
-
     const rawType = typeField?.values?.[0]?.value || '';
     const meetingType = this.mapMeetingType(rawType);
-
     const meetingStatus = mapMeetingStatus(lead.status_id);
-
     // Upsert meeting by clientId+brokerId+date (or use lead.id via comment)
     const existing = await this.prisma.meeting.findFirst({
       where: { clientId, brokerId, date: meetingDate },
     });
-
     if (existing) {
       await this.prisma.meeting.update({
         where: { id: existing.id },
@@ -92,11 +80,9 @@ export class AmocrmService {
     }
     return true;
   }
-
   async getAccount() {
     return this.amo.getAccount();
   }
-
   /**
    * Diagnostic: fetch lead with all custom_fields. Used to discover field names/ids
    * for sqm/price/profitbase. Returns sanitized data (no contacts/PII).
@@ -123,7 +109,6 @@ export class AmocrmService {
       custom_fields: customFields,
     };
   }
-
   async getPipelines() {
     const pipelines = await this.amo.getPipelines();
     return pipelines.map((p: any) => ({
@@ -138,15 +123,12 @@ export class AmocrmService {
       })),
     }));
   }
-
   async getContactFields() {
     return this.amo.getContactCustomFields();
   }
-
   async getCompanyFields() {
     return this.amo.getCompanyCustomFields();
   }
-
   async getUsers() {
     const users = await this.amo.getUsers();
     return users.map((u: any) => ({
@@ -157,22 +139,18 @@ export class AmocrmService {
       role_id: u.role_id,
     }));
   }
-
   /**
    * Find broker contact in amoCRM by phone and sync linked leads/clients to local DB
    */
   async syncBrokerByPhone(phone: string, brokerId?: string, inn?: string) {
     if (!phone) throw new BadRequestException('phone required');
-
     const contact = await this.amo.findContactByPhone(phone);
     if (!contact) {
       return { found: false, message: 'Contact not found in amoCRM' };
     }
-
     // Get full contact with leads
     const fullContact = await this.amo.getContact(contact.id);
     const leads = fullContact?._embedded?.leads || [];
-
     // If INN provided, attach company with INN
     if (inn && brokerId) {
       let company = await this.amo.findCompanyByInn(inn);
@@ -187,7 +165,6 @@ export class AmocrmService {
       try {
         await this.amo.linkContactToCompany(contact.id, company.id);
       } catch {}
-
       // Save agency in DB
       let agency = await this.prisma.agency.findUnique({ where: { inn } });
       if (!agency) {
@@ -195,7 +172,6 @@ export class AmocrmService {
           data: { name: company.name, inn },
         });
       }
-
       // Link broker to agency
       const existingLink = await this.prisma.brokerAgency.findFirst({
         where: { brokerId, agencyId: agency.id },
@@ -205,14 +181,12 @@ export class AmocrmService {
           data: { brokerId, agencyId: agency.id, isPrimary: true },
         });
       }
-
       // Save amo_contact_id to broker
       await this.prisma.broker.update({
         where: { id: brokerId },
         data: { amoContactId: BigInt(contact.id) },
       });
     }
-
     return {
       found: true,
       contact: { id: contact.id, name: contact.name },
@@ -220,14 +194,12 @@ export class AmocrmService {
       leads: leads.map((l: any) => ({ id: l.id })),
     };
   }
-
   /**
    * Pull all leads (deals) linked to broker's amoCRM contact and create local Client + Deal records
    */
   async syncMyDealsAndClients(brokerId: string) {
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
     if (!broker) throw new NotFoundException('Broker not found');
-
     // Find correct broker contact in amoCRM (with Брокер=true flag)
     let amoContactId = broker.amoContactId ? Number(broker.amoContactId) : null;
     const brokerContact = await this.amo.findBrokerContactByPhone(broker.phone);
@@ -239,7 +211,6 @@ export class AmocrmService {
         data: { amoContactId: BigInt(brokerContact.id) },
       });
     }
-
     // Strategy 1: Get leads linked to broker's contact
     let allLeadIds: number[] = [];
     if (amoContactId) {
@@ -247,7 +218,6 @@ export class AmocrmService {
       const contactLeads = fullContact?._embedded?.leads || [];
       allLeadIds.push(...contactLeads.map((l: any) => l.id));
     }
-
     // Strategy 2: Find broker as amoCRM user (employee) and get leads by responsible_user_id
     let amoUserId: number | null = null;
     try {
@@ -271,7 +241,6 @@ export class AmocrmService {
     } catch (e) {
       console.error('User lookup failed:', e);
     }
-
     if (allLeadIds.length === 0) {
       return {
         dealsCreated: 0, dealsUpdated: 0, clientsCreated: 0,
@@ -279,12 +248,10 @@ export class AmocrmService {
         amoContactId, amoUserId,
       };
     }
-
     let dealsCreated = 0;
     let dealsUpdated = 0;
     let clientsCreated = 0;
     let skipped = 0;
-
     // Cleanup: удалить устаревшие Meeting/Deal/Client с fake-телефонами +70000XXX.
     // Правка 2026-05-14. Сначала Meeting и Deal (зависят от Client через FK), потом Client.
     await this.prisma.meeting.deleteMany({
@@ -296,33 +263,26 @@ export class AmocrmService {
     await this.prisma.client.deleteMany({
       where: { brokerId, phone: { startsWith: '+70000' } },
     });
-
     for (const leadId of allLeadIds) {
       try {
         const lead: any = await this.amo.getLead(leadId);
         if (!lead) continue;
-
         // Skip leads from "Воронка брокеров" — они отслеживают самих брокеров, не клиентов.
         if (lead.pipeline_id === BROKER_PIPELINE_ID) { skipped++; continue; }
-
         // КЦ-карточки: status 142 у них = "встреча проведена" (успех КЦ), не "клиент купил".
         // Не создаём Deal из них, но meeting-sync проходит как обычно. Правка 2026-05-13.
         const isKcPipeline = lead.pipeline_id === AMO_PIPELINES.KC;
         const status_id = lead.status_id;
         const isDealLead = !isKcPipeline && status_id !== 143 && isDealStage(status_id);
-
         const project = leadToProject(lead);
-
         // Find client contact in lead (any contact that is NOT the broker)
         const leadContacts = lead?._embedded?.contacts || [];
         const clientContactRef = leadContacts.find(
           (c: any) => !amoContactId || Number(c.id) !== amoContactId,
         ) || leadContacts[0];
-
         let fullName = this.cleanClientName(lead.name);
         let phone = `+70000${leadId}`;
         let email: string | null = null;
-
         if (clientContactRef) {
           const clientContact: any = await this.amo.getContact(clientContactRef.id);
           if (clientContact) {
@@ -340,14 +300,12 @@ export class AmocrmService {
             if (p.length === 11 && p.startsWith('8')) p = '7' + p.slice(1);
             if (p.length === 10) p = '7' + p;
             if (p) phone = '+' + p;
-
             const emailField = (clientContact.custom_fields_values || []).find(
               (f: any) => f.field_id === AMO_CONTACT_FIELDS.EMAIL || f.field_code === 'EMAIL',
             );
             email = emailField?.values?.[0]?.value || null;
           }
         }
-
         // Если у контакта в amoCRM нет реального телефона — мы НЕ создаём Client.
         // Раньше писался fake-телефон вида +70000<leadId> (Лина-style).
         // Правка 2026-05-14.
@@ -362,7 +320,6 @@ export class AmocrmService {
           skipped++;
           continue;
         }
-
         // Upsert client
         let client = await this.prisma.client.findFirst({ where: { phone, brokerId } });
         if (!client) {
@@ -377,7 +334,6 @@ export class AmocrmService {
           });
           clientsCreated++;
         }
-
         // КЦ-карточки: cleanup существующего Deal (если был создан до фикса) и сразу
         // к meeting-sync — НЕ создаём/обновляем Deal.
         if (isKcPipeline) {
@@ -388,7 +344,6 @@ export class AmocrmService {
           try { await this.syncMeetingFromLead(lead, brokerId, client.id); } catch {}
           continue;
         }
-
         // Лиды не на стадии сделки или 143 («Закрыто и не реализовано») — удаляем
         // ошибочный Deal из БД (если был синкан раньше при другом статусе) и
         // переходим к meeting-sync. Правка 2026-05-13.
@@ -401,9 +356,7 @@ export class AmocrmService {
           skipped++;
           continue;
         }
-
         const status = statusToDealStatus(status_id);
-
         // Извлекаем sqm/price/lotId из custom_fields (правка 2026-05-12).
         // Раньше: amount=lead.price, sqm=0. Теперь — приоритет custom-полей.
         const sqm = getLeadCustomFieldNumber(lead, AMO_LEAD_FIELDS.SQM);
@@ -412,13 +365,22 @@ export class AmocrmService {
         const amount = priceNoDiscount > 0 ? priceNoDiscount : Number(lead.price || 0);
         const profitbaseLotId = getLeadCustomFieldValue(lead, AMO_LEAD_FIELDS.PROFITBASE_LOT_ID);
         const ccIdParent = getLeadCustomFieldValue(lead, AMO_LEAD_FIELDS.CC_ID_PARENT);
-
-        // Дата сделки для определения активной политики комиссии.
-        // Используем lead.created_at от amoCRM (если есть), иначе текущую дату.
+        // Комиссия — приоритет: значения, проставленные руками менеджером в amoCRM
+        // (custom-поля 673171 "Комиссия в руб." и 673169 "Комиссия брокера в %").
+        // Если хотя бы одно из них заполнено — используем amoCRM-значения.
+        // Если ни одно не заполнено — fallback на локальный расчёт. Правка 2026-05-14.
         const dealDate = lead.created_at ? new Date(lead.created_at * 1000) : new Date();
-        const rate = await this.getCommissionRate(brokerId, project, dealDate);
-        const commissionAmount = Math.round(amount * rate / 100);
-
+        const amoCommissionAmt = getLeadCustomFieldNumber(lead, AMO_LEAD_FIELDS.COMMISSION_AMOUNT);
+        const amoCommissionRate = getLeadCustomFieldNumber(lead, AMO_LEAD_FIELDS.COMMISSION_RATE);
+        let rate: number;
+        let commissionAmount: number;
+        if (amoCommissionAmt > 0 || amoCommissionRate > 0) {
+          rate = amoCommissionRate > 0 ? amoCommissionRate : (amount > 0 ? (amoCommissionAmt / amount) * 100 : 0);
+          commissionAmount = amoCommissionAmt > 0 ? Math.round(amoCommissionAmt) : Math.round(amount * rate / 100);
+        } else {
+          rate = await this.getCommissionRate(brokerId, project, dealDate);
+          commissionAmount = Math.round(amount * rate / 100);
+        }
         // Дедупликация: на одну реальную сделку в amoCRM может быть 2-3 карточки
         // (КЦ, проектная воронка, воронка брокеров). Связь child→parent через cc_id_parent.
         // Ищем существующий Deal по любой из связанных карточек:
@@ -443,7 +405,6 @@ export class AmocrmService {
             where: { amoParentDealId: BigInt(lead.id) },
           });
         }
-
         // При апдейте существующего Deal не перетираем sqm/amount нулями,
         // если новые данные пустые — данные могут быть в parent-карточке.
         const dealData: any = {
@@ -463,7 +424,6 @@ export class AmocrmService {
         // (приоритет child-карточек где эти поля заполнены).
         if (sqm > 0 || !existingDeal) dealData.sqm = sqm;
         if (amount > 0 || !existingDeal) dealData.amount = amount;
-
         if (existingDeal) {
           await this.prisma.deal.update({ where: { id: existingDeal.id }, data: dealData });
           dealsUpdated++;
@@ -491,47 +451,19 @@ export class AmocrmService {
           await this.prisma.deal.create({ data: dealData });
           dealsCreated++;
         }
-
         // Sync meeting from lead if present (only for current broker)
         try { await this.syncMeetingFromLead(lead, brokerId, client.id); } catch {}
       } catch (e) {
         skipped++;
       }
     }
-
     // Пересчёт totalSqmSold для primary agency брокера — после всех апдейтов сделок.
     // Раньше это поле никогда не записывалось → level всегда START. Правка 2026-05-12.
     await this.recalcAgencyTotalSqm(brokerId);
-
-    // Second-pass: пересчёт commission_rate/amount по всем deal'ам брокера
-    // используя СВЕЖИЙ totalSqmSold. На первом проходе rate брался по СТАРОМУ
-    // totalSqmSold (часто 0 → START → 5%), что давало неверные комиссии.
-    // Правка 2026-05-13.
-    let commissionRecalced = 0;
-    const brokerDeals = await this.prisma.deal.findMany({
-      where: { brokerId, status: { in: ['SIGNED', 'PAID', 'COMMISSION_PAID'] } },
-      select: {
-        id: true, project: true, amount: true,
-        commissionRate: true, commissionAmount: true,
-        signedAt: true, createdAt: true,
-      },
-    });
-    for (const d of brokerDeals) {
-      const dealDateForRate = d.signedAt || d.createdAt;
-      const freshRate = await this.getCommissionRate(brokerId, d.project, dealDateForRate);
-      const freshAmount = Math.round(Number(d.amount) * freshRate / 100);
-      if (Number(d.commissionRate) !== freshRate || Number(d.commissionAmount) !== freshAmount) {
-        await this.prisma.deal.update({
-          where: { id: d.id },
-          data: { commissionRate: freshRate, commissionAmount: freshAmount },
-        });
-        commissionRecalced++;
-      }
-    }
-
-    return { dealsCreated, dealsUpdated, clientsCreated, skipped, totalLeads: allLeadIds.length, amoContactId, amoUserId, commissionRecalced };
+    // Second-pass recalc убран 2026-05-14: amoCRM-значения комиссии (673169/673171)
+    // теперь авторитетный источник, локальный пересчёт перетирал бы их.
+    return { dealsCreated, dealsUpdated, clientsCreated, skipped, totalLeads: allLeadIds.length, amoContactId, amoUserId };
   }
-
   /**
    * Пересчитывает agency.totalSqmSold = SUM(sqm) по всем PAID/COMMISSION_PAID
    * сделкам брокера. Зовётся после синхронизации, чтобы уровень комиссии
@@ -543,13 +475,11 @@ export class AmocrmService {
       include: { agency: true },
     });
     if (!ba?.agency) return;
-
     const result = await this.prisma.deal.aggregate({
       where: { brokerId, status: { in: ['PAID', 'COMMISSION_PAID'] } },
       _sum: { sqm: true },
     });
     const totalSqm = Number(result._sum.sqm || 0);
-
     await this.prisma.agency.update({
       where: { id: ba.agency.id },
       data: { totalSqmSold: totalSqm },
