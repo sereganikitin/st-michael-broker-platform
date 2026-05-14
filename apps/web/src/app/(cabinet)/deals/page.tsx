@@ -147,7 +147,7 @@ export default function DealsPage() {
                   <tr className="text-text-muted text-left border-b border-border">
                     <th className="pb-3 font-medium">Клиент</th>
                     <th className="pb-3 font-medium">Проект</th>
-                    <th className="pb-3 font-medium">Лот</th>
+                    <th className="pb-3 font-medium">Помещение</th>
                     <th className="pb-3 font-medium">Сумма</th>
                     <th className="pb-3 font-medium">Комиссия</th>
                     <th className="pb-3 font-medium">Статус</th>
@@ -162,7 +162,15 @@ export default function DealsPage() {
                         <div className="text-xs text-text-muted">{formatPhone(deal.client?.phone)}</div>
                       </td>
                       <td className="py-3">{projectLabels[deal.project] || deal.project}</td>
-                      <td className="py-3 text-text-muted">{deal.lot?.number || '—'}</td>
+                      <td className="py-3 text-text-muted">{(() => {
+                        if (!deal.lot) return '—';
+                        const parts: string[] = [];
+                        if (deal.lot.building) parts.push(deal.lot.building);
+                        if (deal.lot.floor != null) parts.push(`${deal.lot.floor} эт.`);
+                        if (deal.lot.rooms != null) parts.push(`${deal.lot.rooms} комн.`);
+                        if (parts.length === 0 && deal.lot.number) return deal.lot.number;
+                        return parts.length > 0 ? parts.join(', ') : (deal.lot.number || '—');
+                      })()}</td>
                       <td className="py-3">{Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽</td>
                       <td className="py-3 text-accent">
                         {Math.round(Number(deal.commissionAmount)).toLocaleString('ru-RU')} ₽
