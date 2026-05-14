@@ -71,12 +71,8 @@ function ClientDetail({ client, onClose }: { client: any; onClose: () => void })
             <span className="font-medium">{client.status}</span>
           </div>
           <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Дата создания</span>
+            <span className="text-text-muted block text-xs">Дата создания в amoCRM</span>
             <span className="font-medium">{new Date(client.amoCreatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
-          </div>
-          <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Обновлён</span>
-            <span className="font-medium">{new Date(client.amoUpdatedAt || client.updatedAt).toLocaleDateString('ru-RU')}</span>
           </div>
         </div>
 
