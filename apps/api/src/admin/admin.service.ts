@@ -561,4 +561,126 @@ export class AdminService {
     await this.prisma.commissionPolicy.delete({ where: { id } });
     return { deleted: true };
   }
+  // ─── Reassign client to another broker (manager/admin) ────
+  // Правка 2026-05-14: руководитель брокеров (Ксения) может перевыставить уникальность
+  // клиента на другого брокера. Связанные Deal/Meeting тоже переезжают. В amoCRM меняется
+  // responsible_user_id у лида. Обоим брокерам — уведомление.
+  async reassignClient(
+    clientId: string,
+    newBrokerId: string,
+    reason: string,
+    executorId: string,
+  ) {
+    if (!reason || reason.trim().length < 3) {
+      throw new BadRequestException('Reason required (min 3 chars)');
+    }
+
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+      include: { broker: { select: { id: true, fullName: true, phone: true } } },
+    });
+    if (!client) throw new NotFoundException('Client not found');
+
+    const newBroker = await this.prisma.broker.findUnique({
+      where: { id: newBrokerId },
+      select: { id: true, fullName: true, phone: true, status: true },
+    });
+    if (!newBroker) throw new NotFoundException('New broker not found');
+    if (newBroker.status === 'BLOCKED') throw new BadRequestException('New broker is BLOCKED');
+    if (newBroker.id === client.brokerId) throw new BadRequestException('Client is already with this broker');
+
+    const oldBroker = client.broker;
+
+    // Найти amoUserId нового брокера (по телефону среди amoCRM users).
+    let newAmoUserId: number | null = null;
+    if (client.amoLeadId) {
+      try {
+        const users = await this.amo.getUsers();
+        const cleanPhone = newBroker.phone.replace(/\D/g, '').slice(-10);
+        const matched = users.find((u: any) => {
+          const uPhone = String(u.phone || '').replace(/\D/g, '');
+          return uPhone && uPhone.endsWith(cleanPhone);
+        });
+        if (matched) newAmoUserId = matched.id;
+      } catch {}
+    }
+
+    // Транзакция: меняем владельца Client + связанных Deal + Meeting.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.client.update({
+        where: { id: clientId },
+        data: {
+          brokerId: newBrokerId,
+          uniquenessReason: `Передан от ${oldBroker.fullName} (${oldBroker.phone}). Причина: ${reason}`,
+        },
+      });
+      await tx.deal.updateMany({
+        where: { clientId },
+        data: { brokerId: newBrokerId },
+      });
+      await tx.meeting.updateMany({
+        where: { clientId },
+        data: { brokerId: newBrokerId },
+      });
+    });
+
+    // Обновление в amoCRM (если есть линк к лиду + нашли amoUserId).
+    let amoUpdated = false;
+    if (client.amoLeadId && newAmoUserId) {
+      try {
+        await this.amo.updateLead(Number(client.amoLeadId), { responsible_user_id: newAmoUserId } as any);
+        amoUpdated = true;
+      } catch (e) {
+        // Логируем, но не валим всю операцию (в нашей БД уже передано).
+      }
+    }
+
+    // Уведомления.
+    const newBrokerMsg = `Вам передан клиент ${client.fullName} (${client.phone}). Уникальность подтверждена. Причина передачи: ${reason}`;
+    const oldBrokerMsg = `Клиент ${client.fullName} (${client.phone}) передан брокеру ${newBroker.fullName} по решению руководителя. Причина: ${reason}`;
+
+    // Каналы из database NotificationChannel — поддерживаются TELEGRAM/SMS/EMAIL/PUSH/IN_APP.
+    // Шлём через очередь — она пишет в notifications table и пытается отправить через канал.
+    await this.notificationQueue.add('send', {
+      brokerId: newBrokerId,
+      channel: 'PUSH',
+      subject: 'Передан клиент',
+      body: newBrokerMsg,
+      eventType: 'CLIENT_REASSIGNED_TO',
+    });
+    await this.notificationQueue.add('send', {
+      brokerId: oldBroker.id,
+      channel: 'PUSH',
+      subject: 'Передача клиента',
+      body: oldBrokerMsg,
+      eventType: 'CLIENT_REASSIGNED_FROM',
+    });
+
+    // Audit log.
+    await this.prisma.auditLog.create({
+      data: {
+        userId: executorId,
+        action: 'CLIENT_REASSIGNED',
+        entity: 'Client',
+        entityId: clientId,
+        payload: {
+          oldBrokerId: oldBroker.id,
+          oldBrokerName: oldBroker.fullName,
+          newBrokerId,
+          newBrokerName: newBroker.fullName,
+          reason,
+          amoUpdated,
+          amoLeadId: client.amoLeadId ? String(client.amoLeadId) : null,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      amoUpdated,
+      newBroker: { id: newBroker.id, fullName: newBroker.fullName },
+      oldBroker: { id: oldBroker.id, fullName: oldBroker.fullName },
+    };
+  }
+
 }
