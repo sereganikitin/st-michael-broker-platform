@@ -357,7 +357,9 @@ export class SchedulerService {
               }
               continue;
             }
-            // Upsert client
+            // Upsert client с реальной датой создания/изменения из amoCRM (правка 2026-05-14).
+            const leadCreatedAt = lead.created_at ? new Date(lead.created_at * 1000) : null;
+            const leadUpdatedAt = lead.updated_at ? new Date(lead.updated_at * 1000) : null;
             let client = await this.prisma.client.findFirst({ where: { phone, brokerId: broker.id } });
             if (!client) {
               client = await this.prisma.client.create({
@@ -367,9 +369,16 @@ export class SchedulerService {
                   amoLeadId: BigInt(lead.id),
                   uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
                   uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                  amoCreatedAt: leadCreatedAt,
+                  amoUpdatedAt: leadUpdatedAt,
                 },
               });
               totalClients++;
+            } else if (leadCreatedAt && (!client.amoCreatedAt || client.amoUpdatedAt?.getTime() !== leadUpdatedAt?.getTime())) {
+              await this.prisma.client.update({
+                where: { id: client.id },
+                data: { amoCreatedAt: leadCreatedAt, amoUpdatedAt: leadUpdatedAt },
+              });
             }
             // КЦ: cleanup существующего Deal + ранний переход к meeting-sync.
             // КЦ / 143 / не-deal-stage — удалить ошибочный Deal из БД (если был синкан раньше).
