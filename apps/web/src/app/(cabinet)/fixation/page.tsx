@@ -206,7 +206,6 @@ export default function FixationPage() {
                 className="input"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                placeholder="необязательно"
               />
             </div>
           </div>
