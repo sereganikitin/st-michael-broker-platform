@@ -12,6 +12,28 @@ interface Participant {
   phone: string;
 }
 
+// Форматирование 10 цифр в +7 (XXX) XXX-XX-XX (правка 2026-05-14).
+function formatPhoneFromDigits(digits10: string): string {
+  if (!digits10) return '';
+  const d = digits10.padEnd(10, '_').slice(0, 10);
+  let out = '+7';
+  if (digits10.length > 0) out += ' (' + d.slice(0, 3).replace(/_/g, '');
+  if (digits10.length >= 3) out = '+7 (' + d.slice(0, 3) + ')';
+  if (digits10.length > 3) out += ' ' + d.slice(3, 6).replace(/_/g, '');
+  if (digits10.length >= 6) out = '+7 (' + d.slice(0, 3) + ') ' + d.slice(3, 6);
+  if (digits10.length > 6) out += '-' + d.slice(6, 8).replace(/_/g, '');
+  if (digits10.length >= 8) out = '+7 (' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6, 8);
+  if (digits10.length > 8) out += '-' + d.slice(8, 10).replace(/_/g, '');
+  return out;
+}
+
+// Форматирование числа с разделителями тысяч пробелами (для бюджета).
+function formatMoney(raw: string): string {
+  const d = raw.replace(/\D/g, '');
+  if (!d) return '';
+  return d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
 export default function FixationPage() {
   const router = useRouter();
   const { broker } = useAuth();
@@ -20,9 +42,10 @@ export default function FixationPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [project, setProject] = useState('ZORGE9');
-  const [propertyType, setPropertyType] = useState<'Квартира' | 'Коммерческая'>('Квартира');
+  const [propertyType, setPropertyType] = useState<'Квартира' | 'Апартаменты' | 'Коммерческая'>('Квартира');
+  const [roomsCount, setRoomsCount] = useState<string>(''); // студия/1/2/3/4+
   const [sqm, setSqm] = useState('');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(''); // raw digits
   const [participants, setParticipants] = useState<Participant[]>([]);
 
   const [loading, setLoading] = useState(false);
@@ -43,24 +66,19 @@ export default function FixationPage() {
     setParticipants(participants.map((p, idx) => idx === i ? { ...p, [field]: value } : p));
   };
 
+  const updateParticipantPhone = (i: number, raw: string) => {
+    // Сохраняем только цифры внутри (формат для отправки) — отображение через mask.
+    const digits = raw.replace(/\D/g, '').replace(/^7/, '').slice(0, 10);
+    updateParticipant(i, 'phone', digits);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    const fullName = `${lastName} ${firstName}`.trim();
+    const fullName = (lastName ? `${lastName} ${firstName}` : firstName).trim();
     const phone = '+7' + phoneDigits;
-    const commentParts = [
-      `Тип: ${propertyType}`,
-      `Метраж: ${sqm} м²`,
-      `Сумма: ${Math.round(Number(amount)).toLocaleString('ru-RU')} ₽`,
-    ];
-    if (participants.length > 0) {
-      const parts = participants
-        .filter((p) => p.firstName || p.lastName || p.phone)
-        .map((p, i) => `${i + 1}) ${p.lastName} ${p.firstName} ${p.phone}`.trim());
-      if (parts.length > 0) commentParts.push(`Участники: ${parts.join('; ')}`);
-    }
 
     try {
       await apiPost('/clients/fix', {
@@ -68,7 +86,17 @@ export default function FixationPage() {
         fullName,
         project,
         agencyInn: brokerAgency?.inn || '',
-        comment: commentParts.join('. '),
+        propertyType,
+        roomsCount: roomsCount || undefined,
+        amount: amount ? Number(amount) : undefined,
+        sqm: sqm ? Number(sqm) : undefined,
+        participants: participants
+          .filter((p) => p.firstName || p.lastName || p.phone)
+          .map((p) => ({
+            firstName: p.firstName,
+            lastName: p.lastName,
+            phone: p.phone ? '+7' + p.phone : '',
+          })),
       });
       setShowSuccess(true);
     } catch (err: any) {
@@ -84,6 +112,7 @@ export default function FixationPage() {
     setLastName('');
     setProject('ZORGE9');
     setPropertyType('Квартира');
+    setRoomsCount('');
     setSqm('');
     setAmount('');
     setParticipants([]);
@@ -92,7 +121,8 @@ export default function FixationPage() {
 
   const brokerPhoneDisplay = broker?.phone || '—';
   const brokerNameDisplay = broker?.fullName || '—';
-  const canSubmit = phoneDigits.length === 10 && firstName && lastName && sqm && amount && brokerAgency?.inn;
+  // Минимум для submit: телефон 10 цифр + имя + ИНН агентства. Фамилия, метраж, сумма не обязательны.
+  const canSubmit = phoneDigits.length === 10 && !!firstName && !!brokerAgency?.inn;
 
   return (
     <div className="max-w-3xl">
@@ -114,6 +144,9 @@ export default function FixationPage() {
                 required
               />
             </div>
+            {phoneDigits.length === 10 && (
+              <div className="text-xs text-text-muted mt-1">{formatPhoneFromDigits(phoneDigits)}</div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -128,13 +161,13 @@ export default function FixationPage() {
               />
             </div>
             <div>
-              <label className="label">Фамилия *</label>
+              <label className="label">Фамилия</label>
               <input
                 type="text"
                 className="input"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                required
+                placeholder="необязательно"
               />
             </div>
           </div>
@@ -159,6 +192,7 @@ export default function FixationPage() {
                 onChange={(e) => setPropertyType(e.target.value as any)}
               >
                 <option value="Квартира">Квартира</option>
+                <option value="Апартаменты">Апартаменты</option>
                 <option value="Коммерческая">Коммерческая</option>
               </select>
             </div>
@@ -166,31 +200,49 @@ export default function FixationPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="label">Метраж, м² *</label>
+              <label className="label">Кол-во комнат</label>
+              <select
+                className="input"
+                value={roomsCount}
+                onChange={(e) => setRoomsCount(e.target.value)}
+              >
+                <option value="">— не указано —</option>
+                <option value="Студия">Студия</option>
+                <option value="1к">1 комната</option>
+                <option value="2к">2 комнаты</option>
+                <option value="3к">3 комнаты</option>
+                <option value="4к+">4+ комнаты</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Метраж, м²</label>
               <input
                 type="number"
                 min="0"
                 step="0.01"
                 className="input"
-                placeholder="45.5"
+                placeholder="45.5 (необязательно)"
                 value={sqm}
                 onChange={(e) => setSqm(e.target.value)}
-                required
               />
             </div>
-            <div>
-              <label className="label">Сумма, ₽ *</label>
-              <input
-                type="number"
-                min="0"
-                step="1000"
-                className="input"
-                placeholder="15000000"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                required
-              />
-            </div>
+          </div>
+
+          <div>
+            <label className="label">Бюджет покупки, ₽</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              className="input"
+              placeholder="25 000 000 (необязательно)"
+              value={formatMoney(amount)}
+              onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))}
+            />
+            {amount && (
+              <div className="text-xs text-text-muted mt-1">
+                {Number(amount).toLocaleString('ru-RU')} ₽
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-border">
@@ -232,9 +284,9 @@ export default function FixationPage() {
                     <input
                       type="tel"
                       className="input"
-                      placeholder="+79991234567"
-                      value={p.phone}
-                      onChange={(e) => updateParticipant(i, 'phone', e.target.value)}
+                      placeholder="+7 (999) 123-45-67"
+                      value={p.phone ? formatPhoneFromDigits(p.phone) : ''}
+                      onChange={(e) => updateParticipantPhone(i, e.target.value)}
                     />
                   </div>
                   <button
