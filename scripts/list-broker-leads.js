@@ -1,49 +1,42 @@
 #!/usr/bin/env node
 /**
  * Печатает список ВСЕХ лидов из amoCRM для каждого ACTIVE-брокера в БД.
- * Колонки: leadId | название лида | pipeline_id | status_id | created_at.
- *
- * Помогает найти leadId для task=inspect-lead, когда удалённые из БД сделки
- * больше нельзя посмотреть в кабинете.
+ * Колонки: leadId | pipeline_id | status_id | created_at | имя.
  *
  * Запуск через workflow: task=list-broker-leads
  */
 
 (async () => {
   const { NestFactory } = require('@nestjs/core');
-  let AppModule, AmocrmService, PrismaClient;
+  let AppModule, AmocrmService;
   try {
     ({ AppModule } = require('/app/apps/api/dist/app.module'));
     ({ AmocrmService } = require('/app/apps/api/dist/amocrm/amocrm.service'));
-    ({ PrismaClient } = require('/app/packages/database/node_modules/@prisma/client'));
   } catch (e) {
-    console.error('Cannot load modules:', e?.message);
+    console.error('Cannot load Nest modules:', e?.message);
     process.exit(1);
   }
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
   });
-  const prisma = app.get('PrismaClient', { strict: false });
-
-  // Если не получилось через DI — создаём напрямую.
-  let db;
-  try {
-    db = prisma || new PrismaClient();
-  } catch (_) {
-    db = new PrismaClient();
-  }
 
   try {
-    const brokers = await db.broker.findMany({
+    // Prisma через DI (token 'PrismaClient' — см. database.module.ts)
+    const prisma = app.get('PrismaClient', { strict: false });
+    if (!prisma) {
+      console.error('Cannot resolve PrismaClient from Nest context');
+      process.exit(1);
+    }
+    const amoSvc = app.get(AmocrmService);
+    const { AmoCrmAdapter } = require('/app/packages/integrations/dist/amo-crm.adapter');
+    const amo = new AmoCrmAdapter();
+
+    const brokers = await prisma.broker.findMany({
       where: { status: 'ACTIVE', amoContactId: { not: null } },
       select: { id: true, fullName: true, phone: true, amoContactId: true },
       orderBy: { fullName: 'asc' },
     });
-
-    const amoSvc = app.get(AmocrmService);
-    const { AmoCrmAdapter } = require('/app/packages/integrations/dist/amo-crm.adapter');
-    const amo = new AmoCrmAdapter();
 
     for (const broker of brokers) {
       console.log(`\n═══════════════════════════════════`);
@@ -56,7 +49,7 @@
           console.log('  (нет лидов)');
           continue;
         }
-        console.log(`leadId    | pipeline | status   | created_at          | name`);
+        console.log(`leadId    | pipeline | status   | created    | name`);
         for (const leadRef of linkedLeads) {
           try {
             const lead = await amo.getLead(leadRef.id);
@@ -68,7 +61,7 @@
             const pip = String(lead.pipeline_id || '-').padEnd(8);
             const st = String(lead.status_id || '-').padEnd(8);
             const nm = String(lead.name || '').slice(0, 60);
-            console.log(`${String(lead.id).padEnd(9)} | ${pip} | ${st} | ${created.padEnd(19)} | ${nm}`);
+            console.log(`${String(lead.id).padEnd(9)} | ${pip} | ${st} | ${created.padEnd(10)} | ${nm}`);
           } catch (e) {
             console.log(`${String(leadRef.id).padEnd(9)} | ERROR: ${e?.message}`);
           }
@@ -79,14 +72,8 @@
     }
 
     console.log(`\n═══════════════════════════════════`);
-    console.log(`Pipelines reference:`);
-    console.log(`  7600542 = КЦ (колл-центр) — у этих лидов Deal не создаётся`);
-    console.log(`  7600546 = Берзарина (Серебряный Бор)`);
-    console.log(`  7600550 = Зорге9`);
-    console.log(`  7600554 = Толбухина`);
-    console.log(`  10787390 = Воронка брокеров (про самих брокеров)`);
-    console.log(`Status 143 = "Закрыто и не реализовано" — Deal удаляется`);
-    console.log(`Status 142 = "Успешно реализовано" — Deal остаётся (если pipeline != КЦ)`);
+    console.log(`Pipelines:  7600542=КЦ  7600546=Берзарина(СБ)  7600550=Зорге9  7600554=Толбухина  10787390=Брокеры`);
+    console.log(`Status 142=Успешно реализовано, 143=Закрыто-не-реализовано`);
   } finally {
     await app.close();
   }
