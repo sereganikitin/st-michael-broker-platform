@@ -285,8 +285,11 @@ export class AmocrmService {
     let clientsCreated = 0;
     let skipped = 0;
 
-    // Cleanup: удалить устаревшие Client/Deal с fake-телефонами +70000XXX.
-    // Правка 2026-05-14.
+    // Cleanup: удалить устаревшие Meeting/Deal/Client с fake-телефонами +70000XXX.
+    // Правка 2026-05-14. Сначала Meeting и Deal (зависят от Client через FK), потом Client.
+    await this.prisma.meeting.deleteMany({
+      where: { brokerId, client: { phone: { startsWith: '+70000' } } },
+    });
     await this.prisma.deal.deleteMany({
       where: { brokerId, client: { phone: { startsWith: '+70000' } } },
     });
@@ -349,9 +352,10 @@ export class AmocrmService {
         // Раньше писался fake-телефон вида +70000<leadId> (Лина-style).
         // Правка 2026-05-14.
         if (phone.startsWith('+70000')) {
-          // Удалить устаревшие Client/Deal с fake-телефоном если есть.
+          // Удалить устаревшие Meeting/Deal/Client с fake-телефоном если есть.
           const fakeClient = await this.prisma.client.findFirst({ where: { phone, brokerId } });
           if (fakeClient) {
+            await this.prisma.meeting.deleteMany({ where: { clientId: fakeClient.id } });
             await this.prisma.deal.deleteMany({ where: { clientId: fakeClient.id } });
             await this.prisma.client.delete({ where: { id: fakeClient.id } });
           }
