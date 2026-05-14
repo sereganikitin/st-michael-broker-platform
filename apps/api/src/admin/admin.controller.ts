@@ -159,4 +159,15 @@ export class AdminController {
   async deleteCommissionPolicy(@Param('id') id: string) {
     return this.adminService.deleteCommissionPolicy(id);
   }
+  // ─── Reassign client to another broker (manager/admin) ────
+  @Patch('clients/:id/reassign-broker')
+  @ApiOperation({ summary: 'Передать клиента другому брокеру (manager/admin)' })
+  async reassignClient(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() body: { newBrokerId: string; reason: string },
+  ) {
+    return this.adminService.reassignClient(id, body.newBrokerId, body.reason, user.id);
+  }
+
 }
