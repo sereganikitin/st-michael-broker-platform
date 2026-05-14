@@ -38,7 +38,9 @@ export default function FixationPage() {
   const router = useRouter();
   const { broker } = useAuth();
 
-  const [phoneDigits, setPhoneDigits] = useState('');
+  const [isForeign, setIsForeign] = useState(false); // правка 2026-05-14: иностранные номера
+  const [phoneDigits, setPhoneDigits] = useState(''); // только цифры для RU +7
+  const [foreignPhone, setForeignPhone] = useState(''); // raw text для иностранных
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [project, setProject] = useState('ZORGE9');
@@ -78,7 +80,14 @@ export default function FixationPage() {
     setError('');
 
     const fullName = (lastName ? `${lastName} ${firstName}` : firstName).trim();
-    const phone = '+7' + phoneDigits;
+    // Нормализация телефона: для RU '+7' + 10 цифр, для иностранного — '+<digits>'.
+    let phone: string;
+    if (isForeign) {
+      const digits = foreignPhone.replace(/\D/g, '');
+      phone = digits ? '+' + digits : '';
+    } else {
+      phone = '+7' + phoneDigits;
+    }
 
     try {
       await apiPost('/clients/fix', {
@@ -108,6 +117,8 @@ export default function FixationPage() {
 
   const resetForm = () => {
     setPhoneDigits('');
+    setForeignPhone('');
+    setIsForeign(false);
     setFirstName('');
     setLastName('');
     setProject('ZORGE9');
@@ -121,8 +132,10 @@ export default function FixationPage() {
 
   const brokerPhoneDisplay = broker?.phone || '—';
   const brokerNameDisplay = broker?.fullName || '—';
-  // Минимум для submit: телефон 10 цифр + имя + ИНН агентства. Фамилия, метраж, сумма не обязательны.
-  const canSubmit = phoneDigits.length === 10 && !!firstName && !!brokerAgency?.inn;
+  // Минимум для submit: валидный телефон + имя + метраж + сумма + ИНН агентства.
+  const foreignDigitsCount = foreignPhone.replace(/\D/g, '').length;
+  const phoneValid = isForeign ? foreignDigitsCount >= 7 : phoneDigits.length === 10;
+  const canSubmit = phoneValid && !!firstName && !!sqm && !!amount && !!brokerAgency?.inn;
 
   return (
     <div className="max-w-3xl">
@@ -131,21 +144,47 @@ export default function FixationPage() {
       <div className="card">
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="label">Телефон клиента *</label>
-            <div className="flex">
-              <span className="inline-flex items-center px-3 bg-surface-secondary border border-r-0 border-border rounded-l text-text-muted text-sm">+7</span>
-              <input
-                type="tel"
-                className="input rounded-l-none"
-                placeholder="9991234567"
-                value={phoneDigits}
-                onChange={(e) => setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                maxLength={10}
-                required
-              />
+            <div className="flex items-center justify-between mb-1">
+              <label className="label mb-0">Телефон клиента *</label>
+              <label className="text-xs text-text-muted flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isForeign}
+                  onChange={(e) => { setIsForeign(e.target.checked); setPhoneDigits(''); setForeignPhone(''); }}
+                />
+                Иностранный номер
+              </label>
             </div>
-            {phoneDigits.length === 10 && (
-              <div className="text-xs text-text-muted mt-1">{formatPhoneFromDigits(phoneDigits)}</div>
+            {!isForeign ? (
+              <>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 bg-surface-secondary border border-r-0 border-border rounded-l text-text-muted text-sm">+7</span>
+                  <input
+                    type="tel"
+                    className="input rounded-l-none"
+                    placeholder="9991234567"
+                    value={phoneDigits}
+                    onChange={(e) => setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    maxLength={10}
+                    required
+                  />
+                </div>
+                {phoneDigits.length === 10 && (
+                  <div className="text-xs text-text-muted mt-1">{formatPhoneFromDigits(phoneDigits)}</div>
+                )}
+              </>
+            ) : (
+              <>
+                <input
+                  type="tel"
+                  className="input"
+                  placeholder="+998 90 123 45 67"
+                  value={foreignPhone}
+                  onChange={(e) => setForeignPhone(e.target.value)}
+                  required
+                />
+                <div className="text-xs text-text-muted mt-1">Иностранный — введи полный номер с кодом страны (любой формат)</div>
+              </>
             )}
           </div>
 
@@ -215,28 +254,30 @@ export default function FixationPage() {
               </select>
             </div>
             <div>
-              <label className="label">Метраж, м²</label>
+              <label className="label">Метраж, м² *</label>
               <input
                 type="number"
                 min="0"
                 step="0.01"
                 className="input"
-                placeholder="45.5 (необязательно)"
+                placeholder="45.5"
                 value={sqm}
                 onChange={(e) => setSqm(e.target.value)}
+                required
               />
             </div>
           </div>
 
           <div>
-            <label className="label">Бюджет покупки, ₽</label>
+            <label className="label">Бюджет покупки, ₽ *</label>
             <input
               type="text"
               inputMode="numeric"
               className="input"
-              placeholder="25 000 000 (необязательно)"
+              placeholder="25 000 000"
               value={formatMoney(amount)}
               onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))}
+              required
             />
             {amount && (
               <div className="text-xs text-text-muted mt-1">
