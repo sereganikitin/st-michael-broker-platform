@@ -87,9 +87,9 @@ export default function CommissionPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Комиссия</h1>
-        <div className="inline-flex bg-surface-secondary rounded-lg p-1">
+      {/* Переключатель Зорге/Сер.Бор слева сверху, заголовок ниже. Правка 2026-05-14. */}
+      <div className="mb-6">
+        <div className="inline-flex bg-surface-secondary rounded-lg p-1 mb-3">
           {(Object.keys(projectLabels) as Array<'ZORGE9' | 'SILVER_BOR'>).map((p) => (
             <button
               key={p}
@@ -102,10 +102,15 @@ export default function CommissionPage() {
             </button>
           ))}
         </div>
+        <h1 className="text-3xl font-bold">Комиссия</h1>
       </div>
 
+      {commission && !isFlat && (
+        <h2 className="text-lg font-semibold mb-3 text-text-muted">Прогрессивная комиссия</h2>
+      )}
+
       {commission && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className={`grid grid-cols-1 gap-6 mb-8 ${isFlat ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
           <div className="card">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm text-text-muted">
@@ -162,22 +167,24 @@ export default function CommissionPage() {
             )}
           </div>
 
-          <div className="card">
-            <h3 className="text-sm text-text-muted mb-2">Шкала ставок — {projectLabels[selectedProject]}</h3>
-            <div className="space-y-1">
-              {LEVEL_ORDER_BY_PROJECT[selectedProject].map((lvl) => (
-                <div
-                  key={lvl}
-                  className={`flex justify-between text-sm py-1 px-2 rounded ${
-                    lvl === commission.level ? 'bg-accent/10 text-accent font-bold' : ''
-                  }`}
-                >
-                  <span>{levelNames[lvl]}</span>
-                  <span>{RATE_TABLE[selectedProject][lvl]}%</span>
-                </div>
-              ))}
+          {!isFlat && (
+            <div className="card">
+              <h3 className="text-sm text-text-muted mb-2">Шкала ставок — {projectLabels[selectedProject]}</h3>
+              <div className="space-y-1">
+                {LEVEL_ORDER_BY_PROJECT[selectedProject].map((lvl) => (
+                  <div
+                    key={lvl}
+                    className={`flex justify-between text-sm py-1 px-2 rounded ${
+                      lvl === commission.level ? 'bg-accent/10 text-accent font-bold' : ''
+                    }`}
+                  >
+                    <span>{levelNames[lvl]}</span>
+                    <span>{RATE_TABLE[selectedProject][lvl]}%</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
