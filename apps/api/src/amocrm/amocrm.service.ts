@@ -285,6 +285,15 @@ export class AmocrmService {
     let clientsCreated = 0;
     let skipped = 0;
 
+    // Cleanup: удалить устаревшие Client/Deal с fake-телефонами +70000XXX.
+    // Правка 2026-05-14.
+    await this.prisma.deal.deleteMany({
+      where: { brokerId, client: { phone: { startsWith: '+70000' } } },
+    });
+    await this.prisma.client.deleteMany({
+      where: { brokerId, phone: { startsWith: '+70000' } },
+    });
+
     for (const leadId of allLeadIds) {
       try {
         const lead: any = await this.amo.getLead(leadId);
@@ -334,6 +343,20 @@ export class AmocrmService {
             );
             email = emailField?.values?.[0]?.value || null;
           }
+        }
+
+        // Если у контакта в amoCRM нет реального телефона — мы НЕ создаём Client.
+        // Раньше писался fake-телефон вида +70000<leadId> (Лина-style).
+        // Правка 2026-05-14.
+        if (phone.startsWith('+70000')) {
+          // Удалить устаревшие Client/Deal с fake-телефоном если есть.
+          const fakeClient = await this.prisma.client.findFirst({ where: { phone, brokerId } });
+          if (fakeClient) {
+            await this.prisma.deal.deleteMany({ where: { clientId: fakeClient.id } });
+            await this.prisma.client.delete({ where: { id: fakeClient.id } });
+          }
+          skipped++;
+          continue;
         }
 
         // Upsert client
