@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet } from '@/lib/api';
+import { apiGet, apiPatch } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { Search, ChevronLeft, ChevronRight, X, AlertTriangle } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
@@ -35,7 +36,41 @@ function daysUntilExpiry(expiresAt: string | null): number | null {
   return Math.ceil(ms / (24 * 60 * 60 * 1000));
 }
 
-function ClientDetail({ client, onClose }: { client: any; onClose: () => void }) {
+function ClientDetail({ client, onClose, onReassigned }: { client: any; onClose: () => void; onReassigned?: () => void }) {
+  const { broker: currentUser } = useAuth();
+  const canReassign = currentUser?.role === 'MANAGER' || currentUser?.role === 'ADMIN';
+  const [showReassign, setShowReassign] = useState(false);
+  const [brokers, setBrokers] = useState<any[]>([]);
+  const [newBrokerId, setNewBrokerId] = useState('');
+  const [reason, setReason] = useState('');
+  const [reassigning, setReassigning] = useState(false);
+  const [reassignError, setReassignError] = useState('');
+
+  useEffect(() => {
+    if (showReassign && brokers.length === 0) {
+      apiGet('/admin/brokers?limit=200')
+        .then((d) => setBrokers((d.brokers || []).filter((b: any) => b.id !== client.brokerId && b.status === 'ACTIVE')))
+        .catch(() => setBrokers([]));
+    }
+  }, [showReassign]);
+
+  const doReassign = async () => {
+    if (!newBrokerId || reason.trim().length < 3) {
+      setReassignError('Выбери брокера и укажи причину (мин 3 символа)');
+      return;
+    }
+    setReassigning(true);
+    setReassignError('');
+    try {
+      await apiPatch(`/admin/clients/${client.id}/reassign-broker`, { newBrokerId, reason });
+      onReassigned?.();
+      onClose();
+    } catch (e: any) {
+      setReassignError(e?.message || 'Не удалось передать клиента');
+    }
+    setReassigning(false);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div
@@ -88,6 +123,57 @@ function ClientDetail({ client, onClose }: { client: any; onClose: () => void })
           <div className="bg-surface-secondary rounded-lg p-3 mb-4">
             <span className="text-text-muted block text-xs mb-1">Комментарий</span>
             <span className="text-sm whitespace-pre-wrap">{client.comment}</span>
+          </div>
+        )}
+
+        {/* Reassign button — только для MANAGER/ADMIN */}
+        {canReassign && !showReassign && (
+          <button
+            className="btn btn-secondary w-full mb-4 text-sm"
+            onClick={() => setShowReassign(true)}
+          >
+            Передать клиента другому брокеру
+          </button>
+        )}
+        {canReassign && showReassign && (
+          <div className="border border-warning/40 bg-warning/5 rounded-lg p-3 mb-4 space-y-3">
+            <div className="text-sm font-medium">Передать клиента</div>
+            <select
+              className="input"
+              value={newBrokerId}
+              onChange={(e) => setNewBrokerId(e.target.value)}
+            >
+              <option value="">— выбери брокера —</option>
+              {brokers.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.fullName} ({b.phone})
+                </option>
+              ))}
+            </select>
+            <textarea
+              className="input min-h-[60px]"
+              placeholder="Причина передачи (напр. брокер не отвечает после встречи)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+            {reassignError && <div className="text-xs text-error">{reassignError}</div>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="btn btn-primary text-sm"
+                disabled={reassigning}
+                onClick={doReassign}
+              >
+                {reassigning ? 'Передача...' : 'Подтвердить'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                onClick={() => { setShowReassign(false); setReassignError(''); }}
+              >
+                Отмена
+              </button>
+            </div>
           </div>
         )}
 
@@ -281,7 +367,7 @@ export default function ClientsPage() {
         )}
       </div>
 
-      {selectedClient && <ClientDetail client={selectedClient} onClose={() => setSelectedClient(null)} />}
+      {selectedClient && <ClientDetail client={selectedClient} onClose={() => setSelectedClient(null)} onReassigned={() => fetchClients()} />}
     </div>
   );
 }
