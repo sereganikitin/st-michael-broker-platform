@@ -25,6 +25,12 @@ export class ClientFixationService {
       comment?: string;
       project: Project;
       agencyInn: string;
+      // Новые поля 2026-05-14: для авто-заполнения custom-полей в amoCRM.
+      propertyType?: string;
+      roomsCount?: string;
+      amount?: number;
+      sqm?: number;
+      participants?: { firstName?: string; lastName?: string; phone?: string }[];
     },
   ) {
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
@@ -72,14 +78,33 @@ export class ClientFixationService {
         },
       });
 
+      // Сформировать комментарий из структурированных полей. Правка 2026-05-14.
+      const commentParts: string[] = [];
+      if (data.propertyType) commentParts.push(`Тип: ${data.propertyType}`);
+      if (data.roomsCount) commentParts.push(`Комнат: ${data.roomsCount}`);
+      if (data.sqm) commentParts.push(`Метраж: ${data.sqm} м²`);
+      if (data.amount) commentParts.push(`Бюджет: ${data.amount.toLocaleString('ru-RU')} ₽`);
+      if (data.participants?.length) {
+        const ps = data.participants.map((p, i) =>
+          `${i + 1}) ${[p.lastName, p.firstName, p.phone].filter(Boolean).join(' ').trim()}`,
+        ).filter((x) => x.length > 3);
+        if (ps.length) commentParts.push(`Участники: ${ps.join('; ')}`);
+      }
+      if (data.comment) commentParts.unshift(data.comment);
+      const fullComment = commentParts.join('. ');
+
       await this.amoCrmAdapter.createFixationRequest({
         clientPhone: data.phone,
         clientName: data.fullName,
         brokerPhone: broker.phone,
         agencyName: agency.name,
         agencyInn: agency.inn,
-        comment: data.comment || '',
+        comment: fullComment,
         project: data.project as Project,
+        propertyType: data.propertyType,
+        roomsCount: data.roomsCount,
+        amount: data.amount,
+        sqm: data.sqm,
       });
 
       // Update broker funnel stage if needed
