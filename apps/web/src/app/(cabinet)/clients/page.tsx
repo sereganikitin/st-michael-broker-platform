@@ -79,7 +79,7 @@ function ClientDetail({ client, onClose }: { client: any; onClose: () => void })
               if (d < 0) return <div className="text-xs text-error mt-1">⚠ уникальность истекла {-d} дн. назад</div>;
               if (d === 0) return <div className="text-xs text-error mt-1">⚠ уникальность истекает сегодня</div>;
               const cls = d <= 7 ? 'text-warning' : 'text-text-muted';
-              return <div className={`text-xs mt-1 ${cls}`}>осталось {d} {d === 1 ? 'день' : (d < 5 ? 'дня' : 'дней')} до окончания уникальности (40 дн)</div>;
+              return <div className={`text-xs mt-1 ${cls}`}>осталось {d} {d === 1 ? 'день' : (d < 5 ? 'дня' : 'дней')} до окончания уникальности (30 дн)</div>;
             })()}
           </div>
         </div>
