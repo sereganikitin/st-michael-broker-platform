@@ -57,9 +57,13 @@ export class ClientFixationService {
       }
     }
 
-    // Check uniqueness scenarios
+    // Проверяем сначала запись ЭТОГО брокера — если он уже фиксировал, обновляем её.
+    // Если запись только у другого брокера — она нам не мешает: каждый брокер
+    // ведёт своего клиента отдельно. Уникальность не подтверждена только когда
+    // другой брокер дойдёт со сделкой до офиса (downgrade применяется отдельно).
+    // Правка 2026-05-14: multi-broker фиксация.
     const existingClient = await this.prisma.client.findFirst({
-      where: { phone: data.phone },
+      where: { phone: data.phone, brokerId },
       include: { deals: true, broker: true },
     });
 
