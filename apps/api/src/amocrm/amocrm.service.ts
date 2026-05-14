@@ -332,17 +332,31 @@ export class AmocrmService {
               amoLeadId: BigInt(lead.id),
               uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
               // Уникальность = 40 дней от даты создания лида в amoCRM (правка 2026-05-14).
-              uniquenessExpiresAt: new Date((leadCreatedAt ? leadCreatedAt.getTime() : Date.now()) + 40 * 24 * 60 * 60 * 1000),
+              // Уникальность = 30 дней от даты создания лида в amoCRM (правка 2026-05-14, ранее 40).
+              uniquenessExpiresAt: new Date((leadCreatedAt ? leadCreatedAt.getTime() : Date.now()) + 30 * 24 * 60 * 60 * 1000),
               amoCreatedAt: leadCreatedAt,
               amoUpdatedAt: leadUpdatedAt,
             },
           });
           clientsCreated++;
-        } else if (leadCreatedAt && (!client.amoCreatedAt || client.amoUpdatedAt?.getTime() !== leadUpdatedAt?.getTime())) {
-          await this.prisma.client.update({
-            where: { id: client.id },
-            data: { amoCreatedAt: leadCreatedAt, amoUpdatedAt: leadUpdatedAt },
-          });
+        } else if (leadCreatedAt || leadUpdatedAt) {
+          // MIN amoCreatedAt + MAX amoUpdatedAt по всем связанным лидам.
+          // Уникальность пересчитывается от самой ранней даты + 30 дней. Правка 2026-05-14.
+          const updateData: any = {};
+          if (leadCreatedAt) {
+            if (!client.amoCreatedAt || leadCreatedAt < client.amoCreatedAt) {
+              updateData.amoCreatedAt = leadCreatedAt;
+              updateData.uniquenessExpiresAt = new Date(leadCreatedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+            }
+          }
+          if (leadUpdatedAt) {
+            if (!client.amoUpdatedAt || leadUpdatedAt > client.amoUpdatedAt) {
+              updateData.amoUpdatedAt = leadUpdatedAt;
+            }
+          }
+          if (Object.keys(updateData).length > 0) {
+            await this.prisma.client.update({ where: { id: client.id }, data: updateData });
+          }
         }
         // КЦ-карточки: cleanup существующего Deal (если был создан до фикса) и сразу
         // к meeting-sync — НЕ создаём/обновляем Deal.
