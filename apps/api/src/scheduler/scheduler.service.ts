@@ -330,6 +330,16 @@ export class SchedulerService {
 
     for (const broker of brokers) {
       try {
+        // Cleanup: удалить устаревшие Client/Deal с fake-телефонами +70000XXX.
+        // Это записи которые раньше синк создавал, когда у amoCRM-контакта не было поля phone.
+        // Правка 2026-05-14.
+        await this.prisma.deal.deleteMany({
+          where: { brokerId: broker.id, client: { phone: { startsWith: '+70000' } } },
+        });
+        await this.prisma.client.deleteMany({
+          where: { brokerId: broker.id, phone: { startsWith: '+70000' } },
+        });
+
         const amoContactId = Number(broker.amoContactId);
 
         // Re-check for correct broker contact (with Брокер=true flag)
@@ -384,6 +394,17 @@ export class SchedulerService {
                 );
                 email = ef?.values?.[0]?.value || null;
               }
+            }
+
+            // Skip if no real phone — раньше fake-телефон +70000<leadId>.
+            // Правка 2026-05-14.
+            if (phone.startsWith('+70000')) {
+              const fakeClient = await this.prisma.client.findFirst({ where: { phone, brokerId: broker.id } });
+              if (fakeClient) {
+                await this.prisma.deal.deleteMany({ where: { clientId: fakeClient.id } });
+                await this.prisma.client.delete({ where: { id: fakeClient.id } });
+              }
+              continue;
             }
 
             // Upsert client
