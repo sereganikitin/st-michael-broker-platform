@@ -72,11 +72,11 @@ function ClientDetail({ client, onClose }: { client: any; onClose: () => void })
           </div>
           <div className="bg-surface-secondary rounded-lg p-3">
             <span className="text-text-muted block text-xs">Дата создания</span>
-            <span className="font-medium">{new Date(client.createdAt).toLocaleDateString('ru-RU')}</span>
+            <span className="font-medium">{new Date(client.amoCreatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
           </div>
           <div className="bg-surface-secondary rounded-lg p-3">
             <span className="text-text-muted block text-xs">Обновлён</span>
-            <span className="font-medium">{new Date(client.updatedAt).toLocaleDateString('ru-RU')}</span>
+            <span className="font-medium">{new Date(client.amoUpdatedAt || client.updatedAt).toLocaleDateString('ru-RU')}</span>
           </div>
         </div>
 
@@ -252,7 +252,7 @@ export default function ClientsPage() {
                         })()}
                       </td>
                       <td className="py-3 text-text-muted">
-                        {new Date(c.createdAt).toLocaleDateString('ru-RU')}
+                        {new Date(c.amoCreatedAt || c.createdAt).toLocaleDateString('ru-RU')}
                       </td>
                     </tr>
                   ))}

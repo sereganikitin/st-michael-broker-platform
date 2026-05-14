@@ -254,6 +254,9 @@ model Client {
   meetings            Meeting[]
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
+  // amoCRM dates — для показа в кабинете вместо нашей sync-даты.
+  amoCreatedAt        DateTime?        @map("amo_created_at")
+  amoUpdatedAt        DateTime?        @map("amo_updated_at")
 
   @@index([phone])
   @@index([brokerId])

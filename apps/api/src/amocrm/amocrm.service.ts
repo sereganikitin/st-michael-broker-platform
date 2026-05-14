@@ -320,7 +320,9 @@ export class AmocrmService {
           skipped++;
           continue;
         }
-        // Upsert client
+        // Upsert client с реальной датой создания/изменения из amoCRM (правка 2026-05-14).
+        const leadCreatedAt = lead.created_at ? new Date(lead.created_at * 1000) : null;
+        const leadUpdatedAt = lead.updated_at ? new Date(lead.updated_at * 1000) : null;
         let client = await this.prisma.client.findFirst({ where: { phone, brokerId } });
         if (!client) {
           client = await this.prisma.client.create({
@@ -330,9 +332,16 @@ export class AmocrmService {
               amoLeadId: BigInt(lead.id),
               uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
               uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              amoCreatedAt: leadCreatedAt,
+              amoUpdatedAt: leadUpdatedAt,
             },
           });
           clientsCreated++;
+        } else if (leadCreatedAt && (!client.amoCreatedAt || client.amoUpdatedAt?.getTime() !== leadUpdatedAt?.getTime())) {
+          await this.prisma.client.update({
+            where: { id: client.id },
+            data: { amoCreatedAt: leadCreatedAt, amoUpdatedAt: leadUpdatedAt },
+          });
         }
         // КЦ-карточки: cleanup существующего Deal (если был создан до фикса) и сразу
         // к meeting-sync — НЕ создаём/обновляем Deal.
