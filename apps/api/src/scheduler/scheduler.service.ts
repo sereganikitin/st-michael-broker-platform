@@ -368,7 +368,8 @@ export class SchedulerService {
                   project: project as any,
                   amoLeadId: BigInt(lead.id),
                   uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
-                  uniquenessExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                  // Уникальность = 40 дней от даты создания лида в amoCRM (правка 2026-05-14).
+                  uniquenessExpiresAt: new Date((leadCreatedAt ? leadCreatedAt.getTime() : Date.now()) + 40 * 24 * 60 * 60 * 1000),
                   amoCreatedAt: leadCreatedAt,
                   amoUpdatedAt: leadUpdatedAt,
                 },

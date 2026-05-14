@@ -73,6 +73,14 @@ function ClientDetail({ client, onClose }: { client: any; onClose: () => void })
           <div className="bg-surface-secondary rounded-lg p-3">
             <span className="text-text-muted block text-xs">Дата создания в amoCRM</span>
             <span className="font-medium">{new Date(client.amoCreatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
+            {(() => {
+              const d = daysUntilExpiry(client.uniquenessExpiresAt);
+              if (d === null) return null;
+              if (d < 0) return <div className="text-xs text-error mt-1">⚠ уникальность истекла {-d} дн. назад</div>;
+              if (d === 0) return <div className="text-xs text-error mt-1">⚠ уникальность истекает сегодня</div>;
+              const cls = d <= 7 ? 'text-warning' : 'text-text-muted';
+              return <div className={`text-xs mt-1 ${cls}`}>осталось {d} {d === 1 ? 'день' : (d < 5 ? 'дня' : 'дней')} до окончания уникальности (40 дн)</div>;
+            })()}
           </div>
         </div>
 
