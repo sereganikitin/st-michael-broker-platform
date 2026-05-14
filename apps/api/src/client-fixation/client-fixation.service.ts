@@ -6,7 +6,7 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
 
-const UNIQUENESS_DAYS = 40;
+const UNIQUENESS_DAYS = 30;
 const msInDays = (days: number) => days * 24 * 60 * 60 * 1000;
 
 @Injectable()
