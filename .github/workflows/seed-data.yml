@@ -21,6 +21,8 @@ on:
           - sync-amocrm-all
           - seed-commission-policies
           - dry-run-dedup
+          - inspect-lead
+          - list-broker-leads
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -31,6 +33,9 @@ on:
         description: 'Имя админа (для task=create-admin)'
         required: false
         default: 'Администратор'
+      lead_id:
+        description: 'ID лида amoCRM (для task=inspect-lead)'
+        required: false
 
 jobs:
   run:
@@ -46,8 +51,6 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           script_stop: true
-          # 35m нужно для task=sync-amocrm-all (30+ брокеров × ~1 мин каждый).
-          # Прочим таскам хватает 10m, но это глобальный таймаут SSH-сессии.
           command_timeout: 35m
           script: |
             set -e
@@ -66,7 +69,6 @@ jobs:
             if [ "$TASK" = "all" ] || [ "$TASK" = "sync-yandex-disk" ]; then
               echo ""
               echo "=== sync-yandex-disk (материалы с Яндекс.Диска) ==="
-              # URL по умолчанию зашит в скрипте, env-переменная не обязательна
               $COMPOSE_CMD exec -T api node /app/scripts/sync-yandex-disk.js
             fi
 
@@ -99,14 +101,25 @@ jobs:
 
             if [ "$TASK" = "sync-amocrm-all" ]; then
               echo "=== sync-amocrm-all (пересинк всех брокеров с amoCRM) ==="
-              # Запускает scheduler.handleAmoCrmSync() через NestJS standalone.
-              # Долгая операция: ~1 мин на брокера × количество активных брокеров.
               $COMPOSE_CMD exec -T api node /app/scripts/sync-amocrm-all.js
+            fi
+
+            if [ "$TASK" = "inspect-lead" ]; then
+              echo "=== inspect-lead (диагностика custom_fields лида в amoCRM) ==="
+              if [ -z "${{ inputs.lead_id }}" ]; then
+                echo "ERROR: lead_id обязателен (заполни поле lead_id в workflow form)"
+                exit 1
+              fi
+              $COMPOSE_CMD exec -T -e LEAD_ID="${{ inputs.lead_id }}" api node /app/scripts/inspect-lead.js
+            fi
+
+            if [ "$TASK" = "list-broker-leads" ]; then
+              echo "=== list-broker-leads (список лидов amoCRM по ACTIVE-брокерам) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/list-broker-leads.js
             fi
 
             if [ "$TASK" = "create-admin" ]; then
               echo "=== create-admin (одноразовое создание ADMIN-аккаунта) ==="
-              # Маскируем пароль в логах GitHub Actions
               echo "::add-mask::${{ inputs.admin_password }}"
               $COMPOSE_CMD exec -T \
                 -e ADMIN_PHONE="${{ inputs.admin_phone }}" \
