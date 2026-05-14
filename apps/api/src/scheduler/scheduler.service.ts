@@ -369,17 +369,30 @@ export class SchedulerService {
                   amoLeadId: BigInt(lead.id),
                   uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
                   // Уникальность = 40 дней от даты создания лида в amoCRM (правка 2026-05-14).
-                  uniquenessExpiresAt: new Date((leadCreatedAt ? leadCreatedAt.getTime() : Date.now()) + 40 * 24 * 60 * 60 * 1000),
+                  // Уникальность = 30 дней от даты создания лида в amoCRM (правка 2026-05-14).
+                  uniquenessExpiresAt: new Date((leadCreatedAt ? leadCreatedAt.getTime() : Date.now()) + 30 * 24 * 60 * 60 * 1000),
                   amoCreatedAt: leadCreatedAt,
                   amoUpdatedAt: leadUpdatedAt,
                 },
               });
               totalClients++;
-            } else if (leadCreatedAt && (!client.amoCreatedAt || client.amoUpdatedAt?.getTime() !== leadUpdatedAt?.getTime())) {
-              await this.prisma.client.update({
-                where: { id: client.id },
-                data: { amoCreatedAt: leadCreatedAt, amoUpdatedAt: leadUpdatedAt },
-              });
+            } else if (leadCreatedAt || leadUpdatedAt) {
+              // MIN amoCreatedAt + MAX amoUpdatedAt. Уникальность от MIN + 30 дней. Правка 2026-05-14.
+              const updateData: any = {};
+              if (leadCreatedAt) {
+                if (!client.amoCreatedAt || leadCreatedAt < client.amoCreatedAt) {
+                  updateData.amoCreatedAt = leadCreatedAt;
+                  updateData.uniquenessExpiresAt = new Date(leadCreatedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+                }
+              }
+              if (leadUpdatedAt) {
+                if (!client.amoUpdatedAt || leadUpdatedAt > client.amoUpdatedAt) {
+                  updateData.amoUpdatedAt = leadUpdatedAt;
+                }
+              }
+              if (Object.keys(updateData).length > 0) {
+                await this.prisma.client.update({ where: { id: client.id }, data: updateData });
+              }
             }
             // КЦ: cleanup существующего Deal + ранний переход к meeting-sync.
             // КЦ / 143 / не-deal-stage — удалить ошибочный Deal из БД (если был синкан раньше).
