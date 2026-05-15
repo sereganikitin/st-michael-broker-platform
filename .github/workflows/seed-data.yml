@@ -26,6 +26,7 @@ on:
           - find-contact-by-phone
           - list-amo-users
           - inspect-contact
+          - list-contact-fields
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
