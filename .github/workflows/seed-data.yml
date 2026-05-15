@@ -142,6 +142,11 @@ jobs:
               $COMPOSE_CMD exec -T api node /app/scripts/list-amo-users.js
             fi
 
+            if [ "$TASK" = "list-contact-fields" ]; then
+              echo "=== list-contact-fields (все custom_fields контактов в amoCRM) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/list-contact-fields.js
+            fi
+
             if [ "$TASK" = "inspect-contact" ]; then
               echo "=== inspect-contact (диагностика custom_fields контакта в amoCRM) ==="
               if [ -z "${{ inputs.contact_id }}" ]; then
