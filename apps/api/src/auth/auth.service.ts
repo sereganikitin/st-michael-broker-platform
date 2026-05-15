@@ -535,12 +535,12 @@ export class AuthService {
       // Попробовать найти компанию в amoCRM.
       let amoName: string | null = null;
       try {
-        const amoCompany = await this.amoCrm.findCompanyByInn(cleanInn);
+        const amoCompany = await this.amo.findCompanyByInn(cleanInn);
         if (amoCompany) {
           amoName = amoCompany.name;
         } else {
           // Создать в amoCRM.
-          const created = await this.amoCrm.createCompany({ name: `Агентство ${cleanInn}` });
+          const created = await this.amo.createCompany({ name: `Агентство ${cleanInn}` });
           amoName = created?.name || `Агентство ${cleanInn}`;
         }
       } catch {
