@@ -25,6 +25,7 @@ on:
           - list-broker-leads
           - find-contact-by-phone
           - list-amo-users
+          - inspect-contact
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -40,6 +41,9 @@ on:
         required: false
       phone:
         description: 'Телефон контакта (для task=find-contact-by-phone), любой формат'
+        required: false
+      contact_id:
+        description: 'ID контакта amoCRM (для task=inspect-contact)'
         required: false
 
 jobs:
@@ -135,6 +139,15 @@ jobs:
             if [ "$TASK" = "list-amo-users" ]; then
               echo "=== list-amo-users (users + catalogs из amoCRM) ==="
               $COMPOSE_CMD exec -T api node /app/scripts/list-amo-users.js
+            fi
+
+            if [ "$TASK" = "inspect-contact" ]; then
+              echo "=== inspect-contact (диагностика custom_fields контакта в amoCRM) ==="
+              if [ -z "${{ inputs.contact_id }}" ]; then
+                echo "ERROR: contact_id обязателен"
+                exit 1
+              fi
+              $COMPOSE_CMD exec -T -e CONTACT_ID="${{ inputs.contact_id }}" api node /app/scripts/inspect-contact.js
             fi
 
             if [ "$TASK" = "create-admin" ]; then
