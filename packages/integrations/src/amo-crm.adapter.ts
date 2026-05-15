@@ -363,6 +363,16 @@ export class AmoCrmAdapter {
     if (data.roomsCount) customFields.push({ field_id: 583447, values: [{ value: data.roomsCount }] });
     if (data.amount && data.amount > 0) customFields.push({ field_id: 833045, values: [{ value: String(data.amount) }] });
     if (data.sqm && data.sqm > 0) customFields.push({ field_id: 604555, values: [{ value: String(data.sqm) }] });
+    // Правка 2026-05-15: добавляем поля левого сайдбара лида автоматом.
+    // 583155 «Цель покупки» — по умолчанию «Себе» (большинство случаев).
+    // 839179 «Объект интереса» — из выбранного проекта.
+    customFields.push({ field_id: 583155, values: [{ value: 'Себе' }] });
+    const objectByProject: Record<string, string> = {
+      ZORGE9: 'Зорге 9',
+      SILVER_BOR: 'Берзарина 37',
+    };
+    const projectObj = objectByProject[String(data.project)] || 'Зорге 9';
+    customFields.push({ field_id: 839179, values: [{ value: projectObj }] });
 
     const leadData: any = {
       name: `Фиксация: ${data.clientName} (${data.project})`,
