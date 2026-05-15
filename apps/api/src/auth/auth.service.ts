@@ -517,6 +517,61 @@ export class AuthService {
     };
   }
 
+  /**
+   * Привязать агентство к текущему брокеру по ИНН. Если агентства с таким ИНН ещё
+   * нет в нашей БД — ищем в amoCRM (или создаём там), затем создаём локально.
+   * Создаёт BrokerAgency-связь (isPrimary если у брокера ещё нет primary).
+   * Правка 2026-05-15.
+   */
+  async attachAgencyByInn(brokerId: string, inn: string) {
+    const cleanInn = String(inn || '').replace(/\D/g, '');
+    if (cleanInn.length < 10 || cleanInn.length > 12) {
+      throw new BadRequestException('ИНН должен быть 10 или 12 цифр');
+    }
+
+    // Найти/создать локальное Agency.
+    let agency = await this.prisma.agency.findUnique({ where: { inn: cleanInn } });
+    if (!agency) {
+      // Попробовать найти компанию в amoCRM.
+      let amoName: string | null = null;
+      try {
+        const amoCompany = await this.amoCrm.findCompanyByInn(cleanInn);
+        if (amoCompany) {
+          amoName = amoCompany.name;
+        } else {
+          // Создать в amoCRM.
+          const created = await this.amoCrm.createCompany({ name: `Агентство ${cleanInn}` });
+          amoName = created?.name || `Агентство ${cleanInn}`;
+        }
+      } catch {
+        // amoCRM может быть недоступен — создаём только локально.
+        amoName = `Агентство ${cleanInn}`;
+      }
+      agency = await this.prisma.agency.create({
+        data: { name: amoName!, inn: cleanInn },
+      });
+    }
+
+    // Линковка broker↔agency.
+    const existingLink = await this.prisma.brokerAgency.findFirst({
+      where: { brokerId, agencyId: agency.id },
+    });
+    if (!existingLink) {
+      const hasPrimary = await this.prisma.brokerAgency.findFirst({
+        where: { brokerId, isPrimary: true },
+      });
+      await this.prisma.brokerAgency.create({
+        data: {
+          brokerId,
+          agencyId: agency.id,
+          isPrimary: !hasPrimary, // первое агентство = primary
+        },
+      });
+    }
+
+    return { agency: { id: agency.id, name: agency.name, inn: agency.inn } };
+  }
+
   async changePassword(brokerId: string, currentPassword: string, newPassword: string) {
     if (!newPassword || newPassword.length < 8) {
       throw new BadRequestException('Новый пароль должен быть не менее 8 символов');
