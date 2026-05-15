@@ -42,6 +42,7 @@ export default function FixationPage() {
   const [phoneDigits, setPhoneDigits] = useState(''); // только цифры для RU +7
   const [foreignPhone, setForeignPhone] = useState(''); // raw text для иностранных
   const [firstName, setFirstName] = useState('');
+  const [email, setEmail] = useState(''); // правка 2026-05-15: необязательное
   const [lastName, setLastName] = useState('');
   const [project, setProject] = useState('ZORGE9');
   const [propertyType, setPropertyType] = useState<'Квартира' | 'Апартаменты' | 'Коммерческая'>('Квартира');
@@ -93,6 +94,7 @@ export default function FixationPage() {
       await apiPost('/clients/fix', {
         phone,
         fullName,
+        email: email || undefined,
         project,
         agencyInn: brokerAgency?.inn || '',
         propertyType,
@@ -120,6 +122,7 @@ export default function FixationPage() {
     setForeignPhone('');
     setIsForeign(false);
     setFirstName('');
+    setEmail('');
     setLastName('');
     setProject('ZORGE9');
     setPropertyType('Квартира');
@@ -208,6 +211,17 @@ export default function FixationPage() {
                 onChange={(e) => setLastName(e.target.value)}
               />
             </div>
+          </div>
+
+          <div>
+            <label className="label">Email</label>
+            <input
+              type="email"
+              className="input"
+              placeholder="client@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

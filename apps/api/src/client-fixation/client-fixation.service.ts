@@ -22,6 +22,7 @@ export class ClientFixationService {
     data: {
       phone: string;
       fullName: string;
+      email?: string;        // правка 2026-05-15: необязательное
       comment?: string;
       project: Project;
       agencyInn: string;
@@ -74,6 +75,7 @@ export class ClientFixationService {
           brokerId,
           phone: data.phone,
           fullName: data.fullName,
+          email: data.email || null,
           comment: data.comment,
           project: data.project as any,
           fixationAgencyId: agency.id,
@@ -99,6 +101,7 @@ export class ClientFixationService {
 
       await this.amoCrmAdapter.createFixationRequest({
         clientPhone: data.phone,
+        clientEmail: data.email,
         clientName: data.fullName,
         brokerPhone: broker.phone,
         agencyName: agency.name,
