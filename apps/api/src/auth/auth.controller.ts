@@ -111,4 +111,16 @@ export class AuthController {
   ) {
     return this.authService.uploadAvatar(user.id, file);
   }
+  @Post('me/agency')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Привязать агентство к текущему брокеру по ИНН' })
+  async attachAgency(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { inn: string },
+  ) {
+    return this.authService.attachAgencyByInn(user.id, body.inn);
+  }
+
 }
