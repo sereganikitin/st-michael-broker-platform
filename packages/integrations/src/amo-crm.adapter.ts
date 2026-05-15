@@ -196,9 +196,19 @@ export class AmoCrmAdapter {
   }
 
   async createLead(data: CreateLeadDto): Promise<AmoLead> {
+    // amoCRM API v4 ждёт contacts/companies в _embedded, не на верхнем уровне.
+    // До правки 2026-05-15 контакты передавались на верхнем уровне → терялись,
+    // лид создавался "сиротой" без привязки к контакту.
+    const { contacts, companies, ...rest } = data as any;
+    const payload: any = { ...rest };
+    if (contacts || companies) {
+      payload._embedded = {};
+      if (contacts) payload._embedded.contacts = contacts;
+      if (companies) payload._embedded.companies = companies;
+    }
     const result = await this.request<any>('/leads', {
       method: 'POST',
-      body: JSON.stringify([data]),
+      body: JSON.stringify([payload]),
     });
     return result?._embedded?.leads?.[0];
   }
