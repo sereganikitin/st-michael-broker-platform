@@ -374,15 +374,28 @@ export class AmoCrmAdapter {
     const projectObj = objectByProject[String(data.project)] || 'Зорге 9';
     customFields.push({ field_id: 839179, values: [{ value: projectObj }] });
 
+    // Шаг 1: создаём лид с минимумом — name, contacts, pipeline, price.
+    // Salesbot/Morekit отрабатывает и пишет свои поля (Этапы продаж, Ответственный КЦ).
+    // Правка 2026-05-15: разделено на 2 шага потому что Salesbot затирал наши
+    // custom_fields_values при создании в одном вызове.
     const leadData: any = {
       name: `Фиксация: ${data.clientName} (${data.project})`,
       contacts: contact ? [{ id: contact.id }] : undefined,
-      // Кладём в КЦ-pipeline (7600542), чтобы сработали внутренние правила amoCRM
-      // по auto-назначению ответственного на дежурного оператора КЦ. Правка 2026-05-15.
       pipeline_id: 7600542,
     };
-    if (customFields.length > 0) leadData.custom_fields_values = customFields;
+    if (data.amount && data.amount > 0) leadData.price = data.amount; // встроенное поле «Бюджет» лида
 
-    return this.createLead(leadData);
+    const created = await this.createLead(leadData);
+
+    // Шаг 2: PATCH с custom_fields_values — после Salesbot, чтобы наши значения встали.
+    if (created?.id && customFields.length > 0) {
+      try {
+        await this.updateLead(created.id, { custom_fields_values: customFields } as any);
+      } catch (e) {
+        // Не валим всю операцию если PATCH упал — лид создан, контакт связан.
+      }
+    }
+
+    return created;
   }
 }
