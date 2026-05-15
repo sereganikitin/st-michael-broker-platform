@@ -307,6 +307,7 @@ export class AmoCrmAdapter {
   // === Fixation request (create lead with broker info) ===
   async createFixationRequest(data: {
     clientPhone: string;
+    clientEmail?: string;        // правка 2026-05-15: записывается на контакт
     clientName: string;
     brokerPhone: string;
     agencyName: string;
@@ -321,12 +322,25 @@ export class AmoCrmAdapter {
   }): Promise<AmoLead> {
     let contact = await this.findContactByPhone(data.clientPhone);
     if (!contact) {
+      const contactCustomFields: any[] = [
+        { field_code: 'PHONE', values: [{ value: data.clientPhone, enum_code: 'WORK' }] },
+      ];
+      if (data.clientEmail) {
+        contactCustomFields.push({ field_code: 'EMAIL', values: [{ value: data.clientEmail, enum_code: 'WORK' }] });
+      }
       contact = await this.createContact({
         name: data.clientName,
-        custom_fields_values: [
-          { field_code: 'PHONE', values: [{ value: data.clientPhone, enum_code: 'WORK' }] },
-        ],
+        custom_fields_values: contactCustomFields,
       });
+    } else if (data.clientEmail) {
+      // Если контакт уже есть и есть новый email — обновим (амо вернёт без ошибки если такой же).
+      try {
+        await this.updateContact(contact.id, {
+          custom_fields_values: [
+            { field_code: 'EMAIL', values: [{ value: data.clientEmail, enum_code: 'WORK' }] },
+          ],
+        } as any);
+      } catch {}
     }
 
     // Заполняем custom_fields на лиде (правка 2026-05-14):
