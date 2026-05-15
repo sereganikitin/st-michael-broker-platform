@@ -60,3 +60,18 @@ temp/
 # Screenshots for Claude Code interactions (not committed)
 screenshots/*
 !screenshots/.gitkeep
+
+# PII safety (правка 2026-05-15): не коммитить личные данные клиентов/брокеров.
+# Excel/CSV экспорты, скриншоты с номерами, временные файлы с PII.
+скриншоты и файлы для корректировки/
+*.xlsx
+*.xls
+*.csv
+docs/_pii_*
+scripts/_v*
+scripts/_*.log
+scripts/_*.json
+scripts/_pr_body_*.md
+scripts/_patch_*.py
+scripts/_push_helper.py
+scripts/_extract_log.py
