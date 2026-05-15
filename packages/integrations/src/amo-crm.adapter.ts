@@ -343,6 +343,9 @@ export class AmoCrmAdapter {
     const leadData: any = {
       name: `Фиксация: ${data.clientName} (${data.project})`,
       contacts: contact ? [{ id: contact.id }] : undefined,
+      // Кладём в КЦ-pipeline (7600542), чтобы сработали внутренние правила amoCRM
+      // по auto-назначению ответственного на дежурного оператора КЦ. Правка 2026-05-15.
+      pipeline_id: 7600542,
     };
     if (customFields.length > 0) leadData.custom_fields_values = customFields;
 
