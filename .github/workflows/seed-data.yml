@@ -24,6 +24,7 @@ on:
           - inspect-lead
           - list-broker-leads
           - find-contact-by-phone
+          - list-amo-users
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -129,6 +130,11 @@ jobs:
                 exit 1
               fi
               $COMPOSE_CMD exec -T -e PHONE="${{ inputs.phone }}" api node /app/scripts/find-contact-by-phone.js
+            fi
+
+            if [ "$TASK" = "list-amo-users" ]; then
+              echo "=== list-amo-users (users + catalogs из amoCRM) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/list-amo-users.js
             fi
 
             if [ "$TASK" = "create-admin" ]; then
