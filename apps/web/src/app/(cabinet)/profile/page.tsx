@@ -206,6 +206,55 @@ function Row({ icon: Icon, label, value }: { icon: any; label: string; value: st
   );
 }
 
+
+// ─── Форма привязки агентства по ИНН (правка 2026-05-15) ─────
+function AttachAgencyForm({ onAttached }: { onAttached: () => void }) {
+  const [inn, setInn] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const submit = async () => {
+    if (inn.length !== 10 && inn.length !== 12) {
+      setErr('ИНН должен быть 10 или 12 цифр');
+      return;
+    }
+    setSaving(true);
+    setErr('');
+    try {
+      await apiPost('/auth/me/agency', { inn });
+      onAttached();
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось привязать агентство');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="p-4 bg-warning/10 border border-warning/40 rounded-lg space-y-3">
+      <div className="text-sm font-medium">У вас не привязано агентство — введите ИНН</div>
+      <p className="text-xs text-text-muted">
+        Без агентства с ИНН нельзя зафиксировать клиента (на форме фиксации поле «ИНН агентства» обязательное).
+      </p>
+      <div className="flex gap-2">
+        <input
+          className="input flex-1"
+          placeholder="ИНН (10 или 12 цифр)"
+          value={inn}
+          onChange={(e) => setInn(e.target.value.replace(/\D/g, '').slice(0, 12))}
+        />
+        <button
+          className="btn btn-primary"
+          onClick={submit}
+          disabled={saving || (inn.length !== 10 && inn.length !== 12)}
+        >
+          {saving ? 'Привязка...' : 'Привязать'}
+        </button>
+      </div>
+      {err && <div className="text-xs text-error">{err}</div>}
+    </div>
+  );
+}
+
 // ─── Agency section ─────────────────────────────────────────
 
 function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged: () => void }) {
@@ -266,7 +315,9 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
       {err && <div className="mb-3 p-3 bg-error/20 text-error rounded text-sm">{err}</div>}
       {ok && <div className="mb-3 p-3 bg-success/20 text-success rounded text-sm">{ok}</div>}
 
-      {profile.agencies.length === 0 && <p className="text-text-muted">Нет привязанных агентств</p>}
+      {profile.agencies.length === 0 && (
+        <AttachAgencyForm onAttached={onChanged} />
+      )}
 
       {editing && primary ? (
         <div className="space-y-3">
