@@ -47,7 +47,7 @@ enum Project {
 enum UniquenessStatus {
   CONDITIONALLY_UNIQUE
   REJECTED
-  UNDER_REVIEW        // Спорная ситуация — ручное решение менеджера
+  UNDER_REVIEW // Спорная ситуация — ручное решение менеджера
   EXPIRED
 }
 
@@ -62,10 +62,10 @@ enum BrokerFunnelStage {
 
 // Источник появления брокера
 enum BrokerSource {
-  CRM_MANUAL          // Внесён менеджером вручную
-  BROKER_CABINET      // Зарегистрировался через кабинет
-  PHONE_CALL          // Позвонил на линию
-  CLOSED_AS_BROKER    // Закрыт как брокер (с причиной)
+  CRM_MANUAL // Внесён менеджером вручную
+  BROKER_CABINET // Зарегистрировался через кабинет
+  PHONE_CALL // Позвонил на линию
+  CLOSED_AS_BROKER // Закрыт как брокер (с причиной)
 }
 
 enum FixationStatus {
@@ -156,79 +156,129 @@ enum NotificationStatus {
   FAILED
 }
 
+// База брокеров для КЦ (TZ v3 §2.2). Рабочие статусы холодного обзвона.
+enum BrokerCategory {
+  COLD // НДЗ (без 2x), новые из импорта — звонить регулярно
+  WARM // Проинформирован, Только отправить инфо, Уже был
+  HOT // Запись на БТ, В работе
+  CONVERTED // Есть встреча/сделка — вне обзвонной воронки
+  ON_BOT_REVIEW // 2 НДЗ, Отказ от коммуникации — «на проверке у бота»
+  BLACKLIST // НЕ брокер, Некорректный номер — удалять через 6 мес
+}
+
+enum BrokerSpecialization {
+  COMM
+  RESIDENTIAL
+  BOTH
+}
+
+// Результат холодного звонка оператора КЦ (TZ v3). Отличается от CallResult — тот про факт телефонии (Mango).
+enum BrokerCallResult {
+  NDZ
+  DOUBLE_NDZ
+  INFORMED
+  ALREADY_KNOWS
+  WRONG_NUMBER
+  REFUSED_COMMUNICATION
+  NOT_A_BROKER
+  SCHEDULED_TOUR
+  ONLY_SEND_INFO
+  IN_PROGRESS
+  REFUSED_TOUR
+  HUNG_UP
+  NOT_RELEVANT
+  NOT_BROKER_ANYMORE
+  ASKED_NOT_TO_CALL
+  NEGATIVE
+}
+
 // ─── MODELS ──────────────────────────────────────────
 
 model Agency {
-  id               String            @id @default(uuid())
-  name             String
-  legalName        String?           @map("legal_name")
-  inn              String            @unique   // ОБЯЗАТЕЛЬНОЕ — ключ дедупликации и связи с кабинетом
-  phone            String?
-  email            String?
-  address          String?
-  legalAddress     String?           @map("legal_address")
-  bankName         String?           @map("bank_name")
-  bankBik          String?           @map("bank_bik")
-  bankAccount      String?           @map("bank_account")
-  correspondentAccount String?       @map("correspondent_account")
-  totalSqmSold     Decimal           @default(0) @map("total_sqm_sold") @db.Decimal(10, 2)
-  commissionLevel  CommissionLevel   @default(START) @map("commission_level")
-  quarterlyBonusStreak Int           @default(0) @map("quarterly_bonus_streak")
-  brokerAgencies   BrokerAgency[]
-  deals            Deal[]
-  createdAt        DateTime          @default(now()) @map("created_at")
-  updatedAt        DateTime          @updatedAt @map("updated_at")
+  id                   String          @id @default(uuid())
+  name                 String
+  legalName            String?         @map("legal_name")
+  inn                  String          @unique // ОБЯЗАТЕЛЬНОЕ — ключ дедупликации и связи с кабинетом
+  phone                String?
+  email                String?
+  address              String?
+  legalAddress         String?         @map("legal_address")
+  bankName             String?         @map("bank_name")
+  bankBik              String?         @map("bank_bik")
+  bankAccount          String?         @map("bank_account")
+  correspondentAccount String?         @map("correspondent_account")
+  totalSqmSold         Decimal         @default(0) @map("total_sqm_sold") @db.Decimal(10, 2)
+  commissionLevel      CommissionLevel @default(START) @map("commission_level")
+  quarterlyBonusStreak Int             @default(0) @map("quarterly_bonus_streak")
+  brokerAgencies       BrokerAgency[]
+  deals                Deal[]
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
 
   @@map("agencies")
 }
 
 // M2M: Брокер ↔ Компании (неограниченное кол-во, не удаляются)
 model BrokerAgency {
-  id         String   @id @default(uuid())
-  brokerId   String   @map("broker_id")
-  broker     Broker   @relation(fields: [brokerId], references: [id])
-  agencyId   String   @map("agency_id")
-  agency     Agency   @relation(fields: [agencyId], references: [id])
-  isPrimary  Boolean  @default(false) @map("is_primary")  // Основная компания
-  joinedAt   DateTime @default(now()) @map("joined_at")
+  id        String   @id @default(uuid())
+  brokerId  String   @map("broker_id")
+  broker    Broker   @relation(fields: [brokerId], references: [id])
+  agencyId  String   @map("agency_id")
+  agency    Agency   @relation(fields: [agencyId], references: [id])
+  isPrimary Boolean  @default(false) @map("is_primary") // Основная компания
+  joinedAt  DateTime @default(now()) @map("joined_at")
 
-  @@unique([brokerId, agencyId])  // Без повторов
+  @@unique([brokerId, agencyId]) // Без повторов
   @@map("broker_agencies")
 }
 
 model Broker {
-  id                   String             @id @default(uuid())
-  amoContactId         BigInt?            @unique @map("amo_contact_id")
-  fullName             String             @map("full_name")
-  phone                String             @unique
-  email                String?
-  avatarUrl            String?            @map("avatar_url")
-  birthDate            DateTime?          @map("birth_date") @db.Date
-  passwordHash         String?            @map("password_hash")
-  passwordResetToken   String?            @unique @map("password_reset_token")
-  passwordResetExpiresAt DateTime?        @map("password_reset_expires_at")
-  role                 UserRole           @default(BROKER)
-  status               UserStatus         @default(PENDING)
-  funnelStage          BrokerFunnelStage  @default(NEW_BROKER) @map("funnel_stage")
-  source               BrokerSource?      // Откуда пришёл брокер
-  closureReason        String?            @map("closure_reason") // Причина закрытия (если закрыт)
-  brokerAgencies       BrokerAgency[]     // M2M — список компаний (не удаляются)
-  telegramChatId       BigInt?            @unique @map("telegram_chat_id")
-  brokerTourVisited    Boolean            @default(false) @map("broker_tour_visited")
-  brokerTourDate       DateTime?          @map("broker_tour_date")
-  doNotCall            Boolean            @default(false) @map("do_not_call")
-  bestCallTime         String?            @map("best_call_time")
-  clients              Client[]
-  deals                Deal[]
-  calls                Call[]
-  meetings             Meeting[]
-  notifications        Notification[]
-  pushSubscriptions    PushSubscription[]
-  notificationPrefs    NotificationPreference[]
-  offerAcceptances     OfferAcceptance[]
-  createdAt            DateTime           @default(now()) @map("created_at")
-  updatedAt            DateTime           @updatedAt @map("updated_at")
+  id                     String                   @id @default(uuid())
+  amoContactId           BigInt?                  @unique @map("amo_contact_id")
+  fullName               String                   @map("full_name")
+  phone                  String                   @unique
+  email                  String?
+  avatarUrl              String?                  @map("avatar_url")
+  birthDate              DateTime?                @map("birth_date") @db.Date
+  passwordHash           String?                  @map("password_hash")
+  passwordResetToken     String?                  @unique @map("password_reset_token")
+  passwordResetExpiresAt DateTime?                @map("password_reset_expires_at")
+  role                   UserRole                 @default(BROKER)
+  status                 UserStatus               @default(PENDING)
+  funnelStage            BrokerFunnelStage        @default(NEW_BROKER) @map("funnel_stage")
+  source                 BrokerSource? // Откуда пришёл брокер
+  closureReason          String?                  @map("closure_reason") // Причина закрытия (если закрыт)
+  brokerAgencies         BrokerAgency[] // M2M — список компаний (не удаляются)
+  telegramChatId         BigInt?                  @unique @map("telegram_chat_id")
+  brokerTourVisited      Boolean                  @default(false) @map("broker_tour_visited")
+  brokerTourDate         DateTime?                @map("broker_tour_date")
+  doNotCall              Boolean                  @default(false) @map("do_not_call")
+  bestCallTime           String?                  @map("best_call_time")
+  // ─── База брокеров КЦ (TZ v3 §5) ───
+  category               BrokerCategory           @default(COLD)
+  specialization         BrokerSpecialization?
+  region                 String? // MSK / SPB / OTHER
+  isCoordinator          Boolean                  @default(false) @map("is_coordinator")
+  coordinatorAgency      String?                  @map("coordinator_agency")
+  lastCallAt             DateTime?                @map("last_call_at")
+  nextCallAt             DateTime?                @map("next_call_at")
+  isInBase               Boolean                  @default(false) @map("is_in_base")
+  baseSource             String?                  @map("base_source") // 'google_sheet' | 'amocrm' | 'manual'
+  phones                 BrokerPhone[]
+  callLogs               CallLog[]
+  clients                Client[]
+  deals                  Deal[]
+  calls                  Call[]
+  meetings               Meeting[]
+  notifications          Notification[]
+  pushSubscriptions      PushSubscription[]
+  notificationPrefs      NotificationPreference[]
+  offerAcceptances       OfferAcceptance[]
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
 
+  @@index([category])
+  @@index([nextCallAt])
   @@map("brokers")
 }
 
@@ -244,7 +294,7 @@ model Client {
   project             Project          @default(ZORGE9)
   fixationAgencyId    String?          @map("fixation_agency_id") // Компания, от которой подана заявка
   uniquenessStatus    UniquenessStatus @default(CONDITIONALLY_UNIQUE) @map("uniqueness_status")
-  uniquenessReason    String?          @map("uniqueness_reason")  // Пояснение (напр. «переоткрыта сделка»)
+  uniquenessReason    String?          @map("uniqueness_reason") // Пояснение (напр. «переоткрыта сделка»)
   uniquenessExpiresAt DateTime?        @map("uniqueness_expires_at")
   fixationStatus      FixationStatus   @default(NOT_FIXED) @map("fixation_status")
   fixationExpiresAt   DateTime?        @map("fixation_expires_at")
@@ -264,77 +314,77 @@ model Client {
 }
 
 model Lot {
-  id           String    @id @default(uuid())
-  externalId   String?   @unique @map("external_id")
-  number       String
-  project      Project   @default(ZORGE9)
-  building     String
-  floor        Int
-  rooms        String
-  sqm          Decimal   @db.Decimal(10, 2)
-  price        Decimal   @db.Decimal(14, 2)
-  pricePerSqm  Decimal?  @map("price_per_sqm") @db.Decimal(10, 2)
-  status       LotStatus @default(AVAILABLE)
-  propertyType String?   @map("property_type")
-  layoutUrl    String?   @map("layout_url")
-  planImageUrl String?   @map("plan_image_url")
-  description  String?
-  floorsTotal  Int?      @map("floors_total")
-  buildingSection String? @map("building_section")
-  windowView   String?   @map("window_view")
-  builtYear    Int?      @map("built_year")
-  readyQuarter Int?      @map("ready_quarter")
-  buildingState String?  @map("building_state")
-  hasBalcony   Boolean   @default(false) @map("has_balcony")
-  hasTerrace   Boolean   @default(false) @map("has_terrace")
-  isPenthouse  Boolean   @default(false) @map("is_penthouse")
-  isCornerLayout Boolean @default(false) @map("is_corner_layout")
-  hasStorage   Boolean   @default(false) @map("has_storage")
-  twoBathrooms Boolean   @default(false) @map("two_bathrooms")
-  hasMasterBedroom Boolean @default(false) @map("has_master_bedroom")
-  isUrbanVilla Boolean   @default(false) @map("is_urban_villa")
-  isViewLot    Boolean   @default(false) @map("is_view_lot")
-  isHighFlat   Boolean   @default(false) @map("is_high_flat")  // ceilings 4.2+ м
-  discountPrice    Decimal? @map("discount_price") @db.Decimal(14, 2)
-  discountPercent  Decimal? @map("discount_percent") @db.Decimal(5, 2)
-  discountName     String?  @map("discount_name")
-  deals        Deal[]
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid())
+  externalId       String?   @unique @map("external_id")
+  number           String
+  project          Project   @default(ZORGE9)
+  building         String
+  floor            Int
+  rooms            String
+  sqm              Decimal   @db.Decimal(10, 2)
+  price            Decimal   @db.Decimal(14, 2)
+  pricePerSqm      Decimal?  @map("price_per_sqm") @db.Decimal(10, 2)
+  status           LotStatus @default(AVAILABLE)
+  propertyType     String?   @map("property_type")
+  layoutUrl        String?   @map("layout_url")
+  planImageUrl     String?   @map("plan_image_url")
+  description      String?
+  floorsTotal      Int?      @map("floors_total")
+  buildingSection  String?   @map("building_section")
+  windowView       String?   @map("window_view")
+  builtYear        Int?      @map("built_year")
+  readyQuarter     Int?      @map("ready_quarter")
+  buildingState    String?   @map("building_state")
+  hasBalcony       Boolean   @default(false) @map("has_balcony")
+  hasTerrace       Boolean   @default(false) @map("has_terrace")
+  isPenthouse      Boolean   @default(false) @map("is_penthouse")
+  isCornerLayout   Boolean   @default(false) @map("is_corner_layout")
+  hasStorage       Boolean   @default(false) @map("has_storage")
+  twoBathrooms     Boolean   @default(false) @map("two_bathrooms")
+  hasMasterBedroom Boolean   @default(false) @map("has_master_bedroom")
+  isUrbanVilla     Boolean   @default(false) @map("is_urban_villa")
+  isViewLot        Boolean   @default(false) @map("is_view_lot")
+  isHighFlat       Boolean   @default(false) @map("is_high_flat") // ceilings 4.2+ м
+  discountPrice    Decimal?  @map("discount_price") @db.Decimal(14, 2)
+  discountPercent  Decimal?  @map("discount_percent") @db.Decimal(5, 2)
+  discountName     String?   @map("discount_name")
+  deals            Deal[]
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   @@index([project, status])
   @@map("lots")
 }
 
 model Deal {
-  id               String       @id @default(uuid())
-  clientId         String       @map("client_id")
-  client           Client       @relation(fields: [clientId], references: [id])
-  brokerId         String       @map("broker_id")
-  broker           Broker       @relation(fields: [brokerId], references: [id])
-  agencyId         String?      @map("agency_id")  // Компания, от которой сделка (привязка на ДВОУ)
-  agency           Agency?      @relation(fields: [agencyId], references: [id])
-  lotId            String?      @map("lot_id")
-  lot              Lot?         @relation(fields: [lotId], references: [id])
-  amoDealId        BigInt?      @map("amo_deal_id")
+  id               String        @id @default(uuid())
+  clientId         String        @map("client_id")
+  client           Client        @relation(fields: [clientId], references: [id])
+  brokerId         String        @map("broker_id")
+  broker           Broker        @relation(fields: [brokerId], references: [id])
+  agencyId         String?       @map("agency_id") // Компания, от которой сделка (привязка на ДВОУ)
+  agency           Agency?       @relation(fields: [agencyId], references: [id])
+  lotId            String?       @map("lot_id")
+  lot              Lot?          @relation(fields: [lotId], references: [id])
+  amoDealId        BigInt?       @map("amo_deal_id")
   // ID родительской карточки в amoCRM (custom field "cc_id_parent" 839249).
   // На одну реальную продажу в amoCRM может быть 2-3 карточки в разных воронках,
   // связанные через это поле. Используется для дедупа: child→parent ссылка.
-  amoParentDealId  BigInt?      @map("amo_parent_deal_id")
-  project          Project      @default(ZORGE9)
+  amoParentDealId  BigInt?       @map("amo_parent_deal_id")
+  project          Project       @default(ZORGE9)
   contractType     ContractType? @map("contract_type")
-  amount           Decimal      @db.Decimal(14, 2)
-  sqm              Decimal      @db.Decimal(10, 2)
-  commissionRate   Decimal      @map("commission_rate") @db.Decimal(5, 2)
-  commissionAmount Decimal      @map("commission_amount") @db.Decimal(14, 2)
-  paymentReceived  Boolean      @default(false) @map("payment_received")
-  paymentPercent   Decimal      @default(0) @map("payment_percent") @db.Decimal(5, 2)
-  isInstallment    Boolean      @default(false) @map("is_installment")
-  status           DealStatus   @default(PENDING)
-  signedAt         DateTime?    @map("signed_at")
-  paidAt           DateTime?    @map("paid_at")
-  createdAt        DateTime     @default(now()) @map("created_at")
-  updatedAt        DateTime     @updatedAt @map("updated_at")
+  amount           Decimal       @db.Decimal(14, 2)
+  sqm              Decimal       @db.Decimal(10, 2)
+  commissionRate   Decimal       @map("commission_rate") @db.Decimal(5, 2)
+  commissionAmount Decimal       @map("commission_amount") @db.Decimal(14, 2)
+  paymentReceived  Boolean       @default(false) @map("payment_received")
+  paymentPercent   Decimal       @default(0) @map("payment_percent") @db.Decimal(5, 2)
+  isInstallment    Boolean       @default(false) @map("is_installment")
+  status           DealStatus    @default(PENDING)
+  signedAt         DateTime?     @map("signed_at")
+  paidAt           DateTime?     @map("paid_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
 
   @@index([brokerId])
   @@index([clientId])
@@ -363,24 +413,71 @@ model Call {
   @@map("calls")
 }
 
-model Meeting {
-  id         String        @id @default(uuid())
-  clientId   String        @map("client_id")
-  client     Client        @relation(fields: [clientId], references: [id])
-  brokerId   String        @map("broker_id")
-  broker     Broker        @relation(fields: [brokerId], references: [id])
-  managerId  String?       @map("manager_id")
-  slotId     String?       @map("slot_id")
-  slot       MeetingSlot?  @relation(fields: [slotId], references: [id])
-  type       MeetingType
-  date       DateTime
+// Дополнительные телефоны брокера (TZ v3 §2.3). Broker.phone остаётся primary.
+model BrokerPhone {
+  id        String   @id @default(uuid())
+  brokerId  String   @map("broker_id")
+  broker    Broker   @relation(fields: [brokerId], references: [id])
+  phone     String   @unique
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([brokerId])
+  @@map("broker_phones")
+}
+
+// Лог результата холодного звонка оператора КЦ (TZ v3 §5). Не путать с Call (телефония Mango).
+model CallLog {
+  id         String           @id @default(uuid())
+  brokerId   String           @map("broker_id")
+  broker     Broker           @relation(fields: [brokerId], references: [id])
+  operatorId String?          @map("operator_id")
+  campaign   String? // имя кампании-строкой; ссылка на Campaign на будущее
+  result     BrokerCallResult
   comment    String?
-  status     MeetingStatus @default(PENDING)
-  actSigned  Boolean       @default(false) @map("act_signed")
-  reminded24h Boolean      @default(false) @map("reminded_24h")
-  reminded1h  Boolean      @default(false) @map("reminded_1h")
-  createdAt  DateTime      @default(now()) @map("created_at")
-  updatedAt  DateTime      @updatedAt @map("updated_at")
+  nextCallAt DateTime?        @map("next_call_at")
+  duration   Int? // секунды, если оператор зафиксировал
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  @@index([brokerId, createdAt])
+  @@index([operatorId, createdAt])
+  @@map("call_logs")
+}
+
+// Кампания обзвона (TZ v3 §2.5): «Зорге 9», «Серебряный Бор», «Новые условия» и т.д.
+model Campaign {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  createdById String    @map("created_by_id")
+  startAt     DateTime? @map("start_at")
+  endAt       DateTime? @map("end_at")
+  isActive    Boolean   @default(true) @map("is_active")
+  filters     Json // фильтры таргетинга (category/specialization/region/...)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([isActive])
+  @@map("campaigns")
+}
+
+model Meeting {
+  id          String        @id @default(uuid())
+  clientId    String        @map("client_id")
+  client      Client        @relation(fields: [clientId], references: [id])
+  brokerId    String        @map("broker_id")
+  broker      Broker        @relation(fields: [brokerId], references: [id])
+  managerId   String?       @map("manager_id")
+  slotId      String?       @map("slot_id")
+  slot        MeetingSlot?  @relation(fields: [slotId], references: [id])
+  type        MeetingType
+  date        DateTime
+  comment     String?
+  status      MeetingStatus @default(PENDING)
+  actSigned   Boolean       @default(false) @map("act_signed")
+  reminded24h Boolean       @default(false) @map("reminded_24h")
+  reminded1h  Boolean       @default(false) @map("reminded_1h")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
 
   @@index([brokerId, date])
   @@index([date, status])
@@ -394,7 +491,7 @@ model MeetingSlot {
   startsAt    DateTime     @map("starts_at")
   durationMin Int          @default(60) @map("duration_min")
   capacity    Int          @default(1)
-  type        MeetingType?                                  // null = любой тип
+  type        MeetingType? // null = любой тип
   isActive    Boolean      @default(true) @map("is_active")
   meetings    Meeting[]
   createdAt   DateTime     @default(now()) @map("created_at")
@@ -408,11 +505,11 @@ model Document {
   id          String   @id @default(uuid())
   name        String
   description String?
-  type        String                              // mime type or extension label (PDF, DOCX, MP4, URL...)
-  category    String                              // cooperation | analytics | marketing | materials
-  subcategory String?                             // optional sub-grouping label
+  type        String // mime type or extension label (PDF, DOCX, MP4, URL...)
+  category    String // cooperation | analytics | marketing | materials
+  subcategory String? // optional sub-grouping label
   project     Project?
-  fileUrl     String   @map("file_url")            // local: /files/<cat>/<uuid>.ext  |  external URL
+  fileUrl     String   @map("file_url") // local: /files/<cat>/<uuid>.ext  |  external URL
   fileSize    Int?     @map("file_size")
   isPublic    Boolean  @default(true) @map("is_public")
   sortOrder   Int      @default(0) @map("sort_order")
@@ -443,8 +540,8 @@ model PushSubscription {
   brokerId  String   @map("broker_id")
   broker    Broker   @relation(fields: [brokerId], references: [id], onDelete: Cascade)
   endpoint  String   @unique
-  p256dh    String                              // public key (base64url)
-  auth      String                              // auth secret (base64url)
+  p256dh    String // public key (base64url)
+  auth      String // auth secret (base64url)
   userAgent String?  @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -458,7 +555,7 @@ model NotificationPreference {
   id        String              @id @default(uuid())
   brokerId  String              @map("broker_id")
   broker    Broker              @relation(fields: [brokerId], references: [id], onDelete: Cascade)
-  eventType String              @map("event_type")  // NEW_LOTS, PROMOTIONS, COMMISSION_ACCRUED, COMMISSION_PAID, FIXATION_EXPIRY, MEETING_REMINDER, BOOKING_CONFIRMED, DEAL_STATUS, ANNOUNCEMENTS
+  eventType String              @map("event_type") // NEW_LOTS, PROMOTIONS, COMMISSION_ACCRUED, COMMISSION_PAID, FIXATION_EXPIRY, MEETING_REMINDER, BOOKING_CONFIRMED, DEAL_STATUS, ANNOUNCEMENTS
   channel   NotificationChannel
   enabled   Boolean             @default(true)
   updatedAt DateTime            @updatedAt @map("updated_at")
@@ -474,8 +571,8 @@ model Mailing {
   createdById     String   @map("created_by_id")
   subject         String?
   body            String
-  channels        Json                                            // ["EMAIL","PUSH","TELEGRAM","SMS"]
-  filters         Json                                            // segmentation criteria — see service
+  channels        Json // ["EMAIL","PUSH","TELEGRAM","SMS"]
+  filters         Json // segmentation criteria — see service
   recipientsCount Int      @default(0) @map("recipients_count")
   sentAt          DateTime @default(now()) @map("sent_at")
   createdAt       DateTime @default(now()) @map("created_at")
@@ -487,14 +584,14 @@ model Mailing {
 // Acceptance record of the public offer (договор оферты) by a broker.
 // Stored per offer version so admin can publish a new version without invalidating prior acceptances.
 model OfferAcceptance {
-  id            String   @id @default(uuid())
-  brokerId      String   @map("broker_id")
-  broker        Broker   @relation(fields: [brokerId], references: [id], onDelete: Cascade)
-  offerVersion  String   @map("offer_version")
-  acceptedAt    DateTime @default(now()) @map("accepted_at")
-  ip            String?
-  userAgent     String?  @map("user_agent")
-  signedPdfUrl  String?  @map("signed_pdf_url")
+  id           String   @id @default(uuid())
+  brokerId     String   @map("broker_id")
+  broker       Broker   @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  offerVersion String   @map("offer_version")
+  acceptedAt   DateTime @default(now()) @map("accepted_at")
+  ip           String?
+  userAgent    String?  @map("user_agent")
+  signedPdfUrl String?  @map("signed_pdf_url")
 
   @@unique([brokerId, offerVersion])
   @@index([brokerId])
@@ -520,7 +617,7 @@ model AuditLog {
 
 // Generic key-value content for landing blocks (hero, advantages, commission, contact, etc.)
 model SiteContent {
-  key       String   @id          // e.g. "hero", "advantages", "commission", "contact"
+  key       String   @id // e.g. "hero", "advantages", "commission", "contact"
   value     Json
   updatedAt DateTime @updatedAt @map("updated_at")
   updatedBy String?  @map("updated_by")
@@ -547,15 +644,15 @@ model LandingEvent {
 model LandingProject {
   id              String   @id @default(uuid())
   slug            String   @unique
-  tag             String?              // e.g. "Приоритетный проект"
-  name            String                // bold part, e.g. "Зорге"
-  subtitle        String?              // suffix, e.g. "9" or "Серебряный Бор"
+  tag             String? // e.g. "Приоритетный проект"
+  name            String // bold part, e.g. "Зорге"
+  subtitle        String? // suffix, e.g. "9" or "Серебряный Бор"
   description     String
-  ctaText         String?  @map("cta_text")     // e.g. "Смотреть каталог"
-  ctaHref         String?  @map("cta_href")     // optional URL; null = open cabinet
+  ctaText         String?  @map("cta_text") // e.g. "Смотреть каталог"
+  ctaHref         String?  @map("cta_href") // optional URL; null = open cabinet
   imageUrl        String?  @map("image_url")
-  gallery         Json?                          // ["url1","url2",...]
-  classType       String?  @map("class_type")    // e.g. "бизнес", "премиум"
+  gallery         Json? // ["url1","url2",...]
+  classType       String?  @map("class_type") // e.g. "бизнес", "премиум"
   address         String?
   district        String?
   totalUnits      Int?     @map("total_units")
@@ -566,7 +663,7 @@ model LandingProject {
   readyYear       Int?     @map("ready_year")
   commissionFrom  Decimal? @map("commission_from") @db.Decimal(5, 2)
   commissionTo    Decimal? @map("commission_to") @db.Decimal(5, 2)
-  characteristics Json?                          // free-form key/value pairs
+  characteristics Json? // free-form key/value pairs
   sortOrder       Int      @default(0) @map("sort_order")
   isActive        Boolean  @default(true) @map("is_active")
   createdAt       DateTime @default(now()) @map("created_at")
@@ -579,11 +676,11 @@ model LandingProject {
 model LandingNews {
   id          String   @id @default(uuid())
   title       String
-  source      String?                                   // e.g. "РБК", "Коммерсантъ", "Forbes"
+  source      String? // e.g. "РБК", "Коммерсантъ", "Forbes"
   publishedAt DateTime @map("published_at")
-  excerpt     String?                                   // 1-2 sentence preview
+  excerpt     String? // 1-2 sentence preview
   imageUrl    String?  @map("image_url")
-  url         String                                    // link to original article
+  url         String // link to original article
   sortOrder   Int      @default(0) @map("sort_order")
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -595,20 +692,20 @@ model LandingNews {
 
 // Promotion slider on landing — block 3 of TZ.
 model LandingPromo {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   title       String
   subtitle    String?
   description String?
-  tag         String?              // e.g. "Старт продаж"
-  imageUrl    String?  @map("image_url")
-  ctaText     String?  @map("cta_text")
-  ctaHref     String?  @map("cta_href")
+  tag         String? // e.g. "Старт продаж"
+  imageUrl    String?   @map("image_url")
+  ctaText     String?   @map("cta_text")
+  ctaHref     String?   @map("cta_href")
   project     Project?
-  sortOrder   Int      @default(0) @map("sort_order")
-  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int       @default(0) @map("sort_order")
+  isActive    Boolean   @default(true) @map("is_active")
   expiresAt   DateTime? @map("expires_at")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   @@index([sortOrder, isActive])
   @@map("landing_promos")
@@ -616,19 +713,19 @@ model LandingPromo {
 
 // Contact / lead form submissions from landing.
 model ContactRequest {
-  id           String   @id @default(uuid())
-  name         String
-  phone        String
-  email        String?
-  message      String?
-  source       String?                            // landing-contact / event-signup / etc
-  eventId      String?  @map("event_id")          // optional — if linked to a brokerTour signup
-  ip           String?
-  userAgent    String?  @map("user_agent")
-  processedAt  DateTime? @map("processed_at")
-  processedBy  String?  @map("processed_by")
-  amoLeadId    BigInt?  @map("amo_lead_id")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id          String    @id @default(uuid())
+  name        String
+  phone       String
+  email       String?
+  message     String?
+  source      String? // landing-contact / event-signup / etc
+  eventId     String?   @map("event_id") // optional — if linked to a brokerTour signup
+  ip          String?
+  userAgent   String?   @map("user_agent")
+  processedAt DateTime? @map("processed_at")
+  processedBy String?   @map("processed_by")
+  amoLeadId   BigInt?   @map("amo_lead_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([createdAt])
   @@map("contact_requests")
@@ -643,21 +740,20 @@ model ContactRequest {
 //   Зорге 9: PROGRESSIVE 01.01.2026—06.05.2026 (старая шкала)
 //   Зорге 9: FLAT 4% 07.05.2026—31.12.2099 (новая, действует сейчас)
 model CommissionPolicy {
-  id        String          @id @default(uuid())
+  id        String         @id @default(uuid())
   project   Project
   mode      CommissionMode
   // Для FLAT — единая ставка (например 4.00).
-  flatRate  Decimal?        @map("flat_rate") @db.Decimal(5, 2)
+  flatRate  Decimal?       @map("flat_rate") @db.Decimal(5, 2)
   // Для PROGRESSIVE — JSON со шкалой: [{level: 'START', minSqm: 0, rate: 5.0}, ...]
   levels    Json?
-  startDate DateTime        @map("start_date")
-  endDate   DateTime        @map("end_date")
-  isActive  Boolean         @default(true) @map("is_active")
+  startDate DateTime       @map("start_date")
+  endDate   DateTime       @map("end_date")
+  isActive  Boolean        @default(true) @map("is_active")
   notes     String?
-  createdAt DateTime        @default(now()) @map("created_at")
-  updatedAt DateTime        @updatedAt @map("updated_at")
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
 
   @@index([project, startDate, endDate])
   @@map("commission_policies")
 }
-
