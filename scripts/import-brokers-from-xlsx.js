@@ -55,13 +55,27 @@ const isDryRun = !!arg('dry-run');
 const limit = arg('limit') ? parseInt(arg('limit'), 10) : null;
 const xlsxPath = arg('xlsx') || path.join(
   __dirname, '..',
-  'скриншоты и файлы для корректировки',
-  'Для кабинета брокера',
-  'корректировка КБ3',
-  'БАЗА брокеров.xlsx'
+  'docs',
+  'БАЗА брокеров (2).xlsx'
 );
 const baseSource = arg('source') || 'google_sheet';
 const includeCoords = !!arg('include-coords');
+
+// --call-flag — фильтр по столбцу F (ЗВОНОК): 'да' | 'в работе' | 'обработан'
+// Можно через запятую: --call-flag "да,обработан"   Без флага = пропустить все.
+const VALID_CALL_FLAGS = ['да', 'в работе', 'обработан'];
+const callFlagArg = arg('call-flag');
+let callFlagFilter = null; // null = не фильтруем
+if (callFlagArg && callFlagArg !== true) {
+  callFlagFilter = new Set(callFlagArg.split(',').map(s => s.trim().toLowerCase()));
+  for (const f of callFlagFilter) {
+    if (!VALID_CALL_FLAGS.includes(f)) {
+      console.error(`ERR: неизвестное значение --call-flag: ${f}`);
+      console.error('Допустимо:', VALID_CALL_FLAGS.map(s => `"${s}"`).join(', '));
+      process.exit(2);
+    }
+  }
+}
 
 if (!fs.existsSync(xlsxPath)) {
   console.error(`ERR: XLSX не найден: ${xlsxPath}`);
@@ -135,6 +149,7 @@ function mapRow(row) {
   const phoneRaw = row['Телефон брокера'];
   const meetings = Number(row['Встречи'] || 0);
   const deals = Number(row['Сделки'] || 0);
+  const callFlag = (row['ЗВОНОК'] || '').toString().trim().toLowerCase();
   const resultStr = (row['Результат звонка'] || '').toString().trim();
   const zorgeStr = (row['Обзвон по Зорге '] || row['Обзвон по Зорге'] || '').toString().trim();
   const comment = (row['Комментарий'] || '').toString().trim() || null;
@@ -151,7 +166,7 @@ function mapRow(row) {
     || resultStr === 'Отказ от коммуникации'
     || zorgeStr === 'Просил не звонить';
 
-  return { name, phoneRaw, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr };
+  return { name, phoneRaw, callFlag, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -161,7 +176,8 @@ function mapRow(row) {
   console.log('Импорт базы брокеров из XLSX');
   console.log('━'.repeat(70));
   console.log(`XLSX:     ${xlsxPath}`);
-  console.log(`Фильтр:   ${[...filter].join(', ')}`);
+  console.log(`Фильтр BrokerCategory: ${[...filter].join(', ')}`);
+  console.log(`Фильтр ЗВОНОК (col F): ${callFlagFilter ? [...callFlagFilter].join(', ') : '(нет — все)'}`);
   console.log(`Источник: ${baseSource}`);
   console.log(`Dry-run:  ${isDryRun ? 'ДА' : 'нет'}`);
   if (limit) console.log(`Limit:    ${limit}`);
@@ -178,6 +194,7 @@ function mapRow(row) {
     total: rows.length,
     invalidPhone: 0,
     byCategory: {},
+    byCallFlag: {},
     afterFilter: 0,
     duplicatesInSheet: 0,
   };
@@ -192,6 +209,8 @@ function mapRow(row) {
       continue;
     }
     stats.byCategory[m.category] = (stats.byCategory[m.category] || 0) + 1;
+    const cfKey = m.callFlag || '(пусто)';
+    stats.byCallFlag[cfKey] = (stats.byCallFlag[cfKey] || 0) + 1;
     if (seenPhones.has(norm.phone)) {
       stats.duplicatesInSheet++;
       continue;
@@ -201,6 +220,7 @@ function mapRow(row) {
   }
   // фильтр и limit применяем после полного обхода — чтобы stats были честные
   let candidates = allValid.filter(c => filter.has(c.category));
+  if (callFlagFilter) candidates = candidates.filter(c => callFlagFilter.has(c.callFlag));
   if (limit) candidates = candidates.slice(0, limit);
   stats.afterFilter = candidates.length;
 
@@ -210,6 +230,10 @@ function mapRow(row) {
   console.log(`  дубли в самом sheet:   ${stats.duplicatesInSheet}`);
   console.log(`  распределение по BrokerCategory (после фильтра телефона):`);
   for (const [k, v] of Object.entries(stats.byCategory).sort((a, b) => b[1] - a[1])) {
+    console.log(`    ${k.padEnd(15)} ${v}`);
+  }
+  console.log(`  распределение по ЗВОНОК (col F):`);
+  for (const [k, v] of Object.entries(stats.byCallFlag).sort((a, b) => b[1] - a[1])) {
     console.log(`    ${k.padEnd(15)} ${v}`);
   }
   console.log(`  под фильтр попало:     ${stats.afterFilter}`);
