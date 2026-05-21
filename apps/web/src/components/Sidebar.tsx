@@ -16,6 +16,7 @@ import {
   Sparkles,
   BarChart3,
   Megaphone,
+  PhoneCall,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ const navigation = [
 
 const adminNavigation = [
   { name: 'Аналитика платформы', href: '/admin/analytics', icon: BarChart3 },
+  { name: 'Колл-центр', href: '/admin/call-center', icon: PhoneCall },
   { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
   { name: 'Комиссия — политики', href: '/admin/commission-policies', icon: Calculator },
   { name: 'Управление встречами', href: '/admin/meetings', icon: CalendarPlus },

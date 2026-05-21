@@ -112,6 +112,37 @@ export class AdminController {
     return this.adminService.getImportJob(id);
   }
 
+  // ─── Колл-центр (TZ v3 §5) ─────────────────────────────────────────
+
+  @Get('call-center/queue')
+  @ApiOperation({ summary: 'Очередь обзвона: брокеры isInBase=true, отсортированные по приоритету' })
+  async callCenterQueue(@Query() query: any) {
+    return this.adminService.getCallCenterQueue(query);
+  }
+
+  @Post('call-center/log-call')
+  @ApiOperation({ summary: 'Зафиксировать звонок: создаёт CallLog и обновляет category/doNotCall/nextCallAt' })
+  async logCall(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: {
+      brokerId: string;
+      result: string;
+      comment?: string;
+      campaign?: string;
+      duration?: number;
+      nextCallAtOverride?: string;
+      doNotCallOverride?: boolean;
+    },
+  ) {
+    return this.adminService.logCall(user.id, body);
+  }
+
+  @Get('call-center/stats')
+  @ApiOperation({ summary: 'KPI оператора и команды на сегодня/неделю/месяц' })
+  async callCenterStats(@CurrentUser() user: CurrentUserPayload) {
+    return this.adminService.getCallCenterStats(user.id);
+  }
+
   // ─── Mailings ─────────────────────────────────────────────
 
   @Post('mailings/preview')

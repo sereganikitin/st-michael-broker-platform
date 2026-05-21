@@ -259,7 +259,15 @@ export class AdminService {
       where: { id },
       include: {
         brokerAgencies: { include: { agency: true } },
-        _count: { select: { clients: true, deals: true, meetings: true } },
+        _count: { select: { clients: true, deals: true, meetings: true, callLogs: true } },
+        callLogs: {
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          select: {
+            id: true, result: true, comment: true, campaign: true,
+            duration: true, createdAt: true, nextCallAt: true, operatorId: true,
+          },
+        },
       },
     });
     if (!broker) throw new NotFoundException('Broker not found');
@@ -692,6 +700,196 @@ export class AdminService {
       amoUpdated,
       newBroker: { id: newBroker.id, fullName: newBroker.fullName },
       oldBroker: { id: oldBroker.id, fullName: oldBroker.fullName },
+    };
+  }
+
+  // ─── Колл-центр (TZ v3 §5) ──────────────────────────────────────────
+  // Очередь обзвона: брокеры из базы КЦ (isInBase=true), которым можно звонить
+  // (doNotCall=false), отсортированные по приоритету:
+  //   1) сначала те у кого nextCallAt задан (от ближайшего к далёкому)
+  //   2) потом те у кого nextCallAt=null — по дате добавления (новых наверх)
+
+  async getCallCenterQueue(query: {
+    page?: string | number;
+    limit?: string | number;
+    category?: string;
+    search?: string;
+    includeAll?: string | boolean;
+  }) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Number(query.limit) || 30);
+    const skip = (page - 1) * limit;
+
+    const where: any = { isInBase: true };
+    if (query.includeAll !== 'true' && query.includeAll !== true) {
+      where.doNotCall = false;
+    }
+    if (query.category) {
+      const cats = String(query.category).split(',').map((s) => s.trim()).filter(Boolean);
+      if (cats.length > 0) where.category = { in: cats as any };
+    }
+    if (query.search) {
+      const s = String(query.search).trim();
+      where.OR = [
+        { fullName: { contains: s, mode: 'insensitive' } },
+        { phone: { contains: s } },
+        { coordinatorAgency: { contains: s, mode: 'insensitive' } },
+      ];
+    }
+
+    const [brokers, total] = await Promise.all([
+      this.prisma.broker.findMany({
+        where,
+        select: {
+          id: true,
+          fullName: true,
+          phone: true,
+          category: true,
+          doNotCall: true,
+          isCoordinator: true,
+          coordinatorAgency: true,
+          lastCallAt: true,
+          nextCallAt: true,
+          baseSource: true,
+          createdAt: true,
+          callLogs: {
+            select: { id: true, result: true, comment: true, campaign: true, createdAt: true },
+            orderBy: { createdAt: 'desc' },
+            take: 3,
+          },
+        },
+        orderBy: [{ nextCallAt: 'asc' }, { createdAt: 'asc' }],
+        skip,
+        take: limit,
+      }),
+      this.prisma.broker.count({ where }),
+    ]);
+
+    return {
+      brokers,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  // Правила автообновления брокера по результату звонка.
+  // Возвращает что менять; null означает «не трогать поле».
+  private callResultEffects(result: string): {
+    category: string | null;
+    doNotCall: boolean | null;
+    nextCallDays: number | null;
+  } {
+    switch (result) {
+      case 'NDZ':                  return { category: 'COLD',          doNotCall: null,  nextCallDays: 3 };
+      case 'HUNG_UP':              return { category: 'COLD',          doNotCall: null,  nextCallDays: 1 };
+      case 'DOUBLE_NDZ':           return { category: 'ON_BOT_REVIEW', doNotCall: null,  nextCallDays: null };
+      case 'IN_PROGRESS':          return { category: 'HOT',           doNotCall: null,  nextCallDays: 7 };
+      case 'SCHEDULED_TOUR':       return { category: 'HOT',           doNotCall: null,  nextCallDays: null };
+      case 'INFORMED':             return { category: 'WARM',          doNotCall: null,  nextCallDays: null };
+      case 'ALREADY_KNOWS':        return { category: 'WARM',          doNotCall: null,  nextCallDays: null };
+      case 'ONLY_SEND_INFO':       return { category: 'WARM',          doNotCall: null,  nextCallDays: null };
+      case 'REFUSED_TOUR':         return { category: 'WARM',          doNotCall: null,  nextCallDays: null };
+      case 'WRONG_NUMBER':         return { category: 'BLACKLIST',     doNotCall: true,  nextCallDays: null };
+      case 'NOT_A_BROKER':         return { category: 'BLACKLIST',     doNotCall: true,  nextCallDays: null };
+      case 'NOT_BROKER_ANYMORE':   return { category: 'BLACKLIST',     doNotCall: true,  nextCallDays: null };
+      case 'REFUSED_COMMUNICATION':return { category: 'ON_BOT_REVIEW', doNotCall: true,  nextCallDays: null };
+      case 'ASKED_NOT_TO_CALL':    return { category: 'ON_BOT_REVIEW', doNotCall: true,  nextCallDays: null };
+      case 'NEGATIVE':             return { category: 'ON_BOT_REVIEW', doNotCall: true,  nextCallDays: null };
+      case 'NOT_RELEVANT':         return { category: 'ON_BOT_REVIEW', doNotCall: null,  nextCallDays: null };
+      default:                     return { category: null,            doNotCall: null,  nextCallDays: null };
+    }
+  }
+
+  async logCall(
+    operatorId: string,
+    data: {
+      brokerId: string;
+      result: string;
+      comment?: string | null;
+      campaign?: string | null;
+      duration?: number | null;
+      nextCallAtOverride?: string | null;
+      doNotCallOverride?: boolean | null;
+    },
+  ) {
+    const broker = await this.prisma.broker.findUnique({ where: { id: data.brokerId } });
+    if (!broker) throw new NotFoundException('Брокер не найден');
+
+    const effects = this.callResultEffects(data.result);
+
+    // Расчёт nextCallAt: override > rule > null
+    let nextCallAt: Date | null = null;
+    if (data.nextCallAtOverride) {
+      const d = new Date(data.nextCallAtOverride);
+      if (!isNaN(d.getTime())) nextCallAt = d;
+    } else if (effects.nextCallDays !== null) {
+      nextCallAt = new Date(Date.now() + effects.nextCallDays * 24 * 60 * 60 * 1000);
+    }
+
+    // CONVERTED не сбрасываем — это факт встречи/сделки, выше любой категории.
+    const categoryUpdate =
+      broker.category === 'CONVERTED' || !effects.category
+        ? undefined
+        : (effects.category as any);
+
+    // doNotCall: явный override > правило > не трогаем
+    let doNotCallUpdate: boolean | undefined;
+    if (data.doNotCallOverride !== null && data.doNotCallOverride !== undefined) {
+      doNotCallUpdate = data.doNotCallOverride;
+    } else if (effects.doNotCall === true) {
+      doNotCallUpdate = true;
+    }
+
+    const callLog = await this.prisma.callLog.create({
+      data: {
+        brokerId: data.brokerId,
+        operatorId,
+        result: data.result as any,
+        comment: data.comment || null,
+        campaign: data.campaign || null,
+        duration: data.duration ?? null,
+        nextCallAt,
+      },
+    });
+
+    const updated = await this.prisma.broker.update({
+      where: { id: data.brokerId },
+      data: {
+        lastCallAt: new Date(),
+        nextCallAt,
+        ...(categoryUpdate ? { category: categoryUpdate } : {}),
+        ...(doNotCallUpdate !== undefined ? { doNotCall: doNotCallUpdate } : {}),
+      },
+      select: { id: true, fullName: true, category: true, doNotCall: true, lastCallAt: true, nextCallAt: true },
+    });
+
+    return { callLog, broker: updated };
+  }
+
+  async getCallCenterStats(operatorId: string) {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [today, week, month, todayAll, queueWaiting, totalInBase] = await Promise.all([
+      this.prisma.callLog.count({ where: { operatorId, createdAt: { gte: startOfDay } } }),
+      this.prisma.callLog.count({ where: { operatorId, createdAt: { gte: startOfWeek } } }),
+      this.prisma.callLog.count({ where: { operatorId, createdAt: { gte: startOfMonth } } }),
+      this.prisma.callLog.count({ where: { createdAt: { gte: startOfDay } } }),
+      this.prisma.broker.count({
+        where: { isInBase: true, doNotCall: false, OR: [{ nextCallAt: null }, { nextCallAt: { lte: now } }] },
+      }),
+      this.prisma.broker.count({ where: { isInBase: true } }),
+    ]);
+
+    return {
+      operator: { today, week, month },
+      team: { today: todayAll },
+      queueWaiting,
+      totalInBase,
     };
   }
 

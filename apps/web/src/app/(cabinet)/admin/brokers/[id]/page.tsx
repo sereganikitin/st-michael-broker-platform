@@ -5,7 +5,25 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { ArrowLeft, RefreshCw, Save, Shield, Trash2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Save, Shield, Trash2, Phone, Ban, Database } from 'lucide-react';
+
+const categoryLabels: Record<string, { label: string; cls: string }> = {
+  COLD: { label: 'COLD', cls: 'bg-info/20 text-info' },
+  WARM: { label: 'WARM', cls: 'bg-warning/20 text-warning' },
+  HOT: { label: 'HOT', cls: 'bg-error/20 text-error' },
+  CONVERTED: { label: 'CONVERTED', cls: 'bg-success/20 text-success' },
+  ON_BOT_REVIEW: { label: 'ON_BOT_REVIEW', cls: 'bg-text-muted/20 text-text-muted' },
+  BLACKLIST: { label: 'BLACKLIST', cls: 'bg-text/20 text-text' },
+};
+
+const callResultLabels: Record<string, string> = {
+  NDZ: 'НДЗ', DOUBLE_NDZ: '2 НДЗ', HUNG_UP: 'Бросил трубку',
+  INFORMED: 'Проинформирован', ALREADY_KNOWS: 'Уже знал', ONLY_SEND_INFO: 'Только инфо',
+  SCHEDULED_TOUR: 'Запись на БТ', IN_PROGRESS: 'В работе', REFUSED_TOUR: 'Отказ от БТ',
+  WRONG_NUMBER: 'Некорректный номер', NOT_A_BROKER: 'Не брокер', NOT_BROKER_ANYMORE: 'Уже не брокер',
+  REFUSED_COMMUNICATION: 'Отказ от коммуникации', ASKED_NOT_TO_CALL: 'Просил не звонить',
+  NEGATIVE: 'Негатив', NOT_RELEVANT: 'Неактуально',
+};
 
 const roleOptions = [
   { value: 'BROKER', label: 'Брокер' },
@@ -29,7 +47,7 @@ export default function AdminBrokerDetailPage() {
   const [clients, setClients] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'profile' | 'clients' | 'deals' | 'meetings'>('profile');
+  const [tab, setTab] = useState<'profile' | 'clients' | 'deals' | 'meetings' | 'calls'>('profile');
 
   const [form, setForm] = useState({ fullName: '', email: '', phone: '', role: 'BROKER', status: 'ACTIVE' });
   const [saving, setSaving] = useState(false);
@@ -117,27 +135,60 @@ export default function AdminBrokerDetailPage() {
         <ArrowLeft className="w-4 h-4" /> К списку
       </button>
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2"><Shield className="w-7 h-7 text-accent" />{broker.fullName}</h1>
-          <span className="text-text-muted text-sm">{broker.phone} · amoCRM ID: {broker.amoContactId ? broker.amoContactId.toString() : '—'}</span>
+      <div className="flex items-start justify-between mb-6 gap-4">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-3xl font-bold flex items-center gap-2 flex-wrap">
+            <Shield className="w-7 h-7 text-accent flex-shrink-0" />
+            {broker.fullName}
+            {broker.category && categoryLabels[broker.category] && (
+              <span className={`text-xs px-2 py-1 rounded ${categoryLabels[broker.category].cls}`}>
+                {categoryLabels[broker.category].label}
+              </span>
+            )}
+            {broker.doNotCall && (
+              <span className="text-xs px-2 py-1 rounded bg-error/20 text-error inline-flex items-center gap-1">
+                <Ban className="w-3 h-3" /> не звонить
+              </span>
+            )}
+            {broker.isInBase && (
+              <span className="text-xs px-2 py-1 rounded bg-accent/20 text-accent inline-flex items-center gap-1">
+                <Database className="w-3 h-3" /> в базе КЦ
+              </span>
+            )}
+            {broker.isCoordinator && (
+              <span className="text-xs px-2 py-1 rounded bg-warning/20 text-warning">координатор {broker.coordinatorAgency ? `· ${broker.coordinatorAgency}` : ''}</span>
+            )}
+          </h1>
+          <div className="text-text-muted text-sm mt-1">
+            {broker.phone} · amoCRM ID: {broker.amoContactId ? broker.amoContactId.toString() : '—'}
+          </div>
+          {(broker.lastCallAt || broker.nextCallAt) && (
+            <div className="text-xs text-text-muted mt-1 flex gap-4">
+              {broker.lastCallAt && <span>Последний звонок: {new Date(broker.lastCallAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}</span>}
+              {broker.nextCallAt && <span>Перезвонить: {new Date(broker.nextCallAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}</span>}
+            </div>
+          )}
         </div>
-        <button onClick={handleSync} disabled={syncing} className="btn btn-secondary flex items-center gap-2">
+        <button onClick={handleSync} disabled={syncing} className="btn btn-secondary flex items-center gap-2 flex-shrink-0">
           <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Синхронизация...' : 'Синхр. amoCRM'}
+          {syncing ? 'Синхр…' : 'Синхр. amoCRM'}
         </button>
       </div>
 
       {message && <div className="mb-4 p-3 rounded-lg bg-info/20 text-info text-sm">{message}</div>}
 
-      <div className="flex gap-2 mb-4 border-b border-border">
-        {(['profile', 'clients', 'deals', 'meetings'] as const).map((t) => (
+      <div className="flex gap-2 mb-4 border-b border-border overflow-x-auto">
+        {(['profile', 'clients', 'deals', 'meetings', 'calls'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === t ? 'border-accent text-accent' : 'border-transparent text-text-muted hover:text-text'}`}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition whitespace-nowrap ${tab === t ? 'border-accent text-accent' : 'border-transparent text-text-muted hover:text-text'}`}
           >
-            {t === 'profile' ? 'Профиль' : t === 'clients' ? `Клиенты (${broker._count?.clients ?? 0})` : t === 'deals' ? `Сделки (${broker._count?.deals ?? 0})` : `Встречи (${broker._count?.meetings ?? 0})`}
+            {t === 'profile' ? 'Профиль' :
+             t === 'clients' ? `Клиенты (${broker._count?.clients ?? 0})` :
+             t === 'deals' ? `Сделки (${broker._count?.deals ?? 0})` :
+             t === 'meetings' ? `Встречи (${broker._count?.meetings ?? 0})` :
+             `Звонки (${broker._count?.callLogs ?? 0})`}
           </button>
         ))}
       </div>
@@ -247,6 +298,39 @@ export default function AdminBrokerDetailPage() {
                     <div className="text-text-muted text-xs">{m.type} · {new Date(m.date).toLocaleString('ru-RU')}</div>
                   </div>
                   <div className="text-text-muted text-xs">{m.status}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'calls' && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-sm flex items-center gap-2"><Phone className="w-4 h-4" /> История звонков колл-центра</h3>
+            <a href="/admin/call-center" className="text-xs text-accent hover:underline">→ открыть в колл-центре</a>
+          </div>
+          {(!broker.callLogs || broker.callLogs.length === 0) ? (
+            <div className="text-text-muted text-center py-6">Звонков не было</div>
+          ) : (
+            <div className="space-y-3">
+              {broker.callLogs.map((c: any) => (
+                <div key={c.id} className="border-l-2 border-accent/30 pl-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-medium">{callResultLabels[c.result] || c.result}</span>
+                    {c.campaign && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent">{c.campaign}</span>
+                    )}
+                    <span className="text-xs text-text-muted ml-auto">
+                      {new Date(c.createdAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}
+                    </span>
+                  </div>
+                  {c.comment && <div className="text-xs text-text-muted mt-1 italic whitespace-pre-wrap">{c.comment}</div>}
+                  <div className="text-[10px] text-text-muted mt-1 flex gap-3">
+                    {c.duration && <span>длительность: {c.duration} сек</span>}
+                    {c.nextCallAt && <span>перезвонить: {new Date(c.nextCallAt).toLocaleDateString('ru-RU')}</span>}
+                  </div>
                 </div>
               ))}
             </div>
