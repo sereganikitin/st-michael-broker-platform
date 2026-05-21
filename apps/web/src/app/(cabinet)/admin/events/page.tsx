@@ -22,7 +22,28 @@ export default function AdminEventsPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState({ date: '', title: '', location: '', isOnline: false, description: '' });
+  // Дефолтное значение — ближайший круглый час МСК (минуты :00).
+  // Раньше при первом фокусе на input datetime-local подставлялось
+  // текущее время с минутами (например 11:23), что было неудобно.
+  const defaultEventDate = () => {
+    const d = new Date();
+    d.setHours(d.getHours() + 1, 0, 0, 0);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+  };
+  const [draft, setDraft] = useState({ date: defaultEventDate(), title: '', location: '', isOnline: false, description: '' });
+
+  // Конвертация ISO-даты из БД (UTC) в строку для datetime-local в МСК.
+  // Раньше использовали ev.date.slice(0,16) — это бралo UTC-строку как
+  // была, и админ видел не своё локальное время. Теперь явный МСК.
+  const toLocalInputValue = (iso: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const moscow = new Date(d.getTime() + (180 + d.getTimezoneOffset()) * 60 * 1000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${moscow.getFullYear()}-${pad(moscow.getMonth() + 1)}-${pad(moscow.getDate())}T${pad(moscow.getHours())}:${pad(moscow.getMinutes())}`;
+  };
 
   if (broker && broker.role !== 'ADMIN' && broker.role !== 'MANAGER') {
     return <div className="card">Доступ запрещён</div>;
@@ -43,7 +64,7 @@ export default function AdminEventsPage() {
     setCreating(true); setMessage('');
     try {
       await api('/admin/cms/events', { method: 'POST', body: JSON.stringify(draft) });
-      setDraft({ date: '', title: '', location: '', isOnline: false, description: '' });
+      setDraft({ date: defaultEventDate(), title: '', location: '', isOnline: false, description: '' });
       load();
     } catch (e: any) { setMessage(e.message || 'Ошибка'); }
     setCreating(false);
@@ -101,7 +122,7 @@ export default function AdminEventsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
             <div>
               <label className="label">Дата и время</label>
-              <input type="datetime-local" className="input" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
+              <input type="datetime-local" className="input" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} step="3600" />
             </div>
             <div>
               <label className="label">Заголовок</label>
@@ -139,7 +160,7 @@ export default function AdminEventsPage() {
             {events.map((ev, idx) => (
               <div key={ev.id} className="border border-border rounded p-3">
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-start">
-                  <input type="datetime-local" className="input md:col-span-3" value={ev.date.slice(0, 16)} onChange={(e) => updateLocal(idx, { date: e.target.value })} disabled={!isAdmin} />
+                  <input type="datetime-local" className="input md:col-span-3" value={toLocalInputValue(ev.date)} onChange={(e) => updateLocal(idx, { date: e.target.value })} step="3600" disabled={!isAdmin} />
                   <input className="input md:col-span-3" value={ev.title} onChange={(e) => updateLocal(idx, { title: e.target.value })} disabled={!isAdmin} />
                   <input className="input md:col-span-2" placeholder="Локация" value={ev.location || ''} onChange={(e) => updateLocal(idx, { location: e.target.value })} disabled={!isAdmin} />
                   <label className="flex items-center gap-1 text-xs md:col-span-1">

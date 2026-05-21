@@ -148,10 +148,23 @@ export class CmsService {
     });
   }
 
+  // Парсим datetime-local строку (без TZ-маркера) как Europe/Moscow.
+  // Браузерный <input type="datetime-local"> отдаёт "2026-05-22T11:00" —
+  // без часового пояса. Если new Date(...) парсит её в локали сервера
+  // (UTC в Docker), теряем +3 часа и админ удивляется что введённое
+  // "12:00" показывается как "15:00" на лендинге.
+  private parseDateAsMoscow(input: string): Date {
+    if (!input) return new Date(NaN);
+    const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(input);
+    if (hasTz) return new Date(input);
+    const hasSeconds = /T\d{2}:\d{2}:\d{2}/.test(input);
+    return new Date(hasSeconds ? input + '+03:00' : input + ':00+03:00');
+  }
+
   async createEvent(data: any) {
     return this.prisma.landingEvent.create({
       data: {
-        date: new Date(data.date),
+        date: this.parseDateAsMoscow(data.date),
         title: data.title,
         location: data.location || null,
         isOnline: !!data.isOnline,
@@ -164,7 +177,7 @@ export class CmsService {
 
   async updateEvent(id: string, data: any) {
     const patch: any = {};
-    if (data.date !== undefined) patch.date = new Date(data.date);
+    if (data.date !== undefined) patch.date = this.parseDateAsMoscow(data.date);
     if (data.title !== undefined) patch.title = data.title;
     if (data.location !== undefined) patch.location = data.location || null;
     if (data.isOnline !== undefined) patch.isOnline = !!data.isOnline;

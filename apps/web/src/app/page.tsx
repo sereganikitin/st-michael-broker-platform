@@ -1407,6 +1407,11 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                     <div className="ev-info">
                       <div className="ev-title">{ev.title}</div>
                       <div className="ev-meta">{formatEventMeta(ev.date, ev.location, ev.isOnline)}</div>
+                      {ev.description && (
+                        <div className="ev-desc" style={{marginTop:6,fontSize:12,color:'var(--muted)',lineHeight:1.5,whiteSpace:'pre-wrap'}}>
+                          {ev.description}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
