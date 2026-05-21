@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import {
   Headphones, PhoneCall, Wallet, TrendingUp, Users2, GraduationCap,
+  Shield, Sparkles,
   FileText, Download as DownloadIcon, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 
@@ -74,14 +75,32 @@ function Reveal({ children, delay = 0, as: Tag = 'div' }: { children: React.Reac
   );
 }
 
-const ADVANTAGE_ICONS: Record<string, any> = {
+// Иконки преимуществ — выбираются по полю item.icon (slug).
+// Если поле не задано — fallback по точному заголовку (backward compat
+// с дефолтами до 2026-05-21).
+const ADVANTAGE_ICONS_BY_KEY: Record<string, any> = {
+  headphones: Headphones,
+  'phone-call': PhoneCall,
+  wallet: Wallet,
+  'trending-up': TrendingUp,
+  users: Users2,
+  'graduation-cap': GraduationCap,
+  shield: Shield,
+  sparkles: Sparkles,
+};
+const ADVANTAGE_ICONS_BY_TITLE: Record<string, any> = {
   'Выделенный отдел партнёров': Headphones,
   'Выделенная линия': PhoneCall,
   'Быстрые выплаты': Wallet,
   'Высокая комиссия': TrendingUp,
   'Партнёрство': Users2,
   'Обучение': GraduationCap,
+  'Защищаем брокера от увода клиента': Shield,
+  'Не цепляемся за формальности': Sparkles,
 };
+function pickAdvantageIcon(item: any) {
+  return ADVANTAGE_ICONS_BY_KEY[item.icon] || ADVANTAGE_ICONS_BY_TITLE[item.title] || null;
+}
 
 function PhoneInput({ value, onChange, style }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -867,6 +886,28 @@ const DEFAULT_PROJECTS = [
   { id: 'p2', slug: 'silver-bor', tag: null, name: 'Квартал', subtitle: 'Серебряный Бор', description: '', ctaText: 'Смотреть каталог', ctaHref: 'https://stmichael.ru/lots?property_type=flat' },
 ];
 
+const DEFAULT_HOWTO = {
+  tag: 'Старт',
+  title: 'Как начать сотрудничать с ST Michael',
+  titleAccent: 'ST Michael',
+  subtitle: 'Начать можно с первой же сделки — даже если ваше ИП открыто вчера. Никаких дополнительных условий.',
+  steps: [
+    { num: '01', title: 'Проверка на уникальность', description: 'Проверьте клиента в кабинете перед сделкой.' },
+    { num: '02', title: 'Встреча в офисе продаж', description: 'Запишите клиента на встречу в офис продаж.' },
+    { num: '03', title: 'Фиксация клиента', description: 'После встречи клиент закреплён за вами на 30 дней — при необходимости можем продлить.' },
+    { num: '04', title: 'Сделка и выплата', description: 'После оплаты клиентом — вознаграждение приходит за 7 рабочих дней.' },
+  ],
+  footer: 'Агентский договор оформляется при первой сделке',
+  ctaText: 'Стать партнёром',
+};
+
+const DEFAULT_PROJECTS_SECTION = {
+  tag: 'Проекты',
+  title: 'Наши проекты',
+  titleAccent: 'Наши проекты',
+  subtitle: '',
+};
+
 const MONTHS_RU = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 function formatEventDate(iso: string): { day: string; mon: string } {
   const d = new Date(iso);
@@ -895,6 +936,8 @@ export default function LandingPage() {
   const [advantages, setAdvantages] = useState<any>(DEFAULT_ADVANTAGES);
   const [commission, setCommission] = useState<any>(DEFAULT_COMMISSION);
   const [contact, setContact] = useState<any>(DEFAULT_CONTACT);
+  const [howto, setHowto] = useState<any>(DEFAULT_HOWTO);
+  const [projectsSection, setProjectsSection] = useState<any>(DEFAULT_PROJECTS_SECTION);
   const [projects, setProjects] = useState<any[]>(DEFAULT_PROJECTS);
   const [events, setEvents] = useState<any[]>([]);
   const [promos, setPromos] = useState<any[]>([]);
@@ -943,6 +986,8 @@ export default function LandingPage() {
         if (content.advantages) setAdvantages({ ...DEFAULT_ADVANTAGES, ...content.advantages });
         if (content.commission) setCommission({ ...DEFAULT_COMMISSION, ...content.commission });
         if (content.contact) setContact({ ...DEFAULT_CONTACT, ...content.contact });
+        if (content.howto) setHowto({ ...DEFAULT_HOWTO, ...content.howto });
+        if (content.projectsSection) setProjectsSection({ ...DEFAULT_PROJECTS_SECTION, ...content.projectsSection });
       }
       if (Array.isArray(evs)) setEvents(evs);
       if (Array.isArray(prjs) && prjs.length) {
@@ -1158,7 +1203,11 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               от stats-band до projects теперь сравнимо с расстоянием от
               слайдера до stats-band (28px). */}
         <section id="projects" style={{paddingTop:36}}>
-          <div className="sh"><div className="sh-tag">Проекты</div><h2><em>Наши проекты</em></h2><p className="sh-sub">Зорге 9 и Квартал Серебряный Бор. Каждый проект — отдельная прогрессивная шкала комиссии.</p></div>
+          <div className="sh">
+            <div className="sh-tag">{projectsSection.tag}</div>
+            <h2>{renderAccent(projectsSection.title, projectsSection.titleAccent)}</h2>
+            {projectsSection.subtitle && <p className="sh-sub">{projectsSection.subtitle}</p>}
+          </div>
           <div className="proj-grid">
             {projects.map((p: any, i: number) => (
               <Reveal key={p.id} delay={i * 120}>
@@ -1368,28 +1417,29 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         <hr className="sep" />
 
-        {/* HOW TO START — 4 шага старта */}
+        {/* HOW TO START — редактируется через /admin/content вкладка "Как начать" */}
         <section id="how-to-start">
-          <div className="sh sh-center"><div className="sh-tag">Старт</div><h2>Как начать сотрудничать с <em>ST Michael</em></h2><p className="sh-sub">Можно начать сотрудничество с первой сделки — даже с первого дня существования вашего ИП. Без дополнительных условий.</p></div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(4, 1fr)',gap:16,maxWidth:1100,margin:'0 auto'}}>
-            {[
-              { n: '01', title: 'ИП или ООО', desc: 'Достаточно зарегистрированного юр. лица — ИП, ООО, АО.' },
-              { n: '02', title: 'Регистрация в кабинете', desc: 'Заполните анкету за 2 минуты — становитесь партнёром сразу.' },
-              { n: '03', title: 'Проверка клиента', desc: 'Зафиксируйте клиента в кабинете и получите статус уникальности.' },
-              { n: '04', title: 'Запись на встречу', desc: 'Запишите клиента на встречу — горячая линия +7 (499) 226-22-49.' },
-            ].map((s, i) => (
+          <div className="sh sh-center">
+            <div className="sh-tag">{howto.tag}</div>
+            <h2>{renderAccent(howto.title, howto.titleAccent)}</h2>
+            {howto.subtitle && <p className="sh-sub">{howto.subtitle}</p>}
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:`repeat(${Math.min((howto.steps || []).length, 4)}, 1fr)`,gap:16,maxWidth:1100,margin:'0 auto'}}>
+            {(howto.steps || []).map((s: any, i: number) => (
               <div key={i} style={{padding:'24px 22px',background:'var(--bg)',borderRadius:'var(--r-card)',boxShadow:'0 1px 2px rgba(0,0,0,0.04)'}}>
-                <div style={{fontSize:32,fontWeight:200,color:'var(--gold)',marginBottom:12,lineHeight:1}}>{s.n}</div>
+                <div style={{fontSize:32,fontWeight:200,color:'var(--gold)',marginBottom:12,lineHeight:1}}>{s.num}</div>
                 <div style={{fontSize:15,fontWeight:600,marginBottom:6,color:'var(--black)'}}>{s.title}</div>
-                <div style={{fontSize:13,color:'var(--muted)',lineHeight:1.6}}>{s.desc}</div>
+                <div style={{fontSize:13,color:'var(--muted)',lineHeight:1.6}}>{s.description}</div>
               </div>
             ))}
           </div>
-          <p style={{textAlign:'center',fontSize:13,color:'var(--muted)',marginTop:20,maxWidth:700,marginLeft:'auto',marginRight:'auto',lineHeight:1.7}}>
-            Агентский договор заключается под конкретную сделку. Полные условия партнёрства — в кабинете брокера.
-          </p>
+          {howto.footer && (
+            <p style={{textAlign:'center',fontSize:13,color:'var(--muted)',marginTop:20,maxWidth:700,marginLeft:'auto',marginRight:'auto',lineHeight:1.7}}>
+              {howto.footer}
+            </p>
+          )}
           <div style={{textAlign:'center',marginTop:24}}>
-            <button className="btn-gold" onClick={handleRegister}>Стать партнёром</button>
+            <button className="btn-gold" onClick={handleRegister}>{howto.ctaText || 'Стать партнёром'}</button>
           </div>
         </section>
 
@@ -1399,7 +1449,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           <div className="sh"><div className="sh-tag">{advantages.tag}</div><h2>{renderAccent(advantages.title, advantages.titleAccent)}</h2>{advantages.subtitle && <p className="sh-sub" style={{color:'rgba(255,255,255,0.6)'}}>{advantages.subtitle}</p>}</div>
           <div className="adv-grid">
             {(advantages.items || []).map((it: any, i: number) => {
-              const Icon = ADVANTAGE_ICONS[it.title];
+              const Icon = pickAdvantageIcon(it);
               return (
                 <Reveal key={i} delay={i * 80}>
                   <div className="adv-card">

@@ -1,7 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
 
-const KNOWN_KEYS = ['hero', 'advantages', 'commission', 'contact'] as const;
+const KNOWN_KEYS = ['hero', 'advantages', 'commission', 'contact', 'howto', 'projectsSection'] as const;
 
 const DEFAULT_CONTENT: Record<string, any> = {
   hero: {
@@ -19,16 +19,37 @@ const DEFAULT_CONTENT: Record<string, any> = {
   },
   advantages: {
     tag: 'Преимущества',
-    title: 'Почему брокеры выбирают нас',
-    titleAccent: 'выбирают нас',
+    title: 'Шесть причин, ради которых брокеры остаются с St Michael',
+    titleAccent: 'St Michael',
+    subtitle: 'Мы выстроили сотрудничество так, чтобы вы могли начать работать сразу — с первой сделки и с первого дня существования вашего ИП. Без дополнительных условий.',
     items: [
-      { title: 'Выделенный отдел партнёров', description: 'Сопровождение на всех этапах сделки.' },
-      { title: 'Выделенная линия', description: 'Ответ без ожидания с 9:00 до 21:00.' },
-      { title: 'Быстрые выплаты', description: 'Вознаграждение — до 7 рабочих дней.' },
-      { title: 'Высокая комиссия', description: 'До 8% — одна из лучших на рынке.' },
-      { title: 'Партнёрство', description: 'Работаем на общий результат.' },
-      { title: 'Обучение', description: 'Брокер-туры для быстрого старта продаж.' },
+      { icon: 'headphones', title: 'Выделенный отдел партнёров', description: 'Сопровождение на всех этапах сделки.' },
+      { icon: 'shield', title: 'Защищаем брокера от увода клиента', description: 'С клиентами, которые пришли через вас, мы не работаем напрямую.' },
+      { icon: 'wallet', title: 'Быстрые выплаты', description: 'Вознаграждение — до 7 рабочих дней.' },
+      { icon: 'trending-up', title: 'Высокая комиссия', description: 'Прогрессивная шкала по КСБ — до 6,25% за сделку. Фиксированная ставка 5% по Зорге 9. Плюс квартальный и годовой бонусы.' },
+      { icon: 'sparkles', title: 'Не цепляемся за формальности', description: 'Регламент уникальности у нас гибче, чем у большинства застройщиков. Подтверждаем работу с клиентом, даже когда другие отказали бы.' },
+      { icon: 'graduation-cap', title: 'Обучение', description: 'Брокер-туры для быстрого старта продаж.' },
     ],
+  },
+  howto: {
+    tag: 'Старт',
+    title: 'Как начать сотрудничать с ST Michael',
+    titleAccent: 'ST Michael',
+    subtitle: 'Начать можно с первой же сделки — даже если ваше ИП открыто вчера. Никаких дополнительных условий.',
+    steps: [
+      { num: '01', title: 'Проверка на уникальность', description: 'Проверьте клиента в кабинете перед сделкой.' },
+      { num: '02', title: 'Встреча в офисе продаж', description: 'Запишите клиента на встречу в офис продаж.' },
+      { num: '03', title: 'Фиксация клиента', description: 'После встречи клиент закреплён за вами на 30 дней — при необходимости можем продлить.' },
+      { num: '04', title: 'Сделка и выплата', description: 'После оплаты клиентом — вознаграждение приходит за 7 рабочих дней.' },
+    ],
+    footer: 'Агентский договор оформляется при первой сделке',
+    ctaText: 'Стать партнёром',
+  },
+  projectsSection: {
+    tag: 'Проекты',
+    title: 'Наши проекты',
+    titleAccent: 'Наши проекты',
+    subtitle: '',
   },
   commission: {
     tag: 'Комиссия и условия выплаты',

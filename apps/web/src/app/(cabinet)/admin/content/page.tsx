@@ -9,9 +9,23 @@ type ContentMap = Record<string, any>;
 
 const BLOCKS: { key: string; label: string }[] = [
   { key: 'hero', label: 'Hero (главный экран)' },
+  { key: 'howto', label: 'Как начать' },
+  { key: 'projectsSection', label: 'Заголовок «Наши проекты»' },
   { key: 'advantages', label: 'Преимущества' },
   { key: 'commission', label: 'Комиссия' },
   { key: 'contact', label: 'Контакты' },
+];
+
+const ADVANTAGE_ICON_OPTIONS = [
+  { value: '', label: '— нет —' },
+  { value: 'headphones', label: 'Наушники' },
+  { value: 'phone-call', label: 'Телефон' },
+  { value: 'wallet', label: 'Кошелёк' },
+  { value: 'trending-up', label: 'График вверх' },
+  { value: 'users', label: 'Люди' },
+  { value: 'graduation-cap', label: 'Шапка выпускника' },
+  { value: 'shield', label: 'Щит (защита)' },
+  { value: 'sparkles', label: 'Искры (гибкость)' },
 ];
 
 export default function AdminContentPage() {
@@ -116,6 +130,8 @@ export default function AdminContentPage() {
 
       <div className="card">
         {tab === 'hero' && <HeroEditor content={content.hero || {}} updateField={updateField} updateArrayItem={updateArrayItem} addArrayItem={addArrayItem} removeArrayItem={removeArrayItem} />}
+        {tab === 'howto' && <HowtoEditor content={content.howto || {}} updateField={updateField} updateArrayItem={updateArrayItem} addArrayItem={addArrayItem} removeArrayItem={removeArrayItem} />}
+        {tab === 'projectsSection' && <ProjectsSectionEditor content={content.projectsSection || {}} updateField={updateField} />}
         {tab === 'advantages' && <AdvantagesEditor content={content.advantages || {}} updateField={updateField} updateArrayItem={updateArrayItem} addArrayItem={addArrayItem} removeArrayItem={removeArrayItem} />}
         {tab === 'commission' && <CommissionEditor content={content.commission || {}} updateField={updateField} updateArrayItem={updateArrayItem} addArrayItem={addArrayItem} removeArrayItem={removeArrayItem} />}
         {tab === 'contact' && <ContactEditor content={content.contact || {}} updateField={updateField} />}
@@ -168,6 +184,7 @@ function AdvantagesEditor({ content, updateField, updateArrayItem, addArrayItem,
       <FieldText label="Тег" value={content.tag || ''} onChange={(v) => updateField('advantages', 'tag', v)} />
       <FieldText label="Заголовок" value={content.title || ''} onChange={(v) => updateField('advantages', 'title', v)} />
       <FieldText label="Акцент в заголовке" value={content.titleAccent || ''} onChange={(v) => updateField('advantages', 'titleAccent', v)} />
+      <FieldTextarea label="Подзаголовок" value={content.subtitle || ''} onChange={(v) => updateField('advantages', 'subtitle', v)} />
 
       <div>
         <label className="label">Карточки преимуществ</label>
@@ -178,14 +195,85 @@ function AdvantagesEditor({ content, updateField, updateArrayItem, addArrayItem,
                 <span className="text-xs text-text-muted">Карточка #{i + 1}</span>
                 <button onClick={() => removeArrayItem('advantages', 'items', i)} className="text-error hover:text-error/80"><Trash2 className="w-4 h-4" /></button>
               </div>
-              <input className="input mb-2" placeholder="Заголовок" value={it.title || ''} onChange={(e) => updateArrayItem('advantages', 'items', i, { title: e.target.value })} />
+              <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 mb-2">
+                <div>
+                  <label className="text-xs text-text-muted block mb-1">Иконка</label>
+                  <select
+                    className="input"
+                    value={it.icon || ''}
+                    onChange={(e) => updateArrayItem('advantages', 'items', i, { icon: e.target.value || null })}
+                  >
+                    {ADVANTAGE_ICON_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted block mb-1">Заголовок</label>
+                  <input className="input" placeholder="Заголовок" value={it.title || ''} onChange={(e) => updateArrayItem('advantages', 'items', i, { title: e.target.value })} />
+                </div>
+              </div>
               <textarea className="input" placeholder="Описание" rows={2} value={it.description || ''} onChange={(e) => updateArrayItem('advantages', 'items', i, { description: e.target.value })} />
             </div>
           ))}
         </div>
-        <button className="btn btn-secondary mt-2 flex items-center gap-2 text-sm" onClick={() => addArrayItem('advantages', 'items', { title: '', description: '' })}>
+        <button className="btn btn-secondary mt-2 flex items-center gap-2 text-sm" onClick={() => addArrayItem('advantages', 'items', { icon: '', title: '', description: '' })}>
           <Plus className="w-4 h-4" /> Добавить карточку
         </button>
+        <p className="text-xs text-text-muted mt-2">
+          Если иконка не выбрана — лендинг попробует подобрать её по заголовку (для старых дефолтов). Если не нашёл — карточка без иконки.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── HOWTO ─────────────────────────────────────────────
+function HowtoEditor({ content, updateField, updateArrayItem, addArrayItem, removeArrayItem }: any) {
+  const steps = content.steps || [];
+  return (
+    <div className="space-y-4">
+      <FieldText label="Тег (надзаголовок)" value={content.tag || ''} onChange={(v) => updateField('howto', 'tag', v)} />
+      <FieldText label="Заголовок" value={content.title || ''} onChange={(v) => updateField('howto', 'title', v)} />
+      <FieldText label="Акцент в заголовке" value={content.titleAccent || ''} onChange={(v) => updateField('howto', 'titleAccent', v)} />
+      <FieldTextarea label="Подзаголовок" value={content.subtitle || ''} onChange={(v) => updateField('howto', 'subtitle', v)} />
+
+      <div>
+        <label className="label">Шаги</label>
+        <div className="space-y-3">
+          {steps.map((s: any, i: number) => (
+            <div key={i} className="border border-border rounded p-3">
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-xs text-text-muted">Шаг #{i + 1}</span>
+                <button onClick={() => removeArrayItem('howto', 'steps', i)} className="text-error hover:text-error/80"><Trash2 className="w-4 h-4" /></button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[80px_1fr] gap-2 mb-2">
+                <input className="input" placeholder="01" value={s.num || ''} onChange={(e) => updateArrayItem('howto', 'steps', i, { num: e.target.value })} />
+                <input className="input" placeholder="Заголовок шага" value={s.title || ''} onChange={(e) => updateArrayItem('howto', 'steps', i, { title: e.target.value })} />
+              </div>
+              <textarea className="input" placeholder="Описание" rows={2} value={s.description || ''} onChange={(e) => updateArrayItem('howto', 'steps', i, { description: e.target.value })} />
+            </div>
+          ))}
+        </div>
+        <button className="btn btn-secondary mt-2 flex items-center gap-2 text-sm" onClick={() => addArrayItem('howto', 'steps', { num: String(steps.length + 1).padStart(2, '0'), title: '', description: '' })}>
+          <Plus className="w-4 h-4" /> Добавить шаг
+        </button>
+      </div>
+
+      <FieldText label="Текст под шагами (мелкий)" value={content.footer || ''} onChange={(v) => updateField('howto', 'footer', v)} hint="Например: «Агентский договор оформляется при первой сделке»" />
+      <FieldText label="Текст кнопки" value={content.ctaText || ''} onChange={(v) => updateField('howto', 'ctaText', v)} />
+    </div>
+  );
+}
+
+// ── PROJECTS SECTION ──────────────────────────────────
+function ProjectsSectionEditor({ content, updateField }: any) {
+  return (
+    <div className="space-y-4">
+      <FieldText label="Тег" value={content.tag || ''} onChange={(v) => updateField('projectsSection', 'tag', v)} />
+      <FieldText label="Заголовок" value={content.title || ''} onChange={(v) => updateField('projectsSection', 'title', v)} />
+      <FieldText label="Акцент в заголовке" value={content.titleAccent || ''} onChange={(v) => updateField('projectsSection', 'titleAccent', v)} />
+      <FieldTextarea label="Подзаголовок (можно пустым)" value={content.subtitle || ''} onChange={(v) => updateField('projectsSection', 'subtitle', v)} />
+      <div className="text-xs text-text-muted">
+        Сами карточки проектов — в разделе <code>/admin/projects</code>. Здесь только заголовок и подзаголовок над ними.
       </div>
     </div>
   );

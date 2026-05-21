@@ -14,6 +14,15 @@ type ProjectItem = {
   description: string;
   ctaText: string | null;
   ctaHref: string | null;
+  classType: string | null;
+  address: string | null;
+  district: string | null;
+  totalUnits: number | null;
+  floorsTotal: number | null;
+  readyQuarter: number | null;
+  readyYear: number | null;
+  commissionFrom: number | string | null;
+  commissionTo: number | string | null;
   sortOrder: number;
   isActive: boolean;
 };
@@ -62,6 +71,13 @@ export default function AdminProjectsPage() {
         body: JSON.stringify({
           slug: p.slug, tag: p.tag, name: p.name, subtitle: p.subtitle,
           description: p.description, ctaText: p.ctaText, ctaHref: p.ctaHref,
+          classType: p.classType, address: p.address, district: p.district,
+          totalUnits: p.totalUnits === null || p.totalUnits === ('' as any) ? null : Number(p.totalUnits),
+          floorsTotal: p.floorsTotal === null || p.floorsTotal === ('' as any) ? null : Number(p.floorsTotal),
+          readyQuarter: p.readyQuarter === null || p.readyQuarter === ('' as any) ? null : Number(p.readyQuarter),
+          readyYear: p.readyYear === null || p.readyYear === ('' as any) ? null : Number(p.readyYear),
+          commissionFrom: p.commissionFrom === null || p.commissionFrom === '' ? null : Number(p.commissionFrom),
+          commissionTo: p.commissionTo === null || p.commissionTo === '' ? null : Number(p.commissionTo),
           sortOrder: p.sortOrder, isActive: p.isActive,
         }),
       });
@@ -160,14 +176,51 @@ export default function AdminProjectsPage() {
                 </div>
                 <FieldText label="Текст ссылки" value={p.ctaText || ''} onChange={(v) => updateLocal(idx, { ctaText: v })} disabled={!isAdmin} />
                 <FieldText label="URL (опционально)" value={p.ctaHref || ''} onChange={(v) => updateLocal(idx, { ctaHref: v })} disabled={!isAdmin} />
-                <div>
-                  <label className="label">Порядок</label>
-                  <input className="input" type="number" value={p.sortOrder} onChange={(e) => updateLocal(idx, { sortOrder: Number(e.target.value) })} disabled={!isAdmin} />
+              </div>
+
+              <div className="border-t border-border pt-3 mt-3 mb-3">
+                <h4 className="text-xs font-semibold text-text-muted uppercase mb-2">Карточка проекта на лендинге</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <FieldText label="Класс (бизнес/премиум…)" value={p.classType || ''} onChange={(v) => updateLocal(idx, { classType: v })} disabled={!isAdmin} />
+                  <FieldText label="Адрес" value={p.address || ''} onChange={(v) => updateLocal(idx, { address: v })} disabled={!isAdmin} />
+                  <FieldText label="Район" value={p.district || ''} onChange={(v) => updateLocal(idx, { district: v })} disabled={!isAdmin} />
+                  <div>
+                    <label className="label">Этажей всего</label>
+                    <input className="input" type="number" min={1} value={p.floorsTotal ?? ''} onChange={(e) => updateLocal(idx, { floorsTotal: e.target.value === '' ? null : Number(e.target.value) })} disabled={!isAdmin} />
+                  </div>
+                  <div>
+                    <label className="label">Лотов всего</label>
+                    <input className="input" type="number" min={1} value={p.totalUnits ?? ''} onChange={(e) => updateLocal(idx, { totalUnits: e.target.value === '' ? null : Number(e.target.value) })} disabled={!isAdmin} />
+                  </div>
+                  <div>
+                    <label className="label">Сдача — квартал (1-4)</label>
+                    <input className="input" type="number" min={1} max={4} value={p.readyQuarter ?? ''} onChange={(e) => updateLocal(idx, { readyQuarter: e.target.value === '' ? null : Number(e.target.value) })} disabled={!isAdmin} />
+                  </div>
+                  <div>
+                    <label className="label">Сдача — год</label>
+                    <input className="input" type="number" min={2025} max={2099} value={p.readyYear ?? ''} onChange={(e) => updateLocal(idx, { readyYear: e.target.value === '' ? null : Number(e.target.value) })} disabled={!isAdmin} />
+                  </div>
+                  <div>
+                    <label className="label">Комиссия от (%)</label>
+                    <input className="input" type="number" min={0} max={20} step={0.01} value={p.commissionFrom ?? ''} onChange={(e) => updateLocal(idx, { commissionFrom: e.target.value === '' ? null : e.target.value })} disabled={!isAdmin} />
+                  </div>
+                  <div>
+                    <label className="label">Комиссия до (%)</label>
+                    <input className="input" type="number" min={0} max={20} step={0.01} value={p.commissionTo ?? ''} onChange={(e) => updateLocal(idx, { commissionTo: e.target.value === '' ? null : e.target.value })} disabled={!isAdmin} />
+                  </div>
+                  <div>
+                    <label className="label">Порядок</label>
+                    <input className="input" type="number" value={p.sortOrder} onChange={(e) => updateLocal(idx, { sortOrder: Number(e.target.value) })} disabled={!isAdmin} />
+                  </div>
+                  <label className="flex items-center gap-2 self-end pb-3">
+                    <input type="checkbox" checked={p.isActive} onChange={(e) => updateLocal(idx, { isActive: e.target.checked })} disabled={!isAdmin} />
+                    Активен
+                  </label>
                 </div>
-                <label className="flex items-center gap-2 self-end pb-3">
-                  <input type="checkbox" checked={p.isActive} onChange={(e) => updateLocal(idx, { isActive: e.target.checked })} disabled={!isAdmin} />
-                  Активен
-                </label>
+                <p className="text-[10px] text-text-muted mt-2">
+                  Эти поля показываются в карточке проекта на лендинге (под названием).
+                  Если поле пусто — строка не выводится. «Комиссия от/до» рендерится как «5–8%».
+                </p>
               </div>
               {isAdmin && (
                 <div className="flex gap-2">
