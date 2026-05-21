@@ -102,7 +102,7 @@ function EditMeetingModal({ meeting, onClose, onSaved }: { meeting: any; onClose
 
           <div>
             <label className="label">Дата и время</label>
-            <input type="datetime-local" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+            <input type="datetime-local" className="input" value={date} onChange={(e) => setDate(e.target.value)} step="3600" />
           </div>
 
           <div>
@@ -328,8 +328,7 @@ export default function MeetingsPage() {
                       ) : (
                         <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
                           {slots.map((s) => {
-                            const t = new Date(s.startsAt);
-                            const time = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+                            const time = new Date(s.startsAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
                             const disabled = s.available === 0;
                             const selected = form.slotId === s.id;
                             return (
@@ -363,6 +362,7 @@ export default function MeetingsPage() {
                   value={form.date}
                   onChange={(e) => setForm({ ...form, date: e.target.value })}
                   min={new Date().toISOString().slice(0, 16)}
+                  step="3600"
                   required={!useSlots}
                 />
               )}
@@ -451,15 +451,15 @@ export default function MeetingsPage() {
                   <div key={m.id} className="flex items-start justify-between gap-3 py-3 border-b border-border last:border-0">
                     <div className="flex items-start gap-3 flex-1 min-w-0">
                       <div className="w-12 h-12 bg-surface-secondary rounded-lg flex flex-col items-center justify-center text-xs flex-shrink-0">
-                        <span className="font-bold">{new Date(m.date).getDate()}</span>
-                        <span className="text-text-muted">{new Date(m.date).toLocaleDateString('ru-RU', { month: 'short' })}</span>
+                        <span className="font-bold">{new Date(m.date).toLocaleDateString('ru-RU', { day: '2-digit', timeZone: 'Europe/Moscow' })}</span>
+                        <span className="text-text-muted">{new Date(m.date).toLocaleDateString('ru-RU', { month: 'short', timeZone: 'Europe/Moscow' })}</span>
                       </div>
                       <div className="min-w-0">
                         <div className="font-medium text-sm truncate">{m.client?.fullName}</div>
                         <div className="text-xs text-text-muted">
-                          {typeLabels[m.type] || m.type} · {new Date(m.date).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                          {typeLabels[m.type] || m.type} · {new Date(m.date).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })}
                         </div>
-                        {m.comment && <div className="text-xs text-text-muted mt-1 line-clamp-2">{m.comment}</div>}
+                        {m.comment && <div className="text-xs text-text-muted mt-1 whitespace-pre-wrap break-words">{m.comment}</div>}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">

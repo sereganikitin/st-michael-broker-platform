@@ -95,9 +95,9 @@ export default function AdminMeetingsPage() {
             {meetings.map((m: any) => (
               <div key={m.id} className="flex items-center gap-3 py-3 border-b border-border last:border-0">
                 <div className="w-14 h-14 bg-surface-secondary rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                  <span className="font-bold text-sm">{new Date(m.date).getDate()}</span>
-                  <span className="text-text-muted text-xs">{new Date(m.date).toLocaleDateString('ru-RU', { month: 'short' })}</span>
-                  <span className="text-text-muted text-[10px]">{new Date(m.date).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="font-bold text-sm">{new Date(m.date).toLocaleDateString('ru-RU', { day: '2-digit', timeZone: 'Europe/Moscow' })}</span>
+                  <span className="text-text-muted text-xs">{new Date(m.date).toLocaleDateString('ru-RU', { month: 'short', timeZone: 'Europe/Moscow' })}</span>
+                  <span className="text-text-muted text-[10px]">{new Date(m.date).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })}</span>
                 </div>
 
                 <div className="flex-1 min-w-0">
@@ -105,7 +105,7 @@ export default function AdminMeetingsPage() {
                   <div className="text-xs text-text-muted">
                     {m.client?.phone} → брокер: <span className="text-text">{m.broker?.fullName}</span> ({m.broker?.phone})
                   </div>
-                  {m.comment && <div className="text-xs text-text-muted mt-1 line-clamp-1">{m.comment}</div>}
+                  {m.comment && <div className="text-xs text-text-muted mt-1 whitespace-pre-wrap break-words">{m.comment}</div>}
                 </div>
 
                 <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${statusLabels[m.status]?.cls || ''}`}>

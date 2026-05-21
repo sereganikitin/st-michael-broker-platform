@@ -100,10 +100,12 @@ export default function AdminMeetingSlotsPage() {
       .catch((e) => setMsg(e.message || 'Ошибка'));
   };
 
-  // Group slots by date
+  // Group slots by date (в МСК — чтобы слот "02:00 22 мая МСК" не падал в группу "21 мая UTC")
   const groups: Record<string, Slot[]> = {};
   for (const s of slots) {
-    const day = s.startsAt.slice(0, 10);
+    // ru-RU 'sv-SE'-style yyyy-MM-dd в Europe/Moscow
+    const d = new Date(s.startsAt);
+    const day = `${d.toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' })}`; // en-CA даёт ISO yyyy-MM-dd
     if (!groups[day]) groups[day] = [];
     groups[day].push(s);
   }
@@ -189,12 +191,11 @@ export default function AdminMeetingSlotsPage() {
             {Object.entries(groups).sort().map(([day, daySlots]) => (
               <div key={day}>
                 <h3 className="font-semibold text-sm mb-2">
-                  {new Date(day).toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  {new Date(day + 'T12:00:00+03:00').toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' })}
                 </h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
                   {daySlots.map((s) => {
-                    const t = new Date(s.startsAt);
-                    const time = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+                    const time = new Date(s.startsAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
                     return (
                       <div key={s.id} className={`border rounded-lg p-2 text-sm ${s.isActive ? 'border-border' : 'border-border opacity-50 bg-surface-secondary'}`}>
                         <div className="flex justify-between items-center">

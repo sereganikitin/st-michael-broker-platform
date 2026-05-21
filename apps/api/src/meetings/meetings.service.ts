@@ -134,7 +134,7 @@ export class MeetingsService {
     });
 
     const typeLabel = data.type === 'OFFICE_VISIT' ? 'в офисе' : data.type === 'ONLINE' ? 'онлайн' : 'брокер-тур';
-    const dateStr = meetingDate.toLocaleString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const dateStr = meetingDate.toLocaleString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
     const body = `Встреча ${typeLabel} с клиентом ${meeting.client.fullName} запланирована на ${dateStr}`;
 
     try {
@@ -304,9 +304,12 @@ export class MeetingsService {
         for (const time of data.times) {
           const [h, m] = time.split(':').map(Number);
           if (isNaN(h) || isNaN(m)) continue;
-          const dt = new Date(`${day}T00:00:00`);
+          // Слоты задаются админом в Europe/Moscow (UTC+3). Явный offset
+          // нужен, чтобы серверная TZ (UTC в Docker) не сдвигала часы.
+          const dt = new Date(
+            `${day}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+03:00`,
+          );
           if (isNaN(dt.getTime())) continue;
-          dt.setHours(h, m, 0, 0);
           // Skip duplicates
           const exists = await this.prisma.meetingSlot.findFirst({
             where: { startsAt: dt, type: data.type as any || null },
