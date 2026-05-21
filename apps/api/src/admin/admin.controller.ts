@@ -112,6 +112,13 @@ export class AdminController {
     return this.adminService.getImportJob(id);
   }
 
+  @Post('brokers/amo-coverage')
+  @ApiOperation({ summary: 'Dry-run анализ: кого из amoCRM нет в нашей базе (admin only)' })
+  @Roles(UserRole.ADMIN)
+  async startAmoCoverage() {
+    return this.adminService.startAmoCoverageAnalysis();
+  }
+
   // ─── Колл-центр (TZ v3 §5) ─────────────────────────────────────────
 
   @Get('call-center/queue')

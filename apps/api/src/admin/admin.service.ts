@@ -703,6 +703,111 @@ export class AdminService {
     };
   }
 
+  // ─── Аналитика покрытия: что в amoCRM, чего нет в нашей базе ────────
+  // Dry-run: не пишет в БД, только сравнивает телефоны. Идёт в фоне,
+  // потому что обход 5000+ контактов в амо по одному GET-запросу долгий.
+
+  startAmoCoverageAnalysis() {
+    if (!process.env.AMO_ACCESS_TOKEN) {
+      throw new BadRequestException('AMO_ACCESS_TOKEN не настроен на сервере');
+    }
+    const job = this.importJobs.create();
+    void this.runAmoCoverage(job.id);
+    return { jobId: job.id, status: 'queued' };
+  }
+
+  private async runAmoCoverage(jobId: string) {
+    try {
+      this.importJobs.update(jobId, { status: 'running', step: 'parsing' });
+
+      const leads = await this.amo.getLeadsByPipeline(BROKER_PIPELINE_ID, 250);
+
+      // 1) Уникальные contactId из активных лидов (исключаем status_id=143 — closed-not-realized)
+      const contactIds = new Set<number>();
+      for (const lead of leads) {
+        if (lead.status_id === 143) continue;
+        const contacts = (lead as any)?._embedded?.contacts || [];
+        const main = contacts.find((c: any) => c.is_main) || contacts[0];
+        if (main?.id) contactIds.add(Number(main.id));
+      }
+
+      this.importJobs.setProgress(jobId, 0, contactIds.size, 'writing-brokers');
+
+      // 2) Тянем каждый контакт, проверяем IS_BROKER флаг, нормализуем телефон
+      const amoPhones = new Set<string>();
+      const amoByPhone = new Map<string, { name: string; amoContactId: number }>();
+      let notBrokerFlag = 0;
+      let invalidPhone = 0;
+      let amoErrors = 0;
+      let i = 0;
+
+      for (const contactId of contactIds) {
+        i++;
+        try {
+          const contact: any = await this.amo.getContact(contactId);
+          if (!contact) { amoErrors++; continue; }
+          const fields = contact.custom_fields_values || [];
+          const brokerField = fields.find((f: any) => f.field_id === AMO_CONTACT_FIELDS.IS_BROKER);
+          if (brokerField?.values?.[0]?.value !== true) { notBrokerFlag++; continue; }
+          const phoneField = fields.find((f: any) => f.field_id === AMO_CONTACT_FIELDS.PHONE);
+          const raw = phoneField?.values?.[0]?.value || '';
+          const norm = normalizePhone(raw);
+          if (!norm.ok || !norm.phone) { invalidPhone++; continue; }
+          amoPhones.add(norm.phone);
+          if (!amoByPhone.has(norm.phone)) {
+            amoByPhone.set(norm.phone, { name: contact.name || '—', amoContactId: contactId });
+          }
+        } catch (_) {
+          amoErrors++;
+        }
+        if (i % 20 === 0 || i === contactIds.size) {
+          this.importJobs.setProgress(jobId, i, contactIds.size, 'writing-brokers');
+        }
+      }
+
+      // 3) Все телефоны брокеров в БД
+      const dbBrokers = await this.prisma.broker.findMany({
+        select: { phone: true, fullName: true, isInBase: true, category: true },
+      });
+      const dbPhones = new Set(dbBrokers.map((b) => b.phone));
+
+      // 4) Расчёт
+      let inAmoNotInDb = 0;
+      let inBoth = 0;
+      const examplesAmoOnly: Array<{ name: string; phone: string; amoContactId: number }> = [];
+      for (const phone of amoPhones) {
+        if (dbPhones.has(phone)) {
+          inBoth++;
+        } else {
+          inAmoNotInDb++;
+          if (examplesAmoOnly.length < 50) {
+            const info = amoByPhone.get(phone)!;
+            examplesAmoOnly.push({ name: info.name, phone, amoContactId: info.amoContactId });
+          }
+        }
+      }
+
+      const dbBaseOnly = dbBrokers.filter((b) => b.isInBase && !amoPhones.has(b.phone));
+
+      this.importJobs.finish(jobId, {
+        totalLeadsInAmo: leads.length,
+        uniqueContactsInAmo: contactIds.size,
+        notBrokerFlag,
+        invalidPhone,
+        amoErrors,
+        uniquePhonesInAmo: amoPhones.size,
+        totalBrokersInDb: dbBrokers.length,
+        brokersInDbBase: dbBrokers.filter((b) => b.isInBase).length,
+        inAmoNotInDb,
+        inBoth,
+        inDbBaseNotInAmo: dbBaseOnly.length,
+        examplesAmoOnly,
+      });
+    } catch (e: any) {
+      this.importJobs.fail(jobId, e?.message || String(e));
+    }
+  }
+
   // ─── Колл-центр (TZ v3 §5) ──────────────────────────────────────────
   // Очередь обзвона: брокеры из базы КЦ (isInBase=true), которым можно звонить
   // (doNotCall=false), отсортированные по приоритету:

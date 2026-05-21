@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, apiGet, apiPost } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight, Shield, Download, FileSpreadsheet } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Shield, Download, FileSpreadsheet, BarChart3, X, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 const roleLabels: Record<string, string> = { BROKER: 'Брокер', MANAGER: 'Менеджер', ADMIN: 'Админ' };
@@ -25,6 +25,9 @@ export default function AdminBrokersPage() {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string>('');
+  const [coverageJob, setCoverageJob] = useState<any | null>(null);
+  const [coverageResult, setCoverageResult] = useState<any | null>(null);
+  const [coverageError, setCoverageError] = useState<string>('');
 
   if (broker && broker.role !== 'ADMIN' && broker.role !== 'MANAGER') {
     return <div className="card">Доступ запрещён</div>;
@@ -64,6 +67,42 @@ export default function AdminBrokersPage() {
     setImporting(false);
   };
 
+  const handleAmoCoverage = async () => {
+    setCoverageError('');
+    setCoverageResult(null);
+    try {
+      const r: any = await apiPost('/admin/brokers/amo-coverage', {});
+      setCoverageJob({ id: r.jobId, status: 'queued', step: 'queued', progress: { current: 0, total: 0 } });
+      pollCoverageJob(r.jobId);
+    } catch (e: any) {
+      setCoverageError(e?.message || 'Не удалось запустить анализ');
+    }
+  };
+
+  const pollCoverageJob = async (jobId: string) => {
+    try {
+      const j: any = await apiGet(`/admin/brokers/import-jobs/${jobId}`);
+      setCoverageJob(j);
+      if (j.status === 'done') {
+        setCoverageResult(j.result);
+        return;
+      }
+      if (j.status === 'failed') {
+        setCoverageError(j.error || 'Ошибка анализа');
+        return;
+      }
+      setTimeout(() => pollCoverageJob(jobId), 2500);
+    } catch (e: any) {
+      setCoverageError(e?.message || 'Ошибка polling');
+    }
+  };
+
+  const coverageProgressPct = coverageJob?.progress?.total
+    ? Math.round((coverageJob.progress.current / coverageJob.progress.total) * 100)
+    : 0;
+  const coverageInProgress = coverageJob && (coverageJob.status === 'queued' || coverageJob.status === 'running');
+  const closeCoverage = () => { setCoverageJob(null); setCoverageResult(null); setCoverageError(''); };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -72,7 +111,11 @@ export default function AdminBrokersPage() {
           <span className="text-text-muted text-sm">Всего в системе: {total}</span>
         </div>
         {broker?.role === 'ADMIN' && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={handleAmoCoverage} disabled={!!coverageInProgress} className="btn btn-secondary flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" />
+              {coverageInProgress ? 'Анализ…' : 'Анализ amoCRM vs база'}
+            </button>
             <Link href="/admin/brokers/import" className="btn btn-secondary flex items-center gap-2">
               <FileSpreadsheet className="w-4 h-4" />
               Импорт из xlsx
@@ -192,6 +235,88 @@ export default function AdminBrokersPage() {
           </>
         )}
       </div>
+
+      {coverageJob && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={closeCoverage}>
+          <div className="bg-surface rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 relative" onClick={(e) => e.stopPropagation()}>
+            <button onClick={closeCoverage} className="absolute top-4 right-4 text-text-muted hover:text-text">
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              {coverageInProgress && <Loader2 className="w-5 h-5 animate-spin text-accent" />}
+              <BarChart3 className="w-6 h-6 text-accent" />
+              Анализ amoCRM vs база
+            </h2>
+
+            {coverageError && (
+              <div className="p-3 bg-error/10 text-error rounded text-sm mb-4">{coverageError}</div>
+            )}
+
+            {coverageInProgress && coverageJob.progress?.total > 0 && (
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span>Обработано контактов: {coverageJob.progress.current} / {coverageJob.progress.total}</span>
+                  <span>{coverageProgressPct}%</span>
+                </div>
+                <div className="w-full bg-surface-secondary rounded-full h-2 overflow-hidden">
+                  <div className="bg-accent h-full transition-all" style={{ width: `${coverageProgressPct}%` }} />
+                </div>
+                <p className="text-xs text-text-muted mt-3">
+                  Это занимает несколько минут — каждый контакт амо запрашивается отдельно. Можно не закрывать вкладку.
+                </p>
+              </div>
+            )}
+
+            {coverageResult && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <KpiCard title="Лидов в воронке амо" value={coverageResult.totalLeadsInAmo} />
+                  <KpiCard title="Уникальных контактов" value={coverageResult.uniqueContactsInAmo} />
+                  <KpiCard title="Брокеров в нашей БД" value={coverageResult.totalBrokersInDb} />
+                  <KpiCard title="Из них в базе КЦ" value={coverageResult.brokersInDbBase} />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                  <KpiCard title="🆕 В амо но НЕТ у нас" value={coverageResult.inAmoNotInDb} cls="bg-warning/10 text-warning" big />
+                  <KpiCard title="✓ И там и там (по телефону)" value={coverageResult.inBoth} cls="bg-success/10 text-success" big />
+                  <KpiCard title="📋 У нас (база КЦ) но НЕТ в амо" value={coverageResult.inDbBaseNotInAmo} cls="bg-info/10 text-info" big />
+                </div>
+
+                <div className="text-xs text-text-muted bg-surface-secondary p-3 rounded space-y-1">
+                  <div>Без флага IS_BROKER пропущено: {coverageResult.notBrokerFlag}</div>
+                  <div>С невалидным телефоном пропущено: {coverageResult.invalidPhone}</div>
+                  <div>Ошибок amo-API: {coverageResult.amoErrors}</div>
+                  <div>Уникальных нормализованных телефонов из амо: {coverageResult.uniquePhonesInAmo}</div>
+                </div>
+
+                {coverageResult.examplesAmoOnly?.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">Примеры брокеров из амо, которых нет у нас (первые {coverageResult.examplesAmoOnly.length}):</h3>
+                    <div className="text-xs space-y-1 font-mono max-h-64 overflow-y-auto border border-border rounded p-2">
+                      {coverageResult.examplesAmoOnly.map((e: any, i: number) => (
+                        <div key={i} className="flex gap-3 py-0.5 border-b border-border/50 last:border-0">
+                          <span className="text-text-muted">amo#{e.amoContactId}</span>
+                          <span className="text-accent">{e.phone}</span>
+                          <span className="flex-1">{e.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KpiCard({ title, value, cls = '', big = false }: { title: string; value: number; cls?: string; big?: boolean }) {
+  return (
+    <div className={`p-3 rounded ${cls || 'bg-surface-secondary'}`}>
+      <div className="text-xs text-text-muted">{title}</div>
+      <div className={`font-bold ${big ? 'text-2xl' : 'text-lg'} mt-1`}>{value}</div>
     </div>
   );
 }
