@@ -1,5 +1,6 @@
-import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -84,6 +85,24 @@ export class AdminController {
   @Roles(UserRole.ADMIN)
   async importBrokersFromAmo() {
     return this.adminService.importBrokersFromAmo();
+  }
+
+  @Post('brokers/import-from-xlsx')
+  @ApiOperation({ summary: 'Import brokers from uploaded XLSX file (admin only, TZ v3 §3)' })
+  @ApiConsumes('multipart/form-data')
+  @Roles(UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  async importBrokersFromXlsx(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: {
+      filter?: string;
+      callFlag?: string;
+      dryRun?: string;
+      limit?: string;
+      includeCoords?: string;
+    },
+  ) {
+    return this.adminService.importBrokersFromXlsx(file, body);
   }
 
   // ─── Mailings ─────────────────────────────────────────────

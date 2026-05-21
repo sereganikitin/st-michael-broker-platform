@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, apiGet, apiPost } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight, Shield, Download } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Shield, Download, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 const roleLabels: Record<string, string> = { BROKER: 'Брокер', MANAGER: 'Менеджер', ADMIN: 'Админ' };
@@ -72,10 +72,16 @@ export default function AdminBrokersPage() {
           <span className="text-text-muted text-sm">Всего в системе: {total}</span>
         </div>
         {broker?.role === 'ADMIN' && (
-          <button onClick={handleImport} disabled={importing} className="btn btn-primary flex items-center gap-2">
-            <Download className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
-            {importing ? 'Импорт...' : 'Импорт из amoCRM'}
-          </button>
+          <div className="flex gap-2">
+            <Link href="/admin/brokers/import" className="btn btn-secondary flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4" />
+              Импорт из xlsx
+            </Link>
+            <button onClick={handleImport} disabled={importing} className="btn btn-primary flex items-center gap-2">
+              <Download className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
+              {importing ? 'Импорт...' : 'Импорт из amoCRM'}
+            </button>
+          </div>
         )}
       </div>
 

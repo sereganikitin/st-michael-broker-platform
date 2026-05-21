@@ -2,8 +2,17 @@ import { Injectable, Inject, NotFoundException, BadRequestException } from '@nes
 import { PrismaClient } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
+import * as XLSX from 'xlsx';
 import { AmocrmService } from '../amocrm/amocrm.service';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+import {
+  VALID_CATEGORIES,
+  VALID_CALL_FLAGS,
+  parseAndFilter,
+  mapCoordRow,
+  normalizePhone,
+  type BrokerCategoryCode,
+} from './brokers-import.helper';
 
 interface MailingFilters {
   project?: string;        // ZORGE9 / SILVER_BOR
@@ -680,6 +689,206 @@ export class AdminService {
       amoUpdated,
       newBroker: { id: newBroker.id, fullName: newBroker.fullName },
       oldBroker: { id: oldBroker.id, fullName: oldBroker.fullName },
+    };
+  }
+
+  // ─── Импорт брокеров из XLSX (admin) ──────────────────────────────────
+  // TZ v3 §3 — Михаил сам загружает свежий снэпшот Google-таблицы через UI.
+  // Логика парсинга вынесена в brokers-import.helper.ts.
+
+  async importBrokersFromXlsx(
+    file: Express.Multer.File | undefined,
+    opts: {
+      filter?: string;
+      callFlag?: string;
+      dryRun?: string | boolean;
+      limit?: string | number;
+      includeCoords?: string | boolean;
+    },
+  ) {
+    if (!file || !file.buffer) {
+      throw new BadRequestException('Файл не загружен');
+    }
+
+    // 1) Распарсить параметры
+    const filterRaw = (opts.filter || 'ALL').toString().toUpperCase();
+    const filter =
+      filterRaw === 'ALL'
+        ? new Set<BrokerCategoryCode>(VALID_CATEGORIES)
+        : new Set<BrokerCategoryCode>(
+            filterRaw.split(',').map((s) => s.trim()) as BrokerCategoryCode[],
+          );
+    for (const c of filter) {
+      if (!VALID_CATEGORIES.includes(c)) {
+        throw new BadRequestException(`Неизвестная категория в filter: ${c}`);
+      }
+    }
+
+    let callFlagFilter: Set<string> | null = null;
+    if (opts.callFlag && String(opts.callFlag).trim()) {
+      callFlagFilter = new Set(
+        String(opts.callFlag).split(',').map((s) => s.trim().toLowerCase()),
+      );
+      for (const f of callFlagFilter) {
+        if (!(VALID_CALL_FLAGS as readonly string[]).includes(f)) {
+          throw new BadRequestException(`Неизвестное значение call-flag: ${f}`);
+        }
+      }
+    }
+
+    const isDryRun = opts.dryRun === true || opts.dryRun === 'true' || opts.dryRun === '1';
+    const includeCoords =
+      opts.includeCoords === true || opts.includeCoords === 'true' || opts.includeCoords === '1';
+    const limit = opts.limit ? parseInt(String(opts.limit), 10) : null;
+
+    // 2) Прочитать xlsx из буфера
+    let workbook: XLSX.WorkBook;
+    try {
+      workbook = XLSX.read(file.buffer, { type: 'buffer' });
+    } catch (e: any) {
+      throw new BadRequestException(`Не получилось распарсить xlsx: ${e?.message || e}`);
+    }
+    if (workbook.SheetNames.length === 0) {
+      throw new BadRequestException('Файл не содержит листов');
+    }
+    const mainSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(mainSheet, { defval: null });
+
+    const coordRows: Record<string, unknown>[] = includeCoords && workbook.SheetNames.length >= 2
+      ? XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[workbook.SheetNames[1]], { defval: null })
+      : [];
+
+    // 3) Фильтрация + нормализация
+    const { candidates, stats } = parseAndFilter(rows, { filter, callFlagFilter, limit });
+
+    // 4) DRY-RUN — проверить сколько уже есть в БД
+    if (isDryRun) {
+      const existing = await this.prisma.broker.findMany({
+        where: { phone: { in: candidates.map((c) => c.phone) } },
+        select: { phone: true },
+      });
+      const existSet = new Set(existing.map((b) => b.phone));
+      const wouldUpdate = candidates.filter((c) => existSet.has(c.phone)).length;
+      const wouldCreate = candidates.length - wouldUpdate;
+      return {
+        dryRun: true,
+        stats: {
+          ...stats,
+          afterFilter: candidates.length,
+          wouldCreate,
+          wouldUpdate,
+          wouldCreateCallLogs: candidates.filter((c) => c.callResult).length +
+            candidates.filter((c) => c.zorgeResult).length,
+          coordRows: coordRows.length,
+        },
+        preview: candidates.slice(0, 10).map((c) => ({
+          phone: c.phone,
+          name: c.name || '(без имени)',
+          category: c.category,
+          resultStr: c.resultStr,
+          zorgeStr: c.zorgeStr,
+        })),
+      };
+    }
+
+    // 5) Реальная запись
+    const baseSource = 'xlsx_upload';
+    const dbStats = { created: 0, updated: 0, callLogsCreated: 0, errors: 0, coordCreated: 0, coordUpdated: 0 };
+    const errors: Array<{ phone: string; error: string }> = [];
+
+    for (const c of candidates) {
+      try {
+        const existing = await this.prisma.broker.findUnique({ where: { phone: c.phone } });
+        let brokerId: string;
+        if (existing) {
+          await this.prisma.broker.update({
+            where: { id: existing.id },
+            data: {
+              category: c.category as any,
+              isInBase: true,
+              baseSource,
+              doNotCall: existing.doNotCall || c.doNotCall,
+              fullName: existing.fullName || c.name || '(без имени)',
+            },
+          });
+          brokerId = existing.id;
+          dbStats.updated++;
+        } else {
+          const created = await this.prisma.broker.create({
+            data: {
+              fullName: c.name || '(без имени)',
+              phone: c.phone,
+              role: 'BROKER',
+              status: 'PENDING',
+              category: c.category as any,
+              isInBase: true,
+              baseSource,
+              doNotCall: c.doNotCall,
+            },
+          });
+          brokerId = created.id;
+          dbStats.created++;
+        }
+
+        if (c.callResult) {
+          await this.prisma.callLog.create({
+            data: { brokerId, result: c.callResult as any, comment: c.comment, campaign: null },
+          });
+          dbStats.callLogsCreated++;
+        }
+        if (c.zorgeResult) {
+          await this.prisma.callLog.create({
+            data: { brokerId, result: c.zorgeResult as any, comment: c.comment, campaign: 'Зорге 9' },
+          });
+          dbStats.callLogsCreated++;
+        }
+      } catch (e: any) {
+        dbStats.errors++;
+        if (errors.length < 20) errors.push({ phone: c.phone, error: e?.message || String(e) });
+      }
+    }
+
+    // 6) Координаторы (опционально)
+    if (includeCoords) {
+      for (const row of coordRows) {
+        const m = mapCoordRow(row);
+        const norm = normalizePhone(m.phoneRaw);
+        if (!norm.ok) continue;
+        try {
+          const existing = await this.prisma.broker.findUnique({ where: { phone: norm.phone! } });
+          if (existing) {
+            await this.prisma.broker.update({
+              where: { id: existing.id },
+              data: { isCoordinator: true, coordinatorAgency: m.agency, isInBase: true, baseSource },
+            });
+            dbStats.coordUpdated++;
+          } else {
+            await this.prisma.broker.create({
+              data: {
+                fullName: m.name,
+                phone: norm.phone!,
+                role: 'BROKER',
+                status: 'PENDING',
+                category: 'COLD' as any,
+                isCoordinator: true,
+                coordinatorAgency: m.agency,
+                isInBase: true,
+                baseSource,
+              },
+            });
+            dbStats.coordCreated++;
+          }
+        } catch (_) {
+          // координаторы — не критично, не валим общий импорт
+        }
+      }
+    }
+
+    return {
+      dryRun: false,
+      stats: { ...stats, afterFilter: candidates.length, coordRows: coordRows.length },
+      dbStats,
+      errors,
     };
   }
 
