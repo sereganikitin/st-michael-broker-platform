@@ -42,8 +42,13 @@ export default function AdminContentPage() {
         method: 'PATCH',
         body: JSON.stringify({ value: content[key] }),
       });
-      setMessage('Сохранено');
-      setTimeout(() => setMessage(''), 2000);
+      // Перечитываем content с бэка — если value реально сохранилось,
+      // в форме останется введённое значение; если что-то пошло не так,
+      // форма откатится к старому, и пользователь это сразу увидит.
+      const fresh = await apiGet('/admin/cms/content');
+      setContent(fresh || {});
+      setMessage('Сохранено · обнови лендинг в новой вкладке (Ctrl+F5) чтобы увидеть');
+      setTimeout(() => setMessage(''), 4000);
     } catch (e: any) { setMessage(e.message || 'Ошибка'); }
     setSaving(false);
   };

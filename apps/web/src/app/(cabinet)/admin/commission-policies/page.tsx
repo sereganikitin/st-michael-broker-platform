@@ -60,8 +60,29 @@ function PolicyForm({
   const [levels, setLevels] = useState<any[]>(
     initial?.levels || (project === 'ZORGE9' ? DEFAULT_LEVELS_ZORGE9 : DEFAULT_LEVELS_SILVER_BOR),
   );
-  const [startDate, setStartDate] = useState(initial ? toDateInput(initial.startDate) : '2026-05-07');
-  const [endDate, setEndDate] = useState(initial ? toDateInput(initial.endDate) : '2099-12-31');
+  // Дефолтная дата начала — сегодня, окончание — через год.
+  // 2099 в дефолте раньше ломал UX: date picker открывался на 2099 году и
+  // приходилось мотать назад. Если нужна «бессрочная» политика — кнопка ниже.
+  const today = new Date().toISOString().slice(0, 10);
+  const inOneYear = (() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() + 1);
+    return d.toISOString().slice(0, 10);
+  })();
+  const [startDate, setStartDate] = useState(initial ? toDateInput(initial.startDate) : today);
+  const [endDate, setEndDate] = useState(initial ? toDateInput(initial.endDate) : inOneYear);
+
+  const addYearsToStart = (years: number) => {
+    const d = new Date(startDate || today);
+    d.setFullYear(d.getFullYear() + years);
+    return d.toISOString().slice(0, 10);
+  };
+  const endYear = (endDate || '').slice(0, 4);
+  const setEndYear = (year: string) => {
+    const y = year.replace(/\D/g, '').slice(0, 4);
+    if (y.length !== 4) return;
+    setEndDate(`${y}${(endDate || '2026-12-31').slice(4)}`);
+  };
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
   const [notes, setNotes] = useState(initial?.notes || '');
   const [saving, setSaving] = useState(false);
@@ -150,7 +171,25 @@ function PolicyForm({
           </div>
           <div>
             <label className="text-sm text-text-muted block mb-1">Конец</label>
-            <input type="date" className="input w-full" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <div className="flex gap-2">
+              <input type="date" className="input flex-1" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                className="input w-20 text-center"
+                value={endYear}
+                onChange={(e) => setEndYear(e.target.value)}
+                placeholder="год"
+                title="Можно ввести год вручную"
+              />
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-xs">
+              <button type="button" className="text-accent hover:underline" onClick={() => setEndDate(addYearsToStart(1))}>+1 год</button>
+              <button type="button" className="text-accent hover:underline" onClick={() => setEndDate(addYearsToStart(3))}>+3 года</button>
+              <button type="button" className="text-accent hover:underline" onClick={() => setEndDate(addYearsToStart(5))}>+5 лет</button>
+              <button type="button" className="text-accent hover:underline" onClick={() => setEndDate('2099-12-31')}>Бессрочно</button>
+            </div>
           </div>
         </div>
 

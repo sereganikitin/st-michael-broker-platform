@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CmsService } from './cms.service';
@@ -8,13 +8,17 @@ import { CmsService } from './cms.service';
 export class PublicCmsController {
   constructor(private readonly cms: CmsService) {}
 
+  // Cache-Control: no-store — чтобы после правок в /admin/content
+  // лендинг сразу видел свежие значения, без задержки от CDN/service worker.
   @Get('content')
   @ApiOperation({ summary: 'All landing content blocks (with defaults if missing)' })
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   async allContent() {
     return this.cms.getAllContent();
   }
 
   @Get('content/:key')
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   async oneBlock(@Param('key') key: string) {
     return { key, value: await this.cms.getContent(key) };
   }
