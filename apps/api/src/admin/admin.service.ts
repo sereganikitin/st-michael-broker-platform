@@ -12,7 +12,9 @@ import {
   mapCoordRow,
   normalizePhone,
   type BrokerCategoryCode,
+  type Candidate,
 } from './brokers-import.helper';
+import { BrokerImportJobsService } from './broker-import-jobs.service';
 
 interface MailingFilters {
   project?: string;        // ZORGE9 / SILVER_BOR
@@ -31,6 +33,7 @@ export class AdminService {
     @Inject('PrismaClient') private prisma: PrismaClient,
     private amocrmService: AmocrmService,
     @InjectQueue('notifications') private notificationQueue: Queue,
+    private importJobs: BrokerImportJobsService,
   ) {}
 
   // ─── Mailings (broadcasts) ─────────────────────────────────
@@ -791,105 +794,179 @@ export class AdminService {
       };
     }
 
-    // 5) Реальная запись
+    // 5) Реальный импорт — запускаем в фоне (job), возвращаем jobId сразу.
+    //    Это нужно потому что 5500 брокеров × ~3-4 SQL/брокер = ~5 минут;
+    //    HTTP-таймаут (nginx/браузер) убьёт коннект, пользователь подумает
+    //    что не сработало и нажмёт повторно — а это удвоит CallLog.
+    const job = this.importJobs.create();
     const baseSource = 'xlsx_upload';
-    const dbStats = { created: 0, updated: 0, callLogsCreated: 0, errors: 0, coordCreated: 0, coordUpdated: 0 };
-    const errors: Array<{ phone: string; error: string }> = [];
 
-    for (const c of candidates) {
-      try {
-        const existing = await this.prisma.broker.findUnique({ where: { phone: c.phone } });
-        let brokerId: string;
-        if (existing) {
-          await this.prisma.broker.update({
-            where: { id: existing.id },
-            data: {
-              category: c.category as any,
-              isInBase: true,
-              baseSource,
-              doNotCall: existing.doNotCall || c.doNotCall,
-              fullName: existing.fullName || c.name || '(без имени)',
-            },
-          });
-          brokerId = existing.id;
-          dbStats.updated++;
-        } else {
-          const created = await this.prisma.broker.create({
-            data: {
-              fullName: c.name || '(без имени)',
-              phone: c.phone,
-              role: 'BROKER',
-              status: 'PENDING',
-              category: c.category as any,
-              isInBase: true,
-              baseSource,
-              doNotCall: c.doNotCall,
-            },
-          });
-          brokerId = created.id;
-          dbStats.created++;
-        }
-
-        if (c.callResult) {
-          await this.prisma.callLog.create({
-            data: { brokerId, result: c.callResult as any, comment: c.comment, campaign: null },
-          });
-          dbStats.callLogsCreated++;
-        }
-        if (c.zorgeResult) {
-          await this.prisma.callLog.create({
-            data: { brokerId, result: c.zorgeResult as any, comment: c.comment, campaign: 'Зорге 9' },
-          });
-          dbStats.callLogsCreated++;
-        }
-      } catch (e: any) {
-        dbStats.errors++;
-        if (errors.length < 20) errors.push({ phone: c.phone, error: e?.message || String(e) });
-      }
-    }
-
-    // 6) Координаторы (опционально)
-    if (includeCoords) {
-      for (const row of coordRows) {
-        const m = mapCoordRow(row);
-        const norm = normalizePhone(m.phoneRaw);
-        if (!norm.ok) continue;
-        try {
-          const existing = await this.prisma.broker.findUnique({ where: { phone: norm.phone! } });
-          if (existing) {
-            await this.prisma.broker.update({
-              where: { id: existing.id },
-              data: { isCoordinator: true, coordinatorAgency: m.agency, isInBase: true, baseSource },
-            });
-            dbStats.coordUpdated++;
-          } else {
-            await this.prisma.broker.create({
-              data: {
-                fullName: m.name,
-                phone: norm.phone!,
-                role: 'BROKER',
-                status: 'PENDING',
-                category: 'COLD' as any,
-                isCoordinator: true,
-                coordinatorAgency: m.agency,
-                isInBase: true,
-                baseSource,
-              },
-            });
-            dbStats.coordCreated++;
-          }
-        } catch (_) {
-          // координаторы — не критично, не валим общий импорт
-        }
-      }
-    }
+    void this.runRealImport(job.id, candidates, coordRows, includeCoords, baseSource, stats);
 
     return {
       dryRun: false,
-      stats: { ...stats, afterFilter: candidates.length, coordRows: coordRows.length },
-      dbStats,
-      errors,
+      jobId: job.id,
+      status: 'queued',
+      message: 'Импорт запущен в фоне. Опрашивай GET /admin/brokers/import-jobs/:id для прогресса.',
     };
+  }
+
+  // Фоновая запись импорта в БД с прогрессом и идемпотентностью CallLog.
+  // Вызывается через `void` из importBrokersFromXlsx — НЕ ждём её, ошибки
+  // НЕ должны утечь как unhandled rejection (всё в try/catch).
+  private async runRealImport(
+    jobId: string,
+    candidates: Candidate[],
+    coordRows: Record<string, unknown>[],
+    includeCoords: boolean,
+    baseSource: string,
+    parseStats: any,
+  ) {
+    const dbStats = {
+      created: 0,
+      updated: 0,
+      callLogsCreated: 0,
+      callLogsSkipped: 0,
+      errors: 0,
+      coordCreated: 0,
+      coordUpdated: 0,
+    };
+    const errors: Array<{ phone: string; error: string }> = [];
+
+    try {
+      this.importJobs.update(jobId, { status: 'running', step: 'writing-brokers' });
+      this.importJobs.setProgress(jobId, 0, candidates.length, 'writing-brokers');
+
+      let i = 0;
+      for (const c of candidates) {
+        i++;
+        try {
+          const existing = await this.prisma.broker.findUnique({ where: { phone: c.phone } });
+          let brokerId: string;
+          if (existing) {
+            await this.prisma.broker.update({
+              where: { id: existing.id },
+              data: {
+                category: c.category as any,
+                isInBase: true,
+                baseSource,
+                doNotCall: existing.doNotCall || c.doNotCall,
+                fullName: existing.fullName || c.name || '(без имени)',
+              },
+            });
+            brokerId = existing.id;
+            dbStats.updated++;
+          } else {
+            const created = await this.prisma.broker.create({
+              data: {
+                fullName: c.name || '(без имени)',
+                phone: c.phone,
+                role: 'BROKER',
+                status: 'PENDING',
+                category: c.category as any,
+                isInBase: true,
+                baseSource,
+                doNotCall: c.doNotCall,
+              },
+            });
+            brokerId = created.id;
+            dbStats.created++;
+          }
+
+          // Идемпотентность CallLog: НЕ создаём дубликат если у брокера уже
+          // есть запись с теми же (result, campaign, comment). Это защищает
+          // от удвоения истории при повторном запуске импорта того же xlsx.
+          if (c.callResult) {
+            const exists = await this.prisma.callLog.findFirst({
+              where: { brokerId, result: c.callResult as any, campaign: null, comment: c.comment },
+              select: { id: true },
+            });
+            if (!exists) {
+              await this.prisma.callLog.create({
+                data: { brokerId, result: c.callResult as any, comment: c.comment, campaign: null },
+              });
+              dbStats.callLogsCreated++;
+            } else {
+              dbStats.callLogsSkipped++;
+            }
+          }
+          if (c.zorgeResult) {
+            const exists = await this.prisma.callLog.findFirst({
+              where: { brokerId, result: c.zorgeResult as any, campaign: 'Зорге 9', comment: c.comment },
+              select: { id: true },
+            });
+            if (!exists) {
+              await this.prisma.callLog.create({
+                data: { brokerId, result: c.zorgeResult as any, comment: c.comment, campaign: 'Зорге 9' },
+              });
+              dbStats.callLogsCreated++;
+            } else {
+              dbStats.callLogsSkipped++;
+            }
+          }
+        } catch (e: any) {
+          dbStats.errors++;
+          if (errors.length < 20) errors.push({ phone: c.phone, error: e?.message || String(e) });
+        }
+
+        if (i % 25 === 0 || i === candidates.length) {
+          this.importJobs.setProgress(jobId, i, candidates.length, 'writing-brokers');
+        }
+      }
+
+      if (includeCoords && coordRows.length > 0) {
+        this.importJobs.setProgress(jobId, 0, coordRows.length, 'writing-coords');
+        let ci = 0;
+        for (const row of coordRows) {
+          ci++;
+          const m = mapCoordRow(row);
+          const norm = normalizePhone(m.phoneRaw);
+          if (!norm.ok) continue;
+          try {
+            const existing = await this.prisma.broker.findUnique({ where: { phone: norm.phone! } });
+            if (existing) {
+              await this.prisma.broker.update({
+                where: { id: existing.id },
+                data: { isCoordinator: true, coordinatorAgency: m.agency, isInBase: true, baseSource },
+              });
+              dbStats.coordUpdated++;
+            } else {
+              await this.prisma.broker.create({
+                data: {
+                  fullName: m.name,
+                  phone: norm.phone!,
+                  role: 'BROKER',
+                  status: 'PENDING',
+                  category: 'COLD' as any,
+                  isCoordinator: true,
+                  coordinatorAgency: m.agency,
+                  isInBase: true,
+                  baseSource,
+                },
+              });
+              dbStats.coordCreated++;
+            }
+          } catch (_) {
+            // координаторы — не критично, не валим общий импорт
+          }
+          if (ci % 25 === 0 || ci === coordRows.length) {
+            this.importJobs.setProgress(jobId, ci, coordRows.length, 'writing-coords');
+          }
+        }
+      }
+
+      this.importJobs.finish(jobId, {
+        stats: { ...parseStats, afterFilter: candidates.length, coordRows: coordRows.length },
+        dbStats,
+        errors,
+      });
+    } catch (e: any) {
+      this.importJobs.fail(jobId, e?.message || String(e));
+    }
+  }
+
+  getImportJob(id: string) {
+    return this.importJobs.get(id);
   }
 
 }

@@ -146,13 +146,58 @@ export interface ParseStats {
   total: number;
   invalidPhone: number;
   duplicatesInSheet: number;
+  duplicatesMerged: number;
   byCategory: Record<string, number>;
   byCallFlag: Record<string, number>;
+  unknownResults: Record<string, number>;
+  unknownZorge: Record<string, number>;
 }
 
 export interface ParseResult {
   candidates: Candidate[];
   stats: ParseStats;
+}
+
+// Ранг категорий для мерджа дублей: чем выше — тем ценнее, побеждает в мердже.
+// CONVERTED самый ценный (был на встрече/сделке — факт),
+// HOT > WARM > COLD — по активности воронки,
+// ON_BOT_REVIEW > BLACKLIST в самом низу (проблемные).
+const CATEGORY_RANK: Record<BrokerCategoryCode, number> = {
+  CONVERTED: 6,
+  HOT: 5,
+  WARM: 4,
+  COLD: 3,
+  ON_BOT_REVIEW: 2,
+  BLACKLIST: 1,
+};
+
+function pickBetterCategory(a: BrokerCategoryCode, b: BrokerCategoryCode): BrokerCategoryCode {
+  return CATEGORY_RANK[a] >= CATEGORY_RANK[b] ? a : b;
+}
+
+function mergeCandidates(a: Candidate, b: Candidate): Candidate {
+  // Текстовые поля: первое непустое выигрывает.
+  // doNotCall: OR — если ХОТЯ БЫ в одной строке указано "не звонить", не звоним
+  //   (безопаснее терять одну попытку, чем нарушить запрет).
+  // category: по рангу — берём более ценную.
+  // resultStr/callResult/zorgeStr/zorgeResult: берём ту строку, где они заполнены.
+  const merge = <T,>(x: T, y: T): T => (x ? x : y);
+  return {
+    name: merge(a.name, b.name),
+    phoneRaw: a.phoneRaw,
+    phone: a.phone,
+    foreign: a.foreign || b.foreign,
+    callFlag: merge(a.callFlag, b.callFlag),
+    category: pickBetterCategory(a.category, b.category),
+    callResult: a.callResult || b.callResult,
+    zorgeResult: a.zorgeResult || b.zorgeResult,
+    comment: a.comment && b.comment && a.comment !== b.comment
+      ? `${a.comment} | ${b.comment}`
+      : (a.comment || b.comment),
+    doNotCall: a.doNotCall || b.doNotCall,
+    resultStr: merge(a.resultStr, b.resultStr),
+    zorgeStr: merge(a.zorgeStr, b.zorgeStr),
+  };
 }
 
 export function parseAndFilter(
@@ -167,10 +212,13 @@ export function parseAndFilter(
     total: rows.length,
     invalidPhone: 0,
     duplicatesInSheet: 0,
+    duplicatesMerged: 0,
     byCategory: {},
     byCallFlag: {},
+    unknownResults: {},
+    unknownZorge: {},
   };
-  const seenPhones = new Set<string>();
+  const phoneIndex = new Map<string, number>(); // phone → index в allValid
   const allValid: Candidate[] = [];
 
   for (const row of rows) {
@@ -180,15 +228,41 @@ export function parseAndFilter(
       stats.invalidPhone++;
       continue;
     }
+    // Собираем нераспознанные значения, чтобы пользователь увидел опечатки
+    // в исходной таблице и понял почему часть данных уехала в дефолтный COLD.
+    if (m.resultStr && !RESULT_MAP[m.resultStr]) {
+      stats.unknownResults[m.resultStr] = (stats.unknownResults[m.resultStr] || 0) + 1;
+    }
+    if (m.zorgeStr && !ZORGE_MAP[m.zorgeStr]) {
+      stats.unknownZorge[m.zorgeStr] = (stats.unknownZorge[m.zorgeStr] || 0) + 1;
+    }
+
     stats.byCategory[m.category] = (stats.byCategory[m.category] || 0) + 1;
     const cfKey = m.callFlag || '(пусто)';
     stats.byCallFlag[cfKey] = (stats.byCallFlag[cfKey] || 0) + 1;
-    if (seenPhones.has(norm.phone!)) {
+
+    const newCand: Candidate = { ...m, phone: norm.phone!, foreign: !!norm.foreign };
+
+    if (phoneIndex.has(norm.phone!)) {
       stats.duplicatesInSheet++;
+      // Мердж — не отбрасываем, склеиваем лучшую информацию из обеих строк
+      const idx = phoneIndex.get(norm.phone!)!;
+      const before = allValid[idx];
+      const merged = mergeCandidates(before, newCand);
+      // Если мердж реально изменил данные — считаем это полезным мерджем
+      if (
+        merged.category !== before.category ||
+        merged.callResult !== before.callResult ||
+        merged.zorgeResult !== before.zorgeResult ||
+        merged.comment !== before.comment
+      ) {
+        stats.duplicatesMerged++;
+      }
+      allValid[idx] = merged;
       continue;
     }
-    seenPhones.add(norm.phone!);
-    allValid.push({ ...m, phone: norm.phone!, foreign: !!norm.foreign });
+    phoneIndex.set(norm.phone!, allValid.length);
+    allValid.push(newCand);
   }
 
   let candidates = allValid.filter((c) => opts.filter.has(c.category));

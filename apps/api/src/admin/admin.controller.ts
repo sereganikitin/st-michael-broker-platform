@@ -105,6 +105,13 @@ export class AdminController {
     return this.adminService.importBrokersFromXlsx(file, body);
   }
 
+  @Get('brokers/import-jobs/:id')
+  @ApiOperation({ summary: 'Poll import job status (admin only)' })
+  @Roles(UserRole.ADMIN)
+  async getImportJob(@Param('id') id: string) {
+    return this.adminService.getImportJob(id);
+  }
+
   // ─── Mailings ─────────────────────────────────────────────
 
   @Post('mailings/preview')
