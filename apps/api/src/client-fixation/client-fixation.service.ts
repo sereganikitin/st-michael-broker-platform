@@ -79,17 +79,24 @@ export class ClientFixationService {
       // Перед созданием — проверим что нет других брокеров у этого клиента
       // с активной фиксацией или встречей. Если есть — поднимаем UNDER_REVIEW
       // и НЕ создаём новый Client до решения менеджера.
+      // Валидные enum-значения (по schema.prisma):
+      //   UniquenessStatus: CONDITIONALLY_UNIQUE, REJECTED, UNDER_REVIEW, EXPIRED — НЕТ CONFIRMED
+      //   FixationStatus:   NOT_FIXED, FIXED, EXPIRED, ANNULLED
+      //   MeetingStatus:    PENDING, CONFIRMED, COMPLETED, CANCELLED
+      // Раньше тут было `['CONDITIONALLY_UNIQUE', 'CONFIRMED']` — невалидный
+      // CONFIRMED валил весь Prisma-запрос с ошибкой, поэтому ВООБЩЕ
+      // не работала фиксация. Bug-репорт 2026-05-22.
       const conflictingClient = await this.prisma.client.findFirst({
         where: {
           phone: data.phone,
           NOT: { brokerId },
           OR: [
             {
-              uniquenessStatus: { in: ['CONDITIONALLY_UNIQUE', 'CONFIRMED'] as any },
+              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
               uniquenessExpiresAt: { gt: new Date() },
             },
-            { fixationStatus: 'FIXED' },
-            { meetings: { some: { status: { in: ['CONFIRMED', 'COMPLETED'] } } } },
+            { fixationStatus: 'FIXED' as any },
+            { meetings: { some: { status: { in: ['CONFIRMED', 'COMPLETED'] as any } } } },
           ],
         },
         include: { broker: true, meetings: true },
