@@ -53,7 +53,7 @@ export default function DocumentsPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold">Документы</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">Документы</h1>
         <p className="text-text-muted text-sm mt-1">Договор-оферта, регламенты и условия сотрудничества</p>
       </div>
 

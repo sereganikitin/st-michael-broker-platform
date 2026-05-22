@@ -41,7 +41,7 @@ export default function MaterialsPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold">Материалы для брокеров</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">Материалы для брокеров</h1>
         <p className="text-text-muted text-sm mt-1">
           Готовый контент для продвижения проектов ST Michael
         </p>

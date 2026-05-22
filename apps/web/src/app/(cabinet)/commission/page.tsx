@@ -102,7 +102,7 @@ export default function CommissionPage() {
             </button>
           ))}
         </div>
-        <h1 className="text-3xl font-bold">Комиссия</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">Комиссия</h1>
       </div>
 
       {commission && !isFlat && (

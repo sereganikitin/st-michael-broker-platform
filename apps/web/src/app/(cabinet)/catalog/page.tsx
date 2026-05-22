@@ -405,7 +405,7 @@ export default function CatalogPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold">Подбор квартир</h1>
+          <h1 className="text-2xl md:text-3xl font-bold">Подбор квартир</h1>
           <span className="text-text-muted text-sm">Всего найдено: {total}</span>
         </div>
         <button

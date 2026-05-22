@@ -149,7 +149,7 @@ export default function ClientsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Клиенты</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">Клиенты</h1>
         <span className="text-text-muted text-sm">Всего: {total}</span>
       </div>
 

@@ -157,7 +157,7 @@ export default function FixationPage() {
 
   return (
     <div className="max-w-3xl">
-      <h1 className="text-3xl font-bold mb-6">Фиксация клиента</h1>
+      <h1 className="text-2xl md:text-3xl font-bold mb-6">Фиксация клиента</h1>
 
       <div className="card">
         <form onSubmit={handleSubmit} className="space-y-5">

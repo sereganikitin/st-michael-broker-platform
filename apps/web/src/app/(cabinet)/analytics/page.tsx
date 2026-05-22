@@ -37,7 +37,7 @@ export default function AnalyticsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Аналитика</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">Аналитика</h1>
         <div className="flex gap-2">
           {(['week', 'month', 'all'] as const).map((p) => (
             <button

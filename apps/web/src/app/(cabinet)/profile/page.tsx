@@ -181,7 +181,7 @@ function PersonalSection({ profile, onChanged }: { profile: FullProfile; onChang
             <label className="label">ФИО</label>
             <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Телефон</label>
               <input className="input" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
@@ -191,7 +191,7 @@ function PersonalSection({ profile, onChanged }: { profile: FullProfile; onChang
               <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Дата рождения</label>
               <input className="input" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
@@ -207,7 +207,7 @@ function PersonalSection({ profile, onChanged }: { profile: FullProfile; onChang
           </div>
           <div className="border-t border-border pt-3 mt-3">
             <div className="text-xs font-semibold text-text-muted mb-2 uppercase">Контакты в мессенджерах</div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Telegram username</label>
                 <input className="input" value={telegramUsername} onChange={(e) => setTelegramUsername(e.target.value.replace(/^@/, ''))} placeholder="без @" />
@@ -388,7 +388,7 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
             <label className="label">Юридический адрес</label>
             <input className="input" value={legalAddress} onChange={(e) => setLegalAddress(e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Название банка</label>
               <input className="input" value={bankName} onChange={(e) => setBankName(e.target.value)} />
@@ -729,7 +729,7 @@ export default function ProfilePage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Профиль</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">Профиль</h1>
         <button className="btn btn-secondary flex items-center gap-2" onClick={handleAmoSync} disabled={syncing}>
           <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
           {syncing ? 'Синхронизация...' : 'Синхр. amoCRM'}

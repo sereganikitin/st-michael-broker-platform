@@ -241,7 +241,7 @@ export default function MeetingsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Записаться на встречу</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">Записаться на встречу</h1>
         <span className="text-text-muted text-sm">Запланировано: {total}</span>
       </div>
 
