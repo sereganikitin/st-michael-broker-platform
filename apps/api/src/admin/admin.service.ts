@@ -833,13 +833,24 @@ export class AdminService {
       const cats = String(query.category).split(',').map((s) => s.trim()).filter(Boolean);
       if (cats.length > 0) where.category = { in: cats as any };
     }
+    // Bug fix 2026-05-22 (#3): не показывать оператору брокеров с
+    // запланированным звонком в будущем (например +7 дней).
+    // Условие OR: либо никогда не звонили (nextCallAt = null), либо
+    // время подошло (nextCallAt <= now). Если search активен — он перепишет
+    // where.OR, поэтому ставим nextCallFilter в where через AND.
+    const nextCallFilter = { OR: [{ nextCallAt: null }, { nextCallAt: { lte: new Date() } }] };
     if (query.search) {
       const s = String(query.search).trim();
-      where.OR = [
-        { fullName: { contains: s, mode: 'insensitive' } },
-        { phone: { contains: s } },
-        { coordinatorAgency: { contains: s, mode: 'insensitive' } },
+      where.AND = [
+        nextCallFilter,
+        { OR: [
+          { fullName: { contains: s, mode: 'insensitive' } },
+          { phone: { contains: s } },
+          { coordinatorAgency: { contains: s, mode: 'insensitive' } },
+        ] },
       ];
+    } else {
+      Object.assign(where, nextCallFilter);
     }
 
     const [brokers, total] = await Promise.all([
@@ -969,6 +980,17 @@ export class AdminService {
       },
       select: { id: true, fullName: true, category: true, doNotCall: true, lastCallAt: true, nextCallAt: true },
     });
+
+    // Sync результата звонка в amoCRM (правка #5 аудита 2026-05-22):
+    // если у брокера есть amoContactId — записываем note в его карточку
+    // в amo. Менеджеры в amoCRM видят что КЦ работает с этим контактом.
+    if (broker.amoContactId) {
+      const resultLabel = data.result;
+      const noteText = `Звонок КЦ: ${resultLabel}\n${data.campaign ? `Кампания: ${data.campaign}\n` : ''}${data.comment ? `Комментарий: ${data.comment}\n` : ''}Категория после звонка: ${categoryUpdate || broker.category}${doNotCallUpdate ? ' · Не звонить' : ''}${nextCallAt ? ` · Перезвонить: ${nextCallAt.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}` : ''}`;
+      this.amo.addNoteToContact(Number(broker.amoContactId), noteText).catch((e) => {
+        console.error('amoCRM addNoteToContact (logCall) failed:', e?.message || e);
+      });
+    }
 
     return { callLog, broker: updated };
   }

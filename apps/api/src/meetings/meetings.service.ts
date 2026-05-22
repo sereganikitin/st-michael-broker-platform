@@ -2,9 +2,11 @@ import { Injectable, Inject, NotFoundException, BadRequestException } from '@nes
 import { PrismaClient } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
+import { AmoCrmAdapter } from '@st-michael/integrations';
 
 @Injectable()
 export class MeetingsService {
+  private amo = new AmoCrmAdapter();
   constructor(
     @Inject('PrismaClient') private prisma: PrismaClient,
     @InjectQueue('notifications') private notificationQueue: Queue,
@@ -163,6 +165,22 @@ export class MeetingsService {
       await this.prisma.broker.update({
         where: { id: brokerId },
         data: { funnelStage: 'MEETING' },
+      });
+    }
+
+    // Sync встречи в amoCRM (правка #10 аудита 2026-05-22): если у клиента
+    // есть amoLeadId — добавляем note к лиду с инфой о встрече. Менеджеру
+    // в amo видно что брокер запланировал встречу. Note — самый простой
+    // способ; в будущем можно записать в custom_field «Дата и время встречи»
+    // когда узнаем точный field_id из инспектора.
+    const clientForAmo = await this.prisma.client.findUnique({
+      where: { id: data.clientId },
+      select: { amoLeadId: true },
+    });
+    if (clientForAmo?.amoLeadId) {
+      const note = `Брокер запланировал встречу: ${typeLabel}\nКлиент: ${meeting.client.fullName} (${meeting.client.phone})\nКогда: ${dateStr}\nКомментарий: ${meeting.comment || '(без комментария)'}`;
+      this.amo.addNoteToLead(Number(clientForAmo.amoLeadId), note).catch((e) => {
+        console.error('amoCRM addNoteToLead failed:', e?.message || e);
       });
     }
 

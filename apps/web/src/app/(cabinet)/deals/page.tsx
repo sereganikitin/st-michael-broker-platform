@@ -58,23 +58,17 @@ export default function DealsPage() {
       .finally(() => setLoading(false));
   }, [page, statusFilter]);
 
-  // Load aggregate summary across ALL deals (not just current page)
+  // KPI-сводка по ВСЕМ сделкам — теперь через специальный endpoint,
+  // не limit=100 (правка #2 из аудита 2026-05-22: у активного брокера
+  // с >100 сделок цифра была искажена).
   useEffect(() => {
-    apiGet('/deals?limit=100')
-      .then((data) => {
-        const all = data.deals || [];
-        const totalAmount = all.reduce((s: number, d: any) => s + Number(d.amount || 0), 0);
-        const earned = all
-          .filter((d: any) => d.status === 'PAID' || d.status === 'COMMISSION_PAID')
-          .reduce((s: number, d: any) => s + Number(d.commissionAmount || 0), 0);
-        const payable = all
-          .filter((d: any) => d.status === 'PAID')
-          .reduce((s: number, d: any) => s + Number(d.commissionAmount || 0), 0);
+    apiGet('/deals/summary')
+      .then((s: any) => {
         setSummary({
-          total: data.total || all.length,
-          totalAmount,
-          totalCommission: earned,
-          payable,
+          total: Number(s.total || 0),
+          totalAmount: Number(s.totalAmount || 0),
+          totalCommission: Number(s.totalCommission || 0),
+          payable: Number(s.paidCommission || 0),
         });
       })
       .catch(() => {});

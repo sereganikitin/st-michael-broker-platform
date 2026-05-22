@@ -167,6 +167,23 @@ export class AmoCrmAdapter {
     });
   }
 
+  // Добавить примечание к лиду в amoCRM. Используется для уведомления
+  // менеджеров о действиях брокера (создал встречу, оператор зафиксировал
+  // звонок и т.д.) — пока не настроены полноценные custom_fields.
+  async addNoteToLead(leadId: number, text: string): Promise<void> {
+    await this.request(`/leads/${leadId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify([{ note_type: 'common', params: { text } }]),
+    });
+  }
+
+  async addNoteToContact(contactId: number, text: string): Promise<void> {
+    await this.request(`/contacts/${contactId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify([{ note_type: 'common', params: { text } }]),
+    });
+  }
+
   // === Companies ===
   async findCompanyByInn(inn: string): Promise<AmoCompany | null> {
     try {

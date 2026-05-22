@@ -32,6 +32,19 @@ export class DealsController {
     });
   }
 
+  // KPI-сводка по ВСЕМ сделкам брокера (правка #2 из аудита 2026-05-22).
+  // Раньше /deals UI считал totalAmount по limit=100 сделок — у активного
+  // брокера с >100 сделок цифра врала. Этот endpoint считает агрегаты
+  // на стороне БД без лимита.
+  @Get('summary')
+  @ApiOperation({ summary: 'KPI summary по всем сделкам брокера (без пагинации)' })
+  async getDealsSummary(@CurrentUser() user: CurrentUserPayload, @Query() query: any) {
+    return this.dealsService.getDealsSummary(user.id, {
+      status: query.status,
+      project: query.project,
+    });
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get deal details' })
   @ApiResponse({ status: 200, description: 'Deal details' })

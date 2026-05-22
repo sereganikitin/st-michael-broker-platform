@@ -1,9 +1,36 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
+import { rateFor } from '../commission/commission.service';
 
 @Injectable()
 export class DealsService {
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
+
+  // KPI-сводка по ВСЕМ сделкам брокера (без пагинации) — для дашборда.
+  async getDealsSummary(brokerId: string, query: { status?: string; project?: string }) {
+    const where: any = { brokerId };
+    if (query.status) where.status = query.status;
+    if (query.project) where.project = query.project;
+
+    const agg = await this.prisma.deal.aggregate({
+      where,
+      _count: { id: true },
+      _sum: { amount: true, commissionAmount: true, sqm: true },
+    });
+
+    const paidAgg = await this.prisma.deal.aggregate({
+      where: { ...where, status: { in: ['PAID', 'COMMISSION_PAID'] } },
+      _sum: { commissionAmount: true },
+    });
+
+    return {
+      total: agg._count.id,
+      totalAmount: Number(agg._sum.amount ?? 0),
+      totalCommission: Number(agg._sum.commissionAmount ?? 0),
+      totalSqm: Number(agg._sum.sqm ?? 0),
+      paidCommission: Number(paidAgg._sum.commissionAmount ?? 0),
+    };
+  }
 
   async getDeals(
     brokerId: string,
@@ -104,13 +131,13 @@ export class DealsService {
       include: { agency: true },
     });
 
-    // Calculate commission rate based on agency level
+    // Calculate commission rate — используем единую таблицу COMMISSION_RATES
+    // из commission.service. Раньше здесь был дубль с другими значениями
+    // (Silver Bor START=4.5 vs 5.0) — это давало разную комиссию для
+    // одной и той же сделки в зависимости от того, кто её создал
+    // (ручное POST /deals vs amo-sync). Правка #7 из аудита 2026-05-22.
     const level = brokerAgency?.agency.commissionLevel || 'START';
-    const rateMap: Record<string, Record<string, number>> = {
-      ZORGE9: { START: 5.0, BASIC: 5.5, STRONG: 6.0, PREMIUM: 6.5, ELITE: 7.0, CHAMPION: 7.5, LEGEND: 8.0 },
-      SILVER_BOR: { START: 4.5, BASIC: 5.0, STRONG: 5.5, PREMIUM: 6.0, ELITE: 6.5, CHAMPION: 7.0, LEGEND: 7.5 },
-    };
-    const rate = rateMap[data.project]?.[level] || 5.0;
+    const rate = rateFor(data.project, level);
     const commissionAmount = (data.amount * rate) / 100;
 
     const deal = await this.prisma.deal.create({
