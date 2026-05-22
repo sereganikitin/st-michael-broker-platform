@@ -83,6 +83,12 @@ export class AuthController {
       email: body.email,
       phone: body.phone,
       birthDate: body.birthDate,
+      position: body.position,
+      telegramUsername: body.telegramUsername,
+      telegramId: body.telegramId,
+      whatsappUsername: body.whatsappUsername,
+      presentationSent: body.presentationSent,
+      region: body.region,
       agency: body.agency,
     });
   }

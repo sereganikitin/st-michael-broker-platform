@@ -254,6 +254,12 @@ model Broker {
   brokerTourDate         DateTime?                @map("broker_tour_date")
   doNotCall              Boolean                  @default(false) @map("do_not_call")
   bestCallTime           String?                  @map("best_call_time")
+  // ─── Поля для амо-карточки контакта (sync через brokerToAmoContactFields) ───
+  position               String? // Должность
+  telegramUsername       String?                  @map("telegram_username")
+  telegramId             String?                  @map("telegram_id") // Хранится как строка (могут быть длинные ID)
+  whatsappUsername       String?                  @map("whatsapp_username")
+  presentationSent       Boolean                  @default(false) @map("presentation_sent")
   // ─── База брокеров КЦ (TZ v3 §5) ───
   category               BrokerCategory           @default(COLD)
   specialization         BrokerSpecialization?

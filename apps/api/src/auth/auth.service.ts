@@ -408,6 +408,12 @@ export class AuthService {
       email: broker.email,
       avatarUrl: broker.avatarUrl,
       birthDate: broker.birthDate,
+      position: broker.position,
+      region: broker.region,
+      telegramUsername: broker.telegramUsername,
+      telegramId: broker.telegramId,
+      whatsappUsername: broker.whatsappUsername,
+      presentationSent: broker.presentationSent,
       role: broker.role,
       status: broker.status,
       funnelStage: broker.funnelStage,
@@ -438,6 +444,12 @@ export class AuthService {
       email?: string;
       phone?: string;
       birthDate?: string | null;
+      position?: string | null;
+      telegramUsername?: string | null;
+      telegramId?: string | null;
+      whatsappUsername?: string | null;
+      presentationSent?: boolean;
+      region?: string | null;
       agency?: {
         id?: string;
         legalAddress?: string | null;
@@ -472,6 +484,12 @@ export class AuthService {
         ...(data.email !== undefined && { email: data.email || null }),
         ...(data.phone && { phone: data.phone }),
         ...(birthDate !== undefined && { birthDate }),
+        ...(data.position !== undefined && { position: data.position || null }),
+        ...(data.telegramUsername !== undefined && { telegramUsername: data.telegramUsername || null }),
+        ...(data.telegramId !== undefined && { telegramId: data.telegramId || null }),
+        ...(data.whatsappUsername !== undefined && { whatsappUsername: data.whatsappUsername || null }),
+        ...(data.presentationSent !== undefined && { presentationSent: !!data.presentationSent }),
+        ...(data.region !== undefined && { region: data.region || null }),
       },
     });
 

@@ -33,6 +33,12 @@ interface FullProfile {
   email: string | null;
   avatarUrl?: string | null;
   birthDate?: string | null;
+  position?: string | null;
+  telegramUsername?: string | null;
+  telegramId?: string | null;
+  whatsappUsername?: string | null;
+  presentationSent?: boolean;
+  region?: string | null;
   role: string;
   status: string;
   funnelStage: string;
@@ -59,6 +65,12 @@ function PersonalSection({ profile, onChanged }: { profile: FullProfile; onChang
   const [phone, setPhone] = useState(profile.phone);
   const [email, setEmail] = useState(profile.email || '');
   const [birthDate, setBirthDate] = useState(profile.birthDate ? profile.birthDate.slice(0, 10) : '');
+  const [position, setPosition] = useState(profile.position || '');
+  const [region, setRegion] = useState(profile.region || '');
+  const [telegramUsername, setTelegramUsername] = useState(profile.telegramUsername || '');
+  const [telegramId, setTelegramId] = useState(profile.telegramId || '');
+  const [whatsappUsername, setWhatsappUsername] = useState(profile.whatsappUsername || '');
+  const [presentationSent, setPresentationSent] = useState(!!profile.presentationSent);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
@@ -69,6 +81,12 @@ function PersonalSection({ profile, onChanged }: { profile: FullProfile; onChang
     setPhone(profile.phone);
     setEmail(profile.email || '');
     setBirthDate(profile.birthDate ? profile.birthDate.slice(0, 10) : '');
+    setPosition(profile.position || '');
+    setRegion(profile.region || '');
+    setTelegramUsername(profile.telegramUsername || '');
+    setTelegramId(profile.telegramId || '');
+    setWhatsappUsername(profile.whatsappUsername || '');
+    setPresentationSent(!!profile.presentationSent);
     setEditing(true);
     setErr(''); setOk('');
   };
@@ -76,13 +94,21 @@ function PersonalSection({ profile, onChanged }: { profile: FullProfile; onChang
   const save = async () => {
     setSaving(true); setErr('');
     try {
-      await apiPatch('/auth/me', {
-        fullName: fullName !== profile.fullName ? fullName : undefined,
-        phone: phone !== profile.phone ? phone : undefined,
-        email: email !== (profile.email || '') ? email : undefined,
-        birthDate: birthDate || null,
-      });
-      setOk('Сохранено');
+      // Любое изменение → синк в amoCRM на бэке (auth.syncBrokerProfileToAmo).
+      // Передаём только реально изменённые поля.
+      const patch: any = {};
+      if (fullName !== profile.fullName) patch.fullName = fullName;
+      if (phone !== profile.phone) patch.phone = phone;
+      if (email !== (profile.email || '')) patch.email = email;
+      if (birthDate !== (profile.birthDate ? profile.birthDate.slice(0, 10) : '')) patch.birthDate = birthDate || null;
+      if (position !== (profile.position || '')) patch.position = position || null;
+      if (region !== (profile.region || '')) patch.region = region || null;
+      if (telegramUsername !== (profile.telegramUsername || '')) patch.telegramUsername = telegramUsername || null;
+      if (telegramId !== (profile.telegramId || '')) patch.telegramId = telegramId || null;
+      if (whatsappUsername !== (profile.whatsappUsername || '')) patch.whatsappUsername = whatsappUsername || null;
+      if (presentationSent !== !!profile.presentationSent) patch.presentationSent = presentationSent;
+      await apiPatch('/auth/me', patch);
+      setOk('Сохранено · отправлено в amoCRM');
       setEditing(false);
       onChanged();
       setTimeout(() => setOk(''), 2500);
@@ -165,13 +191,45 @@ function PersonalSection({ profile, onChanged }: { profile: FullProfile; onChang
               <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
           </div>
-          <div>
-            <label className="label">Дата рождения</label>
-            <input className="input" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Дата рождения</label>
+              <input className="input" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Должность</label>
+              <input className="input" value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Менеджер по продажам" />
+            </div>
           </div>
+          <div>
+            <label className="label">Регион</label>
+            <input className="input" value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Москва" />
+          </div>
+          <div className="border-t border-border pt-3 mt-3">
+            <div className="text-xs font-semibold text-text-muted mb-2 uppercase">Контакты в мессенджерах</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Telegram username</label>
+                <input className="input" value={telegramUsername} onChange={(e) => setTelegramUsername(e.target.value.replace(/^@/, ''))} placeholder="без @" />
+              </div>
+              <div>
+                <label className="label">Telegram ID</label>
+                <input className="input" value={telegramId} onChange={(e) => setTelegramId(e.target.value)} placeholder="123456789" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className="label">WhatsApp username</label>
+              <input className="input" value={whatsappUsername} onChange={(e) => setWhatsappUsername(e.target.value)} placeholder="username или номер" />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer text-sm pt-2">
+            <input type="checkbox" checked={presentationSent} onChange={(e) => setPresentationSent(e.target.checked)} />
+            Презентация отправлена
+          </label>
+          <p className="text-xs text-text-muted">Все эти поля автоматически попадают в карточку контакта в amoCRM.</p>
           <div className="flex gap-2 pt-2">
             <button className="btn btn-primary flex items-center gap-2" onClick={save} disabled={saving}>
-              <Check className="w-4 h-4" /> {saving ? 'Сохранение...' : 'Сохранить'}
+              <Check className="w-4 h-4" /> {saving ? 'Сохранение…' : 'Сохранить'}
             </button>
             <button className="btn btn-secondary flex items-center gap-2" onClick={() => setEditing(false)}>
               <X className="w-4 h-4" /> Отмена
@@ -184,6 +242,10 @@ function PersonalSection({ profile, onChanged }: { profile: FullProfile; onChang
           <Row icon={Phone} label="Телефон" value={profile.phone} />
           <Row icon={Mail} label="Email" value={profile.email || 'Не указан'} />
           <Row icon={Cake} label="Дата рождения" value={profile.birthDate ? new Date(profile.birthDate).toLocaleDateString('ru-RU') : 'Не указана'} />
+          {profile.position && <Row icon={Shield} label="Должность" value={profile.position} />}
+          {profile.region && <Row icon={Shield} label="Регион" value={profile.region} />}
+          {profile.telegramUsername && <Row icon={Shield} label="Telegram" value={'@' + profile.telegramUsername} />}
+          {profile.whatsappUsername && <Row icon={Shield} label="WhatsApp" value={profile.whatsappUsername} />}
           <Row icon={Shield} label="Роль" value={profile.role === 'BROKER' ? 'Брокер' : profile.role === 'MANAGER' ? 'Менеджер' : 'Админ'} />
           <Row icon={Shield} label="Статус" value={profile.status === 'ACTIVE' ? 'Активен' : profile.status} />
           <Row icon={Shield} label="Этап воронки" value={stageNames[profile.funnelStage] || profile.funnelStage} />

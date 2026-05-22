@@ -143,6 +143,11 @@ export function brokerToAmoContactFields(
     phone?: string | null;
     email?: string | null;
     region?: string | null;
+    position?: string | null;
+    telegramUsername?: string | null;
+    telegramId?: string | null;
+    whatsappUsername?: string | null;
+    presentationSent?: boolean | null;
     brokerTourVisited?: boolean | null;
     brokerTourDate?: Date | string | null;
     doNotCall?: boolean | null;
@@ -167,11 +172,32 @@ export function brokerToAmoContactFields(
       values: [{ value: broker.email, enum_code: 'WORK' }],
     });
   }
+  if (broker.position) {
+    fields.push({ field_id: AMO_CONTACT_FIELDS.POSITION, values: [{ value: broker.position }] });
+  }
   if (agency?.inn) {
     fields.push({ field_id: AMO_CONTACT_FIELDS.INN, values: [{ value: agency.inn }] });
   }
   if (agency?.name) {
     fields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: agency.name }] });
+  }
+  if (broker.telegramUsername) {
+    fields.push({
+      field_id: AMO_CONTACT_FIELDS.TELEGRAM_USERNAME,
+      values: [{ value: broker.telegramUsername }],
+    });
+  }
+  if (broker.telegramId) {
+    fields.push({
+      field_id: AMO_CONTACT_FIELDS.TELEGRAM_ID,
+      values: [{ value: broker.telegramId }],
+    });
+  }
+  if (broker.whatsappUsername) {
+    fields.push({
+      field_id: AMO_CONTACT_FIELDS.WHATSAPP_USERNAME,
+      values: [{ value: broker.whatsappUsername }],
+    });
   }
   if (broker.region) {
     fields.push({ field_id: AMO_CONTACT_FIELDS.REGION, values: [{ value: broker.region }] });
@@ -190,6 +216,12 @@ export function brokerToAmoContactFields(
         values: [{ value: Math.floor(d.getTime() / 1000) }],
       });
     }
+  }
+  if (broker.presentationSent) {
+    fields.push({
+      field_id: AMO_CONTACT_FIELDS.PRESENTATION_SENT,
+      values: [{ value: true }],
+    });
   }
   if (broker.doNotCall) {
     fields.push({ field_id: AMO_CONTACT_FIELDS.BLACKLIST, values: [{ value: true }] });
