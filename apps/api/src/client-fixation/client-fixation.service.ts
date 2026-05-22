@@ -64,16 +64,83 @@ export class ClientFixationService {
     }
 
     // Проверяем сначала запись ЭТОГО брокера — если он уже фиксировал, обновляем её.
-    // Если запись только у другого брокера — она нам не мешает: каждый брокер
-    // ведёт своего клиента отдельно. Уникальность не подтверждена только когда
-    // другой брокер дойдёт со сделкой до офиса (downgrade применяется отдельно).
-    // Правка 2026-05-14: multi-broker фиксация.
+    // Правка 2026-05-22 (bug-репорт): глобально смотрим ВСЕХ клиентов с этим
+    // телефоном, чтобы выявить конфликт с уникальностью другого брокера.
+    // Раньше другой брокер «не мешал» — но если у него клиент в активной
+    // CONDITIONALLY_UNIQUE / FIXED уникальности (или есть проведённая встреча)
+    // — это конфликт, фиксацию надо ставить на UNDER_REVIEW и уведомить
+    // менеджеров. Иначе создавали дубль без предупреждения.
     const existingClient = await this.prisma.client.findFirst({
       where: { phone: data.phone, brokerId },
       include: { deals: true, broker: true },
     });
 
     if (!existingClient) {
+      // Перед созданием — проверим что нет других брокеров у этого клиента
+      // с активной фиксацией или встречей. Если есть — поднимаем UNDER_REVIEW
+      // и НЕ создаём новый Client до решения менеджера.
+      const conflictingClient = await this.prisma.client.findFirst({
+        where: {
+          phone: data.phone,
+          NOT: { brokerId },
+          OR: [
+            {
+              uniquenessStatus: { in: ['CONDITIONALLY_UNIQUE', 'CONFIRMED'] as any },
+              uniquenessExpiresAt: { gt: new Date() },
+            },
+            { fixationStatus: 'FIXED' },
+            { meetings: { some: { status: { in: ['CONFIRMED', 'COMPLETED'] } } } },
+          ],
+        },
+        include: { broker: true, meetings: true },
+      });
+
+      if (conflictingClient) {
+        // Создаём запись в UNDER_REVIEW у НОВОГО брокера и уведомляем менеджеров.
+        const client = await this.prisma.client.create({
+          data: {
+            brokerId,
+            phone: data.phone,
+            fullName: data.fullName,
+            email: data.email || null,
+            comment: data.comment,
+            project: data.project as any,
+            fixationAgencyId: agency.id,
+            uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
+            uniquenessReason: `Конфликт: клиент уже на уникальности у брокера ${conflictingClient.broker.fullName} (${conflictingClient.broker.phone}). Менеджер проверит.`,
+          },
+        });
+
+        const managers = await this.prisma.broker.findMany({
+          where: { role: 'MANAGER', status: 'ACTIVE' },
+        });
+        for (const manager of managers) {
+          await this.notificationQueue.add('send', {
+            brokerId: manager.id,
+            channel: 'TELEGRAM',
+            subject: 'Конфликт фиксации',
+            body: `Брокер ${broker.fullName} запросил фиксацию клиента ${data.phone}, который уже на уникальности у ${conflictingClient.broker.fullName}.`,
+          });
+        }
+        await this.notificationQueue.add('send', {
+          brokerId,
+          channel: 'SMS',
+          body: `Клиент ${data.phone} уже на уникальности у другого брокера. Менеджер уведомлён.`,
+        });
+
+        await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
+          scenario: 'CROSS_BROKER_CONFLICT',
+          existingBrokerId: conflictingClient.brokerId,
+          existingBrokerName: conflictingClient.broker.fullName,
+        });
+
+        return {
+          client,
+          status: 'UNDER_REVIEW',
+          message: `Клиент уже на уникальности у брокера ${conflictingClient.broker.fullName}. Менеджер уведомлён и проверит фиксацию.`,
+        };
+      }
+
       // Scenario 1: New client
       const client = await this.prisma.client.create({
         data: {

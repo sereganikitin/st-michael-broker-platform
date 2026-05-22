@@ -178,10 +178,20 @@ export default function FixationPage() {
                   <input
                     type="tel"
                     className="input rounded-l-none"
-                    placeholder="9991234567"
-                    value={phoneDigits}
+                    placeholder="(999) 123-45-67"
+                    // value — отформатированный «(999) 123-45-67» от текущих phoneDigits.
+                    // При onChange — извлекаем только цифры (не больше 10).
+                    value={(() => {
+                      const d = phoneDigits;
+                      if (!d) return '';
+                      let out = '(' + d.slice(0, 3);
+                      if (d.length > 3) out += ') ' + d.slice(3, 6);
+                      if (d.length > 6) out += '-' + d.slice(6, 8);
+                      if (d.length > 8) out += '-' + d.slice(8, 10);
+                      return out;
+                    })()}
                     onChange={(e) => setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    maxLength={10}
+                    inputMode="numeric"
                     required
                   />
                 </div>
