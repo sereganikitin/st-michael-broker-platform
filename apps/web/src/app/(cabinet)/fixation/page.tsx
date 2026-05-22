@@ -367,16 +367,8 @@ export default function FixationPage() {
                   <option value="Горячий">Горячий</option>
                 </select>
               </div>
-              <div className="flex items-end pb-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={presentationSent}
-                    onChange={(e) => setPresentationSent(e.target.checked)}
-                  />
-                  <span className="text-sm">Презентация клиенту отправлена</span>
-                </label>
-              </div>
+              {/* Чекбокс «Презентация отправлена» убран 2026-05-22 по запросу:
+                  это решает менеджер уже после звонка клиенту, не брокер при фиксации. */}
             </div>
           </div>
 

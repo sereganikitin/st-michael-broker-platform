@@ -1,4 +1,8 @@
 import { Project } from '@st-michael/shared';
+import {
+  AMO_LEAD_FIELDS, AMO_LEAD_ENUMS,
+  readinessLevelToEnumId, purchaseTimingToEnumId,
+} from './amo-crm.fields';
 
 export interface AmoContact {
   id: number;
@@ -385,6 +389,35 @@ export class AmoCrmAdapter {
     };
     const projectObj = objectByProject[String(data.project)] || 'Зорге 9';
     customFields.push({ field_id: 839179, values: [{ value: projectObj }] });
+
+    // Поля воронки КЦ (2026-05-22, ID получены через debug-endpoint):
+    // — От брокера (radio): для fixation request ВСЕГДА Да
+    if (data.fromBroker !== false) {
+      customFields.push({
+        field_id: AMO_LEAD_FIELDS.FROM_BROKER,
+        values: [{ enum_id: AMO_LEAD_ENUMS.FROM_BROKER_YES }],
+      });
+    }
+    // — Дата создания заявки от брокера (date, unix sec) — текущий момент
+    customFields.push({
+      field_id: AMO_LEAD_FIELDS.BROKER_REQUEST_DATE,
+      values: [{ value: Math.floor(Date.now() / 1000) }],
+    });
+    // — Опросник заполнен (select) = Нет (по умолчанию для свежей фиксации)
+    customFields.push({
+      field_id: AMO_LEAD_FIELDS.QUESTIONNAIRE_FILLED,
+      values: [{ enum_id: AMO_LEAD_ENUMS.QUESTIONNAIRE_NO }],
+    });
+    // — Готовность к сделке (select) — если оператор выбрал в форме
+    if (data.readinessLevel) {
+      const eid = readinessLevelToEnumId(data.readinessLevel);
+      if (eid) customFields.push({ field_id: AMO_LEAD_FIELDS.READINESS_LEVEL, values: [{ enum_id: eid }] });
+    }
+    // — Планирует покупку в срок (select)
+    if (data.purchaseTiming) {
+      const eid = purchaseTimingToEnumId(data.purchaseTiming);
+      if (eid) customFields.push({ field_id: AMO_LEAD_FIELDS.PURCHASE_TIMING, values: [{ enum_id: eid }] });
+    }
 
     // Шаг 1: создаём лид с минимумом — name, contacts, pipeline, price.
     // Salesbot/Morekit отрабатывает и пишет свои поля (Этапы продаж, Ответственный КЦ).

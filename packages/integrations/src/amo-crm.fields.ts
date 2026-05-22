@@ -262,7 +262,53 @@ export const AMO_LEAD_FIELDS = {
   // Комиссия — проставляется руками менеджером в amoCRM. Авторитет, не считаем локально.
   COMMISSION_AMOUNT: 673171,         // text "Комиссия в руб."
   COMMISSION_RATE: 673169,           // text "Комиссия брокера в %"
+  // Поля воронки КЦ (используются при createFixationRequest) — узнаны
+  // через debug-endpoint 2026-05-22.
+  FROM_BROKER: 665195,               // radiobutton "От брокера"
+  PURCHASE_TIMING: 612517,           // select "Планирует покупку в срок"
+  READINESS_LEVEL: 839449,           // select "Готовность к сделке"
+  QUESTIONNAIRE_FILLED: 842273,      // select "Опросник заполнен"
+  BROKER_REQUEST_DATE: 833189,       // date "Дата создания заявки от брокера" (unix sec)
 } as const;
+
+// Enum values для select/radio полей лида КЦ.
+export const AMO_LEAD_ENUMS = {
+  FROM_BROKER_YES: 985337,
+  FROM_BROKER_NO: 985339,
+  // Готовность к сделке
+  READINESS_HOT: 1025401,            // ☀️ Горячий
+  READINESS_WARM: 1025403,           // ⛅️ Тёплый
+  READINESS_COLD: 1025405,           // ❄️ Холодный
+  // Опросник заполнен
+  QUESTIONNAIRE_YES: 1028039,
+  QUESTIONNAIRE_NO: 1028041,
+  // Планирует покупку
+  PURCHASE_1_TO_3_MONTHS: 890509,
+  PURCHASE_3_TO_6_MONTHS: 890511,
+  PURCHASE_OVER_5_MONTHS: 890513,    // в amo это «от 5 месяцев»
+  PURCHASE_NOT_CLARIFIED: 891589,
+} as const;
+
+// Маппинг из строки UI в enum_id amoCRM для readinessLevel.
+export function readinessLevelToEnumId(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const v = value.toLowerCase().replace(/[^а-яё]/g, '');
+  if (v.includes('горяч')) return AMO_LEAD_ENUMS.READINESS_HOT;
+  if (v.includes('тёпл') || v.includes('тепл')) return AMO_LEAD_ENUMS.READINESS_WARM;
+  if (v.includes('холод')) return AMO_LEAD_ENUMS.READINESS_COLD;
+  return null;
+}
+
+// Маппинг purchaseTiming из строки UI в enum_id amoCRM.
+export function purchaseTimingToEnumId(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const v = value.toLowerCase();
+  if (v.includes('1') && v.includes('3')) return AMO_LEAD_ENUMS.PURCHASE_1_TO_3_MONTHS;
+  if (v.includes('3') && v.includes('6')) return AMO_LEAD_ENUMS.PURCHASE_3_TO_6_MONTHS;
+  if (v.includes('6') || v.includes('12') || v.includes('более')) return AMO_LEAD_ENUMS.PURCHASE_OVER_5_MONTHS;
+  if (v.includes('выясн') || v.includes('не указ')) return AMO_LEAD_ENUMS.PURCHASE_NOT_CLARIFIED;
+  return null;
+}
 
 /**
  * Helper: достать значение custom field по field_id.
