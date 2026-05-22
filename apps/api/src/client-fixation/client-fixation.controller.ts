@@ -38,13 +38,7 @@ export class ClientFixationController {
   @ApiOperation({ summary: 'Fix client uniqueness' })
   @ApiResponse({ status: 201, description: 'Client fixed successfully' })
   async fixClient(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
-    const data = fixClientDtoSchema.parse(body) as {
-      phone: string;
-      fullName: string;
-      comment?: string;
-      project: Project;
-      agencyInn: string;
-    };
+    const data = fixClientDtoSchema.parse(body) as any;
     return this.clientFixationService.fixClient(user.id, data);
   }
 

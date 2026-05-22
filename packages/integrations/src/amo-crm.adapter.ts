@@ -319,7 +319,10 @@ export class AmoCrmAdapter {
     clientPhone: string;
     clientEmail?: string;        // правка 2026-05-15: записывается на контакт
     clientName: string;
+    clientRegion?: string;       // правка 2026-05-22: регион клиента (REGION=589265)
+    presentationSent?: boolean;  // правка 2026-05-22: «Отправлена презентация» на контакт клиента
     brokerPhone: string;
+    brokerAmoContactId?: number; // правка 2026-05-22: привязка брокера-агента как 2-го контакта лида
     agencyName: string;
     agencyInn: string;
     comment: string;
@@ -329,27 +332,36 @@ export class AmoCrmAdapter {
     roomsCount?: string;
     amount?: number;
     sqm?: number;
+    // Новые поля 2026-05-22 — заполняются опционально из формы фиксации.
+    purchaseTiming?: string;     // «Планирует покупку»: от 1 до 3 месяцев, 3-6, и т.д.
+    readinessLevel?: string;     // «Готовность к сделке»: Холодный/Тёплый/Горячий
+    fromBroker?: boolean;        // «От брокера» radio (по умолчанию true для fixation request)
   }): Promise<AmoLead> {
+    // Контакт КЛИЕНТА — формируем custom_fields_values, отдельно от создания
+    const clientCustomFields: any[] = [
+      { field_code: 'PHONE', values: [{ value: data.clientPhone, enum_code: 'WORK' }] },
+    ];
+    if (data.clientEmail) {
+      clientCustomFields.push({ field_code: 'EMAIL', values: [{ value: data.clientEmail, enum_code: 'WORK' }] });
+    }
+    if (data.clientRegion) {
+      clientCustomFields.push({ field_id: 589265, values: [{ value: data.clientRegion }] });
+    }
+    if (data.presentationSent) {
+      clientCustomFields.push({ field_id: 835955, values: [{ value: true }] });
+    }
+
     let contact = await this.findContactByPhone(data.clientPhone);
     if (!contact) {
-      const contactCustomFields: any[] = [
-        { field_code: 'PHONE', values: [{ value: data.clientPhone, enum_code: 'WORK' }] },
-      ];
-      if (data.clientEmail) {
-        contactCustomFields.push({ field_code: 'EMAIL', values: [{ value: data.clientEmail, enum_code: 'WORK' }] });
-      }
       contact = await this.createContact({
         name: data.clientName,
-        custom_fields_values: contactCustomFields,
+        custom_fields_values: clientCustomFields,
       });
-    } else if (data.clientEmail) {
-      // Если контакт уже есть и есть новый email — обновим (амо вернёт без ошибки если такой же).
+    } else {
+      // Контакт существует — обновим переданные поля (email/region/presentation).
+      // Без try/catch: если amo вернёт ошибку, мы не валим всю операцию.
       try {
-        await this.updateContact(contact.id, {
-          custom_fields_values: [
-            { field_code: 'EMAIL', values: [{ value: data.clientEmail, enum_code: 'WORK' }] },
-          ],
-        } as any);
+        await this.updateContact(contact.id, { custom_fields_values: clientCustomFields } as any);
       } catch {}
     }
 
@@ -378,9 +390,17 @@ export class AmoCrmAdapter {
     // Salesbot/Morekit отрабатывает и пишет свои поля (Этапы продаж, Ответственный КЦ).
     // Правка 2026-05-15: разделено на 2 шага потому что Salesbot затирал наши
     // custom_fields_values при создании в одном вызове.
+    //
+    // Правка 2026-05-22: к лиду привязываются ДВА контакта — клиент И брокер.
+    // Без брокера в `contacts` непонятно «от кого пришла заявка» (на скриншоте
+    // КБ3 в лиде виден второй контакт «Малыгина Елена Александровна» — агент).
+    const leadContacts: Array<{ id: number }> = [];
+    if (contact?.id) leadContacts.push({ id: contact.id });
+    if (data.brokerAmoContactId) leadContacts.push({ id: data.brokerAmoContactId });
+
     const leadData: any = {
       name: `Фиксация: ${data.clientName} (${data.project})`,
-      contacts: contact ? [{ id: contact.id }] : undefined,
+      contacts: leadContacts.length > 0 ? leadContacts : undefined,
       pipeline_id: 7600542,
     };
     if (data.amount && data.amount > 0) leadData.price = data.amount; // встроенное поле «Бюджет» лида

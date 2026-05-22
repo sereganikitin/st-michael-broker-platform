@@ -32,6 +32,11 @@ export class ClientFixationService {
       amount?: number;
       sqm?: number;
       participants?: { firstName?: string; lastName?: string; phone?: string }[];
+      // Правка 2026-05-22: дополнительные поля для лида и контакта клиента
+      clientRegion?: string;       // регион клиента → REGION 589265
+      presentationSent?: boolean;  // отправлена презентация → PRESENTATION_SENT 835955
+      purchaseTiming?: string;     // «Планирует покупку» (от 1 до 3 месяцев и т.д.)
+      readinessLevel?: string;     // «Готовность к сделке» (Холодный/Тёплый/Горячий)
     },
   ) {
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
@@ -103,7 +108,10 @@ export class ClientFixationService {
         clientPhone: data.phone,
         clientEmail: data.email,
         clientName: data.fullName,
+        clientRegion: data.clientRegion,
+        presentationSent: data.presentationSent,
         brokerPhone: broker.phone,
+        brokerAmoContactId: broker.amoContactId ? Number(broker.amoContactId) : undefined,
         agencyName: agency.name,
         agencyInn: agency.inn,
         comment: fullComment,
@@ -112,6 +120,9 @@ export class ClientFixationService {
         roomsCount: data.roomsCount,
         amount: data.amount,
         sqm: data.sqm,
+        purchaseTiming: data.purchaseTiming,
+        readinessLevel: data.readinessLevel,
+        fromBroker: true, // фиксация ВСЕГДА от брокера
       });
 
       // Update broker funnel stage if needed

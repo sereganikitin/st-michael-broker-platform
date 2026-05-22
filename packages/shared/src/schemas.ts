@@ -51,9 +51,24 @@ export const refreshTokenDtoSchema = z.object({
 export const fixClientDtoSchema = z.object({
   phone: phoneSchema,
   fullName: z.string().min(2, 'Full name too short'),
+  email: z.string().email().optional(),
   comment: z.string().optional(),
   project: z.nativeEnum(Project),
   agencyInn: z.string().regex(/^\d{10}$/, 'INN must be 10 digits'),
+  // Auto-fill amo lead/contact fields (правка 2026-05-22)
+  propertyType: z.string().optional(),
+  roomsCount: z.string().optional(),
+  amount: z.number().optional(),
+  sqm: z.number().optional(),
+  participants: z.array(z.object({
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    phone: z.string().optional(),
+  })).optional(),
+  clientRegion: z.string().optional(),
+  presentationSent: z.boolean().optional(),
+  purchaseTiming: z.string().optional(),
+  readinessLevel: z.string().optional(),
 });
 
 // Client schemas

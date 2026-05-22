@@ -50,6 +50,11 @@ export default function FixationPage() {
   const [sqm, setSqm] = useState('');
   const [amount, setAmount] = useState(''); // raw digits
   const [participants, setParticipants] = useState<Participant[]>([]);
+  // Правка 2026-05-22: новые поля по КБ3 (amo интеграция)
+  const [clientRegion, setClientRegion] = useState('');
+  const [presentationSent, setPresentationSent] = useState(false);
+  const [purchaseTiming, setPurchaseTiming] = useState('');
+  const [readinessLevel, setReadinessLevel] = useState<'Холодный' | 'Тёплый' | 'Горячий' | ''>('Тёплый');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -101,6 +106,10 @@ export default function FixationPage() {
         roomsCount: roomsCount || undefined,
         amount: amount ? Number(amount) : undefined,
         sqm: sqm ? Number(sqm) : undefined,
+        clientRegion: clientRegion || undefined,
+        presentationSent,
+        purchaseTiming: purchaseTiming || undefined,
+        readinessLevel: readinessLevel || undefined,
         participants: participants
           .filter((p) => p.firstName || p.lastName || p.phone)
           .map((p) => ({
@@ -130,6 +139,10 @@ export default function FixationPage() {
     setSqm('');
     setAmount('');
     setParticipants([]);
+    setClientRegion('');
+    setPresentationSent(false);
+    setPurchaseTiming('');
+    setReadinessLevel('Тёплый');
     setShowSuccess(false);
   };
 
@@ -297,6 +310,53 @@ export default function FixationPage() {
                 {Number(amount).toLocaleString('ru-RU')} ₽
               </div>
             )}
+          </div>
+
+          {/* Дополнительные поля для amoCRM-лида (правка 2026-05-22, КБ3) */}
+          <div className="border-t border-border pt-4 mt-2">
+            <div className="text-xs font-semibold text-text-muted uppercase mb-3">Доп. информация о клиенте (заполнится в amoCRM)</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Регион клиента</label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="Москва / СПб / другой"
+                  value={clientRegion}
+                  onChange={(e) => setClientRegion(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Планирует покупку</label>
+                <select className="input" value={purchaseTiming} onChange={(e) => setPurchaseTiming(e.target.value)}>
+                  <option value="">— не указано —</option>
+                  <option value="до 1 месяца">до 1 месяца</option>
+                  <option value="от 1 до 3 месяцев">от 1 до 3 месяцев</option>
+                  <option value="от 3 до 6 месяцев">от 3 до 6 месяцев</option>
+                  <option value="от 6 до 12 месяцев">от 6 до 12 месяцев</option>
+                  <option value="более 12 месяцев">более 12 месяцев</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Готовность к сделке</label>
+                <select className="input" value={readinessLevel} onChange={(e) => setReadinessLevel(e.target.value as any)}>
+                  <option value="">— не указано —</option>
+                  <option value="Холодный">Холодный</option>
+                  <option value="Тёплый">Тёплый</option>
+                  <option value="Горячий">Горячий</option>
+                </select>
+              </div>
+              <div className="flex items-end pb-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={presentationSent}
+                    onChange={(e) => setPresentationSent(e.target.checked)}
+                  />
+                  <span className="text-sm">Презентация клиенту отправлена</span>
+                </label>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-border">
