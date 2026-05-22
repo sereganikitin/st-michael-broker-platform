@@ -149,7 +149,7 @@ export default function AdminCallCenterPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold flex items-center gap-2">
+        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
           <PhoneCall className="w-7 h-7 text-accent" />
           Колл-центр
         </h1>

@@ -147,7 +147,7 @@ function PolicyForm({
           <div className="p-3 bg-error/10 text-error rounded-lg text-sm mb-4">{err}</div>
         )}
 
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label className="text-sm text-text-muted block mb-1">Проект</label>
             <select className="input w-full" value={project} onChange={(e) => setProject(e.target.value)}>
@@ -164,7 +164,7 @@ function PolicyForm({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label className="text-sm text-text-muted block mb-1">Начало</label>
             <input type="date" className="input w-full" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -312,7 +312,7 @@ export default function CommissionPoliciesPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Политики комиссии</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">Политики комиссии</h1>
         <button className="btn btn-primary" onClick={() => setCreating(true)}>
           <Plus className="w-4 h-4 mr-1" />
           Создать политику
@@ -329,7 +329,8 @@ export default function CommissionPoliciesPage() {
         <div className="card text-text-muted">Политик ещё нет. Создайте первую через кнопку выше.</div>
       ) : (
         <div className="card">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="text-text-muted text-left border-b border-border">
                 <th className="pb-3 font-medium">Проект</th>
@@ -386,6 +387,7 @@ export default function CommissionPoliciesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

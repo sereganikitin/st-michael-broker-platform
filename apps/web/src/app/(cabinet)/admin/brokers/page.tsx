@@ -107,7 +107,7 @@ export default function AdminBrokersPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2"><Shield className="w-7 h-7 text-accent" />Брокеры</h1>
+          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2"><Shield className="w-7 h-7 text-accent" />Брокеры</h1>
           <span className="text-text-muted text-sm">Всего в системе: {total}</span>
         </div>
         {broker?.role === 'ADMIN' && (
@@ -161,7 +161,7 @@ export default function AdminBrokersPage() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm min-w-[900px]">
                 <thead>
                   <tr className="text-text-muted text-left border-b border-border">
                     <th className="pb-3 font-medium">ФИО</th>

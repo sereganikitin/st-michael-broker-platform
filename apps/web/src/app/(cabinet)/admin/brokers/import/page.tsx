@@ -172,7 +172,7 @@ export default function AdminBrokersImportPage() {
         <Link href="/admin/brokers" className="btn btn-secondary flex items-center gap-2">
           <ArrowLeft className="w-4 h-4" /> Назад
         </Link>
-        <h1 className="text-3xl font-bold flex items-center gap-2">
+        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
           <FileSpreadsheet className="w-7 h-7 text-accent" />
           Импорт брокеров из xlsx
         </h1>

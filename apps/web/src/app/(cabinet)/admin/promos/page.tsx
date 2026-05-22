@@ -84,7 +84,7 @@ export default function AdminPromosPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2">
+      <h1 className="text-2xl md:text-3xl font-bold mb-6 flex items-center gap-2">
         <Megaphone className="w-7 h-7 text-accent" /> Слайдер акций (Блок 3)
       </h1>
 

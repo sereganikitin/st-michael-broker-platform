@@ -112,7 +112,7 @@ export default function AdminMeetingSlotsPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2">
+      <h1 className="text-2xl md:text-3xl font-bold mb-6 flex items-center gap-2">
         <Calendar className="w-7 h-7 text-accent" /> Расписание встреч
       </h1>
 

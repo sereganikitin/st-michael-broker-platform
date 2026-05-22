@@ -104,7 +104,7 @@ export default function AdminProjectsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
+          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
             <Building className="w-7 h-7 text-accent" />Проекты на лендинге
           </h1>
           <span className="text-text-muted text-sm">Карточки проектов в блоке "Проекты"</span>

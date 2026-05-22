@@ -137,7 +137,7 @@ export default function AdminBrokerDetailPage() {
 
       <div className="flex items-start justify-between mb-6 gap-4">
         <div className="flex-1 min-w-0">
-          <h1 className="text-3xl font-bold flex items-center gap-2 flex-wrap">
+          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2 flex-wrap">
             <Shield className="w-7 h-7 text-accent flex-shrink-0" />
             {broker.fullName}
             {broker.category && categoryLabels[broker.category] && (

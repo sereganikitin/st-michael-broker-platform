@@ -93,7 +93,7 @@ export default function AdminMailingsPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2">
+      <h1 className="text-2xl md:text-3xl font-bold mb-6 flex items-center gap-2">
         <Megaphone className="w-7 h-7 text-accent" /> Рассылки
       </h1>
 
@@ -128,7 +128,7 @@ export default function AdminMailingsPage() {
 
             <div className="border-t border-border pt-3 mt-3">
               <h3 className="font-semibold text-sm mb-3">Сегментация</h3>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Проект</label>
                   <select className="input" value={filters.project || ''} onChange={(e) => setFilters({ ...filters, project: e.target.value })}>

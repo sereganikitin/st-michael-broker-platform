@@ -100,7 +100,7 @@ export default function AdminAnalyticsPage() {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between mb-2 gap-3">
-        <h1 className="text-3xl font-bold flex items-center gap-2">
+        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
           <BarChart3 className="w-7 h-7 text-accent" /> Аналитика платформы
         </h1>
         <div className="flex items-center gap-2">

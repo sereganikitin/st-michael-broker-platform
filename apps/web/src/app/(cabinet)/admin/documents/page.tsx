@@ -136,7 +136,7 @@ export default function AdminDocumentsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
+          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
             <FileText className="w-7 h-7 text-accent" />Файлы и документы
           </h1>
           <span className="text-text-muted text-sm">Загрузка файлов на сервер + внешние ссылки</span>
@@ -171,7 +171,7 @@ export default function AdminDocumentsPage() {
                 <label className="label">Описание (опционально)</label>
                 <input className="input" value={uploadDraft.description} onChange={(e) => setUploadDraft({ ...uploadDraft, description: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Категория</label>
                   <select className="input" value={uploadDraft.category} onChange={(e) => setUploadDraft({ ...uploadDraft, category: e.target.value })}>
@@ -217,7 +217,7 @@ export default function AdminDocumentsPage() {
                 <label className="label">Описание (опционально)</label>
                 <input className="input" value={extDraft.description} onChange={(e) => setExtDraft({ ...extDraft, description: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Категория</label>
                   <select className="input" value={extDraft.category} onChange={(e) => setExtDraft({ ...extDraft, category: e.target.value })}>
