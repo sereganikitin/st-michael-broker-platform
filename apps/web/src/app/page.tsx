@@ -11,6 +11,65 @@ import {
 
 // ─── мини-компоненты для оживления лендинга ──────────────────
 
+// Шкала комиссии — динамически рендерится из commission_policies (БД).
+// Если для проекта активная политика mode=FLAT — показываем «Фиксированная X%»,
+// иначе таблица levels из политики. Fallback на CMS levelsByProject если в
+// БД нет активной политики (например для свежего инстанса).
+function CommissionScale({
+  project, activePolicies, cmsLevelsByProject, cmsLevels,
+}: {
+  project: string;
+  activePolicies: Array<{ project: string; mode: 'PROGRESSIVE' | 'FLAT'; flatRate: number | null; levels: any[] | null }>;
+  cmsLevelsByProject?: Record<string, any[]>;
+  cmsLevels?: any[];
+}) {
+  const policy = activePolicies.find((p) => p.project === project);
+
+  if (policy && policy.mode === 'FLAT' && policy.flatRate != null) {
+    return (
+      <div className="comm-table" style={{ textAlign: 'center', padding: '40px 24px' }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+          Фиксированная ставка
+        </div>
+        <div style={{ fontSize: 56, fontWeight: 200, color: 'var(--gold)', lineHeight: 1 }}>
+          {String(policy.flatRate).replace('.', ',')}%
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 12 }}>
+          Действует для всех сделок проекта
+        </div>
+      </div>
+    );
+  }
+
+  // PROGRESSIVE из БД (или fallback CMS)
+  let rows: any[] = [];
+  if (policy && policy.mode === 'PROGRESSIVE' && Array.isArray(policy.levels) && policy.levels.length > 0) {
+    // Формат БД: { level, minSqm, rate } → формат UI: { name, range, rate }
+    const sorted = [...policy.levels].sort((a, b) => Number(a.minSqm) - Number(b.minSqm));
+    rows = sorted.map((lv, i) => {
+      const next = sorted[i + 1];
+      const minSqm = Number(lv.minSqm);
+      const range = next ? `${minSqm}–${Number(next.minSqm) - 1} м²` : `${minSqm}+ м²`;
+      return { name: lv.level, range, rate: String(lv.rate).replace('.', ',') + '%' };
+    });
+  } else {
+    rows = (cmsLevelsByProject?.[project]) || cmsLevels || [];
+  }
+
+  return (
+    <div className="comm-table">
+      <div className="ct-head"><span>Уровень</span><span>Объём м2/кв.</span><span>Ставка</span></div>
+      {rows.map((lv: any, i: number) => (
+        <div key={i} className={`ct-row${lv.active ? ' active' : ''}`}>
+          <span className="ct-level">{lv.name}</span>
+          <span className="ct-range">{lv.range}</span>
+          <span className="ct-rate">{lv.rate}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Анимирует число от 0 до конечного значения когда элемент попадает в viewport
 function CountUp({ value, duration = 1400, suffix = '' }: { value: number; duration?: number; suffix?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -938,6 +997,12 @@ export default function LandingPage() {
   const [contact, setContact] = useState<any>(DEFAULT_CONTACT);
   const [howto, setHowto] = useState<any>(DEFAULT_HOWTO);
   const [projectsSection, setProjectsSection] = useState<any>(DEFAULT_PROJECTS_SECTION);
+  // Активные политики комиссии из БД (commission_policies) — источник истины
+  // для шкалы. Если админ переключит проект на FLAT через /admin/commission-policies,
+  // лендинг увидит изменение сразу (без редактирования CMS commission блока).
+  const [activePolicies, setActivePolicies] = useState<Array<{
+    project: string; mode: 'PROGRESSIVE' | 'FLAT'; flatRate: number | null; levels: any[] | null;
+  }>>([]);
   const [projects, setProjects] = useState<any[]>(DEFAULT_PROJECTS);
   const [events, setEvents] = useState<any[]>([]);
   const [promos, setPromos] = useState<any[]>([]);
@@ -969,7 +1034,7 @@ export default function LandingPage() {
       catch { return null; }
     };
     (async () => {
-      const [content, evs, prjs, prms, coop, anal, mark, mat, nws] = await Promise.all([
+      const [content, evs, prjs, prms, coop, anal, mark, mat, nws, policies] = await Promise.all([
         safeFetch('/api/public/cms/content'),
         safeFetch('/api/public/cms/events'),
         safeFetch('/api/public/cms/projects'),
@@ -979,7 +1044,9 @@ export default function LandingPage() {
         safeFetch('/api/public/documents?category=marketing'),
         safeFetch('/api/public/documents?category=materials'),
         safeFetch('/api/public/cms/news'),
+        safeFetch('/api/public/cms/commission-policies/active'),
       ]);
+      if (Array.isArray(policies)) setActivePolicies(policies);
       if (Array.isArray(nws)) setNews(nws);
       if (content) {
         if (content.hero) setHero({ ...DEFAULT_HERO, ...content.hero });
@@ -1305,48 +1372,46 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         <hr className="sep" />
 
-        {/* COMMISSION */}
+        {/* COMMISSION
+            Источник шкалы — commission_policies (БД, /admin/commission-policies).
+            Это позволяет админу переключать проект между FLAT/PROGRESSIVE
+            и сразу видеть на лендинге. Маркетинговые тексты (tag/title/cards)
+            остаются из CMS commission. */}
         <section id="commission">
           <div className="sh"><div className="sh-tag">{commission.tag}</div><h2>{renderAccent(commission.title, commission.titleAccent)}</h2>{commission.subtitle && <p className="sh-sub">{commission.subtitle}</p>}</div>
 
-          {commission.levelsByProject && (
-            <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:24}}>
-              {(['ZORGE9', 'SILVER_BOR'] as const).map((proj) => (
-                <button
-                  key={proj}
-                  onClick={() => setCommissionProject(proj)}
-                  style={{
-                    padding: '10px 24px',
-                    background: commissionProject === proj ? 'var(--gold)' : 'var(--bg)',
-                    color: commissionProject === proj ? 'var(--white)' : 'var(--muted)',
-                    border: '1px solid ' + (commissionProject === proj ? 'var(--gold)' : 'var(--bw)'),
-                    borderRadius: 50,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    letterSpacing: 1.5,
-                    textTransform: 'uppercase',
-                    cursor: 'pointer',
-                    transition: 'all .2s',
-                  }}
-                >
-                  {proj === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}
-                </button>
-              ))}
-            </div>
-          )}
+          <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:24}}>
+            {(['ZORGE9', 'SILVER_BOR'] as const).map((proj) => (
+              <button
+                key={proj}
+                onClick={() => setCommissionProject(proj)}
+                style={{
+                  padding: '10px 24px',
+                  background: commissionProject === proj ? 'var(--gold)' : 'var(--bg)',
+                  color: commissionProject === proj ? 'var(--white)' : 'var(--muted)',
+                  border: '1px solid ' + (commissionProject === proj ? 'var(--gold)' : 'var(--bw)'),
+                  borderRadius: 50,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: 1.5,
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  transition: 'all .2s',
+                }}
+              >
+                {proj === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}
+              </button>
+            ))}
+          </div>
 
           <div className="comm-grid">
             <div>
-              <div className="comm-table">
-                <div className="ct-head"><span>Уровень</span><span>Объём м2/кв.</span><span>Ставка</span></div>
-                {((commission.levelsByProject?.[commissionProject]) || commission.levels || []).map((lv: any, i: number) => (
-                  <div key={i} className={`ct-row${lv.active ? ' active' : ''}`}>
-                    <span className="ct-level">{lv.name}</span>
-                    <span className="ct-range">{lv.range}</span>
-                    <span className="ct-rate">{lv.rate}</span>
-                  </div>
-                ))}
-              </div>
+              <CommissionScale
+                project={commissionProject}
+                activePolicies={activePolicies}
+                cmsLevelsByProject={commission.levelsByProject}
+                cmsLevels={commission.levels}
+              />
             </div>
             <div className="comm-info">
               {(commission.cards || []).map((c: any, i: number) => (

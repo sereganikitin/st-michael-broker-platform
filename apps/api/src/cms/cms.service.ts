@@ -398,6 +398,33 @@ export class CmsService {
 
   // ─── Bootstrap ─────────────────────────────────
 
+  // Активные политики комиссии по проектам — для динамического блока на лендинге
+  // (по последнему bug-репорту 2026-05-22: если админ убрал прогрессивную шкалу
+  // для Зорге через /admin/commission-policies, лендинг должен это отразить).
+  async getActiveCommissionPolicies() {
+    const now = new Date();
+    const rows = await this.prisma.commissionPolicy.findMany({
+      where: {
+        isActive: true,
+        startDate: { lte: now },
+        endDate: { gte: now },
+      },
+      orderBy: [{ project: 'asc' }, { startDate: 'desc' }],
+    });
+    const byProject: Record<string, any> = {};
+    for (const r of rows) {
+      if (!byProject[r.project]) {
+        byProject[r.project] = {
+          project: r.project,
+          mode: r.mode,
+          flatRate: r.flatRate ? Number(r.flatRate) : null,
+          levels: r.levels || null,
+        };
+      }
+    }
+    return Object.values(byProject);
+  }
+
   // Seeds default content (idempotent — only inserts if missing)
   async seedDefaults() {
     // Одноразовая миграция 2026-05-22-bis: применяем Ксенины правки КБ4

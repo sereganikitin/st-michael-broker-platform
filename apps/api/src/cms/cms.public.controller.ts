@@ -107,6 +107,16 @@ export class PublicCmsController {
     };
   }
 
+  // Активные политики комиссии по проектам — для динамической шкалы на лендинге.
+  // Возвращает активные на сегодня policies: { project, mode, flatRate, levels }.
+  // Лендинг сам выбирает что отрисовать: если mode=FLAT — «Фиксированная X%»;
+  // если PROGRESSIVE — таблица levels из БД (а не из CMS).
+  @Get('commission-policies/active')
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  async activeCommissionPolicies() {
+    return this.cms.getActiveCommissionPolicies();
+  }
+
   @Post('contact')
   @ApiOperation({ summary: 'Submit contact / lead form (public)' })
   async submitContact(@Body() body: any, @Req() req: Request) {
