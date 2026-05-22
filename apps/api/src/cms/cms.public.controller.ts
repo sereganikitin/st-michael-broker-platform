@@ -53,56 +53,6 @@ export class PublicCmsController {
     return this.cms.listNews(true);
   }
 
-  // ВРЕМЕННЫЙ debug-endpoint для разработки маппинга полей amoCRM.
-  // Использует UUID-секрет в URL чтобы случайные люди не открыли. Будет
-  // удалён после получения field_id для «От брокера» / «Планирует» /
-  // «Готовность» / «Опросник» (коммит a30982a, todo: remove).
-  @Get('_debug-amo-fields/7d3a8e9c-1b4f-4a2e-9c7d-f5e8b1a3c2d6')
-  @Header('Cache-Control', 'no-store')
-  async debugAmoFields() {
-    const token = process.env.AMO_ACCESS_TOKEN;
-    const subdomain = process.env.AMO_SUBDOMAIN || 'stmichael';
-    const base = process.env.AMO_BASE_DOMAIN || 'amocrm.ru';
-    if (!token) return { error: 'AMO_ACCESS_TOKEN not set' };
-
-    const fetchAll = async (entity: 'leads' | 'contacts') => {
-      const all: any[] = [];
-      let url: string | null = `https://${subdomain}.${base}/api/v4/${entity}/custom_fields?limit=50`;
-      while (url) {
-        const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-        if (!r.ok) {
-          const txt = await r.text().catch(() => '');
-          all.push({ __error: `${entity} HTTP ${r.status}: ${txt.slice(0, 200)}` });
-          break;
-        }
-        const data: any = await r.json();
-        const fields = data?._embedded?.custom_fields || [];
-        all.push(...fields);
-        url = data?._links?.next?.href || null;
-      }
-      return all;
-    };
-
-    const [leadFields, contactFields] = await Promise.all([
-      fetchAll('leads'),
-      fetchAll('contacts'),
-    ]);
-
-    // Уменьшим payload — оставим только нужное: id/name/type/code/enums
-    const pick = (arr: any[]) => arr.map((f) => ({
-      id: f.id,
-      name: f.name,
-      type: f.type,
-      code: f.code,
-      enums: f.enums?.map((e: any) => ({ id: e.id, value: e.value })) || undefined,
-    }));
-
-    return {
-      leads: pick(leadFields),
-      contacts: pick(contactFields),
-    };
-  }
-
   @Post('contact')
   @ApiOperation({ summary: 'Submit contact / lead form (public)' })
   async submitContact(@Body() body: any, @Req() req: Request) {

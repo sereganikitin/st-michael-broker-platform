@@ -63,6 +63,26 @@ export default function AdminAnalyticsPage() {
   });
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
 
+  const applyPreset = (preset: 'today' | 'week' | 'month' | 'quarter' | 'year' | 'ytd' | 'all') => {
+    const now = new Date();
+    const toStr = now.toISOString().slice(0, 10);
+    const back = (days: number) => {
+      const d = new Date(); d.setDate(d.getDate() - days);
+      return d.toISOString().slice(0, 10);
+    };
+    if (preset === 'today') { setFrom(toStr); setTo(toStr); }
+    else if (preset === 'week') { setFrom(back(7)); setTo(toStr); }
+    else if (preset === 'month') { setFrom(back(30)); setTo(toStr); }
+    else if (preset === 'quarter') { setFrom(back(90)); setTo(toStr); }
+    else if (preset === 'year') { setFrom(back(365)); setTo(toStr); }
+    else if (preset === 'ytd') {
+      setFrom(`${now.getFullYear()}-01-01`);
+      setTo(toStr);
+    } else if (preset === 'all') {
+      setFrom('2020-01-01'); setTo(toStr);
+    }
+  };
+
   if (broker && broker.role !== 'ADMIN' && broker.role !== 'MANAGER') {
     return <div className="card">Доступ запрещён</div>;
   }
@@ -79,7 +99,7 @@ export default function AdminAnalyticsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between mb-2 gap-3">
         <h1 className="text-3xl font-bold flex items-center gap-2">
           <BarChart3 className="w-7 h-7 text-accent" /> Аналитика платформы
         </h1>
@@ -88,6 +108,15 @@ export default function AdminAnalyticsPage() {
           <span className="text-text-muted">—</span>
           <input className="input w-auto text-sm" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
+      </div>
+      <div className="flex flex-wrap gap-2 mb-6 text-sm">
+        <button className="px-3 py-1 rounded border border-border hover:bg-surface-secondary" onClick={() => applyPreset('today')}>Сегодня</button>
+        <button className="px-3 py-1 rounded border border-border hover:bg-surface-secondary" onClick={() => applyPreset('week')}>Неделя</button>
+        <button className="px-3 py-1 rounded border border-border hover:bg-surface-secondary" onClick={() => applyPreset('month')}>Месяц</button>
+        <button className="px-3 py-1 rounded border border-border hover:bg-surface-secondary" onClick={() => applyPreset('quarter')}>Квартал</button>
+        <button className="px-3 py-1 rounded border border-border hover:bg-surface-secondary" onClick={() => applyPreset('year')}>Год</button>
+        <button className="px-3 py-1 rounded border border-border hover:bg-surface-secondary" onClick={() => applyPreset('ytd')}>С начала года</button>
+        <button className="px-3 py-1 rounded border border-border hover:bg-surface-secondary" onClick={() => applyPreset('all')}>За всё время</button>
       </div>
 
       {loading && <div className="text-text-muted">Загрузка…</div>}

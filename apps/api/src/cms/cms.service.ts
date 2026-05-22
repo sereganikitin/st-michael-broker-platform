@@ -19,15 +19,15 @@ const DEFAULT_CONTENT: Record<string, any> = {
   },
   advantages: {
     tag: 'Преимущества',
-    title: 'Шесть причин, ради которых брокеры остаются с St Michael',
-    titleAccent: 'St Michael',
-    subtitle: 'Мы выстроили сотрудничество так, чтобы вы могли начать работать сразу — с первой сделки и с первого дня существования вашего ИП. Без дополнительных условий.',
+    title: 'Почему брокеры выбирают нас',
+    titleAccent: 'выбирают нас',
+    subtitle: '',
     items: [
       { icon: 'headphones', title: 'Выделенный отдел партнёров', description: 'Сопровождение на всех этапах сделки.' },
-      { icon: 'shield', title: 'Защищаем брокера от увода клиента', description: 'С клиентами, которые пришли через вас, мы не работаем напрямую.' },
+      { icon: 'phone-call', title: 'Выделенная линия', description: 'Ответ без ожидания с 9:00 до 21:00.' },
       { icon: 'wallet', title: 'Быстрые выплаты', description: 'Вознаграждение — до 7 рабочих дней.' },
-      { icon: 'trending-up', title: 'Высокая комиссия', description: 'Прогрессивная шкала по КСБ — до 6,25% за сделку. Фиксированная ставка 5% по Зорге 9. Плюс квартальный и годовой бонусы.' },
-      { icon: 'sparkles', title: 'Не цепляемся за формальности', description: 'Регламент уникальности у нас гибче, чем у большинства застройщиков. Подтверждаем работу с клиентом, даже когда другие отказали бы.' },
+      { icon: 'trending-up', title: 'Высокая комиссия', description: 'До 8% — одна из лучших на рынке.' },
+      { icon: 'users', title: 'Партнёрство', description: 'Работаем на общий результат.' },
       { icon: 'graduation-cap', title: 'Обучение', description: 'Брокер-туры для быстрого старта продаж.' },
     ],
   },
@@ -35,21 +35,21 @@ const DEFAULT_CONTENT: Record<string, any> = {
     tag: 'Старт',
     title: 'Как начать сотрудничать с ST Michael',
     titleAccent: 'ST Michael',
-    subtitle: 'Начать можно с первой же сделки — даже если ваше ИП открыто вчера. Никаких дополнительных условий.',
+    subtitle: 'Можно начать сотрудничество с первой сделки — даже с первого дня существования вашего ИП. Без дополнительных условий.',
     steps: [
-      { num: '01', title: 'Проверка на уникальность', description: 'Проверьте клиента в кабинете перед сделкой.' },
-      { num: '02', title: 'Встреча в офисе продаж', description: 'Запишите клиента на встречу в офис продаж.' },
-      { num: '03', title: 'Фиксация клиента', description: 'После встречи клиент закреплён за вами на 30 дней — при необходимости можем продлить.' },
-      { num: '04', title: 'Сделка и выплата', description: 'После оплаты клиентом — вознаграждение приходит за 7 рабочих дней.' },
+      { num: '01', title: 'ИП или ООО', description: 'Достаточно зарегистрированного юр. лица — ИП, ООО, АО.' },
+      { num: '02', title: 'Регистрация в кабинете', description: 'Заполните анкету за 2 минуты — становитесь партнёром сразу.' },
+      { num: '03', title: 'Проверка клиента', description: 'Зафиксируйте клиента в кабинете и получите статус уникальности.' },
+      { num: '04', title: 'Запись на встречу', description: 'Запишите клиента на встречу — горячая линия +7 (499) 226-22-49.' },
     ],
-    footer: 'Агентский договор оформляется при первой сделке',
+    footer: 'Агентский договор заключается под конкретную сделку. Полные условия партнёрства — в кабинете брокера.',
     ctaText: 'Стать партнёром',
   },
   projectsSection: {
     tag: 'Проекты',
     title: 'Наши проекты',
     titleAccent: 'Наши проекты',
-    subtitle: '',
+    subtitle: 'Зорге 9 и Квартал Серебряный Бор. Каждый проект — отдельная прогрессивная шкала комиссии.',
   },
   commission: {
     tag: 'Комиссия и условия выплаты',
@@ -400,6 +400,34 @@ export class CmsService {
 
   // Seeds default content (idempotent — only inserts if missing)
   async seedDefaults() {
+    // Одноразовая миграция 2026-05-22: если в БД лежат записи с моими
+    // «новыми» текстами из коммита a6b6ac8 (создались автоматически при
+    // первом seedDefaults на проде, когда у пользователя ещё не было
+    // кастома) — удаляем их, чтобы ниже воссоздались с актуального
+    // DEFAULT_CONTENT (откат к Ксениным текстам).
+    // Кастомы пользователя (с другими текстами) не трогаем — проверка
+    // делается по characteristic strings из «новых» дефолтов.
+    const newAdvantagesMarker = 'Шесть причин, ради которых брокеры остаются с St Michael';
+    const newHowtoMarker = 'Начать можно с первой же сделки — даже если ваше ИП открыто вчера. Никаких дополнительных условий.';
+    const newProjectsSubtitleMarker = ''; // пустой subtitle — мой новый default
+
+    try {
+      const adv = await this.prisma.siteContent.findUnique({ where: { key: 'advantages' } });
+      if (adv && (adv.value as any)?.title === newAdvantagesMarker) {
+        await this.prisma.siteContent.delete({ where: { key: 'advantages' } });
+      }
+      const howto = await this.prisma.siteContent.findUnique({ where: { key: 'howto' } });
+      if (howto && (howto.value as any)?.subtitle === newHowtoMarker) {
+        await this.prisma.siteContent.delete({ where: { key: 'howto' } });
+      }
+      const ps = await this.prisma.siteContent.findUnique({ where: { key: 'projectsSection' } });
+      if (ps && (ps.value as any)?.subtitle === newProjectsSubtitleMarker && (ps.value as any)?.tag === 'Проекты') {
+        await this.prisma.siteContent.delete({ where: { key: 'projectsSection' } });
+      }
+    } catch (e) {
+      // Не валим seedDefaults если миграция не отработала
+    }
+
     for (const key of KNOWN_KEYS) {
       const exists = await this.prisma.siteContent.findUnique({ where: { key } });
       if (!exists) {
