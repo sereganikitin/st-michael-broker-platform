@@ -122,6 +122,83 @@ export const AMO_CONTACT_FIELDS = {
 } as const;
 
 /**
+ * Маппинг Broker (Prisma модель) в массив custom_fields_values для amoCRM
+ * contact update. Источник истины — БД нашего кабинета: всё что заполнено
+ * в Broker и связанной primary Agency идёт в amo при ЛЮБОМ изменении
+ * профиля (register, PATCH /auth/me, изменение из админки и т.д.).
+ *
+ * Поля Broker, у которых НЕТ field_id в amo (пока не маппятся):
+ * - birthDate (нет AMO_CONTACT_FIELDS.BIRTH_DATE — нужно узнать ID)
+ * - specialization (COMM/RESIDENTIAL/BOTH — нужно поле в amo)
+ * - bestCallTime (нет в amo)
+ * - isCoordinator / coordinatorAgency (нет в amo)
+ *
+ * Поля amo, для которых нет колонки в Broker (нужны в БД, чтобы заполнять):
+ * - POSITION (должность)
+ * - TELEGRAM_USERNAME, TELEGRAM_ID, WHATSAPP_USERNAME
+ * - PRESENTATION_SENT, ADDITIONAL_COMPANIES
+ */
+export function brokerToAmoContactFields(
+  broker: {
+    phone?: string | null;
+    email?: string | null;
+    region?: string | null;
+    brokerTourVisited?: boolean | null;
+    brokerTourDate?: Date | string | null;
+    doNotCall?: boolean | null;
+  },
+  agency?: { name?: string | null; inn?: string | null } | null,
+): any[] {
+  const fields: any[] = [];
+
+  // Контакт всегда помечается флагом "Брокер" — это критерий поиска
+  // в /admin/brokers/import-from-amo.
+  fields.push({ field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] });
+
+  if (broker.phone) {
+    fields.push({
+      field_id: AMO_CONTACT_FIELDS.PHONE,
+      values: [{ value: broker.phone, enum_code: 'WORK' }],
+    });
+  }
+  if (broker.email) {
+    fields.push({
+      field_id: AMO_CONTACT_FIELDS.EMAIL,
+      values: [{ value: broker.email, enum_code: 'WORK' }],
+    });
+  }
+  if (agency?.inn) {
+    fields.push({ field_id: AMO_CONTACT_FIELDS.INN, values: [{ value: agency.inn }] });
+  }
+  if (agency?.name) {
+    fields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: agency.name }] });
+  }
+  if (broker.region) {
+    fields.push({ field_id: AMO_CONTACT_FIELDS.REGION, values: [{ value: broker.region }] });
+  }
+  if (broker.brokerTourVisited) {
+    fields.push({
+      field_id: AMO_CONTACT_FIELDS.BROKER_TOUR_VISITED,
+      values: [{ value: true }],
+    });
+  }
+  if (broker.brokerTourDate) {
+    const d = new Date(broker.brokerTourDate);
+    if (!isNaN(d.getTime())) {
+      fields.push({
+        field_id: AMO_CONTACT_FIELDS.BROKER_TOUR_DATE,
+        values: [{ value: Math.floor(d.getTime() / 1000) }],
+      });
+    }
+  }
+  if (broker.doNotCall) {
+    fields.push({ field_id: AMO_CONTACT_FIELDS.BLACKLIST, values: [{ value: true }] });
+  }
+
+  return fields;
+}
+
+/**
  * Custom field IDs on Lead entity. Discovered 2026-05-12 via inspect-lead/32112013.
  * Применяются при синхронизации сделок (amocrm.service.ts, scheduler.service.ts).
  */

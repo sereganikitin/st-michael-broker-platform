@@ -7,7 +7,7 @@ import * as bcrypt from 'bcrypt';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, mapMeetingStatus, leadToProject, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, brokerToAmoContactFields, mapMeetingStatus, leadToProject, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
 import { levelForSqm, rateFor } from '../commission/commission.service';
 
@@ -507,6 +507,13 @@ export class AuthService {
       }
     }
 
+    // Sync в amoCRM. БД — источник истины: при любом изменении профиля
+    // подтягиваем актуальные данные брокера + primary-агентства и обновляем
+    // контакт в амо. Без try/catch sync-ошибки повалили бы запрос пользователя.
+    await this.syncBrokerProfileToAmo(brokerId).catch((e) => {
+      console.error('amoCRM profile sync failed:', e);
+    });
+
     return {
       id: updated.id,
       fullName: updated.fullName,
@@ -515,6 +522,62 @@ export class AuthService {
       avatarUrl: updated.avatarUrl,
       birthDate: updated.birthDate,
     };
+  }
+
+  /**
+   * Полная синхронизация профиля брокера в amoCRM. Источник истины — наша БД.
+   * Вызывается при любом изменении: PATCH /auth/me, изменении агентства,
+   * привязке/смене primary, изменении из админки.
+   *
+   * Если у брокера есть amoContactId — обновляем контакт. Если нет —
+   * пробуем найти контакт по телефону (с флагом IS_BROKER=true), и если
+   * нашли — линкуем + обновляем. Если не нашли — создаём новый.
+   */
+  async syncBrokerProfileToAmo(brokerId: string) {
+    const broker = await this.prisma.broker.findUnique({
+      where: { id: brokerId },
+      include: {
+        brokerAgencies: {
+          where: { isPrimary: true },
+          include: { agency: true },
+          take: 1,
+        },
+      },
+    });
+    if (!broker) return;
+
+    const primaryAgency = broker.brokerAgencies[0]?.agency || null;
+    const customFields = brokerToAmoContactFields(broker, primaryAgency);
+    const payload = {
+      name: broker.fullName,
+      custom_fields_values: customFields,
+    } as any;
+
+    let amoContactId: bigint | null = broker.amoContactId ?? null;
+
+    if (amoContactId) {
+      await this.amo.updateContact(Number(amoContactId), payload);
+      return;
+    }
+
+    // Нет линка — пробуем найти контакт по телефону среди БРОКЕРОВ (IS_BROKER=true)
+    if (broker.phone) {
+      const existing = await this.amo.findBrokerContactByPhone(broker.phone);
+      if (existing) {
+        amoContactId = BigInt(existing.id);
+        await this.amo.updateContact(existing.id, payload);
+      } else {
+        // Создаём новый контакт
+        const created = await this.amo.createContact(payload);
+        if (created?.id) amoContactId = BigInt(created.id);
+      }
+      if (amoContactId) {
+        await this.prisma.broker.update({
+          where: { id: brokerId },
+          data: { amoContactId },
+        });
+      }
+    }
   }
 
   /**
@@ -568,6 +631,11 @@ export class AuthService {
         },
       });
     }
+
+    // Sync в amoCRM: подтянем актуальный ИНН/название агентства в карточку.
+    await this.syncBrokerProfileToAmo(brokerId).catch((e) => {
+      console.error('amoCRM sync after attachAgency failed:', e);
+    });
 
     return { agency: { id: agency.id, name: agency.name, inn: agency.inn } };
   }
