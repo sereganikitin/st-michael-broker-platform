@@ -75,9 +75,11 @@ export default function FixationPage() {
   };
 
   const updateParticipantPhone = (i: number, raw: string) => {
-    // Сохраняем только цифры внутри (формат для отправки) — отображение через mask.
-    const digits = raw.replace(/\D/g, '').replace(/^7/, '').slice(0, 10);
-    updateParticipant(i, 'phone', digits);
+    // Извлекаем цифры. Поддерживаем paste полного номера:
+    // «+79991234567», «89991234567», «79991234567» → «9991234567».
+    let d = raw.replace(/\D/g, '');
+    if (d.length === 11 && (d[0] === '7' || d[0] === '8')) d = d.slice(1);
+    updateParticipant(i, 'phone', d.slice(0, 10));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -190,7 +192,16 @@ export default function FixationPage() {
                       if (d.length > 8) out += '-' + d.slice(8, 10);
                       return out;
                     })()}
-                    onChange={(e) => setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    onChange={(e) => {
+                      // Извлекаем цифры. Если 11 цифр и начинаются на 7 или 8
+                      // — это вставлен полный номер (+79991234567 / 89991234567),
+                      // отбрасываем код страны/префикс. Иначе берём первые 10.
+                      let d = e.target.value.replace(/\D/g, '');
+                      if (d.length === 11 && (d[0] === '7' || d[0] === '8')) {
+                        d = d.slice(1);
+                      }
+                      setPhoneDigits(d.slice(0, 10));
+                    }}
                     inputMode="numeric"
                     required
                   />
