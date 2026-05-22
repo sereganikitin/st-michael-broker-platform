@@ -71,6 +71,18 @@ if [ "${SKIP_STMICHAEL_SEED:-0}" != "1" ]; then
         echo "    (seed-from-stmichael пропущен — не фатально)"
 fi
 
+# Auto-inspect amoCRM fields — вывод в логи деплоя, чтобы можно было
+# увидеть актуальные field_id без отдельной кнопки. Печатает поля только
+# с теми именами что нам нужны для маппинга в createFixationRequest.
+echo ""
+echo "==> amoCRM fields snapshot (для разработки):"
+for GREP in "От брокера" "Планирует" "Готовность" "Опросник" "Регион" "Дата рождения"; do
+    echo ""
+    echo "--- grep: \"$GREP\" ---"
+    $COMPOSE_CMD exec -T api node /app/scripts/inspect-amo-fields.js --grep "$GREP" 2>&1 \
+        | head -120 || echo "    (inspect пропущен)"
+done
+
 # Status check
 echo ""
 echo "==> Состояние контейнеров:"
