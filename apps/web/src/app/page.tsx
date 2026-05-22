@@ -431,7 +431,7 @@ function BrokerToursCalendarModal({ events, onClose }: { events: any[]; onClose:
 
   return (
     <div className="lp-overlay" style={{position:'fixed',inset:0,zIndex:1100,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflowY:'auto'}} onClick={onClose}>
-      <div className="lp-popup" style={{background:'#1d1e23',color:'#fff',borderRadius:24,maxWidth:1280,width:'100%',padding:'40px 48px 32px',position:'relative'}} onClick={(e) => e.stopPropagation()}>
+      <div className="lp-popup cal-modal" style={{background:'#1d1e23',color:'#fff',borderRadius:24,maxWidth:1280,width:'100%',padding:'40px 48px 32px',position:'relative'}} onClick={(e) => e.stopPropagation()}>
         <button onClick={onClose} aria-label="Закрыть" style={{position:'absolute',top:20,right:20,background:'none',border:'none',color:'#fff',fontSize:28,cursor:'pointer',opacity:0.6,lineHeight:1}}>&times;</button>
 
         {/* Шапка календаря: брендинг ST MICHAEL (раньше было "Зорге №9" — образец
@@ -442,7 +442,7 @@ function BrokerToursCalendarModal({ events, onClose }: { events: any[]; onClose:
           <div style={{fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.5)',textAlign:'right',lineHeight:1.4}}>Зорге 9 · Серебряный Бор</div>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14,marginBottom:18}}>
+        <div className="cal-grid" style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14,marginBottom:18}}>
           {['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ'].map((d) => (
             <div key={d} style={{textAlign:'center',fontSize:11,letterSpacing:3,color:'rgba(255,255,255,0.4)',paddingBottom:10,borderBottom:'1px solid rgba(255,255,255,0.1)'}}>{d}</div>
           ))}
@@ -450,7 +450,7 @@ function BrokerToursCalendarModal({ events, onClose }: { events: any[]; onClose:
 
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           {weeks.map((week, wi) => (
-            <div key={wi} style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14}}>
+            <div key={wi} className="cal-grid" style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14}}>
               {week.map((day, di) => {
                 const key = day.toISOString().slice(0, 10);
                 const evs = eventsByDay[key] || [];
@@ -1174,10 +1174,12 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 .mat-group-body{padding:0 22px 22px;border-top:1px solid var(--bw);padding-top:18px}
 .mat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .mat-card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg);border-radius:10px;cursor:pointer;transition:all var(--t);text-decoration:none;color:inherit}.mat-card:hover{background:var(--gold-bg);transform:translateX(2px)}.mat-card-icon{width:32px;height:32px;border-radius:8px;background:var(--white);display:flex;align-items:center;justify-content:center;color:var(--gold);flex-shrink:0}.mat-card-body{flex:1;min-width:0}.mat-card-name{font-size:12px;font-weight:500;color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mat-card-type{font-size:9px;font-weight:600;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:2px}.mat-card-dl{color:var(--muted);flex-shrink:0}.mat-card:hover .mat-card-dl{color:var(--gold)}
+.lp-overlay{overflow-y:auto}
+.lp-popup{max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
 @media(max-width:1279px){.lp section{padding:72px 40px}.s-adv,.s-comm,.s-cta{padding-left:40px;padding-right:40px}.lp header{padding:0 40px}.hero{padding:48px 40px 40px}.hero-banner{padding:0 40px}.lp footer{padding:40px 40px}.quick,.sep,.stats-band{margin-left:40px;margin-right:40px}}
 @media(max-width:1023px){.adv-grid,.proj-grid{grid-template-columns:repeat(2,1fr)}.mat-groups{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-slides{height:360px}.hero-slide{padding:30px 36px}.h-burger-menu{right:40px}.hero-2col{grid-template-columns:1fr;gap:20px}}
-@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:28px 20px 28px}.hero-banner{padding:0 20px;margin-top:16px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid,.mat-groups{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:28px}.hero-slides{height:280px}.hero-slide{padding:24px 22px}.hero-slide-title{font-size:clamp(20px,5vw,28px)}.hero h1{font-size:clamp(28px,8vw,40px)}.h-burger-menu{right:20px}.h-phone{display:none}}
-@media(max-width:499px){.stats-band{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}.proj-card{min-height:180px;padding:24px 20px}.proj-name{font-size:24px}.adv-card{padding:28px 22px}.comm-grid{gap:24px}.h-phone{font-size:12px}}
+@media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:28px 20px 28px}.hero-banner{padding:0 20px;margin-top:16px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid,.mat-groups,.ads-grid{grid-template-columns:1fr !important}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:28px}.hero-slides{height:280px}.hero-slide{padding:24px 22px}.hero-slide-title{font-size:clamp(20px,5vw,28px)}.hero-slide-desc{font-size:12px;-webkit-line-clamp:2}.hero h1{font-size:clamp(28px,8vw,40px)}.h-burger-menu{right:20px}.h-phone{display:none}.lp-popup{max-width:90vw !important;padding:24px 20px !important;max-height:90vh}#promos{padding:24px 20px !important}#promos .hero-slides{height:260px !important}.howto-steps{grid-template-columns:1fr !important}.howto-steps-2{grid-template-columns:1fr 1fr !important}.ev-head-row{flex-direction:column !important;align-items:flex-start !important;gap:12px !important}.ev-head-row > div:first-child{flex:1}.cal-modal{padding:24px 18px !important;max-width:96vw !important}.cal-modal .cal-grid{grid-template-columns:repeat(2,1fr) !important}}
+@media(max-width:499px){.stats-band{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}.proj-card{min-height:180px;padding:24px 20px}.proj-name{font-size:24px}.adv-card{padding:28px 22px}.comm-grid{gap:24px}.h-phone{font-size:12px}.hero-slide-arrow{width:34px;height:34px}.hero-slide-arrow-prev{left:8px}.hero-slide-arrow-next{right:8px}}
 @media(max-width:374px){.hero-btns{flex-direction:column;align-items:stretch}.hero-btns .btn-gold{width:100%;justify-content:center}}
       `}} />
 
@@ -1428,7 +1430,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         {/* EVENTS */}
         <section id="events" style={{background:'var(--bg)'}}>
-          <div className="sh" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:24}}>
+          <div className="sh ev-head-row" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:24}}>
             <div>
               <div className="sh-tag">Календарь событий</div>
               <h2>Ближайшие <em>мероприятия</em></h2>
@@ -1494,7 +1496,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             <h2>{renderAccent(howto.title, howto.titleAccent)}</h2>
             {howto.subtitle && <p className="sh-sub">{howto.subtitle}</p>}
           </div>
-          <div style={{display:'grid',gridTemplateColumns:`repeat(${Math.min((howto.steps || []).length, 4)}, 1fr)`,gap:16,maxWidth:1100,margin:'0 auto'}}>
+          <div className={`howto-steps${(howto.steps || []).length === 2 ? ' howto-steps-2' : ''}`} style={{display:'grid',gridTemplateColumns:`repeat(${Math.min((howto.steps || []).length, 4)}, 1fr)`,gap:16,maxWidth:1100,margin:'0 auto'}}>
             {(howto.steps || []).map((s: any, i: number) => (
               <div key={i} style={{padding:'24px 22px',background:'var(--bg)',borderRadius:'var(--r-card)',boxShadow:'0 1px 2px rgba(0,0,0,0.04)'}}>
                 <div style={{fontSize:32,fontWeight:200,color:'var(--gold)',marginBottom:12,lineHeight:1}}>{s.num}</div>
@@ -1704,7 +1706,7 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
           <>
             <hr className="sep" />
             <section id="news" style={{background:'var(--bg)'}}>
-              <div className="sh" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:24}}>
+              <div className="sh ev-head-row" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:24}}>
                 <div>
                   <div className="sh-tag">СМИ о нас</div>
                   <h2>Новости</h2>
