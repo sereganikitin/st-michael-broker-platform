@@ -1026,6 +1026,61 @@ export class AdminService {
     return { callLog, broker: updated };
   }
 
+  // A3 fix 2026-05-24: список клиентов с UNDER_REVIEW для UI менеджера.
+  // Для каждого находим конкурирующего брокера по phone (старая запись)
+  // и брокера-инициатора (текущий client.brokerId).
+  async getUniquenessConflicts() {
+    const conflicts = await this.prisma.client.findMany({
+      where: { uniquenessStatus: 'UNDER_REVIEW' },
+      include: {
+        broker: { select: { id: true, fullName: true, phone: true } },
+        deals: { select: { id: true, status: true, amount: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const enriched = await Promise.all(
+      conflicts.map(async (c) => {
+        // Конкурирующая запись клиента (другой брокер с тем же телефоном)
+        const others = await this.prisma.client.findMany({
+          where: { phone: c.phone, id: { not: c.id } },
+          include: {
+            broker: { select: { id: true, fullName: true, phone: true } },
+            meetings: { select: { id: true, status: true, date: true } },
+            deals: { select: { id: true, status: true, amount: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+        return {
+          conflictingClient: {
+            id: c.id,
+            fullName: c.fullName,
+            phone: c.phone,
+            project: c.project,
+            uniquenessReason: c.uniquenessReason,
+            createdAt: c.createdAt,
+            broker: c.broker,
+            dealsCount: c.deals.length,
+          },
+          existingClaims: others.map((o) => ({
+            id: o.id,
+            broker: o.broker,
+            uniquenessStatus: o.uniquenessStatus,
+            uniquenessExpiresAt: o.uniquenessExpiresAt,
+            fixationStatus: o.fixationStatus,
+            project: o.project,
+            createdAt: o.createdAt,
+            meetingsCount: o.meetings.length,
+            dealsCount: o.deals.length,
+            hasActiveDeal: o.deals.some((d) => ['PENDING', 'SIGNED', 'PAID'].includes(d.status as any)),
+          })),
+        };
+      })
+    );
+
+    return enriched;
+  }
+
   async getCallCenterStats(operatorId: string) {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());

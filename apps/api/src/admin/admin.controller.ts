@@ -151,6 +151,13 @@ export class AdminController {
     return this.adminService.getCallCenterStats(user.id);
   }
 
+  // A3 fix 2026-05-24: UI решения конфликтов уникальности.
+  @Get('uniqueness-conflicts')
+  @ApiOperation({ summary: 'Список клиентов в UNDER_REVIEW (конфликт фиксации) с инфой о конкурентном брокере' })
+  async uniquenessConflicts() {
+    return this.adminService.getUniquenessConflicts();
+  }
+
   // ─── Mailings ─────────────────────────────────────────────
 
   @Post('mailings/preview')
