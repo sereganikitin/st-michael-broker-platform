@@ -139,6 +139,7 @@ export class AdminController {
       duration?: number;
       nextCallAtOverride?: string;
       doNotCallOverride?: boolean;
+      brokerTourDate?: string;
     },
   ) {
     return this.adminService.logCall(user.id, body);

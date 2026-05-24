@@ -144,18 +144,30 @@ export class AnalyticsService {
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // ─── Fixations: unique vs not ────────────────────────
+    // ─── Fixations: unique vs not (внутри периода) ───────
+    // A1 fix 2026-05-24: раньше считалось за всё время, теперь по createdAt
+    // в выбранном from/to. uniqueRatio тоже становится релевантным к периоду.
+    const periodFilter = { createdAt: { gte: from, lte: to } };
     const [conditionallyUnique, rejected, underReview, expired] = await Promise.all([
-      this.prisma.client.count({ where: { uniquenessStatus: 'CONDITIONALLY_UNIQUE' } }),
-      this.prisma.client.count({ where: { uniquenessStatus: 'REJECTED' } }),
-      this.prisma.client.count({ where: { uniquenessStatus: 'UNDER_REVIEW' } }),
-      this.prisma.client.count({ where: { uniquenessStatus: 'EXPIRED' } }),
+      this.prisma.client.count({ where: { uniquenessStatus: 'CONDITIONALLY_UNIQUE', ...periodFilter } }),
+      this.prisma.client.count({ where: { uniquenessStatus: 'REJECTED', ...periodFilter } }),
+      this.prisma.client.count({ where: { uniquenessStatus: 'UNDER_REVIEW', ...periodFilter } }),
+      this.prisma.client.count({ where: { uniquenessStatus: 'EXPIRED', ...periodFilter } }),
     ]);
     const totalFixations = conditionallyUnique + rejected + underReview + expired;
 
-    // ─── Deals funnel ────────────────────────────────────
+    // ─── Deals funnel (в периоде) ────────────────────────
+    // A1 fix: используем signedAt если есть, иначе createdAt (для сделок
+    // которые были засинканы позже фактической даты подписания)
+    const dealPeriodFilter = {
+      OR: [
+        { signedAt: { gte: from, lte: to } },
+        { AND: [{ signedAt: null }, { createdAt: { gte: from, lte: to } }] },
+      ],
+    };
     const dealStatusCounts = await this.prisma.deal.groupBy({
       by: ['status'],
+      where: dealPeriodFilter,
       _count: true,
       _sum: { amount: true, commissionAmount: true },
     });
@@ -171,7 +183,7 @@ export class AnalyticsService {
       by: ['brokerId'],
       where: {
         status: { in: ['PAID', 'COMMISSION_PAID'] },
-        createdAt: { gte: from, lte: to },
+        ...dealPeriodFilter,
       },
       _sum: { amount: true, commissionAmount: true },
       _count: true,
@@ -195,9 +207,10 @@ export class AnalyticsService {
       totalCommission: Number(r._sum.commissionAmount || 0),
     }));
 
-    // ─── Per-project stats ───────────────────────────────
+    // ─── Per-project stats (в периоде) ──────────────────
     const projectGroups = await this.prisma.deal.groupBy({
       by: ['project', 'status'],
+      where: dealPeriodFilter,
       _count: true,
       _sum: { amount: true, commissionAmount: true, sqm: true },
     });

@@ -107,6 +107,7 @@ export default function AdminCallCenterPage() {
   const [searchInput, setSearchInput] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [includeAll, setIncludeAll] = useState(false);
+  const [coordinatorsFilter, setCoordinatorsFilter] = useState<'' | 'only' | 'exclude'>('');
   const [queue, setQueue] = useState<QueueResponse | null>(null);
   const [stats, setStats] = useState<CallCenterStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,11 +120,12 @@ export default function AdminCallCenterPage() {
     if (search) p.set('search', search);
     if (categoryFilter) p.set('category', categoryFilter);
     if (includeAll) p.set('includeAll', 'true');
+    if (coordinatorsFilter) p.set('coordinators', coordinatorsFilter);
     apiGet<QueueResponse>(`/admin/call-center/queue?${p}`)
       .then(setQueue)
       .catch(() => setQueue({ brokers: [], total: 0, page: 1, limit: 20, totalPages: 1 }))
       .finally(() => setLoading(false));
-  }, [page, search, categoryFilter, includeAll]);
+  }, [page, search, categoryFilter, includeAll, coordinatorsFilter]);
 
   const loadStats = useCallback(() => {
     apiGet<CallCenterStats>('/admin/call-center/stats').then(setStats).catch(() => {});
@@ -182,6 +184,11 @@ export default function AdminCallCenterPage() {
           <select className="input w-auto" value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}>
             <option value="">Все категории</option>
             {Object.entries(categoryLabels).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <select className="input w-auto" value={coordinatorsFilter} onChange={(e) => { setCoordinatorsFilter(e.target.value as any); setPage(1); }}>
+            <option value="">Брокеры + координаторы</option>
+            <option value="only">Только координаторы</option>
+            <option value="exclude">Только брокеры (без координаторов)</option>
           </select>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={includeAll} onChange={(e) => { setIncludeAll(e.target.checked); setPage(1); }} />
@@ -300,12 +307,17 @@ function CallPanel({ broker, onLogged }: { broker: QueueBroker; onLogged: () => 
   const [comment, setComment] = useState('');
   const [campaign, setCampaign] = useState('');
   const [nextCallAt, setNextCallAt] = useState('');
+  const [brokerTourDate, setBrokerTourDate] = useState('');
   const [doNotCallOverride, setDoNotCallOverride] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
   const handleSave = async () => {
     if (!result) { setErr('Выбери результат звонка'); return; }
+    if (result === 'SCHEDULED_TOUR' && !brokerTourDate) {
+      setErr('Укажи дату брокер-тура');
+      return;
+    }
     setSaving(true); setErr('');
     try {
       await apiPost('/admin/call-center/log-call', {
@@ -315,6 +327,7 @@ function CallPanel({ broker, onLogged }: { broker: QueueBroker; onLogged: () => 
         campaign: campaign || null,
         nextCallAtOverride: nextCallAt ? new Date(nextCallAt).toISOString() : null,
         doNotCallOverride,
+        brokerTourDate: brokerTourDate ? new Date(brokerTourDate).toISOString() : null,
       });
       onLogged();
     } catch (e: any) {
@@ -406,6 +419,23 @@ function CallPanel({ broker, onLogged }: { broker: QueueBroker; onLogged: () => 
           </select>
         </div>
       </div>
+
+      {result === 'SCHEDULED_TOUR' && (
+        <div className="bg-success/10 p-3 rounded border border-success/30">
+          <label className="block text-xs font-semibold mb-1">Дата брокер-тура *</label>
+          <input
+            type="datetime-local"
+            className="input"
+            value={brokerTourDate}
+            onChange={(e) => setBrokerTourDate(e.target.value)}
+            step="3600"
+            required
+          />
+          <p className="text-[10px] text-text-muted mt-1">
+            После сохранения дата запишется в карточку брокера. Менеджер увидит запись в /admin/brokers/&lt;id&gt;.
+          </p>
+        </div>
+      )}
 
       <div>
         <label className="block text-xs text-text-muted mb-1">Комментарий</label>

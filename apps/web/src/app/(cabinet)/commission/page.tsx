@@ -275,10 +275,10 @@ export default function CommissionPage() {
               <input
                 type="text"
                 className="input"
-                placeholder="7701234567"
+                placeholder="ЮЛ 10 цифр или ИП 12 цифр"
                 value={calcForm.agencyInn}
-                onChange={(e) => setCalcForm({ ...calcForm, agencyInn: e.target.value.replace(/\D/g, '').slice(0, 10) })}
-                maxLength={10}
+                onChange={(e) => setCalcForm({ ...calcForm, agencyInn: e.target.value.replace(/\D/g, '').slice(0, 12) })}
+                maxLength={12}
                 required
               />
             </div>

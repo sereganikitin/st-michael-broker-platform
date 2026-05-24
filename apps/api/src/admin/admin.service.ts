@@ -820,6 +820,7 @@ export class AdminService {
     category?: string;
     search?: string;
     includeAll?: string | boolean;
+    coordinators?: 'only' | 'exclude' | '' | string;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Number(query.limit) || 30);
@@ -832,6 +833,16 @@ export class AdminService {
     if (query.category) {
       const cats = String(query.category).split(',').map((s) => s.trim()).filter(Boolean);
       if (cats.length > 0) where.category = { in: cats as any };
+    }
+    // A5 fix 2026-05-24: фильтр координаторов — 752 шт из импорта были
+    // смешаны в общей очереди. Параметры:
+    //   coordinators=only   → только координаторы (isCoordinator=true)
+    //   coordinators=exclude → только обычные брокеры (isCoordinator=false)
+    //   (пусто или any)     → все
+    if (query.coordinators === 'only') {
+      where.isCoordinator = true;
+    } else if (query.coordinators === 'exclude') {
+      where.isCoordinator = false;
     }
     // Bug fix 2026-05-22 (#3): не показывать оператору брокеров с
     // запланированным звонком в будущем (например +7 дней).
@@ -928,6 +939,8 @@ export class AdminService {
       duration?: number | null;
       nextCallAtOverride?: string | null;
       doNotCallOverride?: boolean | null;
+      // A4 fix 2026-05-24: дата брокер-тура когда result=SCHEDULED_TOUR
+      brokerTourDate?: string | null;
     },
   ) {
     const broker = await this.prisma.broker.findUnique({ where: { id: data.brokerId } });
@@ -970,6 +983,22 @@ export class AdminService {
       },
     });
 
+    // A4 fix 2026-05-24: при «Запись на БТ» обновляем broker.brokerTourDate
+    // (раньше только category становилась HOT, дата терялась). Если оператор
+    // передал brokerTourDate — записываем; иначе ставим now+7д как дефолт
+    // (чтобы менеджер видел что брокер записан и нужно перенастроить).
+    let brokerTourDate: Date | null | undefined;
+    let brokerTourVisited: boolean | undefined;
+    if (data.result === 'SCHEDULED_TOUR') {
+      if (data.brokerTourDate) {
+        const d = new Date(data.brokerTourDate);
+        if (!isNaN(d.getTime())) brokerTourDate = d;
+      } else {
+        brokerTourDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      }
+      brokerTourVisited = false; // записан, но не пришёл
+    }
+
     const updated = await this.prisma.broker.update({
       where: { id: data.brokerId },
       data: {
@@ -977,8 +1006,10 @@ export class AdminService {
         nextCallAt,
         ...(categoryUpdate ? { category: categoryUpdate } : {}),
         ...(doNotCallUpdate !== undefined ? { doNotCall: doNotCallUpdate } : {}),
+        ...(brokerTourDate !== undefined ? { brokerTourDate } : {}),
+        ...(brokerTourVisited !== undefined ? { brokerTourVisited } : {}),
       },
-      select: { id: true, fullName: true, category: true, doNotCall: true, lastCallAt: true, nextCallAt: true },
+      select: { id: true, fullName: true, category: true, doNotCall: true, lastCallAt: true, nextCallAt: true, brokerTourDate: true, brokerTourVisited: true },
     });
 
     // Sync результата звонка в amoCRM (правка #5 аудита 2026-05-22):
