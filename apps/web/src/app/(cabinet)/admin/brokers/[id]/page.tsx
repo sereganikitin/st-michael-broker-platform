@@ -232,6 +232,29 @@ export default function AdminBrokerDetailPage() {
             {broker.brokerAgencies?.length > 0 && <> · Агентств: {broker.brokerAgencies.length}</>}
           </div>
 
+          {/* КБ6 (2026-05-25): статус договора-оферты. */}
+          <div className="mb-4 p-3 rounded-lg border border-border bg-surface-secondary">
+            <div className="text-xs uppercase tracking-wider text-text-muted mb-2">Договор-оферта о сотрудничестве</div>
+            {Array.isArray(broker.offerAcceptances) && broker.offerAcceptances.length > 0 ? (
+              <>
+                <div className="text-sm font-medium text-success">
+                  ✓ Подписан · версия {broker.offerAcceptances[0].offerVersion} · {new Date(broker.offerAcceptances[0].acceptedAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}
+                </div>
+                {broker.offerAcceptances[0].ip && (
+                  <div className="text-xs text-text-muted mt-1">IP: {broker.offerAcceptances[0].ip}</div>
+                )}
+                {broker.offerAcceptances[0].signedPdfUrl && (
+                  <a href={broker.offerAcceptances[0].signedPdfUrl} target="_blank" rel="noreferrer" className="text-xs text-accent underline mt-1 inline-block">Скачать PDF</a>
+                )}
+                {broker.offerAcceptances.length > 1 && (
+                  <div className="text-xs text-text-muted mt-1">+ {broker.offerAcceptances.length - 1} ранее подписанных версий</div>
+                )}
+              </>
+            ) : (
+              <div className="text-sm text-warning">⚠ Не подписан</div>
+            )}
+          </div>
+
           <div className="flex gap-2">
             <button className="btn btn-primary flex items-center gap-2" onClick={handleSave} disabled={saving}>
               <Save className="w-4 h-4" /> {saving ? 'Сохранение...' : 'Сохранить'}

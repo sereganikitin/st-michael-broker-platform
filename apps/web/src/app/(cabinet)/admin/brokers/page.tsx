@@ -169,6 +169,7 @@ export default function AdminBrokersPage() {
                     <th className="pb-3 font-medium">Email</th>
                     <th className="pb-3 font-medium">Роль</th>
                     <th className="pb-3 font-medium">Статус</th>
+                    <th className="pb-3 font-medium" title="Договор-оферта о сотрудничестве">Оферта</th>
                     <th className="pb-3 font-medium text-right">Клиенты</th>
                     <th className="pb-3 font-medium text-right">Сделки</th>
                     <th className="pb-3 font-medium text-right">Встречи</th>
@@ -213,6 +214,11 @@ export default function AdminBrokersPage() {
                         <span className={`text-xs px-2 py-1 rounded ${statusLabels[b.status]?.cls || ''}`}>
                           {statusLabels[b.status]?.label || b.status}
                         </span>
+                      </td>
+                      <td className="py-3" title={b._count?.offerAcceptances ? 'Оферта подписана' : 'Не подписана'}>
+                        {b._count?.offerAcceptances > 0
+                          ? <span className="text-xs px-2 py-1 rounded bg-success/20 text-success">✓ подписана</span>
+                          : <span className="text-xs px-2 py-1 rounded bg-warning/20 text-warning">⚠ нет</span>}
                       </td>
                       <td className="py-3 text-right">{b._count?.clients ?? 0}</td>
                       <td className="py-3 text-right">{b._count?.deals ?? 0}</td>

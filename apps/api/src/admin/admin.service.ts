@@ -242,7 +242,7 @@ export class AdminService {
           source: true,
           amoContactId: true,
           createdAt: true,
-          _count: { select: { clients: true, deals: true, meetings: true } },
+          _count: { select: { clients: true, deals: true, meetings: true, offerAcceptances: true } },
         },
         skip,
         take: limit,
@@ -266,6 +266,13 @@ export class AdminService {
           select: {
             id: true, result: true, comment: true, campaign: true,
             duration: true, createdAt: true, nextCallAt: true, operatorId: true,
+          },
+        },
+        // КБ6 (2026-05-25): акцепты оферты — для статуса «договор подписан».
+        offerAcceptances: {
+          orderBy: { acceptedAt: 'desc' },
+          select: {
+            id: true, offerVersion: true, acceptedAt: true, ip: true, signedPdfUrl: true,
           },
         },
       },

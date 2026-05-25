@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight, X, AlertTriangle } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, AlertTriangle, Mail, Building, User, Phone as PhoneIcon, Calendar, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   CONDITIONALLY_UNIQUE: { label: 'Уникален', cls: 'bg-success/20 text-success' },
@@ -35,76 +35,172 @@ function daysUntilExpiry(expiresAt: string | null): number | null {
   return Math.ceil(ms / (24 * 60 * 60 * 1000));
 }
 
-function ClientDetail({ client, onClose }: { client: any; onClose: () => void }) {
+// КБ6 (2026-05-25): расширенная карточка клиента.
+// Грузим полные данные через GET /clients/:id (с deals, meetings, broker),
+// показываем максимум информации из БД.
+function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose: () => void }) {
+  const [client, setClient] = useState<any>(shallowClient);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiGet(`/clients/${shallowClient.id}`)
+      .then((d: any) => setClient(d || shallowClient))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [shallowClient.id]);
+
+  const daysLeft = daysUntilExpiry(client.uniquenessExpiresAt);
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-surface rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 relative"
+        className="bg-surface rounded-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-6 relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button className="absolute top-4 right-4 text-text-muted hover:text-text" onClick={onClose}>
           <X className="w-5 h-5" />
         </button>
 
-        <h2 className="text-xl font-bold mb-1">{client.fullName}</h2>
-        <p className="text-text-muted text-sm mb-4">{formatPhone(client.phone)}</p>
+        <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
+          <User className="w-5 h-5 text-accent" /> {client.fullName}
+        </h2>
+        <p className="text-text-muted text-sm mb-4 flex items-center gap-2">
+          <PhoneIcon className="w-4 h-4" /> {formatPhone(client.phone)}
+          {client.email && (
+            <>
+              <span className="mx-1">·</span>
+              <Mail className="w-4 h-4" /> {client.email}
+            </>
+          )}
+        </p>
 
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-4">
           <span className={`text-xs px-2 py-1 rounded ${statusLabels[client.uniquenessStatus]?.cls || 'bg-text-muted/20'}`}>
             {statusLabels[client.uniquenessStatus]?.label || client.uniquenessStatus}
           </span>
+          {client.fixationStatus && client.fixationStatus !== 'NOT_FIXED' && (
+            <span className="text-xs px-2 py-1 rounded bg-info/20 text-info">{client.fixationStatus}</span>
+          )}
+          {client.inspectionActSigned && (
+            <span className="text-xs px-2 py-1 rounded bg-success/20 text-success inline-flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> Акт осмотра подписан
+            </span>
+          )}
+          {client.amoSyncStatus === 'FAILED' && (
+            <span className="text-xs px-2 py-1 rounded bg-error/20 text-error inline-flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" /> Не передан в amoCRM
+            </span>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3 text-sm mb-4">
-          {client.email && (
+          <div className="bg-surface-secondary rounded-lg p-3">
+            <span className="text-text-muted block text-xs">Проект</span>
+            <span className="font-medium flex items-center gap-1">
+              <Building className="w-4 h-4" /> {projectLabels[client.project] || client.project}
+            </span>
+          </div>
+          <div className="bg-surface-secondary rounded-lg p-3">
+            <span className="text-text-muted block text-xs">Статус клиента</span>
+            <span className="font-medium">{client.status}</span>
+          </div>
+          <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+            <span className="text-text-muted block text-xs flex items-center gap-1">
+              <Calendar className="w-3 h-3" /> Уникальность до
+            </span>
+            <span className="font-medium">
+              {client.uniquenessExpiresAt ? new Date(client.uniquenessExpiresAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+            </span>
+            {daysLeft !== null && (
+              <div className={`text-xs mt-1 ${daysLeft < 0 ? 'text-error' : daysLeft <= 1 ? 'text-error' : daysLeft <= 7 ? 'text-warning' : 'text-text-muted'}`}>
+                {daysLeft < 0
+                  ? `⚠ истекла ${-daysLeft} дн. назад`
+                  : daysLeft === 0
+                    ? '⚠ истекает сегодня'
+                    : `осталось ${daysLeft} ${daysLeft === 1 ? 'день' : daysLeft < 5 ? 'дня' : 'дней'} (можно продлить)`}
+              </div>
+            )}
+            {client.uniquenessReason && (
+              <div className="text-xs mt-1 text-text-muted">Основание: {client.uniquenessReason}</div>
+            )}
+          </div>
+          {client.broker && (
             <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
-              <span className="text-text-muted block text-xs">Email</span>
-              <span className="font-medium">{client.email}</span>
+              <span className="text-text-muted block text-xs">Брокер</span>
+              <span className="font-medium">{client.broker.fullName}</span>
+              <span className="text-xs text-text-muted ml-2">{formatPhone(client.broker.phone)}</span>
             </div>
           )}
           <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Проект</span>
-            <span className="font-medium">{projectLabels[client.project] || client.project}</span>
+            <span className="text-text-muted block text-xs">Создано</span>
+            <span className="font-medium">{new Date(client.createdAt).toLocaleDateString('ru-RU')}</span>
           </div>
           <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Статус</span>
-            <span className="font-medium">{client.status}</span>
+            <span className="text-text-muted block text-xs">Обновлено</span>
+            <span className="font-medium">{new Date(client.updatedAt || client.amoUpdatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
           </div>
-          <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Дата создания в amoCRM</span>
-            <span className="font-medium">{new Date(client.amoCreatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
-            {(() => {
-              const d = daysUntilExpiry(client.uniquenessExpiresAt);
-              if (d === null) return null;
-              if (d < 0) return <div className="text-xs text-error mt-1">⚠ уникальность истекла {-d} дн. назад</div>;
-              if (d === 0) return <div className="text-xs text-error mt-1">⚠ уникальность истекает сегодня</div>;
-              const cls = d <= 7 ? 'text-warning' : 'text-text-muted';
-              return <div className={`text-xs mt-1 ${cls}`}>осталось {d} {d === 1 ? 'день' : (d < 5 ? 'дня' : 'дней')} до окончания уникальности (30 дн)</div>;
-            })()}
-          </div>
+          {client.amoLeadId && (
+            <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+              <span className="text-text-muted block text-xs">amoCRM Lead ID</span>
+              <span className="font-medium font-mono text-xs">{String(client.amoLeadId)}</span>
+            </div>
+          )}
         </div>
 
         {client.comment && (
           <div className="bg-surface-secondary rounded-lg p-3 mb-4">
-            <span className="text-text-muted block text-xs mb-1">Комментарий</span>
+            <span className="text-text-muted block text-xs mb-1 flex items-center gap-1">
+              <FileText className="w-3 h-3" /> Детали с фиксации
+            </span>
             <span className="text-sm whitespace-pre-wrap">{client.comment}</span>
           </div>
         )}
 
-        {client.deals && client.deals.length > 0 && (
-          <div>
-            <h3 className="text-sm font-medium mb-2">Сделки</h3>
+        {client.amoSyncStatus === 'FAILED' && client.amoSyncError && (
+          <div className="bg-error/10 border border-error/30 rounded-lg p-3 mb-4">
+            <span className="text-text-muted block text-xs mb-1 text-error">amoCRM ошибка</span>
+            <span className="text-xs font-mono break-all">{client.amoSyncError}</span>
+            <div className="text-xs text-text-muted mt-1">Попыток: {client.amoSyncAttempts || 0}</div>
+          </div>
+        )}
+
+        {Array.isArray(client.meetings) && client.meetings.length > 0 && (
+          <div className="mb-4">
+            <h3 className="text-sm font-medium mb-2 flex items-center gap-1">
+              <Calendar className="w-4 h-4" /> Встречи ({client.meetings.length})
+            </h3>
             <div className="space-y-2">
-              {client.deals.map((deal: any) => (
-                <div key={deal.id} className="bg-surface-secondary rounded-lg p-3 flex justify-between text-sm">
-                  <span>Статус: {deal.status}</span>
-                  {deal.amount && <span className="font-medium">{Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽</span>}
+              {client.meetings.map((m: any) => (
+                <div key={m.id} className="bg-surface-secondary rounded-lg p-3 flex justify-between text-sm">
+                  <span>{new Date(m.date).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                  <span className="text-text-muted">{m.status}{m.type ? ` · ${m.type}` : ''}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
+
+        {Array.isArray(client.deals) && client.deals.length > 0 && (
+          <div>
+            <h3 className="text-sm font-medium mb-2">Сделки ({client.deals.length})</h3>
+            <div className="space-y-2">
+              {client.deals.map((deal: any) => (
+                <div key={deal.id} className="bg-surface-secondary rounded-lg p-3 text-sm">
+                  <div className="flex justify-between">
+                    <span>{deal.status}{deal.contractType ? ` · ${deal.contractType}` : ''}</span>
+                    {deal.amount && <span className="font-medium">{Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽</span>}
+                  </div>
+                  <div className="flex justify-between text-xs text-text-muted mt-1">
+                    {deal.lot && <span>{deal.lot.building || ''} {deal.lot.floor ? `${deal.lot.floor} эт.` : ''} {deal.lot.sqm ? `${deal.lot.sqm} м²` : ''}</span>}
+                    {deal.commissionAmount && <span>Комиссия: {Math.round(Number(deal.commissionAmount)).toLocaleString('ru-RU')} ₽</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {loading && <div className="text-xs text-text-muted mt-3">Догружаю детали…</div>}
       </div>
     </div>
   );

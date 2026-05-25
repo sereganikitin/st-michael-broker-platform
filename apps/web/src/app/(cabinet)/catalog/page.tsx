@@ -330,10 +330,11 @@ export default function CatalogPage() {
   const [contactModal, setContactModal] = useState<{ lot: any; kind: 'book' | 'visit' } | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Reset building when project changes if it doesn't belong to the project
+  // Reset building when project / propertyType / rooms changes —
+  // выбранный корпус может не существовать в новой выборке (КБ6 fix).
   useEffect(() => {
     setBuildingFilter('');
-  }, [projectFilter]);
+  }, [projectFilter, propertyTypeFilter, roomsFilter]);
 
   const buildQuery = useMemo(() => {
     const p = new URLSearchParams({ page: String(page), limit: '18' });
@@ -584,11 +585,24 @@ export default function CatalogPage() {
                   className="p-4 bg-surface-secondary rounded-lg cursor-pointer hover:ring-2 hover:ring-accent/50 transition"
                   onClick={() => setSelectedLot(lot)}
                 >
-                  {lot.planImageUrl && (
-                    <div className="mb-3 bg-surface rounded-lg p-2">
-                      <img src={lot.planImageUrl} alt="Планировка" className="w-full rounded max-h-40 object-contain" />
-                    </div>
-                  )}
+                  {/* КБ6 (2026-05-25): единый стиль картинок — фиксированная
+                      высота 160px, object-contain, без скачков размера карточки.
+                      Если картинки нет — серый плейсхолдер той же высоты,
+                      чтобы карточки лотов были одинаковыми по высоте. */}
+                  <div className="mb-3 bg-surface rounded-lg overflow-hidden" style={{ height: 160 }}>
+                    {lot.planImageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={lot.planImageUrl}
+                        alt="Планировка"
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-text-muted text-xs">
+                        Без планировки
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-medium text-sm">{lot.number}</h3>
                     <div className="flex items-center gap-1">

@@ -318,9 +318,13 @@ export class CatalogService {
       _count: true,
     });
 
-    // Get distinct buildings — filtered by selected project if any
+    // КБ6 (2026-05-25): фильтр «Корпус» учитывает project + propertyType +
+    // rooms, чтобы не показывать корпуса, в которых нет лотов с выбранным
+    // типом/комнатностью.
     const buildingsWhere: any = { ...notSold, building: { not: '' } };
     if (filters.project) buildingsWhere.project = filters.project;
+    if (filters.propertyType) buildingsWhere.propertyType = { contains: filters.propertyType, mode: 'insensitive' };
+    if (filters.rooms) buildingsWhere.rooms = filters.rooms;
     const buildings = await this.prisma.lot.groupBy({
       by: ['building'],
       where: buildingsWhere,
