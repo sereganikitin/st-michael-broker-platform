@@ -158,6 +158,26 @@ export class AdminController {
     return this.adminService.getUniquenessConflicts();
   }
 
+  // Bug fix 2026-05-25: диагностика amo (живой ли токен).
+  @Get('amo-health')
+  @ApiOperation({ summary: 'Быстрая проверка amo: токен жив? account отвечает?' })
+  async amoHealth() {
+    return this.adminService.checkAmoHealth();
+  }
+
+  // 2026-05-25: заявки без передачи в amo (для менеджеров/координаторов).
+  @Get('amo-failed-clients')
+  @ApiOperation({ summary: 'Клиенты с amoSyncStatus=FAILED — заявки, не переданные в amoCRM' })
+  async amoFailedClients() {
+    return this.adminService.getAmoFailedClients();
+  }
+
+  @Post('clients/:id/retry-amo-sync')
+  @ApiOperation({ summary: 'Повторить попытку передать заявку в amoCRM' })
+  async retryAmoSync(@Param('id') id: string) {
+    return this.adminService.retryAmoSync(id);
+  }
+
   // ─── Mailings ─────────────────────────────────────────────
 
   @Post('mailings/preview')

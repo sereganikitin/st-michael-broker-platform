@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet, apiPatch } from '@/lib/api';
+import AmoHealthBanner from '@/components/AmoHealthBanner';
 import { useAuth } from '@/lib/auth';
 import { AlertTriangle, CheckCircle2, XCircle, User, Phone, Calendar, Building } from 'lucide-react';
 
@@ -95,6 +96,8 @@ export default function UniquenessConflictsPage() {
         Клиенты со статусом UNDER_REVIEW. Сравните брокера-инициатора и того, у кого уже есть
         активная заявка/встреча/сделка по тому же телефону, и примите решение.
       </p>
+
+      <AmoHealthBanner />
 
       {msg && (
         <div className="mb-4 p-3 bg-info/20 text-info rounded text-sm">{msg}</div>

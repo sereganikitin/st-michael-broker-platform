@@ -1026,6 +1026,110 @@ export class AdminService {
     return { callLog, broker: updated };
   }
 
+  // 2026-05-25: список заявок не переданных в amoCRM (amoSyncStatus=FAILED).
+  async getAmoFailedClients() {
+    const clients = await this.prisma.client.findMany({
+      where: { amoSyncStatus: 'FAILED' },
+      include: {
+        broker: { select: { id: true, fullName: true, phone: true } },
+        fixationAgency: { select: { id: true, name: true, inn: true } },
+      },
+      orderBy: { amoSyncLastAttemptAt: 'desc' },
+      take: 200,
+    });
+    return clients.map((c) => ({
+      id: c.id,
+      fullName: c.fullName,
+      phone: c.phone,
+      project: c.project,
+      broker: c.broker,
+      agency: c.fixationAgency,
+      amoSyncError: c.amoSyncError,
+      amoSyncAttempts: c.amoSyncAttempts,
+      amoSyncLastAttemptAt: c.amoSyncLastAttemptAt,
+      createdAt: c.createdAt,
+    }));
+  }
+
+  // 2026-05-25: ручной retry — менеджер видит FAILED-заявку и нажимает «повторить».
+  // Вызывает amo createFixationRequest снова. При успехе — статус SYNCED.
+  async retryAmoSync(clientId: string) {
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+      include: {
+        broker: true,
+        fixationAgency: true,
+      },
+    });
+    if (!client) throw new BadRequestException('Client not found');
+    if (client.amoSyncStatus === 'SYNCED') return { ok: true, message: 'Уже синхронизирован' };
+    if (!client.fixationAgency) throw new BadRequestException('У клиента нет fixationAgency');
+
+    try {
+      await this.amo.createFixationRequest({
+        clientPhone: client.phone,
+        clientEmail: client.email || undefined,
+        clientName: client.fullName,
+        brokerPhone: client.broker.phone,
+        brokerAmoContactId: client.broker.amoContactId ? Number(client.broker.amoContactId) : undefined,
+        agencyName: client.fixationAgency.name,
+        agencyInn: client.fixationAgency.inn,
+        comment: client.comment || '',
+        project: client.project as any,
+        fromBroker: true,
+      });
+      await this.prisma.client.update({
+        where: { id: clientId },
+        data: {
+          amoSyncStatus: 'SYNCED',
+          amoSyncError: null,
+          amoSyncAttempts: { increment: 1 },
+          amoSyncLastAttemptAt: new Date(),
+        },
+      });
+      return { ok: true, message: 'Заявка передана в amoCRM' };
+    } catch (e: any) {
+      const error = String(e?.message || e).slice(0, 500);
+      await this.prisma.client.update({
+        where: { id: clientId },
+        data: {
+          amoSyncError: error,
+          amoSyncAttempts: { increment: 1 },
+          amoSyncLastAttemptAt: new Date(),
+        },
+      });
+      return { ok: false, error };
+    }
+  }
+
+  // Bug fix 2026-05-25: диагностика статуса amoCRM.
+  // Возвращает { ok, accountName?, error?, tokenConfigured }.
+  // Используется UI чтобы быстро понять — отвалился токен/таймаут/rate-limit.
+  async checkAmoHealth() {
+    const tokenConfigured = !!process.env.AMO_ACCESS_TOKEN;
+    if (!tokenConfigured) {
+      return { ok: false, tokenConfigured: false, error: 'AMO_ACCESS_TOKEN не настроен в env' };
+    }
+    const started = Date.now();
+    try {
+      const acc = await this.amo.getAccount();
+      return {
+        ok: true,
+        tokenConfigured: true,
+        accountName: acc?.name || acc?.subdomain || null,
+        accountId: acc?.id || null,
+        latencyMs: Date.now() - started,
+      };
+    } catch (e: any) {
+      return {
+        ok: false,
+        tokenConfigured: true,
+        error: String(e?.message || e),
+        latencyMs: Date.now() - started,
+      };
+    }
+  }
+
   // A3 fix 2026-05-24: список клиентов с UNDER_REVIEW для UI менеджера.
   // Для каждого находим конкурирующего брокера по phone (старая запись)
   // и брокера-инициатора (текущий client.brokerId).

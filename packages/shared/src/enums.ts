@@ -34,6 +34,12 @@ export enum UniquenessStatus {
   EXPIRED = 'EXPIRED',
 }
 
+export enum AmoSyncStatus {
+  SYNCED = 'SYNCED',
+  PENDING = 'PENDING',
+  FAILED = 'FAILED',
+}
+
 export enum BrokerFunnelStage {
   NEW_BROKER = 'NEW_BROKER',
   BROKER_TOUR = 'BROKER_TOUR',

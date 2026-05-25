@@ -38,6 +38,7 @@ const adminNavigation = [
   { name: 'Аналитика платформы', href: '/admin/analytics', icon: BarChart3 },
   { name: 'Колл-центр', href: '/admin/call-center', icon: PhoneCall },
   { name: 'Конфликты уникальности', href: '/admin/uniqueness-conflicts', icon: AlertTriangle },
+  { name: 'Заявки без amoCRM', href: '/admin/amo-failed', icon: AlertTriangle },
   { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
   { name: 'Комиссия — политики', href: '/admin/commission-policies', icon: Calculator },
   { name: 'Управление встречами', href: '/admin/meetings', icon: CalendarPlus },

@@ -48,19 +48,26 @@ export class ClientFixationService {
     });
 
     if (!agency) {
-      const amoCompany = await this.amoCrmAdapter.findCompanyByInn(data.agencyInn);
-      if (amoCompany) {
-        agency = await this.prisma.agency.create({
-          data: { name: amoCompany.name, inn: data.agencyInn },
-        });
-      } else {
-        const newAmoCompany = await this.amoCrmAdapter.createCompany({
-          name: `Агентство ${data.agencyInn}`,
-        });
-        agency = await this.prisma.agency.create({
-          data: { name: newAmoCompany.name, inn: data.agencyInn },
-        });
+      // Bug fix 2026-05-25: если amo лежит/токен истёк — НЕ валим фиксацию.
+      // Создаём агентство в нашей БД с минимальными данными, amo-sync
+      // подберёт позже через scheduler/manual sync.
+      let agencyName = `Агентство ${data.agencyInn}`;
+      try {
+        const amoCompany = await this.amoCrmAdapter.findCompanyByInn(data.agencyInn);
+        if (amoCompany) {
+          agencyName = amoCompany.name;
+        } else {
+          const newAmoCompany = await this.amoCrmAdapter.createCompany({
+            name: agencyName,
+          });
+          if (newAmoCompany?.name) agencyName = newAmoCompany.name;
+        }
+      } catch (e: any) {
+        console.error('[fixClient] amo agency lookup failed, продолжаем без amo:', e?.message || e);
       }
+      agency = await this.prisma.agency.create({
+        data: { name: agencyName, inn: data.agencyInn },
+      });
     }
 
     // Проверяем сначала запись ЭТОГО брокера — если он уже фиксировал, обновляем её.
@@ -178,26 +185,57 @@ export class ClientFixationService {
       if (data.comment) commentParts.unshift(data.comment);
       const fullComment = commentParts.join('. ');
 
-      await this.amoCrmAdapter.createFixationRequest({
-        clientPhone: data.phone,
-        clientEmail: data.email,
-        clientName: data.fullName,
-        clientRegion: data.clientRegion,
-        presentationSent: data.presentationSent,
-        brokerPhone: broker.phone,
-        brokerAmoContactId: broker.amoContactId ? Number(broker.amoContactId) : undefined,
-        agencyName: agency.name,
-        agencyInn: agency.inn,
-        comment: fullComment,
-        project: data.project as Project,
-        propertyType: data.propertyType,
-        roomsCount: data.roomsCount,
-        amount: data.amount,
-        sqm: data.sqm,
-        purchaseTiming: data.purchaseTiming,
-        readinessLevel: data.readinessLevel,
-        fromBroker: true, // фиксация ВСЕГДА от брокера
+      // Bug fix 2026-05-25: amo-вызов изолируем — клиент уже в БД,
+      // фиксация состоялась. Если amo упал (401/таймаут/5xx) —
+      // логируем в audit + помечаем amoSyncStatus=FAILED + шлём уведомление
+      // менеджерам и координаторам. Брокеру возвращаем контакты менеджеров.
+      let amoSyncOk = true;
+      let amoSyncError: string | null = null;
+      try {
+        await this.amoCrmAdapter.createFixationRequest({
+          clientPhone: data.phone,
+          clientEmail: data.email,
+          clientName: data.fullName,
+          clientRegion: data.clientRegion,
+          presentationSent: data.presentationSent,
+          brokerPhone: broker.phone,
+          brokerAmoContactId: broker.amoContactId ? Number(broker.amoContactId) : undefined,
+          agencyName: agency.name,
+          agencyInn: agency.inn,
+          comment: fullComment,
+          project: data.project as Project,
+          propertyType: data.propertyType,
+          roomsCount: data.roomsCount,
+          amount: data.amount,
+          sqm: data.sqm,
+          purchaseTiming: data.purchaseTiming,
+          readinessLevel: data.readinessLevel,
+          fromBroker: true, // фиксация ВСЕГДА от брокера
+        });
+      } catch (e: any) {
+        amoSyncOk = false;
+        amoSyncError = String(e?.message || e).slice(0, 500);
+        console.error('[fixClient] amo createFixationRequest failed:', amoSyncError);
+      }
+
+      // Помечаем статус amo-синка на клиенте.
+      await this.prisma.client.update({
+        where: { id: client.id },
+        data: {
+          amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
+          amoSyncError: amoSyncOk ? null : amoSyncError,
+          amoSyncAttempts: { increment: 1 },
+          amoSyncLastAttemptAt: new Date(),
+        },
       });
+
+      if (!amoSyncOk) {
+        await this.logAudit(brokerId, 'AMO_SYNC_FAILED', 'Client', client.id, {
+          step: 'createFixationRequest',
+          error: amoSyncError,
+        });
+        await this.notifyAmoSyncFailed(client.id, broker, data.phone, amoSyncError || '');
+      }
 
       // Update broker funnel stage if needed
       if (broker.funnelStage === 'NEW_BROKER' || broker.funnelStage === 'BROKER_TOUR') {
@@ -212,10 +250,17 @@ export class ClientFixationService {
         phone: data.phone,
       });
 
+      // Если amo упал — отдаём контакты менеджеров, чтобы брокер мог позвонить.
+      const managerContacts = amoSyncOk ? undefined : await this.getManagerContacts();
+
       return {
         client,
         status: 'CONDITIONALLY_UNIQUE',
-        message: 'Client conditionally fixed. Expires in 30 days.',
+        amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
+        message: amoSyncOk
+          ? 'Client conditionally fixed. Expires in 30 days.'
+          : 'Клиент зафиксирован в кабинете, но не передан в amoCRM из-за технической ошибки. Менеджеры уведомлены. При срочности — свяжитесь напрямую.',
+        managerContacts,
       };
     }
 
@@ -237,11 +282,39 @@ export class ClientFixationService {
         },
       });
 
+      // Bug fix 2026-05-25: reopenLead тоже изолируем (см. createFixationRequest).
+      let amoSyncOk = true;
+      let amoSyncError: string | null = null;
       if (existingClient.amoLeadId) {
-        await this.amoCrmAdapter.reopenLead(
-          Number(existingClient.amoLeadId),
-          broker.amoContactId ? Number(broker.amoContactId) : 0,
-        );
+        try {
+          await this.amoCrmAdapter.reopenLead(
+            Number(existingClient.amoLeadId),
+            broker.amoContactId ? Number(broker.amoContactId) : 0,
+          );
+        } catch (e: any) {
+          amoSyncOk = false;
+          amoSyncError = String(e?.message || e).slice(0, 500);
+          console.error('[fixClient] amo reopenLead failed:', amoSyncError);
+        }
+      }
+
+      await this.prisma.client.update({
+        where: { id: client.id },
+        data: {
+          amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
+          amoSyncError: amoSyncOk ? null : amoSyncError,
+          amoSyncAttempts: { increment: 1 },
+          amoSyncLastAttemptAt: new Date(),
+        },
+      });
+
+      if (!amoSyncOk) {
+        await this.logAudit(brokerId, 'AMO_SYNC_FAILED', 'Client', client.id, {
+          step: 'reopenLead',
+          amoLeadId: existingClient.amoLeadId,
+          error: amoSyncError,
+        });
+        await this.notifyAmoSyncFailed(client.id, broker, data.phone, amoSyncError || '');
       }
 
       await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', client.id, {
@@ -249,10 +322,16 @@ export class ClientFixationService {
         phone: data.phone,
       });
 
+      const managerContacts = amoSyncOk ? undefined : await this.getManagerContacts();
+
       return {
         client,
         status: 'CONDITIONALLY_UNIQUE',
-        message: 'Closed deal reopened. Client conditionally fixed.',
+        amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
+        message: amoSyncOk
+          ? 'Closed deal reopened. Client conditionally fixed.'
+          : 'Клиент переоткрыт в кабинете, но изменение не передалось в amoCRM. Менеджеры уведомлены.',
+        managerContacts,
       };
     }
 
@@ -725,5 +804,46 @@ export class ClientFixationService {
     await this.prisma.auditLog.create({
       data: { userId, action, entity, entityId, payload },
     });
+  }
+
+  // 2026-05-25: контакты менеджеров (роль MANAGER) — отдаём брокеру в UI,
+  // если фиксация не передалась в amo и брокер хочет позвонить вручную.
+  private async getManagerContacts() {
+    const managers = await this.prisma.broker.findMany({
+      where: { role: 'MANAGER', status: 'ACTIVE' },
+      select: { id: true, fullName: true, phone: true, telegramUsername: true },
+      orderBy: { fullName: 'asc' },
+    });
+    return managers.map((m) => ({
+      fullName: m.fullName,
+      phone: m.phone,
+      telegram: m.telegramUsername || null,
+    }));
+  }
+
+  // 2026-05-25: рассылка алерта менеджерам и координаторам, что заявка не
+  // передалась в amo. Уведомляем всех активных MANAGER + isCoordinator=true.
+  private async notifyAmoSyncFailed(clientId: string, broker: { fullName: string; phone: string }, clientPhone: string, error: string) {
+    const recipients = await this.prisma.broker.findMany({
+      where: {
+        status: 'ACTIVE',
+        OR: [{ role: 'MANAGER' }, { isCoordinator: true }],
+      },
+      select: { id: true },
+    });
+    const body = `⚠ Фиксация клиента ${clientPhone} НЕ передана в amoCRM. Брокер: ${broker.fullName} (${broker.phone}). Клиент сохранён в кабинете, нужно вручную создать лид или дождаться авто-ретрая. Ошибка: ${error.slice(0, 200)}`;
+    for (const r of recipients) {
+      try {
+        await this.notificationQueue.add('send', {
+          brokerId: r.id,
+          channel: 'TELEGRAM',
+          subject: 'amoCRM: фиксация не передана',
+          body,
+          payload: { clientId, kind: 'AMO_SYNC_FAILED' },
+        });
+      } catch (e: any) {
+        console.error('[notifyAmoSyncFailed] queue add failed:', e?.message || e);
+      }
+    }
   }
 }

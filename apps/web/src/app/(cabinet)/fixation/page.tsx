@@ -59,6 +59,12 @@ export default function FixationPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  // 2026-05-25: если amo упал — показываем брокеру предупреждение и
+  // список менеджеров с телефонами, чтобы он мог позвонить напрямую.
+  const [amoWarn, setAmoWarn] = useState<{
+    message: string;
+    managers: { fullName: string; phone: string; telegram: string | null }[];
+  } | null>(null);
 
   const brokerAgency = broker?.agencies?.[0];
 
@@ -98,7 +104,7 @@ export default function FixationPage() {
     }
 
     try {
-      await apiPost('/clients/fix', {
+      const result: any = await apiPost('/clients/fix', {
         phone,
         fullName,
         email: email || undefined,
@@ -120,6 +126,12 @@ export default function FixationPage() {
             phone: p.phone ? '+7' + p.phone : '',
           })),
       });
+      if (result?.amoSyncStatus === 'FAILED' && Array.isArray(result?.managerContacts)) {
+        setAmoWarn({
+          message: result.message || 'Заявка сохранена в кабинете, но не передана в amoCRM.',
+          managers: result.managerContacts,
+        });
+      }
       setShowSuccess(true);
     } catch (err: any) {
       setError(err.message || 'Ошибка при отправке заявки');
@@ -146,6 +158,7 @@ export default function FixationPage() {
     setPurchaseTiming('');
     setReadinessLevel('Тёплый');
     setShowSuccess(false);
+    setAmoWarn(null);
   };
 
   const brokerPhoneDisplay = broker?.phone || '—';
@@ -470,11 +483,41 @@ export default function FixationPage() {
               <X className="w-5 h-5" />
             </button>
             <div className="text-center py-4">
-              <div className="mx-auto w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mb-4">
-                <CheckCircle2 className="w-10 h-10 text-success" />
-              </div>
-              <h2 className="text-2xl font-bold mb-2">Запрос отправлен</h2>
-              <p className="text-text-muted mb-6 text-sm">Заявка на фиксацию клиента успешно создана.</p>
+              {amoWarn ? (
+                <>
+                  <div className="mx-auto w-16 h-16 bg-warning/20 rounded-full flex items-center justify-center mb-4">
+                    <CheckCircle2 className="w-10 h-10 text-warning" />
+                  </div>
+                  <h2 className="text-xl font-bold mb-2">Заявка сохранена</h2>
+                  <p className="text-text-muted mb-4 text-sm text-left">{amoWarn.message}</p>
+                  {amoWarn.managers.length > 0 && (
+                    <div className="text-left bg-warning/10 border border-warning/30 rounded p-3 mb-4 text-sm">
+                      <div className="font-semibold mb-2">Менеджеры по брокерам:</div>
+                      <ul className="space-y-1">
+                        {amoWarn.managers.map((m, i) => (
+                          <li key={i} className="flex flex-wrap items-center gap-x-2">
+                            <span>{m.fullName}</span>
+                            {m.phone && (
+                              <a href={`tel:${m.phone}`} className="text-accent underline">{m.phone}</a>
+                            )}
+                            {m.telegram && (
+                              <a href={`https://t.me/${m.telegram.replace(/^@/, '')}`} target="_blank" rel="noreferrer" className="text-info underline">tg: @{m.telegram.replace(/^@/, '')}</a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="mx-auto w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mb-4">
+                    <CheckCircle2 className="w-10 h-10 text-success" />
+                  </div>
+                  <h2 className="text-2xl font-bold mb-2">Запрос отправлен</h2>
+                  <p className="text-text-muted mb-6 text-sm">Заявка на фиксацию клиента успешно создана.</p>
+                </>
+              )}
               <div className="flex flex-col gap-2">
                 <button
                   className="btn btn-primary w-full"

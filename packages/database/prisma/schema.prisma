@@ -313,10 +313,24 @@ model Client {
   // amoCRM dates — для показа в кабинете вместо нашей sync-даты.
   amoCreatedAt        DateTime?        @map("amo_created_at")
   amoUpdatedAt        DateTime?        @map("amo_updated_at")
+  // 2026-05-25: статус синка с amoCRM. Если amo упал во время фиксации,
+  // клиент НЕ теряется (остаётся в БД), а сюда пишем FAILED и amoSyncError.
+  // Менеджеры/координаторы видят список FAILED, scheduler ретраит.
+  amoSyncStatus       AmoSyncStatus    @default(SYNCED) @map("amo_sync_status")
+  amoSyncError        String?          @map("amo_sync_error")
+  amoSyncAttempts     Int              @default(0) @map("amo_sync_attempts")
+  amoSyncLastAttemptAt DateTime?       @map("amo_sync_last_attempt_at")
 
   @@index([phone])
   @@index([brokerId])
+  @@index([amoSyncStatus])
   @@map("clients")
+}
+
+enum AmoSyncStatus {
+  SYNCED
+  PENDING
+  FAILED
 }
 
 model Lot {
