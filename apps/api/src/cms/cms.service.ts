@@ -8,12 +8,13 @@ const DEFAULT_CONTENT: Record<string, any> = {
     tag: 'Партнёрская программа',
     title: 'Доход растёт вместе с объёмом продаж агентства',
     titleAccent: 'продаж агентства',
+    // Правка КБ5 (2026-05-25): % убраны — комиссия меняется, актуальное
+    // значение тянется из commission_policies на лендинге.
     description:
-      'Суммируем сделки по Зорге 9 и Кварталу Серебряный Бор — вы быстрее выходите на более высокий уровень комиссии. До 8% по Зорге 9 и до 6,25% по Серебряному Бору.',
+      'Прогрессивная шкала комиссии: чем больше квадратных метров продаёте в рамках одного проекта — тем выше ваша ставка вознаграждения.',
     stats: [
-      { number: 'до 8%', label: 'Максимальная ставка по Зорге 9' },
       { number: '7 дней', label: 'Выплата вознаграждения' },
-      { number: '30 дней', label: 'Срок уникальности клиента' },
+      { number: '30 дней', label: 'Срок уникальности клиента', sublabel: 'с возможностью продления' },
       { number: '2', label: 'Активных проекта' },
     ],
   },
@@ -26,7 +27,7 @@ const DEFAULT_CONTENT: Record<string, any> = {
       { icon: 'headphones', title: 'Выделенный отдел партнёров', description: 'Сопровождение на всех этапах сделки.' },
       { icon: 'shield', title: 'Защищаем брокера от увода клиента', description: 'С клиентами, которые пришли через вас, мы не работаем напрямую.' },
       { icon: 'wallet', title: 'Быстрые выплаты', description: 'Вознаграждение — до 7 рабочих дней.' },
-      { icon: 'trending-up', title: 'Высокая комиссия', description: 'Прогрессивная шкала по КСБ — до 6,25% за сделку. Фиксированная ставка 5% по Зорге 9. Плюс квартальный и годовой бонусы.' },
+      { icon: 'trending-up', title: 'Конкурентная комиссия', description: 'Прогрессивная шкала — растёт вместе с объёмом продаж. Плюс годовой бонус для постоянных партнёров.' },
       { icon: 'sparkles', title: 'Не цепляемся за формальности', description: 'Регламент уникальности у нас гибче, чем у большинства застройщиков. Подтверждаем работу с клиентом, даже когда другие отказали бы.' },
       { icon: 'graduation-cap', title: 'Обучение', description: 'Брокер-туры для быстрого старта продаж.' },
     ],
@@ -84,9 +85,10 @@ const DEFAULT_CONTENT: Record<string, any> = {
       { name: 'Champion', range: '500–699 м²', rate: '7,5%', active: false },
       { name: 'Legend', range: '700+ м²', rate: '8,0%', active: false },
     ],
+    // Правка КБ5 (2026-05-25): убран «Квартальный бонус» (формулы с конкретными
+     // % устаревали из раза в раз).
     cards: [
       { title: 'Условия выплаты', text: 'Вознаграждение выплачивается в течение 7 рабочих дней после оплаты клиентом. ПВ ≥ 50% (Зорге 9) или ≥ 30% (Серебряный Бор) — единовременно.' },
-      { title: 'Квартальный бонус', text: 'При уровне Strong+ несколько кварталов подряд: +0,1% → +0,15% → +0,2% → +0,25% (максимум). Обнуляется при отсутствии продаж в квартале.' },
       { title: 'Бонус за скорость', text: '+0,1% к ставке, если от заявки клиента до платной брони проходит не более 10 рабочих дней. Действует на оба проекта.' },
       { title: 'Годовой бонус', text: '100 000 ₽ + памятный кубок за минимум одну сделку раз в 2 месяца в течение года.' },
       { title: 'Рассрочка и ипотека', text: 'При рассрочке —0,5% от базовой ставки. Субсидированная ипотека — 4% (м² идут в общий зачёт).' },
@@ -454,6 +456,38 @@ export class CmsService {
       }
     } catch (e) {
       // Не валим seedDefaults если миграция не отработала
+    }
+
+    // Одноразовая миграция КБ5 (2026-05-25): удаляем записи, в которых
+    // зашиты конкретные «до 8% / 6,25% / Квартальный бонус» — это устаревшие
+    // дефолты КБ4. Если админ уже редактировал — текст будет другой и удаление
+    // не произойдёт (маркер не совпадёт).
+    try {
+      const hero = await this.prisma.siteContent.findUnique({ where: { key: 'hero' } });
+      if (hero) {
+        const desc = (hero.value as any)?.description || '';
+        if (desc.includes('До 8% по Зорге 9') || desc.includes('до 8% по Зорге 9')) {
+          await this.prisma.siteContent.delete({ where: { key: 'hero' } });
+        }
+      }
+      const adv2 = await this.prisma.siteContent.findUnique({ where: { key: 'advantages' } });
+      if (adv2) {
+        const items = (adv2.value as any)?.items || [];
+        const hasOld = items.some((it: any) => /Фиксированная ставка 5%|до 6,25% за сделку/.test(it?.description || ''));
+        if (hasOld) {
+          await this.prisma.siteContent.delete({ where: { key: 'advantages' } });
+        }
+      }
+      const comm = await this.prisma.siteContent.findUnique({ where: { key: 'commission' } });
+      if (comm) {
+        const cards = (comm.value as any)?.cards || [];
+        const hasQuarterly = cards.some((c: any) => c?.title === 'Квартальный бонус');
+        if (hasQuarterly) {
+          await this.prisma.siteContent.delete({ where: { key: 'commission' } });
+        }
+      }
+    } catch (e) {
+      // не валим seedDefaults
     }
 
     for (const key of KNOWN_KEYS) {

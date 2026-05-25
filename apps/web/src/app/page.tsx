@@ -11,6 +11,33 @@ import {
 
 // ─── мини-компоненты для оживления лендинга ──────────────────
 
+// Правка КБ5 (2026-05-25): единый источник истины для % комиссии.
+// Возвращает max ставку (число) из активной политики проекта. Используется
+// в карточках проектов, чтобы не зашивать % в БД LandingProject.
+// null — если активной политики нет (тогда UI должен показать «—» или
+// fallback из p.commissionFrom).
+function maxRateFromActivePolicies(
+  activePolicies: Array<{ project: string; mode: 'PROGRESSIVE' | 'FLAT'; flatRate: number | null; levels: any[] | null }>,
+  project: string,
+): number | null {
+  const p = activePolicies.find((x) => x.project === project);
+  if (!p) return null;
+  if (p.mode === 'FLAT' && p.flatRate != null) return Number(p.flatRate);
+  if (p.mode === 'PROGRESSIVE' && Array.isArray(p.levels) && p.levels.length > 0) {
+    return p.levels.reduce((mx, lv: any) => Math.max(mx, Number(lv.rate) || 0), 0);
+  }
+  return null;
+}
+
+// Slug LandingProject → enum Project (для матчинга с commission-policy).
+function slugToProject(slug: string | undefined): string | null {
+  if (!slug) return null;
+  const s = slug.toLowerCase();
+  if (s.includes('zorge')) return 'ZORGE9';
+  if (s.includes('silver') || s.includes('бор')) return 'SILVER_BOR';
+  return null;
+}
+
 // Шкала комиссии — динамически рендерится из commission_policies (БД).
 // Если для проекта активная политика mode=FLAT — показываем «Фиксированная X%»,
 // иначе таблица levels из политики. Fallback на CMS levelsByProject если в
@@ -25,17 +52,17 @@ function CommissionScale({
 }) {
   const policy = activePolicies.find((p) => p.project === project);
 
+  // Правка КБ5 (2026-05-25): для FLAT-политики НЕ выводим гигантскую цифру
+  // (комиссия меняется из раза в раз — конкретное число вводит в заблуждение).
+  // Показываем как обычную одну строку шкалы.
   if (policy && policy.mode === 'FLAT' && policy.flatRate != null) {
     return (
-      <div className="comm-table" style={{ textAlign: 'center', padding: '40px 24px' }}>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, letterSpacing: 1.5, textTransform: 'uppercase' }}>
-          Фиксированная ставка
-        </div>
-        <div style={{ fontSize: 56, fontWeight: 200, color: 'var(--gold)', lineHeight: 1 }}>
-          {String(policy.flatRate).replace('.', ',')}%
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 12 }}>
-          Действует для всех сделок проекта
+      <div className="comm-table">
+        <div className="ct-head"><span>Условие</span><span></span><span>Ставка</span></div>
+        <div className="ct-row active">
+          <span className="ct-level">Все сделки проекта</span>
+          <span className="ct-range">при 100% оплате или ипотеке</span>
+          <span className="ct-rate">{String(policy.flatRate).replace('.', ',')}%</span>
         </div>
       </div>
     );
@@ -568,7 +595,9 @@ function HeroSlides({ slides }: { slides: Array<{ tag?: string; title: string; d
   const [idx, setIdx] = useState(0);
   useEffect(() => {
     if (slides.length <= 1) return;
-    const id = setInterval(() => setIdx((i) => (i + 1) % slides.length), 6000);
+    // Правка КБ5 (2026-05-25): увеличена задержка автоплея с 6 до 10 секунд —
+    // на моб слишком быстро переключался, читатель не успевал.
+    const id = setInterval(() => setIdx((i) => (i + 1) % slides.length), 10000);
     return () => clearInterval(id);
   }, [slides.length]);
   // Правка от заказчика 2026-05-07 (после правок 16:06): возврат к
@@ -820,11 +849,12 @@ const DEFAULT_HERO = {
   // Правка заказчика 2026-05-08: "Мы не суммируем сделки между проектами".
   // Метраж считается в рамках одного проекта. Текст переписан: фокус на
   // ставке вознаграждения, а не на суммировании.
-  description: 'Прогрессивная шкала комиссии: до 8% по Зорге 9 и до 6,25% по Кварталу Серебряный Бор. Чем больше квадратных метров продаёте в одном проекте — тем выше ваша ставка.',
+  // Правка КБ5 (2026-05-25): убраны конкретные % — комиссия меняется,
+  // актуальные ставки тянутся из commission_policies через CommissionScale.
+  description: 'Прогрессивная шкала комиссии: чем больше квадратных метров продаёте в рамках одного проекта — тем выше ваша ставка вознаграждения.',
   stats: [
-    { number: 'до 8%', label: 'Максимальная ставка по Зорге 9' },
     { number: '7 дней', label: 'Выплата вознаграждения' },
-    { number: '30 дней', label: 'Срок уникальности клиента' },
+    { number: '30 дней', label: 'Срок уникальности клиента', sublabel: 'с возможностью продления' },
     { number: '2', label: 'Активных проекта' },
   ],
   // Слайдер УТП — контент с реального сайта https://зорге9.рф/br (2026-05-06).
@@ -846,7 +876,7 @@ const DEFAULT_HERO = {
     {
       tag: 'Готовый дом бизнес-класса · м. Полежаевская',
       title: 'Апартаменты от 12 млн ₽',
-      description: 'Комиссия до 8%, выплаты вознаграждения до 7 рабочих дней.',
+      description: 'Прогрессивная шкала вознаграждения, выплаты до 7 рабочих дней.',
       imageUrl: 'https://optim.tildacdn.com/tild3333-6538-4231-a437-613537353665/-/format/webp/2026-05-04_145437.jpg.webp',
     },
     {
@@ -866,7 +896,7 @@ const DEFAULT_ADVANTAGES = {
     { title: 'Выделенный отдел партнёров', description: 'Сопровождение на всех этапах сделки.' },
     { title: 'Выделенная линия', description: 'Ответ без ожидания с 9:00 до 21:00.' },
     { title: 'Быстрые выплаты', description: 'Вознаграждение — до 7 рабочих дней.' },
-    { title: 'Высокая комиссия', description: 'До 8% — одна из лучших на рынке.' },
+    { title: 'Конкурентная комиссия', description: 'Прогрессивная шкала — растёт вместе с объёмом продаж.' },
     { title: 'Партнёрство', description: 'Работаем на общий результат.' },
     { title: 'Обучение', description: 'Брокер-туры для быстрого старта продаж.' },
   ],
@@ -911,9 +941,10 @@ const DEFAULT_COMMISSION = {
   ],
   // Карточки правой колонки — содержание из "Условия вознаграждения.docx"
   // (правка 2026-05-06): только 3 ключевых блока, без перегруза.
+  // Правка КБ5 (2026-05-25): удалён «Квартальный бонус» (формулы со ставкой
+  // менялись из раза в раз — нельзя зашивать конкретные %).
   cards: [
     { title: 'Условия выплаты', text: 'Вознаграждение выплачивается в течение 7 рабочих дней после оплаты клиентом.' },
-    { title: 'Квартальный бонус', text: 'Дополнительный рост ставки при уровне Strong+: +0,1% → +0,15% → +0,2% → +0,25%. Ставка увеличивается при стабильных продажах.' },
     { title: 'Годовой бонус', text: 'За продуктивную работу в течение года: 100 000 ₽ + памятный кубок.' },
   ],
 };
@@ -1180,7 +1211,8 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 @media(max-width:1023px){.adv-grid,.proj-grid{grid-template-columns:repeat(2,1fr)}.mat-groups{grid-template-columns:1fr}.foot-grid{grid-template-columns:1fr 1fr;gap:32px}.news-grid{grid-template-columns:repeat(2,1fr)}.hero-slides{height:360px}.hero-slide{padding:30px 36px}.h-burger-menu{right:40px}.hero-2col{grid-template-columns:1fr;gap:20px}}
 @media(max-width:767px){.lp header{padding:0 20px;height:60px}.lp section{padding:56px 20px}.s-adv,.s-comm,.s-cta{padding-left:20px;padding-right:20px}.hero{padding:28px 20px 28px}.hero-banner{padding:0 20px;margin-top:16px}.lp footer{padding:32px 20px}.quick,.sep,.stats-band{margin-left:20px;margin-right:20px}.stats-band{grid-template-columns:repeat(2,1fr)}.hst{padding:24px 16px}.hst:nth-child(2){border-right:none}.hst:nth-child(1),.hst:nth-child(2){border-bottom:1px solid var(--bw)}.quick,.proj-grid,.ev-grid,.comm-content,.coop-grid,.comm-grid,.adv-grid,.news-grid,.mat-grid,.mat-groups,.ads-grid{grid-template-columns:1fr !important}.foot-grid{grid-template-columns:1fr 1fr;gap:24px}.qa{padding:22px 24px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.04)}.proj-card{padding:28px 24px;min-height:200px}.sh{margin-bottom:28px}.hero-slides{height:280px}.hero-slide{padding:24px 22px}.hero-slide-title{font-size:clamp(20px,5vw,28px)}.hero-slide-desc{font-size:12px;-webkit-line-clamp:2}.hero h1{font-size:clamp(28px,8vw,40px)}.h-burger-menu{right:20px}.h-phone{display:none}.lp-popup{max-width:90vw !important;padding:24px 20px !important;max-height:90vh}#promos{padding:24px 20px !important}#promos .hero-slides{height:260px !important}.howto-steps{grid-template-columns:1fr !important}.howto-steps-2{grid-template-columns:1fr 1fr !important}.ev-head-row{flex-direction:column !important;align-items:flex-start !important;gap:12px !important}.ev-head-row > div:first-child{flex:1}.cal-modal{padding:24px 18px !important;max-width:96vw !important}.cal-modal .cal-grid{grid-template-columns:repeat(2,1fr) !important}}
 @media(max-width:499px){.stats-band{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}.proj-card{min-height:180px;padding:24px 20px}.proj-name{font-size:24px}.adv-card{padding:28px 22px}.comm-grid{gap:24px}.h-phone{font-size:12px}.hero-slide-arrow{width:34px;height:34px}.hero-slide-arrow-prev{left:8px}.hero-slide-arrow-next{right:8px}}
-@media(max-width:374px){.hero-btns{flex-direction:column;align-items:stretch}.hero-btns .btn-gold{width:100%;justify-content:center}}
+/* Правка КБ5 (2026-05-25): на моб CTA в столбик, центр, одинаковая ширина */
+@media(max-width:767px){.hero-btns{flex-direction:column;align-items:center;gap:12px;width:100%}.hero-btns > *{width:100%;max-width:360px;justify-content:center;text-align:center}}
       `}} />
 
       <div className="lp">
@@ -1258,7 +1290,11 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
         <Reveal>
           <div className="stats-band">
             {(hero.stats || []).map((s: any, i: number) => (
-              <div key={i} className="hst"><div className="hst-n"><StatNumber raw={s.number} /></div><div className="hst-l">{s.label}</div></div>
+              <div key={i} className="hst">
+                <div className="hst-n"><StatNumber raw={s.number} /></div>
+                <div className="hst-l">{s.label}</div>
+                {s.sublabel && <div className="hst-sub" style={{fontSize:11,color:'var(--muted2)',marginTop:2}}>{s.sublabel}</div>}
+              </div>
             ))}
           </div>
         </Reveal>
@@ -1281,7 +1317,14 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
             {projects.map((p: any, i: number) => (
               <Reveal key={p.id} delay={i * 120}>
               <div className="proj-card" onClick={() => handleProjectClick(p)}>
-                {p.tag && <div className="proj-tag">{p.tag}</div>}
+                {/* Правка КБ5 (2026-05-25): бейдж «Готовый» для проектов, сдача
+                    которых уже наступила (readyYear ≤ текущий год). */}
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:10}}>
+                  {p.tag && <div className="proj-tag" style={{margin:0}}>{p.tag}</div>}
+                  {p.readyYear && Number(p.readyYear) <= new Date().getFullYear() && (
+                    <span style={{fontSize:9,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#fff',background:'var(--gold)',padding:'4px 10px',borderRadius:999}}>Готовый</span>
+                  )}
+                </div>
                 <div className="proj-name"><strong>{p.name}</strong>{p.subtitle ? ` ${p.subtitle}` : ''}</div>
                 {p.description && <div className="proj-info">{p.description}</div>}
 
@@ -1292,7 +1335,21 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                     {p.readyYear && <div><span style={{color:'var(--muted2)'}}>Сдача:</span> <strong style={{color:'var(--black)'}}>{p.readyQuarter ? `${p.readyQuarter} кв. ` : ''}{p.readyYear}</strong></div>}
                     {p.floorsTotal && <div><span style={{color:'var(--muted2)'}}>Этажей:</span> <strong style={{color:'var(--black)'}}>{p.floorsTotal}</strong></div>}
                     {p.totalUnits && <div><span style={{color:'var(--muted2)'}}>Лотов:</span> <strong style={{color:'var(--black)'}}>{p.totalUnits}</strong></div>}
-                    {(p.commissionFrom || p.commissionTo) && <div><span style={{color:'var(--muted2)'}}>Комиссия:</span> <strong style={{color:'var(--gold)'}}>{p.commissionFrom}{p.commissionTo && p.commissionTo !== p.commissionFrom ? `–${p.commissionTo}` : ''}%</strong></div>}
+                    {/* Правка КБ5 (2026-05-25): % берём из активной commission-policy
+                    (которую правит админ в /admin/commission-policies). Если
+                    политики нет — fallback на старые поля проекта. */}
+                {(() => {
+                  const projectEnum = slugToProject((p as any).slug) || (p as any).project || '';
+                  const rateFromPolicy = maxRateFromActivePolicies(activePolicies, projectEnum);
+                  const display = rateFromPolicy != null
+                    ? `до ${String(rateFromPolicy).replace('.', ',')}%`
+                    : (p.commissionFrom || p.commissionTo)
+                      ? `${p.commissionFrom}${p.commissionTo && p.commissionTo !== p.commissionFrom ? `–${p.commissionTo}` : ''}%`
+                      : null;
+                  return display ? (
+                    <div><span style={{color:'var(--muted2)'}}>Комиссия:</span> <strong style={{color:'var(--gold)'}}>{display}</strong></div>
+                  ) : null;
+                })()}
                   </div>
                 )}
 
