@@ -145,7 +145,7 @@ export default function DealsPage() {
                     <th className="pb-3 font-medium">Сумма</th>
                     <th className="pb-3 font-medium">Комиссия</th>
                     <th className="pb-3 font-medium">Статус</th>
-                    <th className="pb-3 font-medium">Дата</th>
+                    <th className="pb-3 font-medium" title="Дата подписания договора в amoCRM (если есть). Если ещё не подписан — дата создания сделки.">Дата подписания</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -174,9 +174,9 @@ export default function DealsPage() {
                           {statusLabels[deal.status]?.label || deal.status}
                         </span>
                       </td>
-                      <td className="py-3 text-text-muted">
-                        {/* signedAt — дата из amoCRM (правка 2026-05-13). */}
+                      <td className="py-3 text-text-muted" title={deal.signedAt ? `Подписана ${new Date(deal.signedAt).toLocaleDateString('ru-RU')}` : `Сделка создана ${new Date(deal.createdAt).toLocaleDateString('ru-RU')}, ещё не подписана`}>
                         {new Date(deal.signedAt || deal.createdAt).toLocaleDateString('ru-RU')}
+                        {!deal.signedAt && <span className="text-[10px] text-warning ml-1">(черновик)</span>}
                       </td>
                     </tr>
                   ))}

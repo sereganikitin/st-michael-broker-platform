@@ -228,7 +228,8 @@ export default function ClientsPage() {
                     <th className="pb-3 font-medium">Телефон</th>
                     <th className="pb-3 font-medium">Проект</th>
                     <th className="pb-3 font-medium">Уникальность</th>
-                    <th className="pb-3 font-medium">Дата</th>
+                    <th className="pb-3 font-medium">Уникален до</th>
+                    <th className="pb-3 font-medium" title="Дата создания заявки в amoCRM">Дата</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -257,6 +258,16 @@ export default function ClientsPage() {
                         })()}
                       </td>
                       <td className="py-3 text-text-muted">
+                        {/* КБ6: колонка «Уникален до» — дата окончания 30-дн уникальности.
+                            Подсветка: ≤1 дн — красный, ≤7 дн — оранжевый. */}
+                        {c.uniquenessExpiresAt ? (() => {
+                          const d = daysUntilExpiry(c.uniquenessExpiresAt);
+                          const dateStr = new Date(c.uniquenessExpiresAt).toLocaleDateString('ru-RU');
+                          const cls = d === null ? '' : d < 0 ? 'text-error' : d <= 1 ? 'text-error' : d <= 7 ? 'text-warning' : '';
+                          return <span className={cls}>{dateStr}</span>;
+                        })() : '—'}
+                      </td>
+                      <td className="py-3 text-text-muted" title="Дата создания заявки в amoCRM">
                         {new Date(c.amoCreatedAt || c.createdAt).toLocaleDateString('ru-RU')}
                       </td>
                     </tr>

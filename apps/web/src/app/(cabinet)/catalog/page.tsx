@@ -15,6 +15,21 @@ const projectLabels: Record<string, string> = {
   SILVER_BOR: 'Серебряный бор',
 };
 
+// КБ6 (2026-05-25): «Сдан» если срок сдачи уже наступил.
+// Если на конец указанного квартала прошедшая дата — пишем «Сдан».
+// Иначе — «N кв YYYY» (как раньше).
+function formatReadiness(lot: { builtYear?: number | null; readyQuarter?: number | null }): string {
+  if (!lot.builtYear) return '—';
+  const now = new Date();
+  const curY = now.getFullYear();
+  const curQ = Math.floor(now.getMonth() / 3) + 1;
+  const ly = Number(lot.builtYear);
+  const lq = lot.readyQuarter ? Number(lot.readyQuarter) : 4; // если квартала нет — считаем по концу года
+  const isDone = ly < curY || (ly === curY && lq < curQ);
+  if (isDone) return 'Сдан';
+  return `${lot.readyQuarter ? `${lot.readyQuarter} кв. ` : ''}${lot.builtYear}`;
+}
+
 const FAVORITES_KEY = 'catalog_favorites';
 
 function getFavorites(): string[] {
@@ -67,7 +82,7 @@ function LotDetail({ lot, onClose, onBook, onVisit }: { lot: any; onClose: () =>
         <div class="row"><div class="label">Этаж</div><div class="value">${lot.floor}${lot.floorsTotal ? ` / ${lot.floorsTotal}` : ''}</div></div>
         <div class="row"><div class="label">Комнат</div><div class="value">${lot.rooms}</div></div>
         <div class="row"><div class="label">Площадь</div><div class="value">${Number(lot.sqm)} м²</div></div>
-        ${lot.builtYear ? `<div class="row"><div class="label">Срок сдачи</div><div class="value">${lot.readyQuarter ? lot.readyQuarter + ' кв. ' : ''}${lot.builtYear}</div></div>` : ''}
+        ${lot.builtYear ? `<div class="row"><div class="label">Срок сдачи</div><div class="value">${formatReadiness(lot)}</div></div>` : ''}
         ${lot.windowView ? `<div class="row"><div class="label">Вид из окна</div><div class="value">${lot.windowView}</div></div>` : ''}
       </div>
       <div class="price">Стоимость: ${priceDisplay}</div>
@@ -116,7 +131,7 @@ function LotDetail({ lot, onClose, onBook, onVisit }: { lot: any; onClose: () =>
           <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Комнат</span><span className="font-medium">{lot.rooms}</span></div>
           <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Площадь</span><span className="font-medium">{Number(lot.sqm)} м²</span></div>
           {lot.buildingSection && <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Секция</span><span className="font-medium">{lot.buildingSection}</span></div>}
-          {lot.builtYear && <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Срок сдачи</span><span className="font-medium">{lot.readyQuarter ? `${lot.readyQuarter} кв. ` : ''}{lot.builtYear}</span></div>}
+          {lot.builtYear && <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Срок сдачи</span><span className="font-medium">{formatReadiness(lot)}</span></div>}
           {lot.windowView && <div className="bg-surface-secondary rounded-lg p-3 col-span-2"><span className="text-text-muted block text-xs">Вид из окна</span><span className="font-medium">{lot.windowView}</span></div>}
         </div>
 
@@ -602,7 +617,7 @@ export default function CatalogPage() {
                     <div className="flex justify-between"><span className="text-text-muted">Комнат:</span><span>{lot.rooms}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Площадь:</span><span>{Number(lot.sqm)} м²</span></div>
                     {lot.builtYear && (
-                      <div className="flex justify-between"><span className="text-text-muted">Сдача:</span><span className="text-xs">{lot.readyQuarter ? `${lot.readyQuarter}кв. ` : ''}{lot.builtYear}</span></div>
+                      <div className="flex justify-between"><span className="text-text-muted">Сдача:</span><span className="text-xs">{formatReadiness(lot)}</span></div>
                     )}
                     {lot.discountPrice && Number(lot.discountPrice) > 0 ? (
                       <div className="pt-2 border-t border-border">

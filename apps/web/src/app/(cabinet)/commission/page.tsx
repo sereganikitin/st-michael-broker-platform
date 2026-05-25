@@ -171,17 +171,27 @@ export default function CommissionPage() {
             <div className="card">
               <h3 className="text-sm text-text-muted mb-2">Шкала ставок — {projectLabels[selectedProject]}</h3>
               <div className="space-y-1">
-                {LEVEL_ORDER_BY_PROJECT[selectedProject].map((lvl) => (
-                  <div
-                    key={lvl}
-                    className={`flex justify-between text-sm py-1 px-2 rounded ${
-                      lvl === commission.level ? 'bg-accent/10 text-accent font-bold' : ''
-                    }`}
-                  >
-                    <span>{levelNames[lvl]}</span>
-                    <span>{RATE_TABLE[selectedProject][lvl]}%</span>
-                  </div>
-                ))}
+                {/* КБ6 (2026-05-25): подсветка усилена — bg + бордер слева + стрелка «вы здесь». */}
+                {LEVEL_ORDER_BY_PROJECT[selectedProject].map((lvl) => {
+                  const active = lvl === commission.level;
+                  return (
+                    <div
+                      key={lvl}
+                      className={`flex items-center justify-between text-sm py-2 px-3 rounded transition-all ${
+                        active
+                          ? 'bg-accent/20 text-accent font-bold border-l-4 border-accent ring-1 ring-accent/30'
+                          : 'border-l-4 border-transparent'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        {active && <span aria-hidden>▶</span>}
+                        {levelNames[lvl]}
+                        {active && <span className="text-[10px] uppercase tracking-wide opacity-80">← вы здесь</span>}
+                      </span>
+                      <span>{RATE_TABLE[selectedProject][lvl]}%</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -250,12 +260,18 @@ export default function CommissionPage() {
           <form onSubmit={handleCalculate} className="space-y-4">
             <div>
               <label className="label">Сумма сделки (₽)</label>
+              {/* КБ6: форматируем поле с пробелами между разрядами тысяч.
+                  Реальное число хранится в state как digits-only-строка. */}
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 className="input"
-                placeholder="10000000"
-                value={calcForm.amount}
-                onChange={(e) => setCalcForm({ ...calcForm, amount: e.target.value })}
+                placeholder="10 000 000"
+                value={calcForm.amount ? calcForm.amount.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') : ''}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '');
+                  setCalcForm({ ...calcForm, amount: digits });
+                }}
                 required
               />
             </div>

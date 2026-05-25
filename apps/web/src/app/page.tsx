@@ -1332,7 +1332,16 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 16px',fontSize:11,color:'var(--muted)',marginTop:8,marginBottom:12}}>
                     {p.classType && <div><span style={{color:'var(--muted2)'}}>Класс:</span> <strong style={{color:'var(--black)'}}>{p.classType}</strong></div>}
                     {p.address && <div><span style={{color:'var(--muted2)'}}>Адрес:</span> <strong style={{color:'var(--black)'}}>{p.address}</strong></div>}
-                    {p.readyYear && <div><span style={{color:'var(--muted2)'}}>Сдача:</span> <strong style={{color:'var(--black)'}}>{p.readyQuarter ? `${p.readyQuarter} кв. ` : ''}{p.readyYear}</strong></div>}
+                    {p.readyYear && (() => {
+                      // КБ6: «Сдан» если дата сдачи в прошлом
+                      const curY = new Date().getFullYear();
+                      const curQ = Math.floor(new Date().getMonth() / 3) + 1;
+                      const ly = Number(p.readyYear);
+                      const lq = p.readyQuarter ? Number(p.readyQuarter) : 4;
+                      const done = ly < curY || (ly === curY && lq < curQ);
+                      const display = done ? 'Сдан' : `${p.readyQuarter ? `${p.readyQuarter} кв. ` : ''}${p.readyYear}`;
+                      return <div><span style={{color:'var(--muted2)'}}>Сдача:</span> <strong style={{color:'var(--black)'}}>{display}</strong></div>;
+                    })()}
                     {p.floorsTotal && <div><span style={{color:'var(--muted2)'}}>Этажей:</span> <strong style={{color:'var(--black)'}}>{p.floorsTotal}</strong></div>}
                     {p.totalUnits && <div><span style={{color:'var(--muted2)'}}>Лотов:</span> <strong style={{color:'var(--black)'}}>{p.totalUnits}</strong></div>}
                     {/* Правка КБ5 (2026-05-25): % берём из активной commission-policy
