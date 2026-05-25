@@ -274,8 +274,9 @@ export default function ClientsPage() {
       })()}
 
       <div className="card mb-6">
-        <div className="flex flex-wrap gap-4">
-          <form onSubmit={handleSearch} className="flex-1 min-w-[200px] relative">
+        {/* КБ6 #46: на моб фильтры в столбик, на десктопе — в строку */}
+        <div className="flex flex-col md:flex-row md:flex-wrap gap-2 md:gap-4">
+          <form onSubmit={handleSearch} className="flex-1 min-w-0 md:min-w-[200px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
             <input
               className="input pl-10"
@@ -316,8 +317,9 @@ export default function ClientsPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            {/* КБ6 #46: явная min-w для таблицы — на моб горизонтальный скролл */}
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <table className="w-full text-sm min-w-[700px]">
                 <thead>
                   <tr className="text-text-muted text-left border-b border-border">
                     <th className="pb-3 font-medium">ФИО</th>

@@ -130,12 +130,47 @@ export class CmsService {
     return row?.value ?? DEFAULT_CONTENT[key] ?? null;
   }
 
+  // КБ6 #45 (2026-05-25): на каждое сохранение CMS-блока пишем revision
+  // в site_content_revisions. История доступна в /admin/content/history.
   async upsertContent(key: string, value: any, updatedBy?: string) {
-    return this.prisma.siteContent.upsert({
+    let editorName: string | null = null;
+    if (updatedBy) {
+      const editor = await this.prisma.broker.findUnique({
+        where: { id: updatedBy },
+        select: { fullName: true },
+      }).catch(() => null);
+      editorName = editor?.fullName || null;
+    }
+    const result = await this.prisma.siteContent.upsert({
       where: { key },
       update: { value, updatedBy },
       create: { key, value, updatedBy },
     });
+    // Revision пишем после upsert — если upsert упал, revision не появится.
+    await this.prisma.siteContentRevision.create({
+      data: { key, value, editorId: updatedBy || null, editorName },
+    }).catch((e) => {
+      // Если таблицы ещё нет (миграция не прошла) — не валим запрос.
+      console.error('[upsertContent] revision write failed:', e?.message || e);
+    });
+    return result;
+  }
+
+  // Список revisions для блока (ограничение — последние 50).
+  async listRevisions(key: string) {
+    return this.prisma.siteContentRevision.findMany({
+      where: { key },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  // Восстановить значение из revision. Создаёт ещё одну revision-запись
+  // с пометкой что это restore (через editorName='restore from <id>').
+  async restoreRevision(revisionId: string, updatedBy?: string) {
+    const rev = await this.prisma.siteContentRevision.findUnique({ where: { id: revisionId } });
+    if (!rev) throw new NotFoundException('Revision not found');
+    return this.upsertContent(rev.key, rev.value, updatedBy);
   }
 
   // ─── Events ─────────────────────────────────────

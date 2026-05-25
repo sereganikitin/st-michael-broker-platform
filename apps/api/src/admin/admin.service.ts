@@ -740,18 +740,23 @@ export class AdminService {
 
       this.importJobs.setProgress(jobId, 0, contactIds.size, 'writing-brokers');
 
-      // 2) Тянем каждый контакт, проверяем IS_BROKER флаг, нормализуем телефон
+      // КБ6 fix #44 (2026-05-25): тянем контакты ПАЧКАМИ по 250
+      // (раньше — по одному, что давало ~5000 запросов и сотни 429-ошибок).
+      // С bulk-методом получается ~20 запросов и ноль (или близко) ошибок.
       const amoPhones = new Set<string>();
       const amoByPhone = new Map<string, { name: string; amoContactId: number }>();
       let notBrokerFlag = 0;
       let invalidPhone = 0;
       let amoErrors = 0;
-      let i = 0;
 
-      for (const contactId of contactIds) {
-        i++;
-        try {
-          const contact: any = await this.amo.getContact(contactId);
+      const idsList = Array.from(contactIds);
+      const BATCH = 250;
+      let processed = 0;
+      for (let b = 0; b < idsList.length; b += BATCH) {
+        const chunk = idsList.slice(b, b + BATCH);
+        const got = await this.amo.getContactsByIds(chunk);
+        for (const contactId of chunk) {
+          const contact: any = got.get(Number(contactId));
           if (!contact) { amoErrors++; continue; }
           const fields = contact.custom_fields_values || [];
           const brokerField = fields.find((f: any) => f.field_id === AMO_CONTACT_FIELDS.IS_BROKER);
@@ -764,12 +769,9 @@ export class AdminService {
           if (!amoByPhone.has(norm.phone)) {
             amoByPhone.set(norm.phone, { name: contact.name || '—', amoContactId: contactId });
           }
-        } catch (_) {
-          amoErrors++;
         }
-        if (i % 20 === 0 || i === contactIds.size) {
-          this.importJobs.setProgress(jobId, i, contactIds.size, 'writing-brokers');
-        }
+        processed += chunk.length;
+        this.importJobs.setProgress(jobId, processed, contactIds.size, 'writing-brokers');
       }
 
       // 3) Все телефоны брокеров в БД

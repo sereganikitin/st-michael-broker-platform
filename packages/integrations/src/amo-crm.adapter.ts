@@ -4,6 +4,8 @@ import {
   readinessLevelToEnumId, purchaseTimingToEnumId,
 } from './amo-crm.fields';
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export interface AmoContact {
   id: number;
   name: string;
@@ -78,20 +80,42 @@ export class AmoCrmAdapter {
     this.token = process.env.AMO_ACCESS_TOKEN || '';
   }
 
-  private async request<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  // КБ6 fix #44 (2026-05-25): retry с экспоненциальным backoff для 429/5xx.
+  // amoCRM v4 ограничивает 7 req/sec — без retry массовый импорт ловит сотни
+  // 429 (наблюдали 776 amoErrors на coverage-анализ).
+  private async request<T = any>(path: string, init: RequestInit = {}, attempt = 1): Promise<T> {
     if (!this.token) throw new Error('AMO_ACCESS_TOKEN not configured');
 
     const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
-    const res = await fetch(url, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        'Content-Type': 'application/json',
-        ...(init.headers || {}),
-      },
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+          ...(init.headers || {}),
+        },
+      });
+    } catch (e: any) {
+      // Network-level (timeout, ECONNRESET) — ретраим до 3 раз.
+      if (attempt < 3) {
+        await sleep(500 * attempt);
+        return this.request<T>(path, init, attempt + 1);
+      }
+      throw e;
+    }
 
     if (res.status === 204) return null as T;
+
+    // 429 (rate-limit) и 5xx — retry. Уважаем Retry-After если пришёл.
+    if ((res.status === 429 || res.status >= 500) && attempt < 4) {
+      const retryAfter = Number(res.headers.get('Retry-After')) || 0;
+      const wait = retryAfter > 0 ? retryAfter * 1000 : 300 * Math.pow(2, attempt); // 300 / 600 / 1200ms
+      await sleep(wait);
+      return this.request<T>(path, init, attempt + 1);
+    }
+
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`amoCRM ${res.status} ${path}: ${text.slice(0, 200)}`);
@@ -150,6 +174,31 @@ export class AmoCrmAdapter {
   async getContact(id: number): Promise<AmoContact | null> {
     try { return await this.request<AmoContact>(`/contacts/${id}?with=leads`); }
     catch { return null; }
+  }
+
+  // КБ6 fix #44 (2026-05-25): bulk-получение контактов пачками до 250.
+  // amoCRM API позволяет filter[id][]=…&filter[id][]=… (до 250 ID в одном запросе).
+  // Это ~250x меньше HTTP-запросов чем перебор по одному.
+  // Возвращает Map<id, AmoContact> с найденными контактами. Те, что не вернулись,
+  // в map просто отсутствуют — вызывающий код решает, ошибка это или нет.
+  async getContactsByIds(ids: number[]): Promise<Map<number, AmoContact>> {
+    const result = new Map<number, AmoContact>();
+    const BATCH = 250;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const chunk = ids.slice(i, i + BATCH);
+      const q = chunk.map((id) => `filter[id][]=${id}`).join('&');
+      try {
+        const data = await this.request<any>(`/contacts?${q}&with=leads&limit=${BATCH}`);
+        const list: AmoContact[] = data?._embedded?.contacts || [];
+        for (const c of list) result.set(Number(c.id), c);
+      } catch (e: any) {
+        // Pacht прошёл с ошибкой — оставляем missing, не валим всю операцию.
+        console.error('[getContactsByIds] batch failed:', e?.message || e);
+      }
+      // Лёгкая задержка между пачками чтобы не словить 429 на больших объёмах.
+      if (i + BATCH < ids.length) await sleep(150);
+    }
+    return result;
   }
 
   async createContact(data: CreateContactDto): Promise<AmoContact> {

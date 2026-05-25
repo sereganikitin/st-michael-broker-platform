@@ -645,6 +645,22 @@ model SiteContent {
   @@map("site_content")
 }
 
+// КБ6 #45 (2026-05-25): история правок CMS-блоков. На каждое изменение
+// SiteContent сохраняем снимок предыдущего значения, кто и когда правил.
+// Позволяет откатиться / посмотреть изменения «как в Google Docs».
+model SiteContentRevision {
+  id         String   @id @default(uuid())
+  key        String   // тот же что в SiteContent
+  value      Json     // снимок значения после правки
+  editorId   String?  @map("editor_id")     // brokerId редактора (если есть)
+  editorName String?  @map("editor_name")   // ФИО на момент правки (для истории)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([key, createdAt])
+  @@map("site_content_revisions")
+}
+
+
 model LandingEvent {
   id          String   @id @default(uuid())
   date        DateTime

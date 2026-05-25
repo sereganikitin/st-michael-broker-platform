@@ -135,8 +135,8 @@ export default function DealsPage() {
           <div className="text-center py-8 text-text-muted">Сделки не найдены</div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <table className="w-full text-sm min-w-[900px]">
                 <thead>
                   <tr className="text-text-muted text-left border-b border-border">
                     <th className="pb-3 font-medium">Клиент</th>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
 import { Users, Shield, HeartHandshake, Calculator } from 'lucide-react';
+import PushPromptBanner from '@/components/PushPromptBanner';
 
 interface DashboardData {
   clients: { total: number; activeFixations: number; expiringFixations: number };
@@ -55,6 +56,8 @@ export default function DashboardPage() {
   return (
     <div>
       <h1 className="text-2xl md:text-3xl font-bold mb-6">Дашборд</h1>
+
+      <PushPromptBanner />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {stats.map((stat) => (

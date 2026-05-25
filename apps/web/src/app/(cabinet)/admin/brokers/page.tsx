@@ -133,7 +133,8 @@ export default function AdminBrokersPage() {
       )}
 
       <div className="card mb-6">
-        <div className="flex flex-wrap gap-4">
+        {/* КБ6 #46: на моб в столбик */}
+        <div className="flex flex-col md:flex-row md:flex-wrap gap-2 md:gap-4">
           <form onSubmit={handleSearch} className="flex-1 min-w-[200px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
             <input className="input pl-10" placeholder="ФИО, телефон или email..." value={search} onChange={(e) => setSearch(e.target.value)} />
