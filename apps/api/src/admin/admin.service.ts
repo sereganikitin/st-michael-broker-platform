@@ -1027,23 +1027,32 @@ export class AdminService {
   }
 
   // 2026-05-25: список заявок не переданных в amoCRM (amoSyncStatus=FAILED).
+  // fixationAgency не имеет prisma-relation на Client (только FK-поле
+  // fixationAgencyId), поэтому Agency грузим отдельным запросом.
   async getAmoFailedClients() {
     const clients = await this.prisma.client.findMany({
-      where: { amoSyncStatus: 'FAILED' },
+      where: { amoSyncStatus: 'FAILED' as any },
       include: {
         broker: { select: { id: true, fullName: true, phone: true } },
-        fixationAgency: { select: { id: true, name: true, inn: true } },
       },
       orderBy: { amoSyncLastAttemptAt: 'desc' },
       take: 200,
     });
+    const agencyIds = Array.from(new Set(clients.map((c) => c.fixationAgencyId).filter(Boolean) as string[]));
+    const agencies = agencyIds.length
+      ? await this.prisma.agency.findMany({
+          where: { id: { in: agencyIds } },
+          select: { id: true, name: true, inn: true },
+        })
+      : [];
+    const agencyMap = new Map(agencies.map((a) => [a.id, a]));
     return clients.map((c) => ({
       id: c.id,
       fullName: c.fullName,
       phone: c.phone,
       project: c.project,
       broker: c.broker,
-      agency: c.fixationAgency,
+      agency: c.fixationAgencyId ? agencyMap.get(c.fixationAgencyId) || null : null,
       amoSyncError: c.amoSyncError,
       amoSyncAttempts: c.amoSyncAttempts,
       amoSyncLastAttemptAt: c.amoSyncLastAttemptAt,
@@ -1056,14 +1065,13 @@ export class AdminService {
   async retryAmoSync(clientId: string) {
     const client = await this.prisma.client.findUnique({
       where: { id: clientId },
-      include: {
-        broker: true,
-        fixationAgency: true,
-      },
+      include: { broker: true },
     });
     if (!client) throw new BadRequestException('Client not found');
     if (client.amoSyncStatus === 'SYNCED') return { ok: true, message: 'Уже синхронизирован' };
-    if (!client.fixationAgency) throw new BadRequestException('У клиента нет fixationAgency');
+    if (!client.fixationAgencyId) throw new BadRequestException('У клиента нет fixationAgency');
+    const agency = await this.prisma.agency.findUnique({ where: { id: client.fixationAgencyId } });
+    if (!agency) throw new BadRequestException('Агентство не найдено');
 
     try {
       await this.amo.createFixationRequest({
@@ -1072,8 +1080,8 @@ export class AdminService {
         clientName: client.fullName,
         brokerPhone: client.broker.phone,
         brokerAmoContactId: client.broker.amoContactId ? Number(client.broker.amoContactId) : undefined,
-        agencyName: client.fixationAgency.name,
-        agencyInn: client.fixationAgency.inn,
+        agencyName: agency.name,
+        agencyInn: agency.inn,
         comment: client.comment || '',
         project: client.project as any,
         fromBroker: true,
