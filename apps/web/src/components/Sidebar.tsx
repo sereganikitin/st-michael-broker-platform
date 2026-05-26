@@ -48,6 +48,7 @@ const adminNavigation = [
   { name: 'Лендинг — Акции', href: '/admin/promos', icon: Megaphone },
   { name: 'Лендинг — События', href: '/admin/events', icon: Calendar },
   { name: 'Лендинг — Проекты', href: '/admin/projects', icon: Building },
+  { name: 'Лендинг — Новости', href: '/admin/news', icon: FileText },
   { name: 'Файлы и документы', href: '/admin/documents', icon: FileText },
 ];
 

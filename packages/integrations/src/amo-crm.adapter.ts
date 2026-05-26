@@ -589,6 +589,65 @@ export class AmoCrmAdapter {
     return created;
   }
 
+  // 2026-05-26: создаёт лид нового брокера в pipeline 10787390 (БРОКЕРЫ).
+  // Используется когда брокер оставил заявку на брокер-тур / форму с лендинга.
+  // Создаёт контакт с IS_BROKER=true и лид с задачей КЦ.
+  async createBrokerLeadFromLanding(data: {
+    brokerName: string;
+    brokerPhone: string;
+    brokerEmail?: string | null;
+    source: string; // 'LANDING_BROKER_TOUR' | 'LANDING_FORM'
+    note?: string | null;
+  }): Promise<{ contactId?: number; leadId?: number } | null> {
+    try {
+      // 1) Контакт с IS_BROKER=true
+      const contact = await this.createContact({
+        name: data.brokerName,
+        custom_fields_values: [
+          { field_code: 'PHONE', values: [{ value: data.brokerPhone, enum_code: 'WORK' }] },
+          ...(data.brokerEmail
+            ? [{ field_code: 'EMAIL' as const, values: [{ value: data.brokerEmail, enum_code: 'WORK' }] }]
+            : []),
+          { field_id: 835415, values: [{ value: true }] }, // IS_BROKER
+        ],
+      });
+
+      // 2) Лид в пайплайне брокеров
+      const lead = await this.createLead({
+        name: `Заявка с лендинга — ${data.brokerName}`,
+        pipeline_id: 10787390, // BROKERS
+        contacts: contact?.id ? [{ id: contact.id }] : undefined,
+      } as any);
+
+      // 3) Примечание и задача
+      if (lead?.id) {
+        const noteText = [
+          `📥 Заявка с лендинга`,
+          `Источник: ${data.source === 'LANDING_BROKER_TOUR' ? 'Запись на брокер-тур' : 'Форма «Связаться с нами»'}`,
+          `Имя: ${data.brokerName}`,
+          `Телефон: ${data.brokerPhone}`,
+          ...(data.brokerEmail ? [`Email: ${data.brokerEmail}`] : []),
+          ...(data.note ? [``, `Сообщение: ${data.note}`] : []),
+        ].join('\n');
+        try { await this.addNoteToLead(lead.id, noteText); } catch {}
+        try {
+          await this.createTask({
+            text: `Связаться с новым брокером ${data.brokerName} (${data.brokerPhone}) — заявка с лендинга`,
+            entityType: 'leads',
+            entityId: lead.id,
+            taskTypeId: 1, // звонок
+            completeTillSec: Math.floor(Date.now() / 1000) + 4 * 60 * 60, // 4 часа — новый лид срочно
+          });
+        } catch {}
+      }
+
+      return { contactId: contact?.id, leadId: lead?.id };
+    } catch (e: any) {
+      console.error('[createBrokerLeadFromLanding] failed:', e?.message || e);
+      return null;
+    }
+  }
+
   // 2026-05-26: добавляет примечание о попытке повторной фиксации в
   // существующий amoCRM-лид. Используется когда другой брокер пробует
   // зафиксировать клиента который уже на уникальности.

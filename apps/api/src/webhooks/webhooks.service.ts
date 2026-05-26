@@ -37,10 +37,17 @@ export class WebhooksService {
       const client = await this.prisma.client.findFirst({
         where: { amoLeadId: BigInt(data.id) },
       });
+      // 2026-05-26: НЕ перезаписываем comment — там может быть текст
+      // с фиксации. Дописываем строкой через \n.
       if (client && data.status_id) {
+        const nowIso = new Date().toISOString().slice(0, 16).replace('T', ' ');
+        const append = `[${nowIso}] amoCRM статус: ${data.status_id}`;
+        const newComment = client.comment
+          ? `${client.comment}\n${append}`.slice(-2000)
+          : append;
         await this.prisma.client.update({
           where: { id: client.id },
-          data: { comment: `amoCRM статус обновлён: ${data.status_id}` },
+          data: { comment: newComment },
         });
       }
       return { status: 'processed', matched: false };
@@ -61,7 +68,10 @@ export class WebhooksService {
       if (updateData.status === 'SIGNED') updateData.signedAt = new Date();
       if (updateData.status === 'PAID') updateData.paidAt = new Date();
     }
-    if (data.price) {
+    // 2026-05-26: amount/commissionAmount обновляем ТОЛЬКО если у нас
+    // локально ещё пусто (или нолик). Если админ уже проставил —
+    // не перетираем (webhook может прийти с устаревшим значением).
+    if (data.price && (!deal.amount || Number(deal.amount) === 0)) {
       updateData.amount = data.price;
       updateData.commissionAmount = (data.price * Number(deal.commissionRate)) / 100;
     }
@@ -70,8 +80,8 @@ export class WebhooksService {
       await this.prisma.deal.update({ where: { id: deal.id }, data: updateData });
     }
 
-    // Update agency attachment on ДВОУ stage
-    if (data.custom_fields) {
+    // Agency: тоже только если у нас её ещё нет
+    if (data.custom_fields && !deal.agencyId) {
       const agencyField = data.custom_fields.find((f: any) => f.field_name === 'agency_id');
       if (agencyField?.values?.[0]?.value) {
         await this.prisma.deal.update({
@@ -113,17 +123,21 @@ export class WebhooksService {
       return { status: 'processed', matched: false };
     }
 
+    // 2026-05-26: webhook больше НЕ перетирает поля которые админ
+    // мог отредактировать в кабинете. Только заполняет пустые.
+    // Иначе: админ исправил ФИО / телефон / email в /admin/brokers,
+    // а через минуту приходит webhook с старым значением из amo —
+    // правка стиралась.
     const updateData: any = {};
-    if (data.name) updateData.fullName = data.name;
+    if (data.name && !broker.fullName) updateData.fullName = data.name;
 
-    // Extract phone from custom fields
     if (data.custom_fields_values) {
       const phoneField = data.custom_fields_values.find((f: any) => f.field_code === 'PHONE');
-      if (phoneField?.values?.[0]?.value) {
+      if (phoneField?.values?.[0]?.value && !broker.phone) {
         updateData.phone = phoneField.values[0].value;
       }
       const emailField = data.custom_fields_values.find((f: any) => f.field_code === 'EMAIL');
-      if (emailField?.values?.[0]?.value) {
+      if (emailField?.values?.[0]?.value && !broker.email) {
         updateData.email = emailField.values[0].value;
       }
     }

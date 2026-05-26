@@ -1,5 +1,6 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
+import { AmoCrmAdapter } from '@st-michael/integrations';
 
 const KNOWN_KEYS = ['hero', 'advantages', 'commission', 'contact', 'howto', 'projectsSection'] as const;
 
@@ -118,6 +119,9 @@ const DEFAULT_CONTENT: Record<string, any> = {
 
 @Injectable()
 export class CmsService {
+  // 2026-05-26: AmoCrmAdapter не зарегистрирован в DI этого модуля, создаём
+  // напрямую. Использует env AMO_ACCESS_TOKEN.
+  private amo = new AmoCrmAdapter();
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
 
   async getAllContent() {
@@ -478,6 +482,28 @@ export class CmsService {
         nextCallAt: null,
       },
     });
+
+    // 2026-05-26: параллельно создаём карточку в amoCRM (пайплайн БРОКЕРЫ)
+    // — контакт с IS_BROKER + лид + задача КЦ. Если amo упал — не валим:
+    // brokerId в нашей БД создан, синк может пройти позже.
+    try {
+      const amo = await this.amo.createBrokerLeadFromLanding({
+        brokerName: data.fullName,
+        brokerPhone: phone,
+        brokerEmail: data.email,
+        source: data.source === 'broker-tour' ? 'LANDING_BROKER_TOUR' : 'LANDING_FORM',
+        note: data.note,
+      });
+      if (amo?.contactId) {
+        await this.prisma.broker.update({
+          where: { id: created.id },
+          data: { amoContactId: BigInt(amo.contactId) as any },
+        }).catch(() => {});
+      }
+    } catch (e: any) {
+      console.error('[upsertBrokerFromLandingLead] amo create failed:', e?.message || e);
+    }
+
     return created.id;
   }
 
