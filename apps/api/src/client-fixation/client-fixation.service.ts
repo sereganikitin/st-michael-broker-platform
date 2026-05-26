@@ -219,22 +219,39 @@ export class ClientFixationService {
       }
 
       // Помечаем статус amo-синка на клиенте.
-      await this.prisma.client.update({
-        where: { id: client.id },
-        data: {
-          amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
-          amoSyncError: amoSyncOk ? null : amoSyncError,
-          amoSyncAttempts: { increment: 1 },
-          amoSyncLastAttemptAt: new Date(),
-        },
-      });
+      // Bug fix 2026-05-26: если на проде ещё не применена миграция и
+      // полей amoSyncStatus/amoSyncError/amoSyncAttempts/amoSyncLastAttemptAt
+      // в БД нет — Prisma выбросит ошибку Unknown arg. Заворачиваем в
+      // try/catch чтобы это не валило фиксацию: клиент УЖЕ в БД, статус
+      // amo-синка — второстепенно.
+      try {
+        await this.prisma.client.update({
+          where: { id: client.id },
+          data: {
+            amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
+            amoSyncError: amoSyncOk ? null : amoSyncError,
+            amoSyncAttempts: { increment: 1 },
+            amoSyncLastAttemptAt: new Date(),
+          } as any,
+        });
+      } catch (e: any) {
+        console.error('[fixClient] failed to update amoSyncStatus (миграция не применена?):', e?.message || e);
+      }
 
       if (!amoSyncOk) {
-        await this.logAudit(brokerId, 'AMO_SYNC_FAILED', 'Client', client.id, {
-          step: 'createFixationRequest',
-          error: amoSyncError,
-        });
-        await this.notifyAmoSyncFailed(client.id, broker, data.phone, amoSyncError || '');
+        try {
+          await this.logAudit(brokerId, 'AMO_SYNC_FAILED', 'Client', client.id, {
+            step: 'createFixationRequest',
+            error: amoSyncError,
+          });
+        } catch (e: any) {
+          console.error('[fixClient] audit log failed:', e?.message || e);
+        }
+        try {
+          await this.notifyAmoSyncFailed(client.id, broker, data.phone, amoSyncError || '');
+        } catch (e: any) {
+          console.error('[fixClient] notifyAmoSyncFailed failed:', e?.message || e);
+        }
       }
 
       // Update broker funnel stage if needed
@@ -298,23 +315,36 @@ export class ClientFixationService {
         }
       }
 
-      await this.prisma.client.update({
-        where: { id: client.id },
-        data: {
-          amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
-          amoSyncError: amoSyncOk ? null : amoSyncError,
-          amoSyncAttempts: { increment: 1 },
-          amoSyncLastAttemptAt: new Date(),
-        },
-      });
+      // Bug fix 2026-05-26: тоже оборачиваем — миграция могла не пройти.
+      try {
+        await this.prisma.client.update({
+          where: { id: client.id },
+          data: {
+            amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
+            amoSyncError: amoSyncOk ? null : amoSyncError,
+            amoSyncAttempts: { increment: 1 },
+            amoSyncLastAttemptAt: new Date(),
+          } as any,
+        });
+      } catch (e: any) {
+        console.error('[fixClient reopen] amoSyncStatus update failed (миграция?):', e?.message || e);
+      }
 
       if (!amoSyncOk) {
-        await this.logAudit(brokerId, 'AMO_SYNC_FAILED', 'Client', client.id, {
-          step: 'reopenLead',
-          amoLeadId: existingClient.amoLeadId,
-          error: amoSyncError,
-        });
-        await this.notifyAmoSyncFailed(client.id, broker, data.phone, amoSyncError || '');
+        try {
+          await this.logAudit(brokerId, 'AMO_SYNC_FAILED', 'Client', client.id, {
+            step: 'reopenLead',
+            amoLeadId: existingClient.amoLeadId,
+            error: amoSyncError,
+          });
+        } catch (e: any) {
+          console.error('[fixClient reopen] audit failed:', e?.message || e);
+        }
+        try {
+          await this.notifyAmoSyncFailed(client.id, broker, data.phone, amoSyncError || '');
+        } catch (e: any) {
+          console.error('[fixClient reopen] notify failed:', e?.message || e);
+        }
       }
 
       await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', client.id, {
