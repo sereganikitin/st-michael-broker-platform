@@ -125,28 +125,47 @@ export class ClientFixationService {
           },
         });
 
-        const managers = await this.prisma.broker.findMany({
-          where: { role: 'MANAGER', status: 'ACTIVE' },
-        });
-        for (const manager of managers) {
-          await this.notificationQueue.add('send', {
-            brokerId: manager.id,
-            channel: 'TELEGRAM',
-            subject: 'Конфликт фиксации',
-            body: `Брокер ${broker.fullName} запросил фиксацию клиента ${data.phone}, который уже на уникальности у ${conflictingClient.broker.fullName}.`,
+        // Bug fix 2026-05-26: оборачиваем notification queue/audit —
+        // если Redis недоступен / queue упала / audit table нет, клиент
+        // в БД уже зафиксирован, валить запрос 500-кой не должны.
+        try {
+          const managers = await this.prisma.broker.findMany({
+            where: { role: 'MANAGER', status: 'ACTIVE' },
           });
+          for (const manager of managers) {
+            try {
+              await this.notificationQueue.add('send', {
+                brokerId: manager.id,
+                channel: 'TELEGRAM',
+                subject: 'Конфликт фиксации',
+                body: `Брокер ${broker.fullName} запросил фиксацию клиента ${data.phone}, который уже на уникальности у ${conflictingClient.broker.fullName}.`,
+              });
+            } catch (e: any) {
+              console.error('[fixClient conflict] queue.add(manager) failed:', e?.message || e);
+            }
+          }
+        } catch (e: any) {
+          console.error('[fixClient conflict] managers findMany failed:', e?.message || e);
         }
-        await this.notificationQueue.add('send', {
-          brokerId,
-          channel: 'SMS',
-          body: `Клиент ${data.phone} уже на уникальности у другого брокера. Менеджер уведомлён.`,
-        });
+        try {
+          await this.notificationQueue.add('send', {
+            brokerId,
+            channel: 'SMS',
+            body: `Клиент ${data.phone} уже на уникальности у другого брокера. Менеджер уведомлён.`,
+          });
+        } catch (e: any) {
+          console.error('[fixClient conflict] queue.add(broker SMS) failed:', e?.message || e);
+        }
 
-        await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
-          scenario: 'CROSS_BROKER_CONFLICT',
-          existingBrokerId: conflictingClient.brokerId,
-          existingBrokerName: conflictingClient.broker.fullName,
-        });
+        try {
+          await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
+            scenario: 'CROSS_BROKER_CONFLICT',
+            existingBrokerId: conflictingClient.brokerId,
+            existingBrokerName: conflictingClient.broker.fullName,
+          });
+        } catch (e: any) {
+          console.error('[fixClient conflict] audit failed:', e?.message || e);
+        }
 
         return {
           client,
@@ -262,13 +281,21 @@ export class ClientFixationService {
         });
       }
 
-      await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', client.id, {
-        scenario: 'NEW_CLIENT',
-        phone: data.phone,
-      });
+      try {
+        await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', client.id, {
+          scenario: 'NEW_CLIENT',
+          phone: data.phone,
+        });
+      } catch (e: any) {
+        console.error('[fixClient new] audit failed:', e?.message || e);
+      }
 
       // Если amo упал — отдаём контакты менеджеров, чтобы брокер мог позвонить.
-      const managerContacts = amoSyncOk ? undefined : await this.getManagerContacts();
+      let managerContacts: any = undefined;
+      if (!amoSyncOk) {
+        try { managerContacts = await this.getManagerContacts(); }
+        catch (e: any) { console.error('[fixClient new] getManagerContacts failed:', e?.message || e); }
+      }
 
       return {
         client,
@@ -347,12 +374,20 @@ export class ClientFixationService {
         }
       }
 
-      await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', client.id, {
-        scenario: 'REOPEN_CLOSED',
-        phone: data.phone,
-      });
+      try {
+        await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', client.id, {
+          scenario: 'REOPEN_CLOSED',
+          phone: data.phone,
+        });
+      } catch (e: any) {
+        console.error('[fixClient reopen] CLIENT_FIXATION audit failed:', e?.message || e);
+      }
 
-      const managerContacts = amoSyncOk ? undefined : await this.getManagerContacts();
+      let managerContacts: any = undefined;
+      if (!amoSyncOk) {
+        try { managerContacts = await this.getManagerContacts(); }
+        catch (e: any) { console.error('[fixClient reopen] getManagerContacts failed:', e?.message || e); }
+      }
 
       return {
         client,
@@ -380,31 +415,45 @@ export class ClientFixationService {
         },
       });
 
-      // Notify managers about the conflict
-      const managers = await this.prisma.broker.findMany({
-        where: { role: 'MANAGER', status: 'ACTIVE' },
-      });
-
-      for (const manager of managers) {
-        await this.notificationQueue.add('send', {
-          brokerId: manager.id,
-          channel: 'TELEGRAM',
-          subject: 'Конфликт фиксации',
-          body: `Конфликт фиксации клиента ${data.phone}. Брокер ${broker.fullName} запрашивает фиксацию клиента, который уже в работе у ${existingClient.broker.fullName}.`,
+      // Bug fix 2026-05-26: оборачиваем notification queue + audit.
+      try {
+        const managers = await this.prisma.broker.findMany({
+          where: { role: 'MANAGER', status: 'ACTIVE' },
         });
+        for (const manager of managers) {
+          try {
+            await this.notificationQueue.add('send', {
+              brokerId: manager.id,
+              channel: 'TELEGRAM',
+              subject: 'Конфликт фиксации',
+              body: `Конфликт фиксации клиента ${data.phone}. Брокер ${broker.fullName} запрашивает фиксацию клиента, который уже в работе у ${existingClient.broker.fullName}.`,
+            });
+          } catch (e: any) {
+            console.error('[fixClient broker-conflict] queue.add(manager) failed:', e?.message || e);
+          }
+        }
+      } catch (e: any) {
+        console.error('[fixClient broker-conflict] managers findMany failed:', e?.message || e);
       }
 
-      // Notify the requesting broker
-      await this.notificationQueue.add('send', {
-        brokerId,
-        channel: 'SMS',
-        body: `Клиент ${data.phone} находится в работе у другого брокера. Менеджер уведомлён для разрешения конфликта.`,
-      });
+      try {
+        await this.notificationQueue.add('send', {
+          brokerId,
+          channel: 'SMS',
+          body: `Клиент ${data.phone} находится в работе у другого брокера. Менеджер уведомлён для разрешения конфликта.`,
+        });
+      } catch (e: any) {
+        console.error('[fixClient broker-conflict] queue.add(broker SMS) failed:', e?.message || e);
+      }
 
-      await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
-        scenario: 'BROKER_CONFLICT',
-        existingBrokerId: existingClient.brokerId,
-      });
+      try {
+        await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
+          scenario: 'BROKER_CONFLICT',
+          existingBrokerId: existingClient.brokerId,
+        });
+      } catch (e: any) {
+        console.error('[fixClient broker-conflict] audit failed:', e?.message || e);
+      }
 
       return {
         client,
