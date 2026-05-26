@@ -37,6 +37,8 @@ export class ClientFixationService {
       presentationSent?: boolean;  // отправлена презентация → PRESENTATION_SENT 835955
       purchaseTiming?: string;     // «Планирует покупку» (от 1 до 3 месяцев и т.д.)
       readinessLevel?: string;     // «Готовность к сделке» (Холодный/Тёплый/Горячий)
+      // 2026-05-26: брокер подтвердил что хочет создать дубль своего клиента
+      confirmDuplicate?: boolean;
     },
   ) {
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
@@ -125,37 +127,9 @@ export class ClientFixationService {
           },
         });
 
-        // Bug fix 2026-05-26: оборачиваем notification queue/audit —
-        // если Redis недоступен / queue упала / audit table нет, клиент
-        // в БД уже зафиксирован, валить запрос 500-кой не должны.
-        try {
-          const managers = await this.prisma.broker.findMany({
-            where: { role: 'MANAGER', status: 'ACTIVE' },
-          });
-          for (const manager of managers) {
-            try {
-              await this.notificationQueue.add('send', {
-                brokerId: manager.id,
-                channel: 'TELEGRAM',
-                subject: 'Конфликт фиксации',
-                body: `Брокер ${broker.fullName} запросил фиксацию клиента ${data.phone}, который уже на уникальности у ${conflictingClient.broker.fullName}.`,
-              });
-            } catch (e: any) {
-              console.error('[fixClient conflict] queue.add(manager) failed:', e?.message || e);
-            }
-          }
-        } catch (e: any) {
-          console.error('[fixClient conflict] managers findMany failed:', e?.message || e);
-        }
-        try {
-          await this.notificationQueue.add('send', {
-            brokerId,
-            channel: 'SMS',
-            body: `Клиент ${data.phone} уже на уникальности у другого брокера. Менеджер уведомлён.`,
-          });
-        } catch (e: any) {
-          console.error('[fixClient conflict] queue.add(broker SMS) failed:', e?.message || e);
-        }
+        // 2026-05-26: TG менеджерам / SMS брокеру отключены — note + task
+        // в amoCRM на лиде того клиента достаточно, КЦ возьмёт в работу.
+        // Двойное оповещение раздражало.
 
         try {
           await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
@@ -432,36 +406,9 @@ export class ClientFixationService {
         },
       });
 
-      // Bug fix 2026-05-26: оборачиваем notification queue + audit.
-      try {
-        const managers = await this.prisma.broker.findMany({
-          where: { role: 'MANAGER', status: 'ACTIVE' },
-        });
-        for (const manager of managers) {
-          try {
-            await this.notificationQueue.add('send', {
-              brokerId: manager.id,
-              channel: 'TELEGRAM',
-              subject: 'Конфликт фиксации',
-              body: `Конфликт фиксации клиента ${data.phone}. Брокер ${broker.fullName} запрашивает фиксацию клиента, который уже в работе у ${existingClient.broker.fullName}.`,
-            });
-          } catch (e: any) {
-            console.error('[fixClient broker-conflict] queue.add(manager) failed:', e?.message || e);
-          }
-        }
-      } catch (e: any) {
-        console.error('[fixClient broker-conflict] managers findMany failed:', e?.message || e);
-      }
-
-      try {
-        await this.notificationQueue.add('send', {
-          brokerId,
-          channel: 'SMS',
-          body: `Клиент ${data.phone} находится в работе у другого брокера. Менеджер уведомлён для разрешения конфликта.`,
-        });
-      } catch (e: any) {
-        console.error('[fixClient broker-conflict] queue.add(broker SMS) failed:', e?.message || e);
-      }
+      // 2026-05-26: TG менеджерам / SMS брокеру отключены — менеджер видит
+      // UNDER_REVIEW клиентов в /admin/uniqueness-conflicts. Двойное
+      // оповещение раздражало.
 
       try {
         await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
@@ -479,10 +426,57 @@ export class ClientFixationService {
       };
     }
 
-    // Scenario 4: Active deal - reject
+    // 2026-05-26: existingClient есть (твой), без CANCELLED-сделок и без
+    // PENDING/SIGNED. То есть это просто активная (или истёкшая) фиксация
+    // без сделок. Раньше тут был REJECTED; теперь — спрашиваем у брокера
+    // подтверждение «создать ещё одну фиксацию того же клиента?».
+    if (!data.confirmDuplicate) {
+      const dl = existingClient.deals?.length || 0;
+      return {
+        status: 'REQUIRES_CONFIRMATION',
+        existingClientId: existingClient.id,
+        existingClient: {
+          fullName: existingClient.fullName,
+          phone: existingClient.phone,
+          uniquenessStatus: existingClient.uniquenessStatus,
+          uniquenessExpiresAt: existingClient.uniquenessExpiresAt,
+          createdAt: existingClient.createdAt,
+          dealsCount: dl,
+        },
+        message: `У вас уже есть фиксация этого клиента (${existingClient.fullName}, статус ${existingClient.uniquenessStatus}). Хотите всё равно создать новую фиксацию?`,
+      };
+    }
+
+    // confirmDuplicate=true → создаём вторую запись Client с тем же
+    // phone+brokerId. Это разрешено (нет unique constraint в schema).
+    // Пробрасываем в логику сценария 1 (новый клиент).
+    const newClient = await this.prisma.client.create({
+      data: {
+        brokerId,
+        phone: data.phone,
+        fullName: data.fullName,
+        email: data.email || null,
+        comment: data.comment,
+        project: data.project as any,
+        fixationAgencyId: existingClient.fixationAgencyId,
+        uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+        uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+      },
+    });
+    try {
+      await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', newClient.id, {
+        scenario: 'CONFIRMED_DUPLICATE',
+        phone: data.phone,
+        previousClientId: existingClient.id,
+      });
+    } catch (e: any) {
+      console.error('[fixClient duplicate] audit failed:', e?.message || e);
+    }
     return {
-      status: 'REJECTED',
-      message: 'Client has active deal. Cannot fix.',
+      client: newClient,
+      status: 'CONDITIONALLY_UNIQUE',
+      amoSyncStatus: 'SYNCED',
+      message: 'Создана новая фиксация (дубликат). Истекает через 30 дней.',
     };
   }
 
@@ -557,7 +551,34 @@ export class ClientFixationService {
       }
     }
 
-    return client;
+    // 2026-05-26: догружаем агентство фиксации (нет prisma-relation на Client,
+    // только FK fixationAgencyId — поэтому отдельным запросом).
+    let fixationAgency: any = null;
+    if (client.fixationAgencyId) {
+      fixationAgency = await this.prisma.agency.findUnique({
+        where: { id: client.fixationAgencyId },
+        select: { id: true, name: true, inn: true, phone: true, email: true },
+      });
+    }
+
+    // История продления уникальности — из audit log (последние 10).
+    let uniquenessHistory: any[] = [];
+    try {
+      uniquenessHistory = await this.prisma.auditLog.findMany({
+        where: {
+          entity: 'Client',
+          entityId: id,
+          action: { in: ['UNIQUENESS_EXTENDED', 'UNIQUENESS_RESOLVED', 'CLIENT_FIXED', 'CLIENT_FIXATION', 'CLIENT_FIXATION_CONFLICT', 'AMO_SYNC_FAILED'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, action: true, payload: true, createdAt: true, userId: true },
+      });
+    } catch (e: any) {
+      // не валим, история — необязательно
+    }
+
+    return { ...client, fixationAgency, uniquenessHistory };
   }
 
   async extendUniqueness(id: string, brokerId: string, data: { reason: string; comment?: string }) {

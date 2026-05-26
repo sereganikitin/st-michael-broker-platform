@@ -121,36 +121,64 @@ export default function FixationPage() {
       phone = '+7' + phoneDigits;
     }
 
+    const payload = {
+      phone,
+      fullName,
+      email: email || undefined,
+      project,
+      agencyInn: brokerAgency?.inn || '',
+      propertyType,
+      roomsCount: roomsCount || undefined,
+      amount: amount ? Number(amount) : undefined,
+      sqm: sqm ? Number(sqm) : undefined,
+      clientRegion: clientRegion || undefined,
+      presentationSent,
+      purchaseTiming: purchaseTiming || undefined,
+      readinessLevel: readinessLevel || undefined,
+      participants: participants
+        .filter((p) => p.firstName || p.lastName || p.phone)
+        .map((p) => ({
+          firstName: p.firstName,
+          lastName: p.lastName,
+          phone: p.phone ? '+7' + p.phone : '',
+        })),
+    };
+
     try {
-      const result: any = await apiPost('/clients/fix', {
-        phone,
-        fullName,
-        email: email || undefined,
-        project,
-        agencyInn: brokerAgency?.inn || '',
-        propertyType,
-        roomsCount: roomsCount || undefined,
-        amount: amount ? Number(amount) : undefined,
-        sqm: sqm ? Number(sqm) : undefined,
-        clientRegion: clientRegion || undefined,
-        presentationSent,
-        purchaseTiming: purchaseTiming || undefined,
-        readinessLevel: readinessLevel || undefined,
-        participants: participants
-          .filter((p) => p.firstName || p.lastName || p.phone)
-          .map((p) => ({
-            firstName: p.firstName,
-            lastName: p.lastName,
-            phone: p.phone ? '+7' + p.phone : '',
-          })),
-      });
-      if (result?.amoSyncStatus === 'FAILED' && Array.isArray(result?.managerContacts)) {
-        setAmoWarn({
-          message: result.message || 'Заявка сохранена в кабинете, но не передана в amoCRM.',
-          managers: result.managerContacts,
-        });
+      const result: any = await apiPost('/clients/fix', payload);
+      // 2026-05-26: если бэк говорит «уже есть твой клиент» — спрашиваем
+      // подтверждение и при OK повторяем с confirmDuplicate=true.
+      if (result?.status === 'REQUIRES_CONFIRMATION') {
+        const fmt = (s: any) => s ? new Date(s).toLocaleDateString('ru-RU') : '—';
+        const ec = result.existingClient || {};
+        const ok = window.confirm(
+          `${result.message}\n\n` +
+          `Существующая фиксация:\n` +
+          `• ${ec.fullName} (${ec.phone})\n` +
+          `• Статус: ${ec.uniquenessStatus}\n` +
+          `• Создана: ${fmt(ec.createdAt)}\n` +
+          `• Активна до: ${fmt(ec.uniquenessExpiresAt)}\n` +
+          `• Сделок: ${ec.dealsCount}\n\n` +
+          `Создать новую фиксацию всё равно?`
+        );
+        if (!ok) { setLoading(false); return; }
+        const result2: any = await apiPost('/clients/fix', { ...payload, confirmDuplicate: true });
+        if (result2?.amoSyncStatus === 'FAILED' && Array.isArray(result2?.managerContacts)) {
+          setAmoWarn({
+            message: result2.message || 'Заявка сохранена в кабинете, но не передана в amoCRM.',
+            managers: result2.managerContacts,
+          });
+        }
+        setShowSuccess(true);
+      } else {
+        if (result?.amoSyncStatus === 'FAILED' && Array.isArray(result?.managerContacts)) {
+          setAmoWarn({
+            message: result.message || 'Заявка сохранена в кабинете, но не передана в amoCRM.',
+            managers: result.managerContacts,
+          });
+        }
+        setShowSuccess(true);
       }
-      setShowSuccess(true);
     } catch (err: any) {
       setError(err.message || 'Ошибка при отправке заявки');
     }

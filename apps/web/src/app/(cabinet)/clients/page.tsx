@@ -139,6 +139,14 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
             <span className="text-text-muted block text-xs">Обновлено</span>
             <span className="font-medium">{new Date(client.updatedAt || client.amoUpdatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
           </div>
+          {client.fixationAgency && (
+            <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+              <span className="text-text-muted block text-xs">Агентство фиксации</span>
+              <span className="font-medium">{client.fixationAgency.name}</span>
+              <span className="text-xs text-text-muted ml-2">ИНН {client.fixationAgency.inn}</span>
+              {client.fixationAgency.phone && <span className="text-xs text-text-muted ml-2">{client.fixationAgency.phone}</span>}
+            </div>
+          )}
           {client.amoLeadId && (
             <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
               <span className="text-text-muted block text-xs">amoCRM Lead ID</span>
@@ -196,6 +204,34 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {Array.isArray(client.uniquenessHistory) && client.uniquenessHistory.length > 0 && (
+          <div className="mt-4">
+            <h3 className="text-sm font-medium mb-2">История</h3>
+            <div className="space-y-1.5">
+              {client.uniquenessHistory.map((h: any) => {
+                const labels: Record<string, string> = {
+                  CLIENT_FIXATION: '🆕 Создана фиксация',
+                  CLIENT_FIXATION_CONFLICT: '⚠ Конфликт фиксации',
+                  UNIQUENESS_EXTENDED: '⏰ Продление уникальности',
+                  UNIQUENESS_RESOLVED: '✅ Конфликт разрешён',
+                  CLIENT_FIXED: '📌 Закреплён',
+                  AMO_SYNC_FAILED: '❌ Не передан в amoCRM',
+                };
+                return (
+                  <div key={h.id} className="bg-surface-secondary rounded p-2 text-xs">
+                    <div className="flex justify-between">
+                      <span>{labels[h.action] || h.action}</span>
+                      <span className="text-text-muted">{new Date(h.createdAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                    </div>
+                    {h.payload?.reason && <div className="text-text-muted mt-1">Причина: {h.payload.reason}</div>}
+                    {h.payload?.scenario && <div className="text-text-muted mt-1">Сценарий: {h.payload.scenario}</div>}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

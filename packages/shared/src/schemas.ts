@@ -69,6 +69,8 @@ export const fixClientDtoSchema = z.object({
   presentationSent: z.boolean().optional(),
   purchaseTiming: z.string().optional(),
   readinessLevel: z.string().optional(),
+  // 2026-05-26: подтверждение, что брокер хочет создать дубль уже своего клиента
+  confirmDuplicate: z.boolean().optional(),
 });
 
 // Client schemas
