@@ -167,6 +167,23 @@ export class ClientFixationService {
           console.error('[fixClient conflict] audit failed:', e?.message || e);
         }
 
+        // 2026-05-26: добавляем примечание в существующий amoCRM-лид
+        // того клиента — менеджер увидит «попытка повторной фиксации».
+        if (conflictingClient.amoLeadId) {
+          try {
+            await this.amoCrmAdapter.addRefixationAttemptNote(
+              Number(conflictingClient.amoLeadId),
+              {
+                requestingBrokerName: broker.fullName,
+                requestingBrokerPhone: broker.phone,
+                clientPhone: data.phone,
+              },
+            );
+          } catch (e: any) {
+            console.error('[fixClient conflict] amo refixation note failed:', e?.message || e);
+          }
+        }
+
         return {
           client,
           status: 'UNDER_REVIEW',

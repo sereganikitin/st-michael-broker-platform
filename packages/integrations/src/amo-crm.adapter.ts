@@ -226,6 +226,34 @@ export class AmoCrmAdapter {
     });
   }
 
+  // 2026-05-26: задача в amoCRM с дедлайном и текстом.
+  // Появляется в задачах сотрудника КЦ → отработает.
+  // entityType: 'leads' | 'contacts' | 'companies'
+  // taskTypeId: 1 = звонок, 2 = встреча, 3+ = кастомные (зависит от настроек amoCRM)
+  // completeTill: unix timestamp в секундах (когда задача должна быть выполнена)
+  async createTask(data: {
+    text: string;
+    entityType: 'leads' | 'contacts' | 'companies';
+    entityId: number;
+    completeTillSec?: number; // default: +24h
+    taskTypeId?: number; // default: 1 (звонок)
+    responsibleUserId?: number; // если знаем кому именно
+  }): Promise<void> {
+    const completeTill = data.completeTillSec || Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+    const body: any = {
+      text: data.text,
+      complete_till: completeTill,
+      entity_type: data.entityType,
+      entity_id: data.entityId,
+      task_type_id: data.taskTypeId || 1,
+    };
+    if (data.responsibleUserId) body.responsible_user_id = data.responsibleUserId;
+    await this.request('/tasks', {
+      method: 'POST',
+      body: JSON.stringify([body]),
+    });
+  }
+
   async addNoteToContact(contactId: number, text: string): Promise<void> {
     await this.request(`/contacts/${contactId}/notes`, {
       method: 'POST',
@@ -515,6 +543,80 @@ export class AmoCrmAdapter {
       }
     }
 
+    // 2026-05-26: добавляем читаемое примечание в чат лида —
+    // вся ключевая информация в одном месте, видно в ленте amoCRM.
+    if (created?.id) {
+      const lines: string[] = [];
+      lines.push(`📝 Фиксация клиента от брокера`);
+      lines.push(`Клиент: ${data.clientName}`);
+      lines.push(`Телефон: ${data.clientPhone}`);
+      if (data.clientEmail) lines.push(`Email: ${data.clientEmail}`);
+      if (data.clientRegion) lines.push(`Регион: ${data.clientRegion}`);
+      lines.push(``);
+      lines.push(`Проект: ${data.project}`);
+      if (data.propertyType) lines.push(`Тип: ${data.propertyType}`);
+      if (data.roomsCount) lines.push(`Комнат: ${data.roomsCount}`);
+      if (data.sqm) lines.push(`Метраж: ${data.sqm} м²`);
+      if (data.amount) lines.push(`Бюджет: ${data.amount.toLocaleString('ru-RU')} ₽`);
+      if (data.purchaseTiming) lines.push(`Планирует покупку: ${data.purchaseTiming}`);
+      if (data.readinessLevel) lines.push(`Готовность к сделке: ${data.readinessLevel}`);
+      lines.push(``);
+      lines.push(`Брокер-агент: ${data.brokerPhone}`);
+      lines.push(`Агентство: ${data.agencyName} (ИНН ${data.agencyInn})`);
+      if (data.comment) {
+        lines.push(``);
+        lines.push(`Комментарий брокера: ${data.comment}`);
+      }
+      try {
+        await this.addNoteToLead(created.id, lines.join('\n'));
+      } catch (e) {
+        // Не валим — note вторичен, главное лид с полями.
+      }
+      // 2026-05-26: задача КЦ — связаться с клиентом, провести фиксацию.
+      // С дедлайном через сутки. Появится в задачах сотрудников amoCRM.
+      try {
+        await this.createTask({
+          text: `Связаться с клиентом ${data.clientName} (${data.clientPhone}) — фиксация от брокера ${data.brokerPhone}. Проект: ${data.project}.`,
+          entityType: 'leads',
+          entityId: created.id,
+          taskTypeId: 1, // звонок
+        });
+      } catch (e) {
+        // не валим
+      }
+    }
+
     return created;
+  }
+
+  // 2026-05-26: добавляет примечание о попытке повторной фиксации в
+  // существующий amoCRM-лид. Используется когда другой брокер пробует
+  // зафиксировать клиента который уже на уникальности.
+  async addRefixationAttemptNote(leadId: number, data: {
+    requestingBrokerName: string;
+    requestingBrokerPhone: string;
+    clientPhone: string;
+  }): Promise<void> {
+    const text = [
+      `⚠ Попытка повторной фиксации`,
+      ``,
+      `Клиент ${data.clientPhone} уже на уникальности.`,
+      `Брокер ${data.requestingBrokerName} (${data.requestingBrokerPhone}) пытался зафиксировать этого клиента сейчас.`,
+      ``,
+      `Менеджер уведомлён, заявка переведена в статус UNDER_REVIEW в нашей системе.`,
+    ].join('\n');
+    // Note для истории + задача чтобы сотрудник КЦ её разобрал
+    await this.addNoteToLead(leadId, text);
+    try {
+      await this.createTask({
+        text: `⚠ Разрешить конфликт: ${data.requestingBrokerName} (${data.requestingBrokerPhone}) пытался повторно зафиксировать клиента ${data.clientPhone}. Уточнить кому отдать.`,
+        entityType: 'leads',
+        entityId: leadId,
+        taskTypeId: 1,
+        completeTillSec: Math.floor(Date.now() / 1000) + 4 * 60 * 60, // 4 часа — конфликты разруливаем быстро
+      });
+    } catch (e) {
+      // note уже создан — главное чтобы менеджер увидел
+    }
   }
 }
