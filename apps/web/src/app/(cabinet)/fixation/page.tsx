@@ -59,6 +59,10 @@ export default function FixationPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  // КБ7 (2026-05-26): пользователь нажал «Отправить» хотя бы раз —
+  // с этого момента подсвечиваем красным невалидные поля и пишем
+  // под каждым «Заполните это поле». До первой попытки не дёргаем.
+  const [attempted, setAttempted] = useState(false);
   // 2026-05-25: если amo упал — показываем брокеру предупреждение и
   // список менеджеров с телефонами, чтобы он мог позвонить напрямую.
   const [amoWarn, setAmoWarn] = useState<{
@@ -90,6 +94,20 @@ export default function FixationPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAttempted(true);
+    // КБ7: валидируем перед отправкой. Если что-то не так — показываем
+    // пользователю красные поля и НЕ дёргаем сервер.
+    const foreignD = foreignPhone.replace(/\D/g, '').length;
+    const phoneOk = isForeign ? foreignD >= 7 : phoneDigits.length === 10;
+    if (!phoneOk || !firstName.trim() || !sqm || !amount || !brokerAgency?.inn) {
+      setError('Заполните все обязательные поля (отмечены красным)');
+      // Прокрутим к первому невалидному.
+      setTimeout(() => {
+        const el = document.querySelector('.field-invalid') as HTMLElement | null;
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
+      return;
+    }
     setLoading(true);
     setError('');
 
@@ -189,10 +207,10 @@ export default function FixationPage() {
             {!isForeign ? (
               <>
                 <div className="flex">
-                  <span className="inline-flex items-center px-3 bg-surface-secondary border border-r-0 border-border rounded-l text-text-muted text-sm">+7</span>
+                  <span className={`inline-flex items-center px-3 bg-surface-secondary border border-r-0 rounded-l text-text-muted text-sm ${attempted && phoneDigits.length !== 10 ? 'border-error field-invalid' : 'border-border'}`}>+7</span>
                   <input
                     type="tel"
-                    className="input rounded-l-none"
+                    className={`input rounded-l-none ${attempted && phoneDigits.length !== 10 ? 'border-error field-invalid' : ''}`}
                     placeholder="(999) 123-45-67"
                     // value — отформатированный «(999) 123-45-67» от текущих phoneDigits.
                     // При onChange — извлекаем только цифры (не больше 10).
@@ -222,18 +240,24 @@ export default function FixationPage() {
                 {phoneDigits.length === 10 && (
                   <div className="text-xs text-text-muted mt-1">{formatPhoneFromDigits(phoneDigits)}</div>
                 )}
+                {attempted && phoneDigits.length !== 10 && (
+                  <div className="text-xs text-error mt-1">Заполните это поле — телефон 10 цифр</div>
+                )}
               </>
             ) : (
               <>
                 <input
                   type="tel"
-                  className="input"
+                  className={`input ${attempted && foreignDigitsCount < 7 ? 'border-error field-invalid' : ''}`}
                   placeholder="+998 90 123 45 67"
                   value={foreignPhone}
                   onChange={(e) => setForeignPhone(e.target.value)}
                   required
                 />
                 <div className="text-xs text-text-muted mt-1">Иностранный — введи полный номер с кодом страны (любой формат)</div>
+                {attempted && foreignDigitsCount < 7 && (
+                  <div className="text-xs text-error mt-1">Заполните это поле — минимум 7 цифр</div>
+                )}
               </>
             )}
           </div>
@@ -243,11 +267,14 @@ export default function FixationPage() {
               <label className="label">Имя *</label>
               <input
                 type="text"
-                className="input"
+                className={`input ${attempted && !firstName.trim() ? 'border-error field-invalid' : ''}`}
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 required
               />
+              {attempted && !firstName.trim() && (
+                <div className="text-xs text-error mt-1">Заполните это поле</div>
+              )}
             </div>
             <div>
               <label className="label">Фамилия</label>
@@ -319,12 +346,15 @@ export default function FixationPage() {
                 type="number"
                 min="0"
                 step="0.01"
-                className="input"
+                className={`input ${attempted && !sqm ? 'border-error field-invalid' : ''}`}
                 placeholder="45.5"
                 value={sqm}
                 onChange={(e) => setSqm(e.target.value)}
                 required
               />
+              {attempted && !sqm && (
+                <div className="text-xs text-error mt-1">Заполните это поле</div>
+              )}
             </div>
           </div>
 
@@ -333,7 +363,7 @@ export default function FixationPage() {
             <input
               type="text"
               inputMode="numeric"
-              className="input"
+              className={`input ${attempted && !amount ? 'border-error field-invalid' : ''}`}
               placeholder="25 000 000"
               value={formatMoney(amount)}
               onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))}
@@ -343,6 +373,9 @@ export default function FixationPage() {
               <div className="text-xs text-text-muted mt-1">
                 {Number(amount).toLocaleString('ru-RU')} ₽
               </div>
+            )}
+            {attempted && !amount && (
+              <div className="text-xs text-error mt-1">Заполните это поле</div>
             )}
           </div>
 
@@ -457,13 +490,13 @@ export default function FixationPage() {
           <button
             type="submit"
             className="btn btn-primary w-full"
-            disabled={loading || !canSubmit}
+            disabled={loading}
           >
             {loading ? 'Отправка...' : 'Отправить заявку'}
           </button>
 
-          {!brokerAgency?.inn && (
-            <div className="text-xs text-warning">
+          {attempted && !brokerAgency?.inn && (
+            <div className="text-xs text-error">
               У вас не привязано агентство с ИНН. Заполните данные в Профиле перед фиксацией.
             </div>
           )}
