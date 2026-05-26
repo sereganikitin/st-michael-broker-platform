@@ -391,10 +391,11 @@ export class CmsService {
     if (!data.name || data.name.trim().length < 2) throw new NotFoundException('name required');
     if (!data.phone || data.phone.trim().length < 5) throw new NotFoundException('phone required');
 
-    return this.prisma.contactRequest.create({
+    const phone = data.phone.trim();
+    const created = await this.prisma.contactRequest.create({
       data: {
         name: data.name.trim(),
-        phone: data.phone.trim(),
+        phone,
         email: data.email?.trim() || null,
         message: data.message?.trim() || null,
         source: data.source || 'landing-contact',
@@ -403,6 +404,81 @@ export class CmsService {
         userAgent,
       },
     });
+
+    // 2026-05-26: если заявка с лендинга — заводим/обновляем Broker
+    // карточку и кладём в очередь колл-центра (isInBase=true), чтобы
+    // оператор перезвонил. Сейчас включаем для broker-tour и
+    // landing-contact (обе подразумевают что человек хочет общаться).
+    const callCenterSources = new Set(['broker-tour', 'landing-contact']);
+    if (callCenterSources.has(data.source || '')) {
+      try {
+        await this.upsertBrokerFromLandingLead({
+          fullName: data.name.trim(),
+          phone,
+          email: data.email?.trim() || null,
+          note: data.message?.trim() || null,
+          source: data.source || 'landing-contact',
+        });
+      } catch (e: any) {
+        console.error('[createContactRequest] upsertBrokerFromLandingLead failed:', e?.message || e);
+      }
+    }
+
+    return created;
+  }
+
+  // 2026-05-26: создаёт или обновляет Broker, который оставил заявку с лендинга.
+  // Лояльно к существующему: если phone уже есть — обновляет category/isInBase
+  // и не трогает password/auth-поля. Новых ставит в очередь КЦ (isInBase=true,
+  // status=PENDING, category=WARM, funnelStage=NEW_BROKER).
+  private async upsertBrokerFromLandingLead(data: {
+    fullName: string;
+    phone: string;
+    email: string | null;
+    note: string | null;
+    source: string;
+  }) {
+    // Нормализуем телефон до +7XXXXXXXXXX (как в основной БД).
+    const digits = (data.phone || '').replace(/\D/g, '');
+    let phone = data.phone;
+    if (digits.length === 11 && digits[0] === '8') phone = '+7' + digits.slice(1);
+    else if (digits.length === 11 && digits[0] === '7') phone = '+' + digits;
+    else if (digits.length === 10) phone = '+7' + digits;
+
+    const existing = await this.prisma.broker.findUnique({ where: { phone } });
+    if (existing) {
+      // Уже есть. Не перетираем имя/роль/email, только метим что заявил
+      // через лендинг и пробуждаем для КЦ если был спящий.
+      await this.prisma.broker.update({
+        where: { id: existing.id },
+        data: {
+          isInBase: true,
+          // Если он отказывался от звонков — заявка с лендинга это снимает
+          doNotCall: false,
+          // Если в кэше отложили звонок — забываем (он сам написал, надо звонить сейчас)
+          nextCallAt: null,
+        },
+      });
+      return existing.id;
+    }
+
+    const created = await this.prisma.broker.create({
+      data: {
+        fullName: data.fullName,
+        phone,
+        email: data.email,
+        role: 'BROKER',
+        status: 'PENDING',
+        funnelStage: 'NEW_BROKER',
+        source: (data.source === 'broker-tour' ? 'LANDING_BROKER_TOUR' : 'LANDING_FORM') as any,
+        category: 'WARM' as any, // явная заявка — точно тёплый
+        isInBase: true,
+        baseSource: 'manual',
+        // первое касание — сразу в очередь, оператор увидит сегодня
+        nextCallAt: null,
+      },
+    });
+    return created.id;
   }
 
   async listContactRequests(query: { page?: number; limit?: number; source?: string; processed?: string }) {

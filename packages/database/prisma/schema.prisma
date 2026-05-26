@@ -66,6 +66,9 @@ enum BrokerSource {
   BROKER_CABINET // Зарегистрировался через кабинет
   PHONE_CALL // Позвонил на линию
   CLOSED_AS_BROKER // Закрыт как брокер (с причиной)
+  // 2026-05-26: заявки с лендинга → попадают в очередь КЦ
+  LANDING_BROKER_TOUR // Записался на брокер-тур
+  LANDING_FORM // Оставил контакт через форму на лендинге
 }
 
 enum FixationStatus {
