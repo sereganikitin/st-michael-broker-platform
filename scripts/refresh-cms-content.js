@@ -122,20 +122,36 @@ const CONTACT = {
 const BLOCKS = { hero: HERO, advantages: ADVANTAGES, commission: COMMISSION, contact: CONTACT };
 
 (async () => {
+  // 2026-05-26 КРИТИЧНЫЙ ФИКС: скрипт раньше делал UPSERT и перезаписывал
+  // правки админа из /admin/content при каждом деплое. Это убивало
+  // ксенины тексты после каждого моего push. Теперь — ТОЛЬКО CREATE
+  // если записи нет. Если запись существует — не трогаем.
+  //
+  // Для принудительной перезаписи (если действительно нужно вернуть
+  // дефолты): запустить с FORCE=1:
+  //   FORCE=1 node /app/scripts/refresh-cms-content.js
+  const FORCE = process.env.FORCE === '1' || process.env.FORCE === 'true';
   const prisma = new PrismaClient();
-  console.log('Refreshing CMS content blocks (hero, advantages, commission, contact)...\n');
+  console.log(`CMS content blocks (mode: ${FORCE ? 'FORCE OVERWRITE' : 'create-if-missing'})...\n`);
 
   for (const [key, value] of Object.entries(BLOCKS)) {
     const before = await prisma.siteContent.findUnique({ where: { key } });
+    if (before && !FORCE) {
+      console.log(`- ${key.padEnd(12)} (skip — exists, edited by ${before.updatedBy || 'unknown'} at ${before.updatedAt})`);
+      continue;
+    }
     await prisma.siteContent.upsert({
       where: { key },
       update: { value, updatedBy: 'refresh-cms-content-script' },
       create: { key, value, updatedBy: 'refresh-cms-content-script' },
     });
-    console.log(`✓ ${key.padEnd(12)} ${before ? '(updated)' : '(created)'}`);
+    console.log(`✓ ${key.padEnd(12)} ${before ? '(force-updated)' : '(created)'}`);
   }
 
-  console.log('\nDone. Перезагрузи лендинг — должен показать новый текст.');
+  console.log('\nDone.');
+  if (!FORCE) {
+    console.log('Note: existing records were NOT overwritten. To force overwrite — set FORCE=1.');
+  }
   await prisma.$disconnect();
 })().catch((e) => {
   console.error('Error:', e);

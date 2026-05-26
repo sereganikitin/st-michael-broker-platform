@@ -30,7 +30,10 @@ export class AdminCmsController {
 
   @Patch('content/:key')
   @ApiOperation({ summary: 'Upsert content block' })
-  @Roles(UserRole.ADMIN)
+  // 2026-05-26: расширил роли — раньше только ADMIN, что вызывало 403
+  // когда MANAGER пытался сохранить через /admin/content. Теперь MANAGER тоже
+  // может править блоки (история правок всё фиксирует — кто и когда менял).
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async upsert(
     @Param('key') key: string,
     @Body() body: { value: any },
