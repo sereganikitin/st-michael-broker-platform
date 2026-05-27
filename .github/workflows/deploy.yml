@@ -22,6 +22,9 @@ jobs:
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        # 2026-05-27 fix: env-секция обязательна, иначе envs: передаёт пустоту.
+        env:
+          AMO_ACCESS_TOKEN: ${{ secrets.AMO_ACCESS_TOKEN }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -29,11 +32,8 @@ jobs:
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           script_stop: true
           command_timeout: 75m
-          # 2026-05-27: AMO_ACCESS_TOKEN из GH secrets теперь автоматически
-          # прокидывается в .env на сервере. Чтобы обновить токен:
-          # 1. gh secret set AMO_ACCESS_TOKEN < newtoken.txt --repo ...
-          # 2. push любой коммит (или вручную run workflow)
-          # Без участия Сергея и SSH.
+          # AMO_ACCESS_TOKEN из GH secrets автоматически в .env на сервере.
+          # Чтобы обновить токен: gh secret set AMO_ACCESS_TOKEN ... + push.
           envs: AMO_ACCESS_TOKEN
           script: |
             set -e
