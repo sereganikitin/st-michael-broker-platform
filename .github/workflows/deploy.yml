@@ -45,7 +45,7 @@ jobs:
             # ВАЖНО: appleboy/ssh-action вставляет exit-code-check между
             # строками — поэтому многострочные awk/script ЛОМАЮТСЯ.
             # Всё запихнуто в одну строку с ; разделителями.
-            if [ -n "$AMO_ACCESS_TOKEN" ]; then echo "=== Cleanup .env + AMO_ACCESS_TOKEN ==="; touch .env; awk 'BEGIN{skip=0} /^AMO_ACCESS_TOKEN=/{skip=1; next} skip && /^[A-Z_][A-Z0-9_]*=/{skip=0} !skip{print}' .env > .env.tmp; grep -E '^[A-Z_][A-Z0-9_]*=|^#|^$' .env.tmp > .env.clean || true; mv .env.clean .env.tmp; echo "AMO_ACCESS_TOKEN=$AMO_ACCESS_TOKEN" >> .env.tmp; mv .env.tmp .env; echo "    .env строк: $(wc -l < .env), длина токена: ${#AMO_ACCESS_TOKEN}"; fi
+            if [ -n "$AMO_ACCESS_TOKEN" ]; then echo "=== Cleanup .env + AMO_ACCESS_TOKEN ==="; touch .env; awk 'BEGIN{skip=0} /^AMO_ACCESS_TOKEN=/{skip=1; next} skip && /^[A-Z_][A-Z0-9_]*=/{skip=0} !skip{print}' .env > .env.tmp; grep -E '^[A-Z_][A-Z0-9_]*=|^#|^$' .env.tmp > .env.clean || true; mv .env.clean .env.tmp; CLEAN_TOKEN=$(printf "%s" "$AMO_ACCESS_TOKEN" | tr -d '\r\n\t '); echo "AMO_ACCESS_TOKEN=$CLEAN_TOKEN" >> .env.tmp; mv .env.tmp .env; echo "    .env строк: $(wc -l < .env), длина token из env: ${#AMO_ACCESS_TOKEN}, длина clean: ${#CLEAN_TOKEN}"; echo "=== Последние 3 строки .env (hex tail): ==="; tail -n 3 .env | od -c | head -5; fi
             echo "=== Запуск deploy-update.sh ==="
             bash deploy-update.sh
             echo "=== Деплой завершён успешно ==="
