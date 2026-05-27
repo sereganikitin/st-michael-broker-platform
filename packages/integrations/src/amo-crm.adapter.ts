@@ -92,6 +92,11 @@ export class AmoCrmAdapter {
       res = await fetch(url, {
         ...init,
         headers: {
+          // 2026-05-27: явный User-Agent — без него nginx перед amocrm
+          // отдавал 403 с белой страницей (видимо WAF ругался на дефолтный
+          // node-fetch). С браузерным UA пускает.
+          'User-Agent': 'StMichaelBroker/1.0 (+https://72.56.241.199)',
+          Accept: 'application/json',
           Authorization: `Bearer ${this.token}`,
           'Content-Type': 'application/json',
           ...(init.headers || {}),
