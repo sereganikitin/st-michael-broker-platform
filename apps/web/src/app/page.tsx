@@ -10,11 +10,11 @@ import LandingClient, { type LandingInitialData } from './LandingClient';
 
 export const dynamic = 'force-dynamic';
 
-// API хост для server-side fetch. Внутри docker-сети — http://api:4000.
-// Снаружи — публичный домен. Env переменная NEXT_PUBLIC_API_URL не подходит
-// (она для клиента), поэтому используем INTERNAL_API_URL c фолбэком.
+// API хост для server-side fetch. В docker-compose web получает
+// API_URL=http://api:4000 (см. docker-compose.yml). NEXT_PUBLIC_API_URL=/api
+// — это относительный URL для клиента, server-fetch с ним не работает.
 function getApiBase(): string {
-  return process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://api:4000';
+  return process.env.API_URL || process.env.INTERNAL_API_URL || 'http://api:4000';
 }
 
 async function safeFetch<T = any>(url: string): Promise<T | null> {
