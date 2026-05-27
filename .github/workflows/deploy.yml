@@ -28,16 +28,29 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           script_stop: true
-          # 75m — холодная сборка api-образа на этом сервере занимает 40-50 мин,
-          # плюс docker compose up -d ждёт healthcheck'и (~5 мин). 45m не хватало —
-          # прошлые два запуска (run #25482483617) падали на этапе "Container Recreate".
           command_timeout: 75m
+          # 2026-05-27: AMO_ACCESS_TOKEN из GH secrets теперь автоматически
+          # прокидывается в .env на сервере. Чтобы обновить токен:
+          # 1. gh secret set AMO_ACCESS_TOKEN < newtoken.txt --repo ...
+          # 2. push любой коммит (или вручную run workflow)
+          # Без участия Сергея и SSH.
+          envs: AMO_ACCESS_TOKEN
           script: |
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
-            echo "=== Bootstrap: подтягиваем свежий master (на случай если deploy-update.sh ещё нет на сервере) ==="
+            echo "=== Bootstrap: подтягиваем свежий master ==="
             git fetch origin master
             git reset --hard origin/master
+            # Обновляем AMO_ACCESS_TOKEN в .env из GH secrets (если задан)
+            if [ -n "$AMO_ACCESS_TOKEN" ]; then
+              echo "=== Обновляем AMO_ACCESS_TOKEN в .env ==="
+              # удаляем существующую строку и добавляем свежую
+              touch .env
+              grep -v '^AMO_ACCESS_TOKEN=' .env > .env.tmp || true
+              echo "AMO_ACCESS_TOKEN=$AMO_ACCESS_TOKEN" >> .env.tmp
+              mv .env.tmp .env
+              echo "    .env обновлён (длина токена: ${#AMO_ACCESS_TOKEN})"
+            fi
             echo "=== Запуск deploy-update.sh ==="
             bash deploy-update.sh
             echo "=== Деплой завершён успешно ==="
