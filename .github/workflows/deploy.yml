@@ -41,30 +41,11 @@ jobs:
             echo "=== Bootstrap: подтягиваем свежий master ==="
             git fetch origin master
             git reset --hard origin/master
-            # Обновляем AMO_ACCESS_TOKEN в .env из GH secrets (если задан)
-            if [ -n "$AMO_ACCESS_TOKEN" ]; then
-              echo "=== Чистим .env от мусора и обновляем AMO_ACCESS_TOKEN ==="
-              touch .env
-              # awk: пропускает блок от 'AMO_ACCESS_TOKEN=' до следующей
-              # валидной KEY=VALUE строки или конца файла. Так удаляются
-              # и многострочные токены (когда nano разорвал JWT) и любые
-              # «продолжения» предыдущего значения.
-              awk '
-                /^AMO_ACCESS_TOKEN=/ { skip=1; next }
-                skip && /^[A-Z_][A-Z0-9_]*=/ { skip=0 }
-                !skip { print }
-              ' .env > .env.tmp
-              # Дополнительно убираем строки которые НЕ выглядят как ENV
-              # (без =, или начинаются не с буквы/_), но оставляем
-              # комментарии # и пустые строки.
-              grep -E '^[A-Z_][A-Z0-9_]*=|^#|^$' .env.tmp > .env.clean || true
-              mv .env.clean .env.tmp
-              # Добавляем актуальный токен последней строкой
-              echo "AMO_ACCESS_TOKEN=$AMO_ACCESS_TOKEN" >> .env.tmp
-              mv .env.tmp .env
-              echo "    .env обновлён (длина токена: ${#AMO_ACCESS_TOKEN})"
-              echo "    .env строк: $(wc -l < .env)"
-            fi
+            # Обновляем AMO_ACCESS_TOKEN в .env из GH secrets.
+            # ВАЖНО: appleboy/ssh-action вставляет exit-code-check между
+            # строками — поэтому многострочные awk/script ЛОМАЮТСЯ.
+            # Всё запихнуто в одну строку с ; разделителями.
+            if [ -n "$AMO_ACCESS_TOKEN" ]; then echo "=== Cleanup .env + AMO_ACCESS_TOKEN ==="; touch .env; awk 'BEGIN{skip=0} /^AMO_ACCESS_TOKEN=/{skip=1; next} skip && /^[A-Z_][A-Z0-9_]*=/{skip=0} !skip{print}' .env > .env.tmp; grep -E '^[A-Z_][A-Z0-9_]*=|^#|^$' .env.tmp > .env.clean || true; mv .env.clean .env.tmp; echo "AMO_ACCESS_TOKEN=$AMO_ACCESS_TOKEN" >> .env.tmp; mv .env.tmp .env; echo "    .env строк: $(wc -l < .env), длина токена: ${#AMO_ACCESS_TOKEN}"; fi
             echo "=== Запуск deploy-update.sh ==="
             bash deploy-update.sh
             echo "=== Деплой завершён успешно ==="
