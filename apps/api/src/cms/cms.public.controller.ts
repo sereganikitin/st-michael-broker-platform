@@ -1,12 +1,48 @@
 import { Body, Controller, Get, Header, Param, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { AmoCrmAdapter } from '@st-michael/integrations';
 import { CmsService } from './cms.service';
 
 @ApiTags('public-cms')
 @Controller('public/cms')
 export class PublicCmsController {
+  // 2026-05-27: AmoCrmAdapter напрямую для публичной health-проверки.
+  // Не возвращает секреты, только status/error.
+  private amo = new AmoCrmAdapter();
+
   constructor(private readonly cms: CmsService) {}
+
+  // Публичная диагностика amoCRM — без JWT, чтобы можно было быстро
+  // проверить через curl или браузер. Не возвращает токен/секреты,
+  // только {ok, accountName, error, latencyMs}.
+  @Get('amo-health')
+  @ApiOperation({ summary: 'Public health-check amoCRM (no auth)' })
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  async publicAmoHealth() {
+    const tokenConfigured = !!process.env.AMO_ACCESS_TOKEN;
+    if (!tokenConfigured) {
+      return { ok: false, tokenConfigured: false, error: 'AMO_ACCESS_TOKEN не настроен в .env' };
+    }
+    const started = Date.now();
+    try {
+      const acc = await this.amo.getAccount();
+      return {
+        ok: true,
+        tokenConfigured: true,
+        accountName: acc?.name || acc?.subdomain || null,
+        accountId: acc?.id || null,
+        latencyMs: Date.now() - started,
+      };
+    } catch (e: any) {
+      return {
+        ok: false,
+        tokenConfigured: true,
+        error: String(e?.message || e).slice(0, 500),
+        latencyMs: Date.now() - started,
+      };
+    }
+  }
 
   // Cache-Control: no-store — чтобы после правок в /admin/content
   // лендинг сразу видел свежие значения, без задержки от CDN/service worker.
