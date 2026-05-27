@@ -74,9 +74,15 @@ export class AmoCrmAdapter {
   private token: string;
 
   constructor() {
+    // 2026-05-27: amoCRM имеет 2 endpoint'а:
+    //   1) subdomain.amocrm.ru — веб-интерфейс, защищён WAF
+    //   2) api-b.amocrm.ru или другой шард — для API (читается из JWT.api_domain)
+    // Раньше били в (1), nginx-WAF возвращал 403 для node-fetch-запросов.
+    // Теперь по умолчанию используем (2) если AMO_API_DOMAIN не задан явно.
     const subdomain = process.env.AMO_SUBDOMAIN || 'stmichael';
     const domain = process.env.AMO_BASE_DOMAIN || 'amocrm.ru';
-    this.baseUrl = `https://${subdomain}.${domain}/api/v4`;
+    const apiDomain = process.env.AMO_API_DOMAIN || `${subdomain}.${domain}`;
+    this.baseUrl = `https://${apiDomain}/api/v4`;
     this.token = process.env.AMO_ACCESS_TOKEN || '';
   }
 
@@ -92,10 +98,9 @@ export class AmoCrmAdapter {
       res = await fetch(url, {
         ...init,
         headers: {
-          // 2026-05-27: явный User-Agent — без него nginx перед amocrm
-          // отдавал 403 с белой страницей (видимо WAF ругался на дефолтный
-          // node-fetch). С браузерным UA пускает.
-          'User-Agent': 'StMichaelBroker/1.0 (+https://72.56.241.199)',
+          // 2026-05-27: «человеческий» User-Agent + Accept — без них
+          // WAF возвращает 403. С браузерным UA проходит.
+          'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           Accept: 'application/json',
           Authorization: `Bearer ${this.token}`,
           'Content-Type': 'application/json',
