@@ -74,10 +74,11 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
         )}
       >
         <div className="p-6 flex items-center justify-between">
-          <div>
+          {/* 2026-05-27: лого кликабельно → возвращает на лендинг (/) */}
+          <Link href="/" className="block hover:opacity-80 transition" title="Вернуться на главную">
             <h2 className="text-xl font-bold text-accent">ST Michael</h2>
             <p className="text-sm text-text-muted">Кабинет брокера</p>
-          </div>
+          </Link>
           {onClose && (
             <button
               onClick={onClose}
