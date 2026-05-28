@@ -50,11 +50,30 @@ function CommissionScale({
   cmsLevelsByProject?: Record<string, any[]>;
   cmsLevels?: any[];
 }) {
-  const policy = activePolicies.find((p) => p.project === project);
+  // 2026-05-28: приоритет CMS-content над commission-policies для отображения.
+  // Раньше БД-политика (FLAT/PROGRESSIVE) перебивала шкалу из /admin/content
+  // → админ редактировал 7 уровней в CMS, а лендинг показывал FLAT 5% из БД.
+  // Теперь: если CMS содержит уровни — показываем их. Если CMS пуст —
+  // fallback на БД (FLAT/PROGRESSIVE из commission-policies).
+  // БД остаётся источником истины для калькулятора в /commission.
+  const cmsRows = cmsLevelsByProject?.[project] || cmsLevels || [];
+  if (Array.isArray(cmsRows) && cmsRows.length > 0) {
+    return (
+      <div className="comm-table">
+        <div className="ct-head"><span>Уровень</span><span>Объём м2/кв.</span><span>Ставка</span></div>
+        {cmsRows.map((lv: any, i: number) => (
+          <div key={i} className={`ct-row${lv.active ? ' active' : ''}`}>
+            <span className="ct-level">{lv.name}</span>
+            <span className="ct-range">{lv.range}</span>
+            <span className="ct-rate">{lv.rate}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
-  // Правка КБ5 (2026-05-25): для FLAT-политики НЕ выводим гигантскую цифру
-  // (комиссия меняется из раза в раз — конкретное число вводит в заблуждение).
-  // Показываем как обычную одну строку шкалы.
+  // Fallback на БД commission-policies (если CMS пустой)
+  const policy = activePolicies.find((p) => p.project === project);
   if (policy && policy.mode === 'FLAT' && policy.flatRate != null) {
     return (
       <div className="comm-table">
@@ -68,10 +87,8 @@ function CommissionScale({
     );
   }
 
-  // PROGRESSIVE из БД (или fallback CMS)
   let rows: any[] = [];
   if (policy && policy.mode === 'PROGRESSIVE' && Array.isArray(policy.levels) && policy.levels.length > 0) {
-    // Формат БД: { level, minSqm, rate } → формат UI: { name, range, rate }
     const sorted = [...policy.levels].sort((a, b) => Number(a.minSqm) - Number(b.minSqm));
     rows = sorted.map((lv, i) => {
       const next = sorted[i + 1];
@@ -79,8 +96,6 @@ function CommissionScale({
       const range = next ? `${minSqm}–${Number(next.minSqm) - 1} м²` : `${minSqm}+ м²`;
       return { name: lv.level, range, rate: String(lv.rate).replace('.', ',') + '%' };
     });
-  } else {
-    rows = (cmsLevelsByProject?.[project]) || cmsLevels || [];
   }
 
   return (
