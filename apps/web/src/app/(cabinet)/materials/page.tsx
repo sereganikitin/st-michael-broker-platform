@@ -21,9 +21,14 @@ interface DocItem {
   fileSize: number | null;
 }
 
-const IMAGE_RE = /\.(jpe?g|png|webp|gif|svg|heic)$/i;
+// 2026-05-28: regex match расширение в конце строки ИЛИ перед ?/#/&
+// (когда fileUrl содержит query-параметры типа ?download=1)
+const IMAGE_RE = /\.(jpe?g|png|webp|gif|svg|heic|avif|bmp|tiff?)(\?|#|$)/i;
 const isImage = (d: DocItem) =>
-  d.type?.startsWith?.('image') || IMAGE_RE.test(d.fileUrl) || IMAGE_RE.test(d.name);
+  /^image\//i.test(d.type || '') ||
+  /^(jpe?g|png|webp|gif|svg|heic|avif|bmp|tiff?)$/i.test(d.type || '') ||
+  IMAGE_RE.test(d.fileUrl || '') ||
+  IMAGE_RE.test(d.name || '');
 
 function PhotoViewer({
   items,
