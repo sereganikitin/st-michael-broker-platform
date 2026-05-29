@@ -1122,6 +1122,25 @@ export class AdminService {
   // Bug fix 2026-05-25: диагностика статуса amoCRM.
   // Возвращает { ok, accountName?, error?, tokenConfigured }.
   // Используется UI чтобы быстро понять — отвалился токен/таймаут/rate-limit.
+  // 2026-05-29: ручной триггер синка Я.Диска
+  async triggerYandexSync() {
+    const publicKey = process.env.YANDEX_DISK_PUBLIC_KEY;
+    if (!publicKey) {
+      return { ok: false, message: 'YANDEX_DISK_PUBLIC_KEY не настроен в .env' };
+    }
+    // Запускаем в фоне, сразу возвращаем "started"
+    const { spawn } = require('child_process');
+    const path = require('path');
+    const scriptPath = path.resolve(__dirname, '../../../../scripts/sync-yandex-files.js');
+    const child = spawn('node', [scriptPath], {
+      env: { ...process.env, YANDEX_DISK_PUBLIC_KEY: publicKey },
+      detached: true,
+      stdio: 'inherit',
+    });
+    child.unref();
+    return { ok: true, message: 'Синхронизация запущена в фоне. Лог в server stdout. Может занять 10-30 минут на первый прогон.' };
+  }
+
   async checkAmoHealth() {
     const tokenConfigured = !!process.env.AMO_ACCESS_TOKEN;
     if (!tokenConfigured) {

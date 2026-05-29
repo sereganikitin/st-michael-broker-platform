@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet } from '@/lib/api';
-import { BookOpen, ExternalLink, ChevronDown, ChevronUp, X, ChevronLeft, ChevronRight, Image as ImageIcon, FileText } from 'lucide-react';
+import { BookOpen, ExternalLink, ChevronDown, ChevronUp, X, ChevronLeft, ChevronRight, Image as ImageIcon, FileText, Play, FileType } from 'lucide-react';
 
 interface DocItem {
   id: string;
@@ -22,13 +22,23 @@ interface DocItem {
 }
 
 // 2026-05-28: regex match расширение в конце строки ИЛИ перед ?/#/&
-// (когда fileUrl содержит query-параметры типа ?download=1)
 const IMAGE_RE = /\.(jpe?g|png|webp|gif|svg|heic|avif|bmp|tiff?)(\?|#|$)/i;
+const VIDEO_RE = /\.(mp4|mov|webm|m4v|avi|mkv)(\?|#|$)/i;
+const PDF_RE = /\.pdf(\?|#|$)/i;
 const isImage = (d: DocItem) =>
   /^image\//i.test(d.type || '') ||
   /^(jpe?g|png|webp|gif|svg|heic|avif|bmp|tiff?)$/i.test(d.type || '') ||
   IMAGE_RE.test(d.fileUrl || '') ||
   IMAGE_RE.test(d.name || '');
+const isVideo = (d: DocItem) =>
+  /^video\//i.test(d.type || '') ||
+  /^(mp4|mov|webm|m4v|avi|mkv)$/i.test(d.type || '') ||
+  VIDEO_RE.test(d.fileUrl || '') ||
+  VIDEO_RE.test(d.name || '');
+const isPdf = (d: DocItem) =>
+  /pdf/i.test(d.type || '') ||
+  PDF_RE.test(d.fileUrl || '') ||
+  PDF_RE.test(d.name || '');
 
 function PhotoViewer({
   items,
@@ -76,9 +86,16 @@ function PhotoViewer({
           </button>
         </>
       )}
-      <div className="max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={cur.fileUrl} alt={cur.name} className="max-w-full max-h-[80vh] object-contain" />
+      <div className="max-w-[90vw] max-h-[90vh] w-full" onClick={(e) => e.stopPropagation()}>
+        {isVideo(cur) ? (
+          // eslint-disable-next-line jsx-a11y/media-has-caption
+          <video src={cur.fileUrl} controls autoPlay className="max-w-full max-h-[80vh] mx-auto block" />
+        ) : isPdf(cur) ? (
+          <iframe src={cur.fileUrl} className="w-full bg-white" style={{ height: '80vh' }} title={cur.name} />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={cur.fileUrl} alt={cur.name} className="max-w-full max-h-[80vh] object-contain mx-auto" />
+        )}
         <div className="mt-2 text-center text-white/80 text-sm">
           {cur.name} <span className="text-white/40">· {index + 1} / {items.length}</span>
         </div>
@@ -138,7 +155,9 @@ export default function MaterialsPage() {
           {groupNames.map((groupName) => {
             const items = groups[groupName];
             const images = items.filter(isImage);
-            const docsList = items.filter((d) => !isImage(d));
+            const videos = items.filter(isVideo);
+            const pdfs = items.filter(isPdf);
+            const docsList = items.filter((d) => !isImage(d) && !isVideo(d) && !isPdf(d));
             const isOpen = !!openGroups[groupName];
             return (
               <div key={groupName} className="card p-0 overflow-hidden">
@@ -151,6 +170,8 @@ export default function MaterialsPage() {
                     <p className="text-xs text-text-muted mt-0.5">
                       {items.length} {items.length === 1 ? 'элемент' : items.length < 5 ? 'элемента' : 'элементов'}
                       {images.length > 0 && ` · ${images.length} фото`}
+                      {videos.length > 0 && ` · ${videos.length} видео`}
+                      {pdfs.length > 0 && ` · ${pdfs.length} PDF`}
                     </p>
                   </div>
                   {isOpen ? <ChevronUp className="w-5 h-5 text-text-muted" /> : <ChevronDown className="w-5 h-5 text-text-muted" />}
@@ -177,6 +198,64 @@ export default function MaterialsPage() {
                                 className="w-full h-full object-cover"
                                 loading="lazy"
                               />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {videos.length > 0 && (
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-text-muted mb-2 flex items-center gap-1">
+                          <Play className="w-3 h-3" /> Видео
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                          {videos.map((v, i) => (
+                            <button
+                              key={v.id}
+                              className="bg-black rounded-lg overflow-hidden aspect-square hover:ring-2 hover:ring-accent/50 transition relative group"
+                              onClick={() => setViewer({ items: videos, index: i })}
+                              title={v.name}
+                            >
+                              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                              <video
+                                src={v.fileUrl}
+                                className="w-full h-full object-cover"
+                                preload="metadata"
+                                muted
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/10 transition">
+                                <Play className="w-10 h-10 text-white fill-white" />
+                              </div>
+                              <div className="absolute bottom-0 left-0 right-0 text-white text-xs px-2 py-1 bg-gradient-to-t from-black/80 to-transparent truncate text-left">
+                                {v.name}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {pdfs.length > 0 && (
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-text-muted mb-2 flex items-center gap-1">
+                          <FileType className="w-3 h-3" /> PDF
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {pdfs.map((p, i) => (
+                            <button
+                              key={p.id}
+                              className="flex items-center gap-3 p-3 rounded-lg bg-surface-secondary hover:ring-2 hover:ring-accent/50 transition text-left"
+                              onClick={() => setViewer({ items: pdfs, index: i })}
+                              title={p.name}
+                            >
+                              <div className="w-12 h-14 bg-error/20 rounded flex items-center justify-center flex-shrink-0">
+                                <FileType className="w-6 h-6 text-error" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-medium truncate">{p.name}</div>
+                                <div className="text-xs text-text-muted">PDF</div>
+                              </div>
                             </button>
                           ))}
                         </div>

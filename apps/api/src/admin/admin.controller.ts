@@ -159,6 +159,15 @@ export class AdminController {
   }
 
   // Bug fix 2026-05-25: диагностика amo (живой ли токен).
+  // 2026-05-29: ручной триггер синка Я.Диска (помимо ежедневного крона).
+  // Возвращает сразу — синк идёт в фоне, лог в server-stdout.
+  @Post('yandex-sync')
+  @ApiOperation({ summary: 'Запустить синхронизацию материалов с Я.Диска (в фоне)' })
+  @Roles(UserRole.ADMIN)
+  async yandexSync() {
+    return this.adminService.triggerYandexSync();
+  }
+
   @Get('amo-health')
   @ApiOperation({ summary: 'Быстрая проверка amo: токен жив? account отвечает?' })
   async amoHealth() {

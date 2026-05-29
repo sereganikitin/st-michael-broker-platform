@@ -63,6 +63,8 @@ services:
       # Mozilla User-Agent (обходит WAF).
       AMO_API_DOMAIN: ${AMO_API_DOMAIN:-stmichael.amocrm.ru}
       AMO_ACCESS_TOKEN: ${AMO_ACCESS_TOKEN:-}
+      # 2026-05-29: публичная папка Я.Диска с материалами для брокеров.
+      YANDEX_DISK_PUBLIC_KEY: ${YANDEX_DISK_PUBLIC_KEY:-https://disk.yandex.ru/d/8_w-xQ8PR3uz3w}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-465}
       SMTP_SECURE: ${SMTP_SECURE:-true}
