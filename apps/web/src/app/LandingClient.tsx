@@ -1012,6 +1012,16 @@ const DEFAULT_PROJECTS_SECTION = {
   subtitle: '',
 };
 
+// 2026-06-01: блок «Условия сотрудничества» — теперь редактируется через CMS
+const DEFAULT_COOPERATION = {
+  tag: 'Условия сотрудничества',
+  title: 'Всё прозрачно — документы',
+  titleAccent: 'документы',
+  subtitle: 'Брокер может заранее ознакомиться с условиями партнёрства до регистрации',
+  description: 'Мы рассматриваем сотрудничество с позиции «выиграл-выиграл». Все условия зафиксированы в документах и доступны в личном кабинете.',
+  ctaText: 'Стать партнёром',
+};
+
 const MONTHS_RU = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 function formatEventDate(iso: string): { day: string; mon: string } {
   const d = new Date(iso);
@@ -1064,6 +1074,7 @@ export default function LandingPage({ initialData }: { initialData?: LandingInit
   const [contact, setContact] = useState<any>(() => ic?.contact ? { ...DEFAULT_CONTACT, ...ic.contact } : DEFAULT_CONTACT);
   const [howto, setHowto] = useState<any>(() => ic?.howto ? { ...DEFAULT_HOWTO, ...ic.howto } : DEFAULT_HOWTO);
   const [projectsSection, setProjectsSection] = useState<any>(() => ic?.projectsSection ? { ...DEFAULT_PROJECTS_SECTION, ...ic.projectsSection } : DEFAULT_PROJECTS_SECTION);
+  const [cooperation, setCooperation] = useState<any>(() => ic?.cooperation ? { ...DEFAULT_COOPERATION, ...ic.cooperation } : DEFAULT_COOPERATION);
   const [activePolicies, setActivePolicies] = useState<Array<{
     project: string; mode: 'PROGRESSIVE' | 'FLAT'; flatRate: number | null; levels: any[] | null;
   }>>(() => Array.isArray(initialData?.activePolicies) ? (initialData!.activePolicies as any) : []);
@@ -1139,6 +1150,7 @@ export default function LandingPage({ initialData }: { initialData?: LandingInit
         if (content.contact) setContact({ ...DEFAULT_CONTACT, ...content.contact });
         if (content.howto) setHowto({ ...DEFAULT_HOWTO, ...content.howto });
         if (content.projectsSection) setProjectsSection({ ...DEFAULT_PROJECTS_SECTION, ...content.projectsSection });
+        if (content.cooperation) setCooperation({ ...DEFAULT_COOPERATION, ...content.cooperation });
       }
       if (Array.isArray(evs)) setEvents(evs);
       if (Array.isArray(prjs) && prjs.length) {
@@ -1683,11 +1695,11 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
 
         {/* DOCUMENTS — Все прозрачно */}
         <section id="cooperation" style={{background:'var(--bg)'}}>
-          <div className="sh"><div className="sh-tag">Условия сотрудничества</div><h2>Всё прозрачно — <em>документы</em></h2><p className="sh-sub">Брокер может заранее ознакомиться с условиями партнёрства до регистрации</p></div>
+          <div className="sh"><div className="sh-tag">{cooperation.tag}</div><h2>{renderAccent(cooperation.title, cooperation.titleAccent)}</h2><p className="sh-sub">{cooperation.subtitle}</p></div>
           <div className="coop-grid">
             <div className="coop-left">
-              <p>Мы рассматриваем сотрудничество с позиции «выиграл-выиграл». Все условия зафиксированы в документах и доступны в личном кабинете.</p>
-              <button className="btn-gold" onClick={handleRegister}>Стать партнёром</button>
+              <p>{cooperation.description}</p>
+              <button className="btn-gold" onClick={handleRegister}>{cooperation.ctaText || 'Стать партнёром'}</button>
             </div>
             <div className="doc-list">
               {cooperationDocs.length === 0 ? (

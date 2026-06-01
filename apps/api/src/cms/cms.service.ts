@@ -2,7 +2,7 @@ import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
 import { AmoCrmAdapter } from '@st-michael/integrations';
 
-const KNOWN_KEYS = ['hero', 'advantages', 'commission', 'contact', 'howto', 'projectsSection'] as const;
+const KNOWN_KEYS = ['hero', 'advantages', 'commission', 'contact', 'howto', 'projectsSection', 'cooperation'] as const;
 
 const DEFAULT_CONTENT: Record<string, any> = {
   hero: {
@@ -54,6 +54,15 @@ const DEFAULT_CONTENT: Record<string, any> = {
     title: 'Наши проекты',
     titleAccent: 'Наши проекты',
     subtitle: '',
+  },
+  // 2026-06-01: блок «Условия сотрудничества» — раньше был захардкожен в LandingClient.tsx
+  cooperation: {
+    tag: 'Условия сотрудничества',
+    title: 'Всё прозрачно — документы',
+    titleAccent: 'документы',
+    subtitle: 'Брокер может заранее ознакомиться с условиями партнёрства до регистрации',
+    description: 'Мы рассматриваем сотрудничество с позиции «выиграл-выиграл». Все условия зафиксированы в документах и доступны в личном кабинете.',
+    ctaText: 'Стать партнёром',
   },
   commission: {
     tag: 'Комиссия и условия выплаты',

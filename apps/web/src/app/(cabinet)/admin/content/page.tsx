@@ -13,6 +13,7 @@ const BLOCKS: { key: string; label: string }[] = [
   { key: 'projectsSection', label: 'Заголовок «Наши проекты»' },
   { key: 'advantages', label: 'Преимущества' },
   { key: 'commission', label: 'Комиссия' },
+  { key: 'cooperation', label: 'Условия сотрудничества' },
   { key: 'contact', label: 'Контакты' },
 ];
 
@@ -138,6 +139,7 @@ export default function AdminContentPage() {
         {tab === 'projectsSection' && <ProjectsSectionEditor content={content.projectsSection || {}} updateField={updateField} />}
         {tab === 'advantages' && <AdvantagesEditor content={content.advantages || {}} updateField={updateField} updateArrayItem={updateArrayItem} addArrayItem={addArrayItem} removeArrayItem={removeArrayItem} />}
         {tab === 'commission' && <CommissionEditor content={content.commission || {}} updateField={updateField} updateArrayItem={updateArrayItem} addArrayItem={addArrayItem} removeArrayItem={removeArrayItem} />}
+        {tab === 'cooperation' && <CooperationEditor content={content.cooperation || {}} updateField={updateField} />}
         {tab === 'contact' && <ContactEditor content={content.contact || {}} updateField={updateField} />}
 
         <div className="mt-6 pt-4 border-t border-border flex gap-2 items-center flex-wrap">
@@ -346,6 +348,26 @@ function ProjectsSectionEditor({ content, updateField }: any) {
       <FieldTextarea label="Подзаголовок (можно пустым)" value={content.subtitle || ''} onChange={(v) => updateField('projectsSection', 'subtitle', v)} />
       <div className="text-xs text-text-muted">
         Сами карточки проектов — в разделе <code>/admin/projects</code>. Здесь только заголовок и подзаголовок над ними.
+      </div>
+    </div>
+  );
+}
+
+// ── COOPERATION ────────────────────────────────────────
+// 2026-06-01: блок «Условия сотрудничества» на лендинге (между «Как начать»
+// и футером). Документы (.pdf условий) — в разделе /admin/documents,
+// категория = cooperation. Здесь только тексты.
+function CooperationEditor({ content, updateField }: any) {
+  return (
+    <div className="space-y-4">
+      <FieldText label="Тег (надзаголовок)" value={content.tag || ''} onChange={(v) => updateField('cooperation', 'tag', v)} />
+      <FieldText label="Заголовок" value={content.title || ''} onChange={(v) => updateField('cooperation', 'title', v)} />
+      <FieldText label="Акцент в заголовке (выделится золотым)" value={content.titleAccent || ''} onChange={(v) => updateField('cooperation', 'titleAccent', v)} />
+      <FieldTextarea label="Подзаголовок" value={content.subtitle || ''} onChange={(v) => updateField('cooperation', 'subtitle', v)} />
+      <FieldTextarea label="Описание (основной текст слева)" value={content.description || ''} onChange={(v) => updateField('cooperation', 'description', v)} />
+      <FieldText label="Текст кнопки" value={content.ctaText || ''} onChange={(v) => updateField('cooperation', 'ctaText', v)} hint="по умолчанию «Стать партнёром»" />
+      <div className="text-xs text-text-muted">
+        Документы (PDF условий) — в разделе <code>/admin/documents</code> с категорией <code>cooperation</code>.
       </div>
     </div>
   );
