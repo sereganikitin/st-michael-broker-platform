@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
-import { ChevronLeft, ChevronRight, HeartHandshake, DollarSign, TrendingUp, Wallet } from 'lucide-react';
+import { ChevronLeft, ChevronRight, HeartHandshake, TrendingUp, Wallet } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   PENDING: { label: 'В работе', cls: 'bg-warning/20 text-warning' },
@@ -95,7 +95,9 @@ export default function DealsPage() {
         <div className="card">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-text-muted">Общая сумма сделок</span>
-            <DollarSign className="w-5 h-5 text-accent" />
+            {/* Bug fix 2026-06-02: была иконка DollarSign ($). Lucide 0.294
+                не имеет RussianRuble — используем текстовый символ ₽. */}
+            <span className="w-5 h-5 text-accent text-xl font-bold leading-none flex items-center justify-center">₽</span>
           </div>
           <div className="text-xl font-bold">{fmt(summary.totalAmount)}</div>
         </div>
