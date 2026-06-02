@@ -283,14 +283,23 @@ function BrokerRow({
           <div className="text-sm font-mono">{broker.phone}</div>
           <div className="text-xs text-text-muted truncate">{broker.coordinatorAgency || '—'}</div>
           <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${cat?.cls || ''}`}>{cat?.label || broker.category}</span>
-          <div className="text-xs text-text-muted">
-            {lastResult ? (
-              <>
-                <div>{resultLabels[lastResult.result] || lastResult.result}</div>
-                <div className="text-[10px]">{new Date(lastResult.createdAt).toLocaleDateString('ru-RU')}</div>
-              </>
-            ) : (
+          {/* Bug fix 2026-06-02: в превью показываем ВСЮ историю звонков
+              (до 2 последних), а не только последний результат. Раньше
+              менеджеру приходилось раскрывать карточку, чтобы увидеть
+              предыдущие звонки. */}
+          <div className="text-xs text-text-muted space-y-0.5">
+            {broker.callLogs.length === 0 ? (
               <span className="italic">не звонили</span>
+            ) : (
+              broker.callLogs.slice(0, 2).map((c) => (
+                <div key={c.id} className="leading-tight">
+                  <div className="truncate">
+                    {resultLabels[c.result] || c.result}
+                    {c.campaign && <span className="ml-1 text-[10px] px-1 rounded bg-surface-secondary">{c.campaign}</span>}
+                  </div>
+                  <div className="text-[10px] opacity-70">{new Date(c.createdAt).toLocaleDateString('ru-RU')}</div>
+                </div>
+              ))
             )}
           </div>
         </div>
