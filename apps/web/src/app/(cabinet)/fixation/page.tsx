@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -41,11 +41,31 @@ export default function FixationPage() {
   const [isForeign, setIsForeign] = useState(false); // правка 2026-05-14: иностранные номера
   const [phoneDigits, setPhoneDigits] = useState(''); // только цифры для RU +7
   const [foreignPhone, setForeignPhone] = useState(''); // raw text для иностранных
+  // Bug fix 2026-06-02: тип недвижимости должен соответствовать проекту.
+  // Зорге 9 — апарт-комплекс, Серебряный бор — жилой (квартиры).
+  // Коммерческие площади есть в обоих корпусах.
+  const propertyTypesByProject: Record<string, Array<'Квартира' | 'Апартаменты' | 'Коммерческая'>> = {
+    ZORGE9: ['Апартаменты', 'Коммерческая'],
+    SILVER_BOR: ['Квартира', 'Коммерческая'],
+  };
   const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState(''); // правка 2026-05-15: необязательное
   const [lastName, setLastName] = useState('');
   const [project, setProject] = useState('ZORGE9');
-  const [propertyType, setPropertyType] = useState<'Квартира' | 'Апартаменты' | 'Коммерческая'>('Квартира');
+  // Тип недвижимости зависит от проекта: Зорге 9 — апартаменты, Серебряный
+  // бор (Берзарина 37) — квартиры. Коммерческие помещения есть в обоих.
+  // Bug fix 2026-06-02: «Квартира» для Зорге была доступна — это ошибка.
+  const [propertyType, setPropertyType] = useState<'Квартира' | 'Апартаменты' | 'Коммерческая'>('Апартаменты');
+
+  // При смене проекта — переключаем тип, если текущее значение
+  // не входит в допустимые для проекта.
+  useEffect(() => {
+    const allowed = propertyTypesByProject[project] || [];
+    if (allowed.length && !allowed.includes(propertyType)) {
+      setPropertyType(allowed[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project]);
   const [roomsCount, setRoomsCount] = useState<string>(''); // студия/1/2/3/4+
   const [sqm, setSqm] = useState('');
   const [amount, setAmount] = useState(''); // raw digits
@@ -194,7 +214,7 @@ export default function FixationPage() {
     setEmail('');
     setLastName('');
     setProject('ZORGE9');
-    setPropertyType('Квартира');
+    setPropertyType('Апартаменты');
     setRoomsCount('');
     setSqm('');
     setAmount('');
@@ -345,9 +365,9 @@ export default function FixationPage() {
                 value={propertyType}
                 onChange={(e) => setPropertyType(e.target.value as any)}
               >
-                <option value="Квартира">Квартира</option>
-                <option value="Апартаменты">Апартаменты</option>
-                <option value="Коммерческая">Коммерческая</option>
+                {(propertyTypesByProject[project] || []).map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
               </select>
             </div>
           </div>
