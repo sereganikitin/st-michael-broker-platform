@@ -520,7 +520,27 @@ export default function CatalogPage() {
             <label className="text-xs text-text-muted block mb-1">Срок сдачи</label>
             <select className="input" value={yearFilter} onChange={(e) => { setYearFilter(e.target.value); setPage(1); }}>
               <option value="">Любой</option>
-              {years.map((y) => <option key={y.year} value={y.year}>{y.year} ({y.count})</option>)}
+              {(() => {
+                // Bug fix 2026-06-02: прошедшие годы группируем в одну опцию
+                // «Сдан». Зорге 9 уже сдан (2023/2024), брокеру нет смысла
+                // выбирать между этими годами. Будущие годы показываются как
+                // есть («2027»).
+                const curY = new Date().getFullYear();
+                let doneCount = 0;
+                const future: typeof years = [];
+                for (const y of years) {
+                  if (y.year < curY) doneCount += y.count;
+                  else future.push(y);
+                }
+                const opts: JSX.Element[] = [];
+                if (doneCount > 0) {
+                  opts.push(<option key="done" value="done">Сдан ({doneCount})</option>);
+                }
+                for (const y of future) {
+                  opts.push(<option key={y.year} value={y.year}>{y.year} ({y.count})</option>);
+                }
+                return opts;
+              })()}
             </select>
           </div>
         </div>
@@ -626,12 +646,12 @@ export default function CatalogPage() {
                   {lot.propertyType && <div className="text-xs text-accent mb-2">{lot.propertyType}</div>}
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between"><span className="text-text-muted">Проект:</span><span>{projectLabels[lot.project] || lot.project}</span></div>
-                    <div className="flex justify-between"><span className="text-text-muted">Корпус:</span><span className="text-right text-xs">{lot.building}</span></div>
+                    <div className="flex justify-between"><span className="text-text-muted">Корпус:</span><span className="text-right">{lot.building}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Этаж:</span><span>{lot.floor}{lot.floorsTotal ? ` / ${lot.floorsTotal}` : ''}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Комнат:</span><span>{lot.rooms}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Площадь:</span><span>{Number(lot.sqm)} м²</span></div>
                     {lot.builtYear && (
-                      <div className="flex justify-between"><span className="text-text-muted">Сдача:</span><span className="text-xs">{formatReadiness(lot)}</span></div>
+                      <div className="flex justify-between"><span className="text-text-muted">Сдача:</span><span>{formatReadiness(lot)}</span></div>
                     )}
                     {lot.discountPrice && Number(lot.discountPrice) > 0 ? (
                       <div className="pt-2 border-t border-border">

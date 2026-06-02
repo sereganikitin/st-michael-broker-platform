@@ -223,7 +223,7 @@ export class CatalogService {
     building?: string;
     propertyType?: string;
     windowView?: string;
-    readyYear?: number;
+    readyYear?: number | string;
     hasBalcony?: boolean | string;
     hasTerrace?: boolean | string;
     isPenthouse?: boolean | string;
@@ -260,7 +260,15 @@ export class CatalogService {
     if (filters.windowView) {
       where.windowView = { contains: filters.windowView, mode: 'insensitive' };
     }
-    if (filters.readyYear) where.builtYear = Number(filters.readyYear);
+    if (filters.readyYear) {
+      // Bug fix 2026-06-02: фронт может прислать 'done' для запроса всех
+      // уже сданных лотов (Зорге 9 — 2023/2024). Группируем в одну опцию.
+      if (String(filters.readyYear) === 'done') {
+        where.builtYear = { lt: new Date().getFullYear() };
+      } else {
+        where.builtYear = Number(filters.readyYear);
+      }
+    }
 
     const toBool = (v: any) => v === true || v === 'true' || v === '1' || v === 1;
     if (filters.hasBalcony && toBool(filters.hasBalcony)) where.hasBalcony = true;
