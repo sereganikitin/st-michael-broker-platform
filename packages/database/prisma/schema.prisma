@@ -111,6 +111,9 @@ enum CallDirection {
 }
 
 enum CallStatus {
+  // 2026-06-02: статус «звонок инициирован, ещё не завершён» —
+  // используется брокерским callback'ом до прихода webhook от Mango.
+  INITIATED
   COMPLETED
   NO_ANSWER
   BUSY
@@ -311,6 +314,7 @@ model Client {
   status              ClientStatus     @default(NEW)
   deals               Deal[]
   meetings            Meeting[]
+  calls               Call[]
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
   // amoCRM dates — для показа в кабинете вместо нашей sync-даты.
@@ -419,6 +423,10 @@ model Call {
   id            String        @id @default(uuid())
   brokerId      String        @map("broker_id")
   broker        Broker        @relation(fields: [brokerId], references: [id])
+  // 2026-06-02: брокер→клиент звонки из кабинета через Mango. clientId
+  // nullable, потому что есть исторические звонки КЦ→брокер без клиента.
+  clientId      String?       @map("client_id")
+  client        Client?       @relation(fields: [clientId], references: [id])
   mangoCallId   String?       @map("mango_call_id")
   direction     CallDirection @default(OUTBOUND)
   status        CallStatus    @default(COMPLETED)
@@ -430,9 +438,14 @@ model Call {
   attemptNumber Int           @default(1) @map("attempt_number")
   cycleDay      Int           @default(1) @map("cycle_day")
   materialsSent Json?         @map("materials_sent")
+  // 2026-06-02: время инициации звонка (брокер нажал «Позвонить»).
+  // Отделяем от createdAt, который может смещаться при webhook-апдейте.
+  initiatedAt   DateTime      @default(now()) @map("initiated_at")
   createdAt     DateTime      @default(now()) @map("created_at")
 
   @@index([brokerId, createdAt])
+  @@index([clientId, createdAt])
+  @@index([mangoCallId])
   @@map("calls")
 }
 

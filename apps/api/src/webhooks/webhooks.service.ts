@@ -169,15 +169,43 @@ export class WebhooksService {
       failed: 'FAILED',
     };
 
-    // Find existing call record or create new
-    const existingCall = await this.prisma.call.findFirst({
-      where: { mangoCallId: data.call_id },
-    });
+    // 1) Прямой матч по mangoCallId — если webhook знает наш command_id
+    //    (Mango echoes back наш command_id для callback-команд).
+    const callIdCandidate = data.call_id || data.command_id;
+    let existingCall = callIdCandidate
+      ? await this.prisma.call.findFirst({ where: { mangoCallId: callIdCandidate } })
+      : null;
+
+    // 2) Bug fix 2026-06-02: если по mangoCallId не нашлось — может быть,
+    //    Mango прислал свой внутренний call_id, отличающийся от нашего
+    //    command_id. Тогда ищем недавнюю INITIATED-запись по телефону
+    //    брокера. Это позволяет «подвязать» webhook к записи, которую
+    //    broker-calls.service создал при initiate.
+    if (!existingCall && (data.to_number || data.from_number)) {
+      const brokerPhone = data.direction === 'outbound' ? data.from_number : data.to_number;
+      if (brokerPhone) {
+        const brokerDigits = String(brokerPhone).replace(/\D/g, '').slice(-10);
+        const broker = await this.prisma.broker.findFirst({
+          where: { phone: { endsWith: brokerDigits } },
+        });
+        if (broker) {
+          existingCall = await this.prisma.call.findFirst({
+            where: {
+              brokerId: broker.id,
+              status: 'INITIATED' as any,
+              initiatedAt: { gt: new Date(Date.now() - 10 * 60 * 1000) },
+            },
+            orderBy: { initiatedAt: 'desc' },
+          });
+        }
+      }
+    }
 
     if (existingCall) {
       await this.prisma.call.update({
         where: { id: existingCall.id },
         data: {
+          mangoCallId: existingCall.mangoCallId || callIdCandidate,
           status: (statusMap[data.status] || 'COMPLETED') as any,
           durationSec: data.duration || 0,
           recordingUrl: data.recording_url,
@@ -186,7 +214,9 @@ export class WebhooksService {
       return { status: 'processed', callId: existingCall.id, action: 'updated' };
     }
 
-    // Try to match broker by phone from call data
+    // 3) Старая логика — для звонков, инициированных НЕ из нашего кабинета
+    //    (КЦ-обзвон, входящие, ручная инициация из Mango UI):
+    //    матчим брокера по номеру и создаём новую запись.
     if (data.to_number || data.from_number) {
       const brokerPhone = data.direction === 'outbound' ? data.from_number : data.to_number;
       const broker = await this.prisma.broker.findFirst({
@@ -197,7 +227,7 @@ export class WebhooksService {
         const call = await this.prisma.call.create({
           data: {
             brokerId: broker.id,
-            mangoCallId: data.call_id,
+            mangoCallId: callIdCandidate,
             direction: data.direction === 'outbound' ? 'OUTBOUND' : 'INBOUND',
             status: (statusMap[data.status] || 'COMPLETED') as any,
             durationSec: data.duration || 0,
@@ -208,7 +238,7 @@ export class WebhooksService {
       }
     }
 
-    this.logger.warn(`No broker matched for call ${data.call_id}`);
+    this.logger.warn(`No broker matched for call ${callIdCandidate}`);
     return { status: 'processed', matched: false };
   }
 

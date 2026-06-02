@@ -95,6 +95,7 @@ export enum CallDirection {
 }
 
 export enum CallStatus {
+  INITIATED = 'INITIATED',
   COMPLETED = 'COMPLETED',
   NO_ANSWER = 'NO_ANSWER',
   BUSY = 'BUSY',

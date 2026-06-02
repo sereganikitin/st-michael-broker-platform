@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight, X, AlertTriangle, Mail, Building, User, Phone as PhoneIcon, Calendar, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+import { apiGet, apiPost } from '@/lib/api';
+import { Search, ChevronLeft, ChevronRight, X, AlertTriangle, Mail, Building, User, Phone as PhoneIcon, Calendar, FileText, CheckCircle2, AlertCircle, PhoneCall } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   CONDITIONALLY_UNIQUE: { label: 'Уникален', cls: 'bg-success/20 text-success' },
@@ -33,6 +33,101 @@ function daysUntilExpiry(expiresAt: string | null): number | null {
   if (!expiresAt) return null;
   const ms = new Date(expiresAt).getTime() - Date.now();
   return Math.ceil(ms / (24 * 60 * 60 * 1000));
+}
+
+// 2026-06-02: кнопка callback через Mango. Mango сначала наберёт телефон
+// брокера (из его профиля), брокер берёт трубку — Mango соединяет с клиентом.
+function CallButton({ clientId, variant = 'icon' }: { clientId: string; variant?: 'icon' | 'full' }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res: any = await apiPost('/broker-calls/initiate', { clientId });
+      setMsg({ ok: true, text: res?.message || 'Mango сейчас наберёт вас.' });
+    } catch (err: any) {
+      setMsg({ ok: false, text: err?.message || 'Не удалось инициировать звонок' });
+    } finally {
+      setBusy(false);
+      setTimeout(() => setMsg(null), 6000);
+    }
+  };
+
+  if (variant === 'icon') {
+    return (
+      <button
+        type="button"
+        onClick={handle}
+        disabled={busy}
+        title="Позвонить клиенту через Mango (callback на ваш телефон)"
+        className="p-1.5 rounded hover:bg-accent/10 text-accent disabled:opacity-50"
+      >
+        <PhoneCall className="w-4 h-4" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="inline-block">
+      <button
+        type="button"
+        onClick={handle}
+        disabled={busy}
+        className="btn btn-primary flex items-center gap-2 text-sm"
+      >
+        <PhoneCall className="w-4 h-4" /> {busy ? 'Соединяю…' : 'Позвонить'}
+      </button>
+      {msg && (
+        <div className={`mt-2 text-xs ${msg.ok ? 'text-success' : 'text-error'}`}>{msg.text}</div>
+      )}
+    </div>
+  );
+}
+
+function CallHistory({ clientId }: { clientId: string }) {
+  const [calls, setCalls] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    apiGet(`/broker-calls?clientId=${clientId}&limit=20`)
+      .then((d: any) => setCalls(d?.calls || []))
+      .catch(() => setCalls([]))
+      .finally(() => setLoading(false));
+  }, [clientId]);
+
+  if (loading) return <div className="text-xs text-text-muted">Загрузка истории…</div>;
+  if (calls.length === 0) return <div className="text-xs text-text-muted italic">Звонков пока не было</div>;
+
+  const statusLabel: Record<string, { label: string; cls: string }> = {
+    INITIATED: { label: 'Соединяем…', cls: 'text-warning' },
+    COMPLETED: { label: 'Завершён', cls: 'text-success' },
+    NO_ANSWER: { label: 'Не ответил', cls: 'text-text-muted' },
+    BUSY: { label: 'Занято', cls: 'text-text-muted' },
+    UNAVAILABLE: { label: 'Недоступен', cls: 'text-text-muted' },
+    FAILED: { label: 'Ошибка', cls: 'text-error' },
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {calls.map((c) => (
+        <div key={c.id} className="bg-surface-secondary rounded p-2 text-xs flex items-center justify-between">
+          <div>
+            <span className={statusLabel[c.status]?.cls || ''}>{statusLabel[c.status]?.label || c.status}</span>
+            {c.durationSec ? <span className="text-text-muted ml-2">{Math.round(c.durationSec)} сек</span> : null}
+          </div>
+          <div className="flex items-center gap-2">
+            {c.recordingUrl && (
+              <a href={c.recordingUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">запись</a>
+            )}
+            <span className="text-text-muted">{new Date(c.initiatedAt || c.createdAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // КБ6 (2026-05-25): расширенная карточка клиента.
@@ -73,6 +168,11 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
             </>
           )}
         </p>
+
+        {/* 2026-06-02: callback через Mango — кнопка прямо в шапке карточки. */}
+        <div className="mb-4">
+          <CallButton clientId={client.id} variant="full" />
+        </div>
 
         <div className="flex flex-wrap gap-2 mb-4">
           <span className={`text-xs px-2 py-1 rounded ${statusLabels[client.uniquenessStatus]?.cls || 'bg-text-muted/20'}`}>
@@ -171,6 +271,14 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
             <div className="text-xs text-text-muted mt-1">Попыток: {client.amoSyncAttempts || 0}</div>
           </div>
         )}
+
+        {/* 2026-06-02: история звонков по клиенту — из broker-calls. */}
+        <div className="mb-4">
+          <h3 className="text-sm font-medium mb-2 flex items-center gap-1">
+            <PhoneCall className="w-4 h-4" /> История звонков
+          </h3>
+          <CallHistory clientId={client.id} />
+        </div>
 
         {Array.isArray(client.meetings) && client.meetings.length > 0 && (
           <div className="mb-4">
@@ -364,6 +472,7 @@ export default function ClientsPage() {
                     <th className="pb-3 font-medium">Уникальность</th>
                     <th className="pb-3 font-medium">Уникален до</th>
                     <th className="pb-3 font-medium" title="Дата создания заявки в amoCRM">Дата</th>
+                    <th className="pb-3 font-medium w-10"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -403,6 +512,9 @@ export default function ClientsPage() {
                       </td>
                       <td className="py-3 text-text-muted" title="Дата создания заявки в amoCRM">
                         {new Date(c.amoCreatedAt || c.createdAt).toLocaleDateString('ru-RU')}
+                      </td>
+                      <td className="py-3">
+                        <CallButton clientId={c.id} variant="icon" />
                       </td>
                     </tr>
                   ))}
