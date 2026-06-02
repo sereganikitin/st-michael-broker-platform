@@ -1,10 +1,17 @@
 import { Project } from '@st-michael/shared';
 import {
-  AMO_LEAD_FIELDS, AMO_LEAD_ENUMS,
+  AMO_LEAD_FIELDS, AMO_LEAD_ENUMS, AMO_CONTACT_FIELDS,
   readinessLevelToEnumId, purchaseTimingToEnumId,
 } from './amo-crm.fields';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// "+79039606053" / "8 (903) 960-60-53" / "+7-903-960-60-53" → "9039606053".
+// amoCRM ?query=<substring> капризно реагирует на формат: поиск по «+79039606053»
+// не находит контакт сохранённый как «8 (903) 960-60-53», поэтому ищем по
+// 10 цифрам и постфильтруем по custom_fields_values.PHONE.
+const last10Digits = (phone: any): string =>
+  String(phone || '').replace(/\D/g, '').slice(-10);
 
 export interface AmoContact {
   id: number;
@@ -140,11 +147,31 @@ export class AmoCrmAdapter {
 
   // === Contacts ===
   async findContactByPhone(phone: string): Promise<AmoContact | null> {
-    const query = encodeURIComponent(phone);
+    // Bug fix 2026-06-02: раньше брали `contacts[0]` без постфильтрации —
+    // amoCRM ?query= ищет по подстроке и возвращает совпадения по имени/email/
+    // комменту, а главное — не находит контакт сохранённый в другом формате
+    // телефона. Из-за этого createFixationRequest лепил дубль контакта
+    // в amoCRM, хотя клиент там уже был (пример: +79039606053 был в amo
+    // как КЦ-контакт, новая фиксация создавала второй).
+    const target = last10Digits(phone);
+    if (target.length < 10) return null;
     try {
-      const data = await this.request<any>(`/contacts?query=${query}&limit=50`);
-      const contacts = data?._embedded?.contacts || [];
-      return contacts[0] || null;
+      const data = await this.request<any>(`/contacts?query=${target}&limit=50`);
+      const contacts: any[] = data?._embedded?.contacts || [];
+      const matches = contacts.filter((c: any) => {
+        const fields = c.custom_fields_values || [];
+        const phoneField = fields.find(
+          (f: any) => f?.field_id === AMO_CONTACT_FIELDS.PHONE || f?.field_code === 'PHONE',
+        );
+        const vals = phoneField?.values || [];
+        return vals.some((v: any) => last10Digits(v?.value) === target);
+      });
+      if (matches.length === 0) return null;
+      if (matches.length === 1) return matches[0];
+      // Несколько контактов с тем же номером (дубли в самой amo) — берём
+      // самого свежего по updated_at, чтобы фиксация привязалась к актуальному.
+      matches.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+      return matches[0];
     } catch {
       return null;
     }
