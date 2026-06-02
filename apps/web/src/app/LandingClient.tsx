@@ -1411,7 +1411,9 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                     <span style={{fontSize:9,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#fff',background:'var(--gold)',padding:'4px 10px',borderRadius:999}}>Готовый</span>
                   )}
                 </div>
-                <div className="proj-name"><strong>{p.name}</strong>{p.subtitle ? ` ${p.subtitle}` : ''}</div>
+                {/* Bug fix 2026-06-02: subtitle тоже жирным — иначе «Квартал»
+                    был жирный, а «Серебряный Бор» — нет, визуально некрасиво. */}
+                <div className="proj-name"><strong>{p.name}{p.subtitle ? ` ${p.subtitle}` : ''}</strong></div>
                 {p.description && <div className="proj-info">{p.description}</div>}
 
                 {(p.classType || p.address || p.readyYear || p.totalUnits || p.commissionFrom) && (
