@@ -8,6 +8,7 @@
  *   docker exec st-michael-api node /app/scripts/inspect-amo-fields.js --grep "От брокера"
  *   docker exec st-michael-api node /app/scripts/inspect-amo-fields.js --entity leads
  *   docker exec st-michael-api node /app/scripts/inspect-amo-fields.js --entity contacts
+ *   docker exec st-michael-api node /app/scripts/inspect-amo-fields.js --entity pipelines
  *
  * Нужны env: AMO_ACCESS_TOKEN, AMO_SUBDOMAIN (по умолчанию 'stmichael'),
  *            AMO_BASE_DOMAIN (по умолчанию 'amocrm.ru').
@@ -23,7 +24,7 @@ function arg(name) {
 }
 
 const grep = arg('grep');
-const onlyEntity = arg('entity'); // 'leads' | 'contacts' | null = both
+const onlyEntity = arg('entity'); // 'leads' | 'contacts' | 'pipelines' | null = leads+contacts
 
 const SUBDOMAIN = process.env.AMO_SUBDOMAIN || 'stmichael';
 const BASE = process.env.AMO_BASE_DOMAIN || 'amocrm.ru';
@@ -83,24 +84,69 @@ function printFields(entity, fields) {
   }
 }
 
+// 2026-06-03: дамп воронок и их стадий (нужен для логики уникальности —
+// чтобы знать status_id «Новое обращение», «Квалифицировали выводим на встречу»
+// и т.д. в каждой из воронок ОП/КЦ).
+async function fetchPipelines() {
+  const r = await fetch(`${API}/leads/pipelines`, {
+    headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+  });
+  if (!r.ok) {
+    console.error(`ERR pipelines: HTTP ${r.status}`);
+    const txt = await r.text().catch(() => '');
+    console.error(txt.slice(0, 500));
+    return [];
+  }
+  const data = await r.json();
+  return data?._embedded?.pipelines || [];
+}
+
+function printPipelines(pipelines) {
+  console.log('━'.repeat(80));
+  console.log(`  PIPELINES  (всего: ${pipelines.length}${grep ? `, фильтр: "${grep}"` : ''})`);
+  console.log('━'.repeat(80));
+  for (const p of pipelines) {
+    const name = String(p.name || '');
+    if (grep && !name.toLowerCase().includes(String(grep).toLowerCase())) continue;
+    console.log(`\n╔══════════════════════════════════════════════════════════════════╗`);
+    console.log(`║ Pipeline "${name}"  pipeline_id=${p.id}  sort=${p.sort ?? '?'}`);
+    console.log(`║ is_main=${p.is_main}  is_archive=${p.is_archive}`);
+    console.log(`╚══════════════════════════════════════════════════════════════════╝`);
+    const statuses = p?._embedded?.statuses || [];
+    statuses.sort((a, b) => (a.sort || 0) - (b.sort || 0));
+    for (const s of statuses) {
+      const color = s.color ? `  color=${s.color}` : '';
+      const editable = s.is_editable === false ? '  [system]' : '';
+      console.log(`  status_id=${s.id}  sort=${s.sort}${color}${editable}`);
+      console.log(`    name: "${s.name}"`);
+    }
+  }
+}
+
 (async () => {
   console.log(`Inspecting amoCRM @ ${SUBDOMAIN}.${BASE}\n`);
 
-  if (!onlyEntity || onlyEntity === 'leads') {
-    const leadFields = await fetchAllFields('leads');
-    printFields('leads', leadFields);
-  }
+  if (onlyEntity === 'pipelines') {
+    const pipelines = await fetchPipelines();
+    printPipelines(pipelines);
+  } else {
+    if (!onlyEntity || onlyEntity === 'leads') {
+      const leadFields = await fetchAllFields('leads');
+      printFields('leads', leadFields);
+    }
 
-  if (!onlyEntity || onlyEntity === 'contacts') {
-    const contactFields = await fetchAllFields('contacts');
-    printFields('contacts', contactFields);
+    if (!onlyEntity || onlyEntity === 'contacts') {
+      const contactFields = await fetchAllFields('contacts');
+      printFields('contacts', contactFields);
+    }
   }
 
   console.log('\n━'.repeat(80));
-  console.log('Готово. Чтобы найти конкретное поле:');
-  console.log('  --grep "От брокера" — отфильтрует поля по подстроке в name');
-  console.log('  --entity leads      — только лиды');
-  console.log('  --entity contacts   — только контакты');
+  console.log('Готово. Чтобы найти конкретное поле/стадию:');
+  console.log('  --grep "От брокера" — отфильтрует поля/воронки по подстроке в name');
+  console.log('  --entity leads      — только поля лидов');
+  console.log('  --entity contacts   — только поля контактов');
+  console.log('  --entity pipelines  — воронки и их стадии (status_id для каждой)');
 })().catch((e) => {
   console.error('FATAL:', e?.message || e);
   process.exit(1);
