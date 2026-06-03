@@ -85,6 +85,67 @@ export class ClientFixationService {
     });
 
     if (!existingClient) {
+      // 2026-06-03: ПРОВЕРКА УНИКАЛЬНОСТИ ПО amoCRM — по 4 правилам пользователя.
+      // Раньше смотрели только в нашу БД (Client table) — а в amo контакт мог
+      // уже иметь активный лид с другим брокером, и мы это не видели.
+      // Теперь: запрашиваем у amo вердикт UNIQUE / ALARM. Если ALARM — создаём
+      // Client с UNDER_REVIEW + задача в amo для КЦ.
+      // Если amo упал — fallback на старую логику (only local DB).
+      let amoVerdict: { verdict: 'UNIQUE' | 'ALARM'; reason: string; contactId?: number; leads?: any[] } | null = null;
+      try {
+        amoVerdict = await this.amoCrmAdapter.checkUniqueness(data.phone);
+        console.log(`[fixClient] amo uniqueness verdict: ${amoVerdict.verdict} — ${amoVerdict.reason}`);
+      } catch (e: any) {
+        console.error('[fixClient] amo checkUniqueness failed, fallback to local DB only:', e?.message || e);
+      }
+
+      if (amoVerdict && amoVerdict.verdict === 'ALARM') {
+        const client = await this.prisma.client.create({
+          data: {
+            brokerId,
+            phone: data.phone,
+            fullName: data.fullName,
+            email: data.email || null,
+            comment: data.comment,
+            project: data.project as any,
+            fixationAgencyId: agency.id,
+            uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
+            uniquenessReason: `АЛАРМ из amoCRM: ${amoVerdict.reason}`,
+          },
+        });
+        try {
+          await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
+            scenario: 'AMO_UNIQUENESS_ALARM',
+            amoReason: amoVerdict.reason,
+            amoContactId: amoVerdict.contactId,
+            amoLeads: amoVerdict.leads,
+          });
+        } catch (e: any) {
+          console.error('[fixClient amo-alarm] audit failed:', e?.message || e);
+        }
+        // Создаём задачу-АЛАРМ в amo на первом лиде (КЦ-менеджер увидит).
+        // responsibleUserId не задаём — Salesbot/правила amo распределят.
+        if (amoVerdict.leads && amoVerdict.leads.length > 0) {
+          const firstActiveLead = amoVerdict.leads[0];
+          try {
+            await this.amoCrmAdapter.createTask({
+              text: `⚠ АЛАРМ уникальности: брокер ${broker.fullName} (${broker.phone}) пытается зафиксировать ${data.fullName} (${data.phone}). Причина: ${amoVerdict.reason}. Проверить и решить вручную.`,
+              entityType: 'leads',
+              entityId: firstActiveLead.id,
+              taskTypeId: 1,
+              completeTillSec: Math.floor(Date.now() / 1000) + 4 * 60 * 60, // 4 часа
+            });
+          } catch (e: any) {
+            console.error('[fixClient amo-alarm] task creation failed:', e?.message || e);
+          }
+        }
+        return {
+          client,
+          status: 'UNDER_REVIEW',
+          message: `Клиент требует ручной проверки КЦ. ${amoVerdict.reason}`,
+        };
+      }
+
       // Перед созданием — проверим что нет других брокеров у этого клиента
       // с активной фиксацией или встречей. Если есть — поднимаем UNDER_REVIEW
       // и НЕ создаём новый Client до решения менеджера.

@@ -2,6 +2,7 @@ import { Project } from '@st-michael/shared';
 import {
   AMO_LEAD_FIELDS, AMO_LEAD_ENUMS, AMO_CONTACT_FIELDS,
   readinessLevelToEnumId, purchaseTimingToEnumId,
+  evaluateUniqueness,
 } from './amo-crm.fields';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -355,15 +356,83 @@ export class AmoCrmAdapter {
     });
   }
 
+  /**
+   * 2026-06-03: проверка уникальности клиента по телефону через amoCRM.
+   * Делает 3 запроса: findContactByPhone + getLeadsByContact + getContactsByIds
+   * (для проверки IS_BROKER на каждом лиде). Применяет 4 правила пользователя.
+   *
+   * Возвращает 'UNIQUE' → создавать Client с CONDITIONALLY_UNIQUE
+   * Возвращает 'ALARM' → создавать Client с UNDER_REVIEW + задача для КЦ
+   */
+  async checkUniqueness(phone: string): Promise<{
+    verdict: 'UNIQUE' | 'ALARM';
+    reason: string;
+    contactId?: number;
+    leads?: Array<{ id: number; pipeline_id: number; status_id: number }>;
+  }> {
+    const contact = await this.findContactByPhone(phone);
+    if (!contact) {
+      return { verdict: 'UNIQUE', reason: 'Контакт в amoCRM не найден (правило 1)' };
+    }
+    const leads = await this.getLeadsByContact(contact.id);
+    if (leads.length === 0) {
+      return {
+        verdict: 'UNIQUE',
+        reason: 'У контакта нет лидов в amoCRM',
+        contactId: contact.id,
+        leads: [],
+      };
+    }
+    // Собрать все contactId из всех лидов одним батчем — экономим запросы.
+    const allContactIds = new Set<number>();
+    for (const lead of leads) {
+      const contactIds = ((lead as any)._embedded?.contacts || []).map((c: any) => c.id);
+      contactIds.forEach((id: number) => allContactIds.add(id));
+    }
+    const contactsMap = await this.getContactsByIds(Array.from(allContactIds));
+
+    const isBroker = (c: any): boolean => {
+      const fields = c?.custom_fields_values || [];
+      const brokerField = fields.find((f: any) => f?.field_id === AMO_CONTACT_FIELDS.IS_BROKER);
+      return brokerField?.values?.[0]?.value === true;
+    };
+
+    const leadsForEval = leads.map((lead: any) => {
+      const contactIds = (lead._embedded?.contacts || []).map((c: any) => c.id);
+      const hasBroker = contactIds.some((id: number) => {
+        const c = contactsMap.get(id);
+        return c ? isBroker(c) : false;
+      });
+      return {
+        id: lead.id,
+        pipeline_id: lead.pipeline_id,
+        status_id: lead.status_id,
+        hasBrokerAttached: hasBroker,
+      };
+    });
+
+    const verdict = evaluateUniqueness(leadsForEval);
+    return {
+      ...verdict,
+      contactId: contact.id,
+      leads: leadsForEval.map((l) => ({
+        id: l.id,
+        pipeline_id: l.pipeline_id,
+        status_id: l.status_id,
+      })),
+    };
+  }
+
   async getLeadsByContact(contactId: number): Promise<AmoLead[]> {
     try {
       const contact = await this.request<any>(`/contacts/${contactId}?with=leads`);
       const leadIds = (contact?._embedded?.leads || []).map((l: any) => l.id);
       if (leadIds.length === 0) return [];
-      const leads: AmoLead[] = [];
-      // Fetch leads in batches
-      const ids = leadIds.join(',');
-      const data = await this.request<any>(`/leads?filter[id][]=${leadIds.join('&filter[id][]=')}`);
+      // 2026-06-03: with=contacts чтобы для проверки уникальности можно было
+      // понять, привязан ли к лиду «брокер» (контакт с IS_BROKER=true).
+      const data = await this.request<any>(
+        `/leads?filter[id][]=${leadIds.join('&filter[id][]=')}&with=contacts`,
+      );
       return data?._embedded?.leads || [];
     } catch {
       return [];

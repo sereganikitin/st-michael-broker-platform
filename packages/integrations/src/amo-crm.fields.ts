@@ -20,6 +20,169 @@ export const AMO_BROKER_STAGE = {
   DEAL: 84932518,          // Сделка
 } as const;
 
+// 2026-06-03: ID стадий воронок для алгоритма уникальности.
+// Дампнуты через inspect-amo-fields --entity pipelines.
+//
+// ВАЖНО: в КЦ статус 142 = «Встреча проведена» (конец КЦ), а в ОП 142 = «Успешно реализовано».
+//        Статус 143 везде = «Закрыто и не реализовано».
+export const AMO_KC_STATUS = {
+  UNSORTED: 62907114,
+  NEW_REQUEST: 62907118,       // Новое обращение
+  NO_ANSWER: 62907122,
+  DEFERRED: 62907126,          // Отложенный спрос
+  QUALIFIED: 62907282,         // Классифицировали, выводим на встречу
+  MEETING_SCHEDULED: 62907286, // Встреча назначена
+  MEETING_HELD: 142,           // Встреча проведена (final КЦ)
+  CLOSED_LOST: 143,            // Закрыто и не реализовано
+} as const;
+
+export const AMO_BERZARINA_STATUS = {
+  UNSORTED: 62907130,
+  NEW_LEAD: 62907134,          // Новый Лид (= «Новое обращение» в логике)
+  DEFERRED: 64421962,
+  QUALIFIED: 62907138,         // Квалификация, выводим на встречу
+  MEETING_SCHEDULED: 62907142,
+  MEETING_DONE_THINKING: 62907358,
+  ORAL_BOOKING: 62907362,
+  BOOKING_REMOVED: 62907366,
+  PAID_BOOKING: 62907370,
+  DEAL_PREP: 62907374,
+  DEAL: 62907378,
+  DEAL_REGISTERED: 62907382,
+  PAYMENT_CONTROL: 62907386,
+  SUCCESS: 142,
+  CLOSED_LOST: 143,
+} as const;
+
+export const AMO_ZORGE_STATUS = {
+  UNSORTED: 62907146,
+  NEW_LEAD: 62907150,          // Новый Лид
+  DEFERRED: 64421046,
+  QUALIFIED: 62907154,         // Квалификация, выводим на встречу
+  MEETING_SCHEDULED: 62907158,
+  MEETING_DONE_THINKING: 62907430,
+  ORAL_BOOKING: 62907434,
+  BOOKING_REMOVED: 62907438,
+  PAID_BOOKING: 62907442,
+  DEAL_PREP: 62907446,
+  DEAL: 62907450,
+  DEAL_REGISTERED: 62907454,
+  PAYMENT_CONTROL: 62907458,
+  SUCCESS: 142,
+  CLOSED_LOST: 143,
+} as const;
+
+export const AMO_TOLBUKHINA_STATUS = {
+  UNSORTED: 62907162,
+  NEW_LEAD: 62907166,
+  DEFERRED: 64421050,
+  QUALIFIED: 62907170,
+  MEETING_SCHEDULED: 62907174,
+  MEETING_DONE_THINKING: 62907570,
+  ORAL_BOOKING: 62907574,
+  BOOKING_REMOVED: 62907578,
+  PAID_BOOKING: 62907582,
+  DEAL_PREP: 62907586,
+  DEAL: 62907590,
+  DEAL_REGISTERED: 62907594,
+  PAYMENT_CONTROL: 62907598,
+  SUCCESS: 142,
+  CLOSED_LOST: 143,
+} as const;
+
+// ─── Хелперы для алгоритма уникальности ───────────────────────────────
+
+/** Лид в статусе «Новое обращение» / «Новый Лид» (первая активная стадия). */
+export function isNewRequestStatus(pipelineId: number, statusId: number): boolean {
+  return (
+    (pipelineId === AMO_PIPELINES.KC && statusId === AMO_KC_STATUS.NEW_REQUEST) ||
+    (pipelineId === AMO_PIPELINES.BERZARINA && statusId === AMO_BERZARINA_STATUS.NEW_LEAD) ||
+    (pipelineId === AMO_PIPELINES.ZORGE9 && statusId === AMO_ZORGE_STATUS.NEW_LEAD) ||
+    (pipelineId === AMO_PIPELINES.TOLBUKHINA && statusId === AMO_TOLBUKHINA_STATUS.NEW_LEAD)
+  );
+}
+
+/** Лид в статусе «Квалифицировали выводим на встречу» (в любой из ОП/КЦ воронок). */
+export function isQualifiedToMeetingStatus(pipelineId: number, statusId: number): boolean {
+  return (
+    (pipelineId === AMO_PIPELINES.KC && statusId === AMO_KC_STATUS.QUALIFIED) ||
+    (pipelineId === AMO_PIPELINES.BERZARINA && statusId === AMO_BERZARINA_STATUS.QUALIFIED) ||
+    (pipelineId === AMO_PIPELINES.ZORGE9 && statusId === AMO_ZORGE_STATUS.QUALIFIED) ||
+    (pipelineId === AMO_PIPELINES.TOLBUKHINA && statusId === AMO_TOLBUKHINA_STATUS.QUALIFIED)
+  );
+}
+
+/** Финальный статус «Закрыто и не реализовано» (143 — во всех воронках). */
+export function isClosedLostStatus(statusId: number): boolean {
+  return statusId === 143;
+}
+
+/** Финал КЦ: «Встреча проведена» (142 для пайплайна КЦ). Считаем как «КЦ завершён». */
+export function isKcMeetingHeldStatus(pipelineId: number, statusId: number): boolean {
+  return pipelineId === AMO_PIPELINES.KC && statusId === 142;
+}
+
+/**
+ * 2026-06-03: алгоритм проверки уникальности по правилам пользователя.
+ *
+ * Контекст: при фиксации брокером нового клиента нужно понять, конкурирует ли
+ * он с уже идущей работой по этому контакту. Только акт осмотра, подписанный
+ * на встрече, окончательно закрепляет клиента за брокером — до этого момента
+ * несколько брокеров могут одновременно быть «условно уникальными».
+ *
+ * Правила:
+ *   1) Контакт в amo не найден или у него нет лидов → УНИКАЛЬНЫЙ.
+ *   2) Все лиды контакта в финальных статусах (143 везде или КЦ 142) → УНИКАЛЬНЫЙ.
+ *   3) Активный лид в «Новое обращение» / «Квалифицировали выводим на встречу»
+ *      И к нему прикреплён хоть один брокер → УНИКАЛЬНЫЙ для следующего брокера.
+ *   4) Любой другой активный статус (Встреча назначена / Сделка / Контроль оплаты
+ *      и т.д.) → АЛАРМ, статус «В обработке», ручная проверка КЦ.
+ *
+ * Возвращает 'UNIQUE' если все лиды прошли, иначе 'ALARM'.
+ */
+export function evaluateUniqueness(
+  leads: Array<{
+    id: number;
+    pipeline_id: number;
+    status_id: number;
+    hasBrokerAttached: boolean;
+  }>,
+): { verdict: 'UNIQUE' | 'ALARM'; reason: string } {
+  if (!leads || leads.length === 0) {
+    return { verdict: 'UNIQUE', reason: 'Контакт в amoCRM не найден или нет лидов' };
+  }
+
+  for (const lead of leads) {
+    // Финальные стадии — пропускаем (правило 2).
+    if (isClosedLostStatus(lead.status_id)) continue;
+    if (isKcMeetingHeldStatus(lead.pipeline_id, lead.status_id)) continue;
+
+    // Активные допустимые стадии (правила 3, 4).
+    const isAllowedStage =
+      isNewRequestStatus(lead.pipeline_id, lead.status_id) ||
+      isQualifiedToMeetingStatus(lead.pipeline_id, lead.status_id);
+
+    if (isAllowedStage) {
+      if (lead.hasBrokerAttached) {
+        continue; // ОК, продолжаем проверку
+      } else {
+        return {
+          verdict: 'ALARM',
+          reason: `Лид ${lead.id} в активной стадии без привязанного брокера (pipeline=${lead.pipeline_id}, status=${lead.status_id}).`,
+        };
+      }
+    }
+
+    // Всё остальное — Встреча назначена / Сделка / Контроль оплаты и т.д.
+    return {
+      verdict: 'ALARM',
+      reason: `Лид ${lead.id} в активной стадии продаж (pipeline=${lead.pipeline_id}, status=${lead.status_id}). Требуется ручная проверка КЦ.`,
+    };
+  }
+
+  return { verdict: 'UNIQUE', reason: 'Все лиды контакта проверены — конфликта нет' };
+}
+
 export const BROKER_PIPELINE_ID = AMO_PIPELINES.BROKERS;
 
 // Pipeline → Project (для маппинга в локальную БД)
