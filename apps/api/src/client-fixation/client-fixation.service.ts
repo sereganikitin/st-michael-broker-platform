@@ -91,10 +91,10 @@ export class ClientFixationService {
       // Теперь: запрашиваем у amo вердикт UNIQUE / ALARM. Если ALARM — создаём
       // Client с UNDER_REVIEW + задача в amo для КЦ.
       // Если amo упал — fallback на старую логику (only local DB).
-      let amoVerdict: { verdict: 'UNIQUE' | 'ALARM'; reason: string; contactId?: number; leads?: any[] } | null = null;
+      let amoVerdict: { verdict: 'UNIQUE' | 'ALARM'; reason: string; contactId?: number; leads?: any[]; reusableLeadId?: number } | null = null;
       try {
         amoVerdict = await this.amoCrmAdapter.checkUniqueness(data.phone);
-        console.log(`[fixClient] amo uniqueness verdict: ${amoVerdict.verdict} — ${amoVerdict.reason}`);
+        console.log(`[fixClient] amo uniqueness verdict: ${amoVerdict.verdict} — ${amoVerdict.reason}${amoVerdict.reusableLeadId ? ` — reusableLeadId=${amoVerdict.reusableLeadId}` : ''}`);
       } catch (e: any) {
         console.error('[fixClient] amo checkUniqueness failed, fallback to local DB only:', e?.message || e);
       }
@@ -282,6 +282,11 @@ export class ClientFixationService {
           purchaseTiming: data.purchaseTiming,
           readinessLevel: data.readinessLevel,
           fromBroker: true, // фиксация ВСЕГДА от брокера
+          // 2026-06-03: если amo-проверка нашла активный лид в КЦ
+          // (Новое обращение / Квалифицировали выв. на встречу) —
+          // прикрепляем нашего брокера к нему вторым контактом, без
+          // дубля лида. Логика «конкурирующие брокеры до акта осмотра».
+          reuseLeadId: amoVerdict?.reusableLeadId,
         });
       } catch (e: any) {
         amoSyncOk = false;

@@ -369,6 +369,11 @@ export class AmoCrmAdapter {
     reason: string;
     contactId?: number;
     leads?: Array<{ id: number; pipeline_id: number; status_id: number }>;
+    // 2026-06-03: если verdict=UNIQUE и есть активный лид в КЦ
+    // (Новое обращение / Квалифицировали выводим на встречу) — НЕ создаём
+    // новый лид при фиксации, а прикрепляем брокера к этому. Логика
+    // «конкурирующие брокеры до акта осмотра».
+    reusableLeadId?: number;
   }> {
     const contact = await this.findContactByPhone(phone);
     if (!contact) {
@@ -412,6 +417,21 @@ export class AmoCrmAdapter {
     });
 
     const verdict = evaluateUniqueness(leadsForEval);
+
+    // 2026-06-03: если verdict=UNIQUE и есть активный лид в КЦ в стадии
+    // «Новое обращение» или «Квалифицировали выводим на встречу» — берём его
+    // как reusable. При фиксации новый брокер прикрепится к нему вторым
+    // контактом вместо создания нового лида.
+    let reusableLeadId: number | undefined;
+    if (verdict.verdict === 'UNIQUE') {
+      // Ищем лид в КЦ (pipeline 7600542) в одной из ранних стадий.
+      const kcEarlyStages = [62907118, 62907282]; // Новое обращение, Квалифицировали
+      const reusable = leads.find((l: any) =>
+        l.pipeline_id === 7600542 && kcEarlyStages.includes(l.status_id),
+      );
+      if (reusable) reusableLeadId = reusable.id;
+    }
+
     return {
       ...verdict,
       contactId: contact.id,
@@ -420,6 +440,7 @@ export class AmoCrmAdapter {
         pipeline_id: l.pipeline_id,
         status_id: l.status_id,
       })),
+      reusableLeadId,
     };
   }
 
@@ -540,6 +561,10 @@ export class AmoCrmAdapter {
     purchaseTiming?: string;     // «Планирует покупку»: от 1 до 3 месяцев, 3-6, и т.д.
     readinessLevel?: string;     // «Готовность к сделке»: Холодный/Тёплый/Горячий
     fromBroker?: boolean;        // «От брокера» radio (по умолчанию true для fixation request)
+    // 2026-06-03: если задан — не создаём новый лид, а прикрепляем брокера
+    // к существующему. Логика «конкурирующие брокеры до акта осмотра»:
+    // несколько брокеров одновременно могут быть условно-уникальными.
+    reuseLeadId?: number;
   }): Promise<AmoLead> {
     // Контакт КЛИЕНТА — формируем custom_fields_values, отдельно от создания
     const clientCustomFields: any[] = [
@@ -631,19 +656,59 @@ export class AmoCrmAdapter {
     if (contact?.id) leadContacts.push({ id: contact.id });
     if (data.brokerAmoContactId) leadContacts.push({ id: data.brokerAmoContactId });
 
-    const leadData: any = {
-      name: `Фиксация: ${data.clientName} (${data.project})`,
-      contacts: leadContacts.length > 0 ? leadContacts : undefined,
-      pipeline_id: 7600542,
-    };
-    if (data.amount && data.amount > 0) leadData.price = data.amount; // встроенное поле «Бюджет» лида
+    // 2026-06-03: режим переиспользования существующего лида.
+    // Когда у контакта уже есть активный лид в КЦ (Новое обращение /
+    // Квалифицировали выводим на встречу) — новый брокер прикрепляется
+    // к нему вторым контактом. Это «конкурирующие брокеры до акта осмотра».
+    let resultLead: AmoLead;
+    if (data.reuseLeadId) {
+      const existing = await this.getLead(data.reuseLeadId);
+      if (!existing) {
+        // Лид не нашёлся — fallback на создание нового.
+        resultLead = await this.createLead({
+          name: `Фиксация: ${data.clientName} (${data.project})`,
+          contacts: leadContacts.length > 0 ? leadContacts : undefined,
+          pipeline_id: 7600542,
+          ...(data.amount && data.amount > 0 ? { price: data.amount } : {}),
+        } as any);
+      } else {
+        // Прикрепляем нашего брокера к контактам существующего лида.
+        // amo: чтобы добавить второй контакт — `contacts: [{id: A, is_main: ...}, {id: B}]`.
+        if (data.brokerAmoContactId) {
+          const existingContactIds = ((existing as any)._embedded?.contacts || []).map((c: any) => c.id);
+          if (!existingContactIds.includes(data.brokerAmoContactId)) {
+            try {
+              await this.request(`/leads/${data.reuseLeadId}/link`, {
+                method: 'POST',
+                body: JSON.stringify([{
+                  to_entity_id: data.brokerAmoContactId,
+                  to_entity_type: 'contacts',
+                }]),
+              });
+            } catch (e) {
+              // Не валим — main path всё равно lead уже есть.
+            }
+          }
+        }
+        resultLead = existing;
+      }
+    } else {
+      // Стандартный путь: создаём новый лид.
+      const leadData: any = {
+        name: `Фиксация: ${data.clientName} (${data.project})`,
+        contacts: leadContacts.length > 0 ? leadContacts : undefined,
+        pipeline_id: 7600542,
+      };
+      if (data.amount && data.amount > 0) leadData.price = data.amount;
+      resultLead = await this.createLead(leadData);
+    }
 
-    const created = await this.createLead(leadData);
-
-    // Шаг 2: PATCH с custom_fields_values — после Salesbot, чтобы наши значения встали.
-    if (created?.id && customFields.length > 0) {
+    // Шаг 2: PATCH с custom_fields_values — только для НОВОГО лида,
+    // в reuse-режиме custom_fields_values НЕ перезаписываем (там уже могут
+    // быть данные другого брокера).
+    if (!data.reuseLeadId && resultLead?.id && customFields.length > 0) {
       try {
-        await this.updateLead(created.id, { custom_fields_values: customFields } as any);
+        await this.updateLead(resultLead.id, { custom_fields_values: customFields } as any);
       } catch (e) {
         // Не валим всю операцию если PATCH упал — лид создан, контакт связан.
       }
@@ -651,9 +716,13 @@ export class AmoCrmAdapter {
 
     // 2026-05-26: добавляем читаемое примечание в чат лида —
     // вся ключевая информация в одном месте, видно в ленте amoCRM.
-    if (created?.id) {
+    if (resultLead?.id) {
       const lines: string[] = [];
-      lines.push(`📝 Фиксация клиента от брокера`);
+      if (data.reuseLeadId) {
+        lines.push(`➕ Новый брокер встал на этого клиента (конкурирующая фиксация)`);
+      } else {
+        lines.push(`📝 Фиксация клиента от брокера`);
+      }
       lines.push(`Клиент: ${data.clientName}`);
       lines.push(`Телефон: ${data.clientPhone}`);
       if (data.clientEmail) lines.push(`Email: ${data.clientEmail}`);
@@ -674,25 +743,27 @@ export class AmoCrmAdapter {
         lines.push(`Комментарий брокера: ${data.comment}`);
       }
       try {
-        await this.addNoteToLead(created.id, lines.join('\n'));
+        await this.addNoteToLead(resultLead.id, lines.join('\n'));
       } catch (e) {
         // Не валим — note вторичен, главное лид с полями.
       }
-      // 2026-05-26: задача КЦ — связаться с клиентом, провести фиксацию.
-      // С дедлайном через сутки. Появится в задачах сотрудников amoCRM.
-      try {
-        await this.createTask({
-          text: `Связаться с клиентом ${data.clientName} (${data.clientPhone}) — фиксация от брокера ${data.brokerPhone}. Проект: ${data.project}.`,
-          entityType: 'leads',
-          entityId: created.id,
-          taskTypeId: 1, // звонок
-        });
-      } catch (e) {
-        // не валим
+      // 2026-05-26: задача КЦ — только для НОВОГО лида (по существующему
+      // задача уже есть, дубль создавать не надо).
+      if (!data.reuseLeadId) {
+        try {
+          await this.createTask({
+            text: `Связаться с клиентом ${data.clientName} (${data.clientPhone}) — фиксация от брокера ${data.brokerPhone}. Проект: ${data.project}.`,
+            entityType: 'leads',
+            entityId: resultLead.id,
+            taskTypeId: 1, // звонок
+          });
+        } catch (e) {
+          // не валим
+        }
       }
     }
 
-    return created;
+    return resultLead;
   }
 
   // 2026-05-26: создаёт лид нового брокера в pipeline 10787390 (БРОКЕРЫ).
