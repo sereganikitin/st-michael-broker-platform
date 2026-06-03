@@ -714,35 +714,57 @@ export class AmoCrmAdapter {
       }
     }
 
-    // 2026-06-03: формат заметок и задач упрощён по требованию пользователя.
-    // Раньше нота была многострочной портянкой — менеджеру КЦ неудобно скимить.
-    // Теперь: одна короткая нота (брокер/агентство/объект) + короткая задача
-    // «Связаться» со срочным дедлайном (1 час), чтобы amo подсветил красным.
+    // 2026-06-03: возвращаем ДЛИННУЮ ноту с полным дублированием заявки
+    // из кабинета (пользователь явно попросил — «не забывай дублировать
+    // заявку из кабинета брокера в поле СРМ как ранее на скрине»).
+    // Менеджер КЦ должен видеть ВСЕ детали в ленте лида, не открывая
+    // наш кабинет отдельно.
     if (resultLead?.id) {
       const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
-      const header = data.reuseLeadId
-        ? '🟢 Аукция уникальности'
-        : '📝 Новая фиксация от брокера';
-      const noteText =
-        `${header} — Брокер ${data.brokerPhone}. ` +
-        `Агентство: ${data.agencyName}, ИНН ${data.agencyInn}. ` +
-        `Объект интереса: ${projectName}.`;
+      const lines: string[] = [];
+      if (data.reuseLeadId) {
+        lines.push(`🟢 Аукция уникальности — новый брокер на этом клиенте`);
+      } else {
+        lines.push(`📝 Фиксация клиента от брокера`);
+      }
+      lines.push(`Клиент: ${data.clientName}`);
+      lines.push(`Телефон: ${data.clientPhone}`);
+      if (data.clientEmail) lines.push(`Email: ${data.clientEmail}`);
+      if (data.clientRegion) lines.push(`Регион: ${data.clientRegion}`);
+      lines.push(``);
+      lines.push(`Проект: ${projectName}`);
+      if (data.propertyType) lines.push(`Тип: ${data.propertyType}`);
+      if (data.roomsCount) lines.push(`Комнат: ${data.roomsCount}`);
+      if (data.sqm) lines.push(`Метраж: ${data.sqm} м²`);
+      if (data.amount) lines.push(`Бюджет: ${data.amount.toLocaleString('ru-RU')} ₽`);
+      if (data.purchaseTiming) lines.push(`Планирует покупку: ${data.purchaseTiming}`);
+      if (data.readinessLevel) lines.push(`Готовность к сделке: ${data.readinessLevel}`);
+      lines.push(``);
+      lines.push(`Брокер-агент: ${data.brokerPhone}`);
+      lines.push(`Агентство: ${data.agencyName} (ИНН ${data.agencyInn})`);
+      if (data.comment) {
+        lines.push(``);
+        lines.push(`Комментарий брокера: ${data.comment}`);
+      }
       try {
-        await this.addNoteToLead(resultLead.id, noteText);
+        await this.addNoteToLead(resultLead.id, lines.join('\n'));
       } catch (e) {
         // Не валим — note вторичен, главное лид с полями.
       }
-      // 2026-06-03: задача СОЗДАЁТСЯ И ДЛЯ reuse-режима тоже (раньше пропускали,
-      // считая что задача там уже есть — но пользователь хочет отдельную задачу
-      // на КЦ для разрешения конкурирующей фиксации).
+      // 2026-06-03: задача с типом «Аларм».
+      // TODO: подставить реальный task_type_id когда дойдёт инспект task_types
+      // (сейчас фолбэк на 1=Звонок, чтобы хоть что-то создавалось).
+      // Название и дедлайн +30мин — по требованию пользователя.
+      // responsibleUserId не задаём — Морикит распределяет.
+      const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 1);
       try {
         await this.createTask({
-          text: `Связаться с клиентом ${data.clientName} (${data.clientPhone}) — фиксация от брокера ${data.brokerPhone}. Проект: ${projectName}.`,
+          text: `Связаться по сделке брокера — клиент ${data.clientName} (${data.clientPhone}), брокер ${data.brokerPhone}.`,
           entityType: 'leads',
           entityId: resultLead.id,
-          taskTypeId: 1, // звонок
-          // Срочный дедлайн (1 час), чтобы amo подсветил задачу красным.
-          completeTillSec: Math.floor(Date.now() / 1000) + 60 * 60,
+          taskTypeId: ALARM_TASK_TYPE_ID,
+          // Срок 30 минут — по правилам пользователя «нужно перезвонить через полчаса».
+          completeTillSec: Math.floor(Date.now() / 1000) + 30 * 60,
         });
       } catch (e) {
         // не валим

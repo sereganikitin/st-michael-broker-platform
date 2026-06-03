@@ -123,30 +123,52 @@ export class ClientFixationService {
         } catch (e: any) {
           console.error('[fixClient amo-alarm] audit failed:', e?.message || e);
         }
-        // 2026-06-03: формат как у обычной фиксации — короткая нота +
-        // короткая задача. Без длинных портянок (менеджеру тяжело скимить).
+        // 2026-06-03: формат по требованию пользователя:
+        // - длинная нота с дублированием всей заявки из кабинета
+        // - задача «Связаться по сделке брокера» с типом «Аларм», срок 30 мин
+        // - распределение через Морикит (responsibleUserId не задаём)
         if (amoVerdict.leads && amoVerdict.leads.length > 0) {
           const firstActiveLead = amoVerdict.leads[0];
           const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
-          // Короткая нота
+          // Длинная нота — полная копия заявки
+          const lines: string[] = [];
+          lines.push(`⚠️ АЛАРМ уникальности — требуется ручная проверка КЦ`);
+          lines.push(`Причина: ${amoVerdict.reason}`);
+          lines.push(``);
+          lines.push(`Клиент: ${data.fullName}`);
+          lines.push(`Телефон: ${data.phone}`);
+          if (data.email) lines.push(`Email: ${data.email}`);
+          if (data.clientRegion) lines.push(`Регион: ${data.clientRegion}`);
+          lines.push(``);
+          lines.push(`Проект: ${projectName}`);
+          if (data.propertyType) lines.push(`Тип: ${data.propertyType}`);
+          if (data.roomsCount) lines.push(`Комнат: ${data.roomsCount}`);
+          if (data.sqm) lines.push(`Метраж: ${data.sqm} м²`);
+          if (data.amount) lines.push(`Бюджет: ${data.amount.toLocaleString('ru-RU')} ₽`);
+          if (data.purchaseTiming) lines.push(`Планирует покупку: ${data.purchaseTiming}`);
+          if (data.readinessLevel) lines.push(`Готовность к сделке: ${data.readinessLevel}`);
+          lines.push(``);
+          lines.push(`Брокер-агент: ${broker.fullName} (${broker.phone})`);
+          lines.push(`Агентство: ${agency.name} (ИНН ${agency.inn})`);
+          if (data.comment) {
+            lines.push(``);
+            lines.push(`Комментарий брокера: ${data.comment}`);
+          }
           try {
-            await this.amoCrmAdapter.addNoteToLead(
-              firstActiveLead.id,
-              `⚠️ АЛАРМ уникальности — Брокер ${broker.phone}. ` +
-              `Агентство: ${agency.name}, ИНН ${agency.inn}. ` +
-              `Объект интереса: ${projectName}. Причина: ${amoVerdict.reason}`,
-            );
+            await this.amoCrmAdapter.addNoteToLead(firstActiveLead.id, lines.join('\n'));
           } catch (e: any) {
             console.error('[fixClient amo-alarm] note failed:', e?.message || e);
           }
-          // Короткая задача со срочным дедлайном (1 час → красная)
+          // Задача типа «Аларм», название «Связаться по сделке брокера»,
+          // срок 30 минут. ID типа «Аларм» через env (или 1=звонок как fallback).
+          const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 1);
           try {
             await this.amoCrmAdapter.createTask({
-              text: `Связаться с клиентом ${data.fullName} (${data.phone}) — фиксация от брокера ${broker.phone}. Проект: ${projectName}.`,
+              text: `Связаться по сделке брокера — клиент ${data.fullName} (${data.phone}), брокер ${broker.phone}.`,
               entityType: 'leads',
               entityId: firstActiveLead.id,
-              taskTypeId: 1,
-              completeTillSec: Math.floor(Date.now() / 1000) + 60 * 60,
+              taskTypeId: ALARM_TASK_TYPE_ID,
+              completeTillSec: Math.floor(Date.now() / 1000) + 30 * 60,
             });
           } catch (e: any) {
             console.error('[fixClient amo-alarm] task failed:', e?.message || e);

@@ -24,7 +24,7 @@ function arg(name) {
 }
 
 const grep = arg('grep');
-const onlyEntity = arg('entity'); // 'leads' | 'contacts' | 'pipelines' | null = leads+contacts
+const onlyEntity = arg('entity'); // 'leads' | 'contacts' | 'pipelines' | 'task_types' | null = leads+contacts
 
 const SUBDOMAIN = process.env.AMO_SUBDOMAIN || 'stmichael';
 const BASE = process.env.AMO_BASE_DOMAIN || 'amocrm.ru';
@@ -123,12 +123,44 @@ function printPipelines(pipelines) {
   }
 }
 
+// 2026-06-03: дамп типов задач — нужно чтобы узнать ID типа «Аларм»
+// (стандартные: 1=Звонок, 2=Встреча, 3=Письмо; кастомные — добавлены
+// в настройках amo, например «Аларм» от пользователя).
+async function fetchTaskTypes() {
+  const r = await fetch(`${API}/account?with=task_types`, {
+    headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+  });
+  if (!r.ok) {
+    console.error(`ERR task_types: HTTP ${r.status}`);
+    const txt = await r.text().catch(() => '');
+    console.error(txt.slice(0, 500));
+    return [];
+  }
+  const data = await r.json();
+  return data?._embedded?.task_types || [];
+}
+
+function printTaskTypes(types) {
+  console.log('━'.repeat(80));
+  console.log(`  TASK TYPES  (всего: ${types.length}${grep ? `, фильтр: "${grep}"` : ''})`);
+  console.log('━'.repeat(80));
+  for (const t of types) {
+    const name = String(t.name || '');
+    if (grep && !name.toLowerCase().includes(String(grep).toLowerCase())) continue;
+    console.log(`\nID=${t.id}  code=${t.code || '-'}  color=${t.color || '-'}  icon_id=${t.icon_id || '-'}`);
+    console.log(`  name: "${name}"`);
+  }
+}
+
 (async () => {
   console.log(`Inspecting amoCRM @ ${SUBDOMAIN}.${BASE}\n`);
 
   if (onlyEntity === 'pipelines') {
     const pipelines = await fetchPipelines();
     printPipelines(pipelines);
+  } else if (onlyEntity === 'task_types') {
+    const types = await fetchTaskTypes();
+    printTaskTypes(types);
   } else {
     if (!onlyEntity || onlyEntity === 'leads') {
       const leadFields = await fetchAllFields('leads');
@@ -147,6 +179,7 @@ function printPipelines(pipelines) {
   console.log('  --entity leads      — только поля лидов');
   console.log('  --entity contacts   — только поля контактов');
   console.log('  --entity pipelines  — воронки и их стадии (status_id для каждой)');
+  console.log('  --entity task_types — типы задач (нужен для ID «Аларм»)');
 })().catch((e) => {
   console.error('FATAL:', e?.message || e);
   process.exit(1);
