@@ -123,20 +123,33 @@ export class ClientFixationService {
         } catch (e: any) {
           console.error('[fixClient amo-alarm] audit failed:', e?.message || e);
         }
-        // Создаём задачу-АЛАРМ в amo на первом лиде (КЦ-менеджер увидит).
-        // responsibleUserId не задаём — Salesbot/правила amo распределят.
+        // 2026-06-03: формат как у обычной фиксации — короткая нота +
+        // короткая задача. Без длинных портянок (менеджеру тяжело скимить).
         if (amoVerdict.leads && amoVerdict.leads.length > 0) {
           const firstActiveLead = amoVerdict.leads[0];
+          const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
+          // Короткая нота
+          try {
+            await this.amoCrmAdapter.addNoteToLead(
+              firstActiveLead.id,
+              `⚠️ АЛАРМ уникальности — Брокер ${broker.phone}. ` +
+              `Агентство: ${agency.name}, ИНН ${agency.inn}. ` +
+              `Объект интереса: ${projectName}. Причина: ${amoVerdict.reason}`,
+            );
+          } catch (e: any) {
+            console.error('[fixClient amo-alarm] note failed:', e?.message || e);
+          }
+          // Короткая задача со срочным дедлайном (1 час → красная)
           try {
             await this.amoCrmAdapter.createTask({
-              text: `⚠ АЛАРМ уникальности: брокер ${broker.fullName} (${broker.phone}) пытается зафиксировать ${data.fullName} (${data.phone}). Причина: ${amoVerdict.reason}. Проверить и решить вручную.`,
+              text: `Связаться с клиентом ${data.fullName} (${data.phone}) — фиксация от брокера ${broker.phone}. Проект: ${projectName}.`,
               entityType: 'leads',
               entityId: firstActiveLead.id,
               taskTypeId: 1,
-              completeTillSec: Math.floor(Date.now() / 1000) + 4 * 60 * 60, // 4 часа
+              completeTillSec: Math.floor(Date.now() / 1000) + 60 * 60,
             });
           } catch (e: any) {
-            console.error('[fixClient amo-alarm] task creation failed:', e?.message || e);
+            console.error('[fixClient amo-alarm] task failed:', e?.message || e);
           }
         }
         return {

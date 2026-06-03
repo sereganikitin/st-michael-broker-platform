@@ -714,52 +714,38 @@ export class AmoCrmAdapter {
       }
     }
 
-    // 2026-05-26: добавляем читаемое примечание в чат лида —
-    // вся ключевая информация в одном месте, видно в ленте amoCRM.
+    // 2026-06-03: формат заметок и задач упрощён по требованию пользователя.
+    // Раньше нота была многострочной портянкой — менеджеру КЦ неудобно скимить.
+    // Теперь: одна короткая нота (брокер/агентство/объект) + короткая задача
+    // «Связаться» со срочным дедлайном (1 час), чтобы amo подсветил красным.
     if (resultLead?.id) {
-      const lines: string[] = [];
-      if (data.reuseLeadId) {
-        lines.push(`➕ Новый брокер встал на этого клиента (конкурирующая фиксация)`);
-      } else {
-        lines.push(`📝 Фиксация клиента от брокера`);
-      }
-      lines.push(`Клиент: ${data.clientName}`);
-      lines.push(`Телефон: ${data.clientPhone}`);
-      if (data.clientEmail) lines.push(`Email: ${data.clientEmail}`);
-      if (data.clientRegion) lines.push(`Регион: ${data.clientRegion}`);
-      lines.push(``);
-      lines.push(`Проект: ${data.project}`);
-      if (data.propertyType) lines.push(`Тип: ${data.propertyType}`);
-      if (data.roomsCount) lines.push(`Комнат: ${data.roomsCount}`);
-      if (data.sqm) lines.push(`Метраж: ${data.sqm} м²`);
-      if (data.amount) lines.push(`Бюджет: ${data.amount.toLocaleString('ru-RU')} ₽`);
-      if (data.purchaseTiming) lines.push(`Планирует покупку: ${data.purchaseTiming}`);
-      if (data.readinessLevel) lines.push(`Готовность к сделке: ${data.readinessLevel}`);
-      lines.push(``);
-      lines.push(`Брокер-агент: ${data.brokerPhone}`);
-      lines.push(`Агентство: ${data.agencyName} (ИНН ${data.agencyInn})`);
-      if (data.comment) {
-        lines.push(``);
-        lines.push(`Комментарий брокера: ${data.comment}`);
-      }
+      const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
+      const header = data.reuseLeadId
+        ? '🟢 Аукция уникальности'
+        : '📝 Новая фиксация от брокера';
+      const noteText =
+        `${header} — Брокер ${data.brokerPhone}. ` +
+        `Агентство: ${data.agencyName}, ИНН ${data.agencyInn}. ` +
+        `Объект интереса: ${projectName}.`;
       try {
-        await this.addNoteToLead(resultLead.id, lines.join('\n'));
+        await this.addNoteToLead(resultLead.id, noteText);
       } catch (e) {
         // Не валим — note вторичен, главное лид с полями.
       }
-      // 2026-05-26: задача КЦ — только для НОВОГО лида (по существующему
-      // задача уже есть, дубль создавать не надо).
-      if (!data.reuseLeadId) {
-        try {
-          await this.createTask({
-            text: `Связаться с клиентом ${data.clientName} (${data.clientPhone}) — фиксация от брокера ${data.brokerPhone}. Проект: ${data.project}.`,
-            entityType: 'leads',
-            entityId: resultLead.id,
-            taskTypeId: 1, // звонок
-          });
-        } catch (e) {
-          // не валим
-        }
+      // 2026-06-03: задача СОЗДАЁТСЯ И ДЛЯ reuse-режима тоже (раньше пропускали,
+      // считая что задача там уже есть — но пользователь хочет отдельную задачу
+      // на КЦ для разрешения конкурирующей фиксации).
+      try {
+        await this.createTask({
+          text: `Связаться с клиентом ${data.clientName} (${data.clientPhone}) — фиксация от брокера ${data.brokerPhone}. Проект: ${projectName}.`,
+          entityType: 'leads',
+          entityId: resultLead.id,
+          taskTypeId: 1, // звонок
+          // Срочный дедлайн (1 час), чтобы amo подсветил задачу красным.
+          completeTillSec: Math.floor(Date.now() / 1000) + 60 * 60,
+        });
+      } catch (e) {
+        // не валим
       }
     }
 
