@@ -276,6 +276,13 @@ model Broker {
   nextCallAt             DateTime?                @map("next_call_at")
   isInBase               Boolean                  @default(false) @map("is_in_base")
   baseSource             String?                  @map("base_source") // 'google_sheet' | 'amocrm' | 'manual'
+  // 2026-06-03: распределение брокера на менеджера КЦ. Self-FK на Broker.id
+  // где role=MANAGER. Руководитель КЦ батч-назначает, менеджер видит
+  // дефолтным фильтром «только мои» в /admin/call-center.
+  assignedManagerId      String?                  @map("assigned_manager_id")
+  assignedManager        Broker?                  @relation("BrokerAssignedManager", fields: [assignedManagerId], references: [id])
+  assignedBrokers        Broker[]                 @relation("BrokerAssignedManager")
+  assignedAt             DateTime?                @map("assigned_at")
   phones                 BrokerPhone[]
   callLogs               CallLog[]
   clients                Client[]
@@ -291,6 +298,7 @@ model Broker {
 
   @@index([category])
   @@index([nextCallAt])
+  @@index([assignedManagerId])
   @@map("brokers")
 }
 

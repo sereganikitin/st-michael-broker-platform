@@ -123,8 +123,27 @@ export class AdminController {
 
   @Get('call-center/queue')
   @ApiOperation({ summary: 'Очередь обзвона: брокеры isInBase=true, отсортированные по приоритету' })
-  async callCenterQueue(@Query() query: any) {
-    return this.adminService.getCallCenterQueue(query);
+  async callCenterQueue(@CurrentUser() user: CurrentUserPayload, @Query() query: any) {
+    // 2026-06-03: пробрасываем currentUserId для фильтра assignment=mine.
+    return this.adminService.getCallCenterQueue({ ...query, currentUserId: user.id });
+  }
+
+  @Get('call-center/managers')
+  @ApiOperation({ summary: 'Список менеджеров КЦ для дропдауна назначения' })
+  async listKcManagers() {
+    return this.adminService.listKcManagers();
+  }
+
+  @Post('call-center/assign')
+  @ApiOperation({ summary: 'Назначить выбранных брокеров на менеджера КЦ' })
+  async assignBrokers(@Body() body: { brokerIds: string[]; managerId: string }) {
+    return this.adminService.assignBrokersToManager(body.brokerIds || [], body.managerId);
+  }
+
+  @Post('call-center/unassign')
+  @ApiOperation({ summary: 'Снять назначение менеджера с выбранных брокеров' })
+  async unassignBrokers(@Body() body: { brokerIds: string[] }) {
+    return this.adminService.unassignBrokers(body.brokerIds || []);
   }
 
   @Post('call-center/log-call')

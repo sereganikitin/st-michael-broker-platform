@@ -830,6 +830,11 @@ export class AdminService {
     search?: string;
     includeAll?: string | boolean;
     coordinators?: 'only' | 'exclude' | '' | string;
+    // 2026-06-03: фильтр назначения. 'mine' — только мои (managerId=currentUserId),
+    // 'unassigned' — без назначения, 'all' (или пусто) — все. Если 'mine' — нужен
+    // currentUserId (передаётся через параметр).
+    assignment?: 'mine' | 'unassigned' | 'all' | string;
+    currentUserId?: string;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Number(query.limit) || 30);
@@ -853,6 +858,13 @@ export class AdminService {
     } else if (query.coordinators === 'exclude') {
       where.isCoordinator = false;
     }
+    // 2026-06-03: фильтр распределения по менеджерам КЦ.
+    if (query.assignment === 'mine' && query.currentUserId) {
+      where.assignedManagerId = query.currentUserId;
+    } else if (query.assignment === 'unassigned') {
+      where.assignedManagerId = null;
+    }
+    // 'all' / пусто — никакого фильтра по assignedManagerId не накладываем.
     // Bug fix 2026-05-22 (#3): не показывать оператору брокеров с
     // запланированным звонком в будущем (например +7 дней).
     // Условие OR: либо никогда не звонили (nextCallAt = null), либо
@@ -888,6 +900,9 @@ export class AdminService {
           nextCallAt: true,
           baseSource: true,
           createdAt: true,
+          assignedManagerId: true,
+          assignedAt: true,
+          assignedManager: { select: { id: true, fullName: true } },
           callLogs: {
             select: { id: true, result: true, comment: true, campaign: true, createdAt: true },
             orderBy: { createdAt: 'desc' },
@@ -908,6 +923,57 @@ export class AdminService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  // 2026-06-03: распределение брокеров на менеджеров КЦ. Руководитель КЦ
+  // выбирает чекбоксами несколько брокеров и батч-назначает на менеджера.
+  // Менеджер КЦ дефолтным фильтром видит только своих в очереди обзвона.
+
+  async listKcManagers() {
+    const managers = await this.prisma.broker.findMany({
+      where: { role: 'MANAGER' as any },
+      select: {
+        id: true,
+        fullName: true,
+        _count: { select: { assignedBrokers: true } },
+      },
+      orderBy: { fullName: 'asc' },
+    });
+    return managers.map((m: any) => ({
+      id: m.id,
+      fullName: m.fullName,
+      assignedCount: m._count?.assignedBrokers || 0,
+    }));
+  }
+
+  async assignBrokersToManager(brokerIds: string[], managerId: string) {
+    if (!brokerIds.length) throw new BadRequestException('Не выбрано ни одного брокера');
+    const manager = await this.prisma.broker.findUnique({
+      where: { id: managerId },
+      select: { id: true, role: true, fullName: true },
+    });
+    if (!manager) throw new NotFoundException('Менеджер не найден');
+    if (manager.role !== 'MANAGER' && manager.role !== 'ADMIN') {
+      throw new BadRequestException('Можно назначать только на MANAGER или ADMIN');
+    }
+    const result = await this.prisma.broker.updateMany({
+      where: { id: { in: brokerIds } },
+      data: { assignedManagerId: managerId, assignedAt: new Date() },
+    });
+    return {
+      assigned: result.count,
+      managerId,
+      managerName: manager.fullName,
+    };
+  }
+
+  async unassignBrokers(brokerIds: string[]) {
+    if (!brokerIds.length) throw new BadRequestException('Не выбрано ни одного брокера');
+    const result = await this.prisma.broker.updateMany({
+      where: { id: { in: brokerIds } },
+      data: { assignedManagerId: null, assignedAt: null },
+    });
+    return { unassigned: result.count };
   }
 
   // Правила автообновления брокера по результату звонка.
