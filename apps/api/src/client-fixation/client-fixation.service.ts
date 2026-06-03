@@ -161,7 +161,8 @@ export class ClientFixationService {
           }
           // Задача типа «Аларм», название «Связаться по сделке брокера»,
           // срок 30 минут. ID типа «Аларм» через env (или 1=звонок как fallback).
-          const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 1);
+          // 2026-06-03: ID 2393839 = «Alarm» в stmichael.amocrm.ru (цвет E00000).
+          const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
           try {
             await this.amoCrmAdapter.createTask({
               text: `Связаться по сделке брокера — клиент ${data.fullName} (${data.phone}), брокер ${broker.phone}.`,

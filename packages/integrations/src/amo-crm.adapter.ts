@@ -756,7 +756,9 @@ export class AmoCrmAdapter {
       // (сейчас фолбэк на 1=Звонок, чтобы хоть что-то создавалось).
       // Название и дедлайн +30мин — по требованию пользователя.
       // responsibleUserId не задаём — Морикит распределяет.
-      const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 1);
+      // 2026-06-03: ID 2393839 = «Alarm» в stmichael.amocrm.ru, цвет E00000.
+      // Узнано через inspect-amo-fields --entity task_types.
+      const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
       try {
         await this.createTask({
           text: `Связаться по сделке брокера — клиент ${data.clientName} (${data.clientPhone}), брокер ${data.brokerPhone}.`,
