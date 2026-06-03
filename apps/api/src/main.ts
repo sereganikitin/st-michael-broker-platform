@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import compression from 'compression';
 import { AppModule } from './app.module';
+import { ZodExceptionFilter } from './common/zod-exception.filter';
 
 // Fix BigInt JSON serialization
 (BigInt.prototype as any).toJSON = function () { return this.toString(); };
@@ -32,6 +33,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // 2026-06-03: ZodError → 400 с понятным сообщением (раньше падало 500).
+  app.useGlobalFilters(new ZodExceptionFilter());
 
   // Swagger
   const config = new DocumentBuilder()
