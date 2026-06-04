@@ -298,8 +298,9 @@ export class ClientFixationService {
       // менеджерам и координаторам. Брокеру возвращаем контакты менеджеров.
       let amoSyncOk = true;
       let amoSyncError: string | null = null;
+      let createdAmoLeadId: number | null = null;
       try {
-        await this.amoCrmAdapter.createFixationRequest({
+        const resultLead = await this.amoCrmAdapter.createFixationRequest({
           clientPhone: data.phone,
           clientEmail: data.email,
           clientName: data.fullName,
@@ -324,6 +325,7 @@ export class ClientFixationService {
           // дубля лида. Логика «конкурирующие брокеры до акта осмотра».
           reuseLeadId: amoVerdict?.reusableLeadId,
         });
+        createdAmoLeadId = resultLead?.id ? Number(resultLead.id) : null;
       } catch (e: any) {
         amoSyncOk = false;
         amoSyncError = String(e?.message || e).slice(0, 500);
@@ -344,6 +346,11 @@ export class ClientFixationService {
             amoSyncError: amoSyncOk ? null : amoSyncError,
             amoSyncAttempts: { increment: 1 },
             amoSyncLastAttemptAt: new Date(),
+            // 2026-06-04: критично сохранять lead id, иначе webhook от amoCRM
+            // на этот лид не сможет найти Client (искал по amoLeadId).
+            // В reuseLeadId-режиме сохраняется тот же лид, к которому
+            // мы прикрепились вторым контактом.
+            ...(createdAmoLeadId ? { amoLeadId: BigInt(createdAmoLeadId) } : {}),
           } as any,
         });
       } catch (e: any) {

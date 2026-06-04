@@ -6,7 +6,7 @@ import { Search, ChevronLeft, ChevronRight, X, AlertTriangle, Mail, Building, Us
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   CONDITIONALLY_UNIQUE: { label: 'Уникален', cls: 'bg-success/20 text-success' },
-  REJECTED: { label: 'Отклонён', cls: 'bg-error/20 text-error' },
+  REJECTED: { label: 'Не уникален', cls: 'bg-error/20 text-error' },
   UNDER_REVIEW: { label: 'На проверке', cls: 'bg-warning/20 text-warning' },
   EXPIRED: { label: 'Истёк', cls: 'bg-text-muted/20 text-text-muted' },
 };
@@ -446,7 +446,7 @@ export default function ClientsPage() {
             <option value="">Все статусы</option>
             <option value="CONDITIONALLY_UNIQUE">Уникален</option>
             <option value="UNDER_REVIEW">На проверке</option>
-            <option value="REJECTED">Отклонён</option>
+            <option value="REJECTED">Не уникален</option>
             <option value="EXPIRED">Истёк</option>
           </select>
         </div>
