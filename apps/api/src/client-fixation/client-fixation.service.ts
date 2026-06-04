@@ -1,7 +1,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { Project } from '@st-michael/shared';
-import { AmoCrmAdapter } from '@st-michael/integrations';
+import { AmoCrmAdapter, MorekitAdapter, morekitPhone, morekitProjectName, morekitLeadDate } from '@st-michael/integrations';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
@@ -11,6 +11,9 @@ const msInDays = (days: number) => days * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class ClientFixationService {
+  // 2026-06-04: прямой webhook в Morekit (без посредничества Salesbot).
+  private readonly morekit = new MorekitAdapter();
+
   constructor(
     @Inject('PrismaClient') private prisma: PrismaClient,
     private amoCrmAdapter: AmoCrmAdapter,
@@ -298,8 +301,9 @@ export class ClientFixationService {
       // менеджерам и координаторам. Брокеру возвращаем контакты менеджеров.
       let amoSyncOk = true;
       let amoSyncError: string | null = null;
+      let createdAmoLeadId: number | null = null;
       try {
-        await this.amoCrmAdapter.createFixationRequest({
+        const resultLead = await this.amoCrmAdapter.createFixationRequest({
           clientPhone: data.phone,
           clientEmail: data.email,
           clientName: data.fullName,
@@ -324,10 +328,30 @@ export class ClientFixationService {
           // дубля лида. Логика «конкурирующие брокеры до акта осмотра».
           reuseLeadId: amoVerdict?.reusableLeadId,
         });
+        createdAmoLeadId = resultLead?.id ? Number(resultLead.id) : null;
       } catch (e: any) {
         amoSyncOk = false;
         amoSyncError = String(e?.message || e).slice(0, 500);
         console.error('[fixClient] amo createFixationRequest failed:', amoSyncError);
+      }
+
+      // 2026-06-04: прямой webhook в Morekit (без Salesbot в amo).
+      // Только для НОВОГО лида (reuse — у того лида уже есть распределение).
+      // Fire-and-forget: ошибка Morekit'а не валит фиксацию у брокера.
+      if (amoSyncOk && createdAmoLeadId && !amoVerdict?.reusableLeadId && this.morekit.isConfigured()) {
+        this.morekit.notifyFixation({
+          id: String(createdAmoLeadId),
+          agency: agency.name,
+          broker_id: broker.amoContactId ? String(broker.amoContactId) : '',
+          agent_name: broker.fullName,
+          agent_phone: morekitPhone(broker.phone),
+          agent_mail: broker.email || '',
+          budget: data.amount ? String(data.amount) : '0',
+          clients: [{ name: data.fullName, phone: morekitPhone(data.phone) }],
+          type: data.propertyType || 'Квартира',
+          lead_date: morekitLeadDate(),
+          project: morekitProjectName(String(data.project)),
+        }).catch((e) => console.error('[fixClient] morekit notify error:', e?.message || e));
       }
 
       // Помечаем статус amo-синка на клиенте.
