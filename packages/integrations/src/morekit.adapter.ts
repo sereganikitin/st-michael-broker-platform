@@ -76,25 +76,26 @@ export function morekitLeadDate(d: Date = new Date()): MorekitFixationPayload['l
 }
 
 export class MorekitAdapter {
-  private url = MOREKIT_URL;
-
-  isConfigured(): boolean {
-    return Boolean(this.url);
-  }
-
   /**
    * Отправить fixation в Morekit. Логирует ошибку, не бросает —
    * сбой Morekit'а не должен валить фиксацию у брокера.
+   *
+   * URL берётся (приоритет ↓): аргумент `urlOverride` (например из
+   * БД-настроек админки) → env MOREKIT_WEBHOOK_URL. Если оба пусты — skip.
    */
-  async notifyFixation(payload: MorekitFixationPayload): Promise<{ ok: boolean; error?: string }> {
-    if (!this.url) {
-      console.warn('[morekit] MOREKIT_WEBHOOK_URL не задан, skip notify');
+  async notifyFixation(
+    payload: MorekitFixationPayload,
+    urlOverride?: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const url = (urlOverride && urlOverride.trim()) || MOREKIT_URL;
+    if (!url) {
+      console.warn('[morekit] URL не задан (ни в БД, ни в env), skip notify');
       return { ok: false, error: 'URL_NOT_CONFIGURED' };
     }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), MOREKIT_TIMEOUT_MS);
     try {
-      const res = await fetch(this.url, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'User-Agent': 'st-michael-broker-platform/1.0' },
         body: JSON.stringify(payload),

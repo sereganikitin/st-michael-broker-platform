@@ -1586,4 +1586,54 @@ export class AdminService {
     return this.importJobs.get(id);
   }
 
+  // ─── Integration settings ────────────────────────────────
+  // 2026-06-04: whitelist ключей, которые админ может править из UI.
+  // Любое значение не из списка → 400. Защита: иначе админ мог бы
+  // подсунуть нагрузочный KV-стор.
+  private static readonly INTEGRATION_KEYS = ['MOREKIT_WEBHOOK_URL'];
+
+  async getIntegrationSettings() {
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: AdminService.INTEGRATION_KEYS } },
+      select: { key: true, value: true, updatedAt: true, updatedBy: true },
+    });
+    const byKey = new Map(rows.map((r) => [r.key, r] as const));
+    // Для каждой настройки отдаём currentValue (БД если есть, иначе env),
+    // dbValue (только если есть запись), envValue (что лежит в окружении).
+    return AdminService.INTEGRATION_KEYS.map((key) => {
+      const row = byKey.get(key);
+      const envValue = process.env[key] || '';
+      return {
+        key,
+        dbValue: row?.value ?? null,
+        envValue,
+        currentValue: row?.value ?? envValue,
+        updatedAt: row?.updatedAt ?? null,
+        updatedBy: row?.updatedBy ?? null,
+      };
+    });
+  }
+
+  async updateIntegrationSetting(key: string, value: string, updatedBy: string) {
+    if (!AdminService.INTEGRATION_KEYS.includes(key)) {
+      throw new BadRequestException(`Ключ ${key} не разрешён к редактированию`);
+    }
+    const trimmed = value.trim();
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      update: { value: trimmed, updatedBy },
+      create: { key, value: trimmed, updatedBy },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        userId: updatedBy,
+        action: 'INTEGRATION_SETTING_UPDATED',
+        entity: 'SystemSetting',
+        entityId: key,
+        payload: { key, valueLength: trimmed.length },
+      },
+    });
+    return { ok: true, key, value: trimmed };
+  }
+
 }

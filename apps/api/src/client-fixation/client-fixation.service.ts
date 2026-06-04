@@ -5,6 +5,7 @@ import { AmoCrmAdapter, MorekitAdapter, morekitPhone, morekitProjectName, moreki
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
+import { getSystemSetting } from '../common/system-setting';
 
 const UNIQUENESS_DAYS = 30;
 const msInDays = (days: number) => days * 24 * 60 * 60 * 1000;
@@ -338,20 +339,24 @@ export class ClientFixationService {
       // 2026-06-04: прямой webhook в Morekit (без Salesbot в amo).
       // Только для НОВОГО лида (reuse — у того лида уже есть распределение).
       // Fire-and-forget: ошибка Morekit'а не валит фиксацию у брокера.
-      if (amoSyncOk && createdAmoLeadId && !amoVerdict?.reusableLeadId && this.morekit.isConfigured()) {
-        this.morekit.notifyFixation({
-          id: String(createdAmoLeadId),
-          agency: agency.name,
-          broker_id: broker.amoContactId ? String(broker.amoContactId) : '',
-          agent_name: broker.fullName,
-          agent_phone: morekitPhone(broker.phone),
-          agent_mail: broker.email || '',
-          budget: data.amount ? String(data.amount) : '0',
-          clients: [{ name: data.fullName, phone: morekitPhone(data.phone) }],
-          type: data.propertyType || 'Квартира',
-          lead_date: morekitLeadDate(),
-          project: morekitProjectName(String(data.project)),
-        }).catch((e) => console.error('[fixClient] morekit notify error:', e?.message || e));
+      // URL берём из админ-настроек (SystemSetting) с env-fallback.
+      if (amoSyncOk && createdAmoLeadId && !amoVerdict?.reusableLeadId) {
+        const morekitUrl = await getSystemSetting(this.prisma, 'MOREKIT_WEBHOOK_URL');
+        if (morekitUrl) {
+          this.morekit.notifyFixation({
+            id: String(createdAmoLeadId),
+            agency: agency.name,
+            broker_id: broker.amoContactId ? String(broker.amoContactId) : '',
+            agent_name: broker.fullName,
+            agent_phone: morekitPhone(broker.phone),
+            agent_mail: broker.email || '',
+            budget: data.amount ? String(data.amount) : '0',
+            clients: [{ name: data.fullName, phone: morekitPhone(data.phone) }],
+            type: data.propertyType || 'Квартира',
+            lead_date: morekitLeadDate(),
+            project: morekitProjectName(String(data.project)),
+          }, morekitUrl).catch((e) => console.error('[fixClient] morekit notify error:', e?.message || e));
+        }
       }
 
       // Помечаем статус amo-синка на клиенте.

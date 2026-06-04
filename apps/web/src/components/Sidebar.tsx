@@ -18,6 +18,7 @@ import {
   Megaphone,
   PhoneCall,
   AlertTriangle,
+  Plug,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -50,6 +51,7 @@ const adminNavigation = [
   { name: 'Лендинг — Проекты', href: '/admin/projects', icon: Building },
   { name: 'Лендинг — Новости', href: '/admin/news', icon: FileText },
   { name: 'Файлы и документы', href: '/admin/documents', icon: FileText },
+  { name: 'Интеграции', href: '/admin/integrations', icon: Plug },
 ];
 
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {

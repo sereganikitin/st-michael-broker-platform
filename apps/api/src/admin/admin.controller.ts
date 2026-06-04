@@ -279,6 +279,27 @@ export class AdminController {
   async deleteCommissionPolicy(@Param('id') id: string) {
     return this.adminService.deleteCommissionPolicy(id);
   }
+  // ─── Integration settings (admin only) ───────────────────
+  // 2026-06-04: KV-настройки для интеграций (Morekit URL и т.п.),
+  // которые админ хочет менять из UI без релиза/SSH.
+  @Get('integration-settings')
+  @ApiOperation({ summary: 'Текущие значения настроек интеграций (с env-fallback)' })
+  @Roles(UserRole.ADMIN)
+  async getIntegrationSettings() {
+    return this.adminService.getIntegrationSettings();
+  }
+
+  @Patch('integration-settings/:key')
+  @ApiOperation({ summary: 'Обновить настройку интеграции (whitelist ключей)' })
+  @Roles(UserRole.ADMIN)
+  async updateIntegrationSetting(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('key') key: string,
+    @Body() body: { value: string },
+  ) {
+    return this.adminService.updateIntegrationSetting(key, body.value || '', user.id);
+  }
+
   // ─── Reassign client to another broker (manager/admin) ────
   @Patch('clients/:id/reassign-broker')
   @ApiOperation({ summary: 'Передать клиента другому брокеру (manager/admin)' })

@@ -669,6 +669,19 @@ model SiteContent {
   @@map("site_content")
 }
 
+// 2026-06-04: KV-таблица для админ-настроек, которые администратор хочет
+// менять из UI без релиза/SSH. Например MOREKIT_WEBHOOK_URL — Анна из
+// Morekit'а периодически даёт новый URL («копия предыдущего процесса»).
+// Читается с env-fallback: если в БД нет ключа — берём process.env[KEY].
+model SystemSetting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("system_settings")
+}
+
 // КБ6 #45 (2026-05-25): история правок CMS-блоков. На каждое изменение
 // SiteContent сохраняем снимок предыдущего значения, кто и когда правил.
 // Позволяет откатиться / посмотреть изменения «как в Google Docs».
