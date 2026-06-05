@@ -16,6 +16,7 @@ interface SettingRow {
   currentValue: string;
   updatedAt: string | null;
   updatedBy: string | null;
+  isSecret?: boolean;
 }
 
 const SETTINGS_META: Record<string, { label: string; description: string; placeholder: string }> = {
@@ -25,6 +26,20 @@ const SETTINGS_META: Record<string, { label: string; description: string; placeh
       'Endpoint Morekit\'а для прямой отправки фиксаций (без Salesbot в amoCRM). ' +
       'Анна периодически даёт новый URL («копия предыдущего процесса») — поэтому правится из UI без релиза.',
     placeholder: 'https://ep.morekit.io/...',
+  },
+  AMO_ACCESS_TOKEN: {
+    label: 'amoCRM access token',
+    description:
+      'Долгоживущий токен для запросов в amoCRM API. JWT-строка из настроек интеграции amoCRM. ' +
+      'При 401 адаптер сам пытается обновить через refresh_token — но если refresh нет, надо ввести access вручную.',
+    placeholder: 'eyJ0eXAiOiJKV1Qi...',
+  },
+  AMO_REFRESH_TOKEN: {
+    label: 'amoCRM refresh token',
+    description:
+      'Refresh-токен для авто-обновления access_token. Получается при первичной OAuth-авторизации. ' +
+      'Если задан + есть AMO_CLIENT_ID/SECRET в env, адаптер сам обновит access при 401 без участия человека.',
+    placeholder: 'def502...',
   },
 };
 
@@ -46,7 +61,9 @@ export default function AdminIntegrationsPage() {
       const data = await apiGet<SettingRow[]>('/admin/integration-settings');
       setSettings(data || []);
       const init: Record<string, string> = {};
-      (data || []).forEach((s) => { init[s.key] = s.dbValue ?? ''; });
+      // Для секретов в edits НЕ кладём dbValue (это маска вида «…abc123 (1024 симв.)»).
+      // Иначе сохранение перетёрло бы реальный токен этой маской.
+      (data || []).forEach((s) => { init[s.key] = s.isSecret ? '' : (s.dbValue ?? ''); });
       setEdits(init);
     } catch (e: any) {
       setMsg({ key: '', ok: false, text: e?.message || 'Не удалось загрузить настройки' });
@@ -86,8 +103,13 @@ export default function AdminIntegrationsPage() {
         <div className="space-y-4">
           {settings.map((s) => {
             const meta = SETTINGS_META[s.key] || { label: s.key, description: '', placeholder: '' };
-            const dirty = (edits[s.key] || '') !== (s.dbValue ?? '');
+            const editValue = edits[s.key] || '';
+            // Для секрета: dirty если пользователь ввёл что-то непустое (любая новая
+            // строка → перезапишет токен). Для обычных — dirty если значение поменялось
+            // относительно того, что в БД.
+            const dirty = s.isSecret ? editValue.length > 0 : editValue !== (s.dbValue ?? '');
             const usingEnvFallback = !s.dbValue && Boolean(s.envValue);
+            const hasDbValue = Boolean(s.dbValue);
             return (
               <div key={s.key} className="card">
                 <div className="flex items-start justify-between gap-4 mb-2">
@@ -112,11 +134,18 @@ export default function AdminIntegrationsPage() {
                 )}
 
                 <div className="space-y-2">
+                  {s.isSecret && hasDbValue && (
+                    <div className="text-xs text-success flex items-center gap-1 mb-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Текущее значение: <span className="font-mono">{s.currentValue}</span>. Поле ниже пустое — введи только если нужно перезаписать.
+                    </div>
+                  )}
                   <input
-                    type="text"
+                    type={s.isSecret ? 'password' : 'text'}
+                    autoComplete="off"
                     className="input font-mono text-sm"
                     placeholder={meta.placeholder}
-                    value={edits[s.key] || ''}
+                    value={editValue}
                     onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}
                   />
 

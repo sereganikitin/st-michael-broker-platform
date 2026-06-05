@@ -4,7 +4,7 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
 import { AmocrmService } from '../amocrm/amocrm.service';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, BROKER_PIPELINE_ID, setAmoTokens, getAmoTokens } from '@st-michael/integrations';
 import {
   VALID_CATEGORIES,
   VALID_CALL_FLAGS,
@@ -1590,7 +1590,22 @@ export class AdminService {
   // 2026-06-04: whitelist ключей, которые админ может править из UI.
   // Любое значение не из списка → 400. Защита: иначе админ мог бы
   // подсунуть нагрузочный KV-стор.
-  private static readonly INTEGRATION_KEYS = ['MOREKIT_WEBHOOK_URL'];
+  // 2026-06-05: добавлены AMO_ACCESS_TOKEN и AMO_REFRESH_TOKEN —
+  // токены для подключения к amoCRM. При сохранении автоматически
+  // обновляются в памяти процесса (setAmoTokens), чтобы адаптер
+  // подхватил новое значение без рестарта.
+  private static readonly INTEGRATION_KEYS = [
+    'MOREKIT_WEBHOOK_URL',
+    'AMO_ACCESS_TOKEN',
+    'AMO_REFRESH_TOKEN',
+  ];
+
+  // Ключи, значение которых не возвращаем в UI «как есть» (длинные JWT-токены).
+  // Возвращаем только метаданные: длина, последние 6 символов для верификации.
+  private static readonly INTEGRATION_SECRET_KEYS = new Set([
+    'AMO_ACCESS_TOKEN',
+    'AMO_REFRESH_TOKEN',
+  ]);
 
   async getIntegrationSettings() {
     const rows = await this.prisma.systemSetting.findMany({
@@ -1603,13 +1618,23 @@ export class AdminService {
     return AdminService.INTEGRATION_KEYS.map((key) => {
       const row = byKey.get(key);
       const envValue = process.env[key] || '';
+      const isSecret = AdminService.INTEGRATION_SECRET_KEYS.has(key);
+      const dbValue = row?.value ?? null;
+      // Для секретов отдаём только метаданные — длину и последние 6 символов
+      // для верификации, что значение действительно установлено и какое
+      // именно (без раскрытия полного содержимого в UI).
+      const maskValue = (v: string | null) => {
+        if (!v) return null;
+        return `…${v.slice(-6)} (${v.length} симв.)`;
+      };
       return {
         key,
-        dbValue: row?.value ?? null,
-        envValue,
-        currentValue: row?.value ?? envValue,
+        dbValue: isSecret ? maskValue(dbValue) : dbValue,
+        envValue: isSecret ? maskValue(envValue) : envValue,
+        currentValue: isSecret ? maskValue(dbValue || envValue) : (dbValue ?? envValue),
         updatedAt: row?.updatedAt ?? null,
         updatedBy: row?.updatedBy ?? null,
+        isSecret,
       };
     });
   }
@@ -1633,7 +1658,16 @@ export class AdminService {
         payload: { key, valueLength: trimmed.length },
       },
     });
-    return { ok: true, key, value: trimmed };
+    // 2026-06-05: если обновили amoCRM-токены — обновляем in-memory state
+    // адаптера, чтобы следующий же request пошёл с новым значением,
+    // без рестарта контейнера.
+    if (key === 'AMO_ACCESS_TOKEN' || key === 'AMO_REFRESH_TOKEN') {
+      const current = getAmoTokens();
+      const access = key === 'AMO_ACCESS_TOKEN' ? trimmed : current.access;
+      const refresh = key === 'AMO_REFRESH_TOKEN' ? trimmed : current.refresh;
+      setAmoTokens(access, refresh);
+    }
+    return { ok: true, key };
   }
 
 }
