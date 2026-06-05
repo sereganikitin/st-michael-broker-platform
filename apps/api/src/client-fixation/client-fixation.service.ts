@@ -373,6 +373,11 @@ export class ClientFixationService {
             amoSyncError: amoSyncOk ? null : amoSyncError,
             amoSyncAttempts: { increment: 1 },
             amoSyncLastAttemptAt: new Date(),
+            // 2026-06-04: критично сохранять lead id, иначе webhook от amoCRM
+            // на этот лид не сможет найти Client (искал по amoLeadId).
+            // В reuseLeadId-режиме сохраняется тот же лид, к которому
+            // мы прикрепились вторым контактом.
+            ...(createdAmoLeadId ? { amoLeadId: BigInt(createdAmoLeadId) } : {}),
           } as any,
         });
       } catch (e: any) {

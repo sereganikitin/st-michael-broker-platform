@@ -1,10 +1,15 @@
 import { Injectable, Inject, BadRequestException, Logger } from '@nestjs/common';
-import { PrismaClient } from '@st-michael/database';
+import { PrismaClient, UniquenessStatus } from '@st-michael/database';
+import { AmoCrmAdapter } from '@st-michael/integrations';
 import * as crypto from 'crypto';
+
+const UNIQUENESS_DAYS = 30;
+const msInDays = (days: number) => days * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
+  private readonly amo = new AmoCrmAdapter();
 
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
 
@@ -24,6 +29,19 @@ export class WebhooksService {
     }
 
     this.logger.log(`amoCRM lead update: lead_id=${data.id}, status_id=${data.status_id}`);
+
+    // 2026-06-04: Bug-репорт пользователя — если в amoCRM открепить
+    // брокера-агента от лида (убрать его 2-й контакт), статус «Уникален»
+    // в кабинете брокера должен меняться на «Не уникален» (REJECTED).
+    // И наоборот — если прикрепили обратно, восстанавливаем.
+    // Делаем по любому webhook'у на этот лид, чтобы не зависеть от
+    // конкретного типа события (link/unlink в amo не всегда отдельный
+    // webhook, обычно это leads:update с обновлённым _embedded.contacts).
+    try {
+      await this.syncBrokerAttachmentFromLead(Number(data.id));
+    } catch (e: any) {
+      this.logger.error(`syncBrokerAttachmentFromLead failed for lead ${data.id}: ${e?.message || e}`);
+    }
 
     // Find deal linked to this amoCRM lead
     const deal = await this.prisma.deal.findFirst({
@@ -311,5 +329,89 @@ export class WebhooksService {
     }
 
     return { status: 'processed', matched: false };
+  }
+
+  // ─── Broker attachment sync ─────────────────────────
+  // 2026-06-04: запрашиваем у amo актуальный лид (надёжнее чем доверять
+  // payload вебхука, который может приходить без _embedded.contacts).
+  // Для каждого Client, привязанного к этому лиду:
+  //   • если сделка прошла (PAID / COMMISSION_PAID) — брокер закреплён
+  //     навсегда, статус не трогаем;
+  //   • если у brokers.amoContactId есть в списке контактов лида:
+  //       - был REJECTED → восстанавливаем CONDITIONALLY_UNIQUE +30 дней;
+  //       - иначе оставляем как есть;
+  //   • если нет:
+  //       - был CONDITIONALLY_UNIQUE → REJECTED («Не уникален»).
+  // UNDER_REVIEW / EXPIRED оставляем как есть — это решение менеджера или
+  // авто-timeout, не должно перетираться auto-detect логикой.
+  private async syncBrokerAttachmentFromLead(leadId: number): Promise<void> {
+    if (!leadId) return;
+
+    const lead: any = await this.amo.getLead(leadId).catch(() => null);
+    if (!lead) {
+      this.logger.warn(`syncBrokerAttachmentFromLead: lead ${leadId} not found in amo`);
+      return;
+    }
+    const leadContactIds: number[] = ((lead?._embedded?.contacts as any[]) || [])
+      .map((c) => Number(c.id))
+      .filter((id) => !isNaN(id));
+
+    const clients = await this.prisma.client.findMany({
+      where: { amoLeadId: BigInt(leadId) },
+      include: {
+        broker: { select: { id: true, fullName: true, amoContactId: true } },
+        deals: { select: { id: true, status: true } },
+      },
+    });
+
+    for (const client of clients) {
+      const hasClosedDeal = client.deals.some((d) =>
+        d.status === 'PAID' || d.status === 'COMMISSION_PAID',
+      );
+      if (hasClosedDeal) continue;
+
+      const brokerAmoId = client.broker?.amoContactId ? Number(client.broker.amoContactId) : null;
+      if (!brokerAmoId) continue; // нечего проверять — брокер не синкан с amo
+
+      const attached = leadContactIds.includes(brokerAmoId);
+
+      if (attached && client.uniquenessStatus === UniquenessStatus.REJECTED) {
+        await this.prisma.client.update({
+          where: { id: client.id },
+          data: {
+            uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+            uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+            uniquenessReason: 'Брокер прикреплён обратно к лиду в amoCRM',
+          },
+        });
+        await this.prisma.auditLog.create({
+          data: {
+            action: 'UNIQUENESS_RESOLVED',
+            entity: 'Client',
+            entityId: client.id,
+            payload: { trigger: 'AMO_BROKER_REATTACHED', amoLeadId: leadId, brokerAmoContactId: brokerAmoId },
+          },
+        });
+        this.logger.log(`Client ${client.id}: REJECTED → CONDITIONALLY_UNIQUE (broker re-attached to lead ${leadId})`);
+      } else if (!attached && client.uniquenessStatus === UniquenessStatus.CONDITIONALLY_UNIQUE) {
+        await this.prisma.client.update({
+          where: { id: client.id },
+          data: {
+            uniquenessStatus: UniquenessStatus.REJECTED,
+            uniquenessReason: 'Брокер откреплён от лида в amoCRM',
+            uniquenessExpiresAt: null,
+          },
+        });
+        await this.prisma.auditLog.create({
+          data: {
+            action: 'UNIQUENESS_RESOLVED',
+            entity: 'Client',
+            entityId: client.id,
+            payload: { trigger: 'AMO_BROKER_DETACHED', amoLeadId: leadId, brokerAmoContactId: brokerAmoId },
+          },
+        });
+        this.logger.log(`Client ${client.id}: CONDITIONALLY_UNIQUE → REJECTED (broker detached from lead ${leadId})`);
+      }
+    }
   }
 }
