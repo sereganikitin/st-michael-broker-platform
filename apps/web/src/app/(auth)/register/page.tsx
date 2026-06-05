@@ -10,7 +10,6 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [agencyName, setAgencyName] = useState('');
   const [inn, setInn] = useState('');
-  const [innType, setInnType] = useState<'PERSONAL' | 'AGENCY'>('AGENCY');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -34,7 +33,9 @@ export default function RegisterPage() {
           email,
           password,
           inn,
-          innType,
+          // 2026-06-04: личный ИНН убрали из формы — брокер всегда работает
+          // через юр. лицо или ИП, личный ИНН не используется.
+          innType: 'AGENCY',
           agencyName: agencyName || undefined,
         }),
       });
@@ -117,27 +118,16 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="label">ИНН</label>
+              <label className="label">ИНН агентства (юр. лица или ИП)</label>
               <input
                 type="text"
                 inputMode="numeric"
                 className="input"
-                placeholder="10 или 12 цифр"
+                placeholder="10 цифр для юр. лица или 12 цифр для ИП"
                 value={inn}
                 onChange={(e) => setInn(e.target.value.replace(/\D/g, '').slice(0, 12))}
                 maxLength={12}
               />
-            </div>
-
-            <div className="flex gap-4 text-sm">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="innType" checked={innType === 'PERSONAL'} onChange={() => setInnType('PERSONAL')} />
-                Личный ИНН
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="innType" checked={innType === 'AGENCY'} onChange={() => setInnType('AGENCY')} />
-                ИНН агентства
-              </label>
             </div>
 
             <div>
