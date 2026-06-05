@@ -77,9 +77,35 @@ export interface UpdateLeadDto {
   custom_fields_values?: any[];
 }
 
+// 2026-06-05: модульный shared-state для access/refresh токенов amoCRM.
+// Все экземпляры AmoCrmAdapter читают из этого state-а, refresh обновляет
+// его + дёргает hook (для персистенса в БД). На старте API bootstrap
+// загружает токены из SystemSetting → setAmoTokens(), и регистрирует
+// hook → setAmoTokenRefreshHook(). Если в БД пусто — fallback на env.
+type AmoTokens = { access: string; refresh: string };
+type AmoTokenRefreshHook = (tokens: AmoTokens) => Promise<void> | void;
+
+let amoTokens: AmoTokens = {
+  access: process.env.AMO_ACCESS_TOKEN || '',
+  refresh: process.env.AMO_REFRESH_TOKEN || '',
+};
+let amoTokenRefreshHook: AmoTokenRefreshHook | null = null;
+let amoRefreshInFlight: Promise<boolean> | null = null; // дедуп параллельных refresh
+
+export function setAmoTokens(access: string, refresh: string): void {
+  amoTokens = { access: access || '', refresh: refresh || '' };
+}
+
+export function getAmoTokens(): AmoTokens {
+  return { ...amoTokens };
+}
+
+export function setAmoTokenRefreshHook(hook: AmoTokenRefreshHook | null): void {
+  amoTokenRefreshHook = hook;
+}
+
 export class AmoCrmAdapter {
   private baseUrl: string;
-  private token: string;
 
   constructor() {
     // 2026-05-27: amoCRM имеет 2 endpoint'а:
@@ -91,14 +117,92 @@ export class AmoCrmAdapter {
     const domain = process.env.AMO_BASE_DOMAIN || 'amocrm.ru';
     const apiDomain = process.env.AMO_API_DOMAIN || `${subdomain}.${domain}`;
     this.baseUrl = `https://${apiDomain}/api/v4`;
-    this.token = process.env.AMO_ACCESS_TOKEN || '';
+  }
+
+  private get token(): string {
+    return amoTokens.access;
+  }
+
+  /**
+   * 2026-06-05: OAuth2 refresh. Возвращает true если новый access_token получен
+   * и сохранён в shared-state (+ через hook в БД). Дедупит параллельные вызовы.
+   */
+  private async refreshAccessToken(): Promise<boolean> {
+    if (amoRefreshInFlight) return amoRefreshInFlight;
+    amoRefreshInFlight = (async (): Promise<boolean> => {
+      const refresh = amoTokens.refresh;
+      if (!refresh) {
+        console.error('[amo-refresh] AMO_REFRESH_TOKEN не задан — refresh невозможен');
+        return false;
+      }
+      const clientId = process.env.AMO_CLIENT_ID;
+      const clientSecret = process.env.AMO_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        console.error('[amo-refresh] AMO_CLIENT_ID / AMO_CLIENT_SECRET не заданы');
+        return false;
+      }
+      const redirectUri = process.env.AMO_REDIRECT_URI || 'https://broker.stmichael.ru/';
+      const subdomain = process.env.AMO_SUBDOMAIN || 'stmichael';
+      const url = `https://${subdomain}.amocrm.ru/oauth2/access_token`;
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_id: clientId,
+            client_secret: clientSecret,
+            grant_type: 'refresh_token',
+            refresh_token: refresh,
+            redirect_uri: redirectUri,
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          console.error(`[amo-refresh] failed: HTTP ${res.status} ${text.slice(0, 300)}`);
+          return false;
+        }
+        const data: any = await res.json();
+        const newAccess = String(data?.access_token || '');
+        const newRefresh = String(data?.refresh_token || '') || refresh;
+        if (!newAccess) {
+          console.error('[amo-refresh] response missing access_token');
+          return false;
+        }
+        amoTokens = { access: newAccess, refresh: newRefresh };
+        if (amoTokenRefreshHook) {
+          try {
+            await amoTokenRefreshHook(amoTokens);
+          } catch (e: any) {
+            console.error('[amo-refresh] persist hook failed:', e?.message || e);
+          }
+        }
+        console.log('[amo-refresh] OK, access_token обновлён');
+        return true;
+      } catch (e: any) {
+        console.error('[amo-refresh] exception:', e?.message || e);
+        return false;
+      }
+    })();
+    try {
+      return await amoRefreshInFlight;
+    } finally {
+      amoRefreshInFlight = null;
+    }
   }
 
   // КБ6 fix #44 (2026-05-25): retry с экспоненциальным backoff для 429/5xx.
   // amoCRM v4 ограничивает 7 req/sec — без retry массовый импорт ловит сотни
   // 429 (наблюдали 776 amoErrors на coverage-анализ).
-  private async request<T = any>(path: string, init: RequestInit = {}, attempt = 1): Promise<T> {
-    if (!this.token) throw new Error('AMO_ACCESS_TOKEN not configured');
+  // 2026-06-05: на 401 пробуем refresh access_token через AMO_REFRESH_TOKEN
+  // и retry один раз. При пустом access — тоже пробуем refresh.
+  private async request<T = any>(path: string, init: RequestInit = {}, attempt = 1, didRefresh = false): Promise<T> {
+    if (!this.token) {
+      if (!didRefresh && amoTokens.refresh) {
+        const ok = await this.refreshAccessToken();
+        if (ok) return this.request<T>(path, init, attempt, true);
+      }
+      throw new Error('AMO_ACCESS_TOKEN not configured');
+    }
 
     const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
     let res: Response;
@@ -119,19 +223,27 @@ export class AmoCrmAdapter {
       // Network-level (timeout, ECONNRESET) — ретраим до 3 раз.
       if (attempt < 3) {
         await sleep(500 * attempt);
-        return this.request<T>(path, init, attempt + 1);
+        return this.request<T>(path, init, attempt + 1, didRefresh);
       }
       throw e;
     }
 
     if (res.status === 204) return null as T;
 
+    // 2026-06-05: 401 → попытка refresh + одиночный retry. Если refresh уже
+    // делали в этом цепочке — не повторяем, бросаем.
+    if (res.status === 401 && !didRefresh) {
+      console.warn(`[amo] 401 на ${path}, пробуем refresh access_token`);
+      const ok = await this.refreshAccessToken();
+      if (ok) return this.request<T>(path, init, attempt, true);
+    }
+
     // 429 (rate-limit) и 5xx — retry. Уважаем Retry-After если пришёл.
     if ((res.status === 429 || res.status >= 500) && attempt < 4) {
       const retryAfter = Number(res.headers.get('Retry-After')) || 0;
       const wait = retryAfter > 0 ? retryAfter * 1000 : 300 * Math.pow(2, attempt); // 300 / 600 / 1200ms
       await sleep(wait);
-      return this.request<T>(path, init, attempt + 1);
+      return this.request<T>(path, init, attempt + 1, didRefresh);
     }
 
     if (!res.ok) {
