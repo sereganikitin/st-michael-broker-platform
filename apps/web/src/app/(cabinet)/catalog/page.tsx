@@ -15,6 +15,21 @@ const projectLabels: Record<string, string> = {
   SILVER_BOR: 'Серебряный бор',
 };
 
+// КБ6 (2026-05-25): «Сдан» если срок сдачи уже наступил.
+// Если на конец указанного квартала прошедшая дата — пишем «Сдан».
+// Иначе — «N кв YYYY» (как раньше).
+function formatReadiness(lot: { builtYear?: number | null; readyQuarter?: number | null }): string {
+  if (!lot.builtYear) return '—';
+  const now = new Date();
+  const curY = now.getFullYear();
+  const curQ = Math.floor(now.getMonth() / 3) + 1;
+  const ly = Number(lot.builtYear);
+  const lq = lot.readyQuarter ? Number(lot.readyQuarter) : 4; // если квартала нет — считаем по концу года
+  const isDone = ly < curY || (ly === curY && lq < curQ);
+  if (isDone) return 'Сдан';
+  return `${lot.readyQuarter ? `${lot.readyQuarter} кв. ` : ''}${lot.builtYear}`;
+}
+
 const FAVORITES_KEY = 'catalog_favorites';
 
 function getFavorites(): string[] {
@@ -67,7 +82,7 @@ function LotDetail({ lot, onClose, onBook, onVisit }: { lot: any; onClose: () =>
         <div class="row"><div class="label">Этаж</div><div class="value">${lot.floor}${lot.floorsTotal ? ` / ${lot.floorsTotal}` : ''}</div></div>
         <div class="row"><div class="label">Комнат</div><div class="value">${lot.rooms}</div></div>
         <div class="row"><div class="label">Площадь</div><div class="value">${Number(lot.sqm)} м²</div></div>
-        ${lot.builtYear ? `<div class="row"><div class="label">Срок сдачи</div><div class="value">${lot.readyQuarter ? lot.readyQuarter + ' кв. ' : ''}${lot.builtYear}</div></div>` : ''}
+        ${lot.builtYear ? `<div class="row"><div class="label">Срок сдачи</div><div class="value">${formatReadiness(lot)}</div></div>` : ''}
         ${lot.windowView ? `<div class="row"><div class="label">Вид из окна</div><div class="value">${lot.windowView}</div></div>` : ''}
       </div>
       <div class="price">Стоимость: ${priceDisplay}</div>
@@ -116,7 +131,7 @@ function LotDetail({ lot, onClose, onBook, onVisit }: { lot: any; onClose: () =>
           <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Комнат</span><span className="font-medium">{lot.rooms}</span></div>
           <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Площадь</span><span className="font-medium">{Number(lot.sqm)} м²</span></div>
           {lot.buildingSection && <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Секция</span><span className="font-medium">{lot.buildingSection}</span></div>}
-          {lot.builtYear && <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Срок сдачи</span><span className="font-medium">{lot.readyQuarter ? `${lot.readyQuarter} кв. ` : ''}{lot.builtYear}</span></div>}
+          {lot.builtYear && <div className="bg-surface-secondary rounded-lg p-3"><span className="text-text-muted block text-xs">Срок сдачи</span><span className="font-medium">{formatReadiness(lot)}</span></div>}
           {lot.windowView && <div className="bg-surface-secondary rounded-lg p-3 col-span-2"><span className="text-text-muted block text-xs">Вид из окна</span><span className="font-medium">{lot.windowView}</span></div>}
         </div>
 
@@ -315,10 +330,11 @@ export default function CatalogPage() {
   const [contactModal, setContactModal] = useState<{ lot: any; kind: 'book' | 'visit' } | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Reset building when project changes if it doesn't belong to the project
+  // Reset building when project / propertyType / rooms changes —
+  // выбранный корпус может не существовать в новой выборке (КБ6 fix).
   useEffect(() => {
     setBuildingFilter('');
-  }, [projectFilter]);
+  }, [projectFilter, propertyTypeFilter, roomsFilter]);
 
   const buildQuery = useMemo(() => {
     const p = new URLSearchParams({ page: String(page), limit: '18' });
@@ -504,7 +520,27 @@ export default function CatalogPage() {
             <label className="text-xs text-text-muted block mb-1">Срок сдачи</label>
             <select className="input" value={yearFilter} onChange={(e) => { setYearFilter(e.target.value); setPage(1); }}>
               <option value="">Любой</option>
-              {years.map((y) => <option key={y.year} value={y.year}>{y.year} ({y.count})</option>)}
+              {(() => {
+                // Bug fix 2026-06-02: прошедшие годы группируем в одну опцию
+                // «Сдан». Зорге 9 уже сдан (2023/2024), брокеру нет смысла
+                // выбирать между этими годами. Будущие годы показываются как
+                // есть («2027»).
+                const curY = new Date().getFullYear();
+                let doneCount = 0;
+                const future: typeof years = [];
+                for (const y of years) {
+                  if (y.year < curY) doneCount += y.count;
+                  else future.push(y);
+                }
+                const opts: JSX.Element[] = [];
+                if (doneCount > 0) {
+                  opts.push(<option key="done" value="done">Сдан ({doneCount})</option>);
+                }
+                for (const y of future) {
+                  opts.push(<option key={y.year} value={y.year}>{y.year} ({y.count})</option>);
+                }
+                return opts;
+              })()}
             </select>
           </div>
         </div>
@@ -569,11 +605,24 @@ export default function CatalogPage() {
                   className="p-4 bg-surface-secondary rounded-lg cursor-pointer hover:ring-2 hover:ring-accent/50 transition"
                   onClick={() => setSelectedLot(lot)}
                 >
-                  {lot.planImageUrl && (
-                    <div className="mb-3 bg-surface rounded-lg p-2">
-                      <img src={lot.planImageUrl} alt="Планировка" className="w-full rounded max-h-40 object-contain" />
-                    </div>
-                  )}
+                  {/* КБ6 (2026-05-25): единый стиль картинок — фиксированная
+                      высота 160px, object-contain, без скачков размера карточки.
+                      Если картинки нет — серый плейсхолдер той же высоты,
+                      чтобы карточки лотов были одинаковыми по высоте. */}
+                  <div className="mb-3 bg-surface rounded-lg overflow-hidden" style={{ height: 160 }}>
+                    {lot.planImageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={lot.planImageUrl}
+                        alt="Планировка"
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-text-muted text-xs">
+                        Без планировки
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-medium text-sm">{lot.number}</h3>
                     <div className="flex items-center gap-1">
@@ -597,12 +646,12 @@ export default function CatalogPage() {
                   {lot.propertyType && <div className="text-xs text-accent mb-2">{lot.propertyType}</div>}
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between"><span className="text-text-muted">Проект:</span><span>{projectLabels[lot.project] || lot.project}</span></div>
-                    <div className="flex justify-between"><span className="text-text-muted">Корпус:</span><span className="text-right text-xs">{lot.building}</span></div>
+                    <div className="flex justify-between"><span className="text-text-muted">Корпус:</span><span className="text-right">{lot.building}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Этаж:</span><span>{lot.floor}{lot.floorsTotal ? ` / ${lot.floorsTotal}` : ''}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Комнат:</span><span>{lot.rooms}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Площадь:</span><span>{Number(lot.sqm)} м²</span></div>
                     {lot.builtYear && (
-                      <div className="flex justify-between"><span className="text-text-muted">Сдача:</span><span className="text-xs">{lot.readyQuarter ? `${lot.readyQuarter}кв. ` : ''}{lot.builtYear}</span></div>
+                      <div className="flex justify-between"><span className="text-text-muted">Сдача:</span><span>{formatReadiness(lot)}</span></div>
                     )}
                     {lot.discountPrice && Number(lot.discountPrice) > 0 ? (
                       <div className="pt-2 border-t border-border">

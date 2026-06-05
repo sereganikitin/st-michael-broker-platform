@@ -123,8 +123,27 @@ export class AdminController {
 
   @Get('call-center/queue')
   @ApiOperation({ summary: 'Очередь обзвона: брокеры isInBase=true, отсортированные по приоритету' })
-  async callCenterQueue(@Query() query: any) {
-    return this.adminService.getCallCenterQueue(query);
+  async callCenterQueue(@CurrentUser() user: CurrentUserPayload, @Query() query: any) {
+    // 2026-06-03: пробрасываем currentUserId для фильтра assignment=mine.
+    return this.adminService.getCallCenterQueue({ ...query, currentUserId: user.id });
+  }
+
+  @Get('call-center/managers')
+  @ApiOperation({ summary: 'Список менеджеров КЦ для дропдауна назначения' })
+  async listKcManagers() {
+    return this.adminService.listKcManagers();
+  }
+
+  @Post('call-center/assign')
+  @ApiOperation({ summary: 'Назначить выбранных брокеров на менеджера КЦ' })
+  async assignBrokers(@Body() body: { brokerIds: string[]; managerId: string }) {
+    return this.adminService.assignBrokersToManager(body.brokerIds || [], body.managerId);
+  }
+
+  @Post('call-center/unassign')
+  @ApiOperation({ summary: 'Снять назначение менеджера с выбранных брокеров' })
+  async unassignBrokers(@Body() body: { brokerIds: string[] }) {
+    return this.adminService.unassignBrokers(body.brokerIds || []);
   }
 
   @Post('call-center/log-call')
@@ -149,6 +168,42 @@ export class AdminController {
   @ApiOperation({ summary: 'KPI оператора и команды на сегодня/неделю/месяц' })
   async callCenterStats(@CurrentUser() user: CurrentUserPayload) {
     return this.adminService.getCallCenterStats(user.id);
+  }
+
+  // A3 fix 2026-05-24: UI решения конфликтов уникальности.
+  @Get('uniqueness-conflicts')
+  @ApiOperation({ summary: 'Список клиентов в UNDER_REVIEW (конфликт фиксации) с инфой о конкурентном брокере' })
+  async uniquenessConflicts() {
+    return this.adminService.getUniquenessConflicts();
+  }
+
+  // Bug fix 2026-05-25: диагностика amo (живой ли токен).
+  // 2026-05-29: ручной триггер синка Я.Диска (помимо ежедневного крона).
+  // Возвращает сразу — синк идёт в фоне, лог в server-stdout.
+  @Post('yandex-sync')
+  @ApiOperation({ summary: 'Запустить синхронизацию материалов с Я.Диска (в фоне)' })
+  @Roles(UserRole.ADMIN)
+  async yandexSync() {
+    return this.adminService.triggerYandexSync();
+  }
+
+  @Get('amo-health')
+  @ApiOperation({ summary: 'Быстрая проверка amo: токен жив? account отвечает?' })
+  async amoHealth() {
+    return this.adminService.checkAmoHealth();
+  }
+
+  // 2026-05-25: заявки без передачи в amo (для менеджеров/координаторов).
+  @Get('amo-failed-clients')
+  @ApiOperation({ summary: 'Клиенты с amoSyncStatus=FAILED — заявки, не переданные в amoCRM' })
+  async amoFailedClients() {
+    return this.adminService.getAmoFailedClients();
+  }
+
+  @Post('clients/:id/retry-amo-sync')
+  @ApiOperation({ summary: 'Повторить попытку передать заявку в amoCRM' })
+  async retryAmoSync(@Param('id') id: string) {
+    return this.adminService.retryAmoSync(id);
   }
 
   // ─── Mailings ─────────────────────────────────────────────
@@ -224,6 +279,27 @@ export class AdminController {
   async deleteCommissionPolicy(@Param('id') id: string) {
     return this.adminService.deleteCommissionPolicy(id);
   }
+  // ─── Integration settings (admin only) ───────────────────
+  // 2026-06-04: KV-настройки для интеграций (Morekit URL и т.п.),
+  // которые админ хочет менять из UI без релиза/SSH.
+  @Get('integration-settings')
+  @ApiOperation({ summary: 'Текущие значения настроек интеграций (с env-fallback)' })
+  @Roles(UserRole.ADMIN)
+  async getIntegrationSettings() {
+    return this.adminService.getIntegrationSettings();
+  }
+
+  @Patch('integration-settings/:key')
+  @ApiOperation({ summary: 'Обновить настройку интеграции (whitelist ключей)' })
+  @Roles(UserRole.ADMIN)
+  async updateIntegrationSetting(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('key') key: string,
+    @Body() body: { value: string },
+  ) {
+    return this.adminService.updateIntegrationSetting(key, body.value || '', user.id);
+  }
+
   // ─── Reassign client to another broker (manager/admin) ────
   @Patch('clients/:id/reassign-broker')
   @ApiOperation({ summary: 'Передать клиента другому брокеру (manager/admin)' })

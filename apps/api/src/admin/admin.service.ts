@@ -242,7 +242,7 @@ export class AdminService {
           source: true,
           amoContactId: true,
           createdAt: true,
-          _count: { select: { clients: true, deals: true, meetings: true } },
+          _count: { select: { clients: true, deals: true, meetings: true, offerAcceptances: true } },
         },
         skip,
         take: limit,
@@ -266,6 +266,13 @@ export class AdminService {
           select: {
             id: true, result: true, comment: true, campaign: true,
             duration: true, createdAt: true, nextCallAt: true, operatorId: true,
+          },
+        },
+        // КБ6 (2026-05-25): акцепты оферты — для статуса «договор подписан».
+        offerAcceptances: {
+          orderBy: { acceptedAt: 'desc' },
+          select: {
+            id: true, offerVersion: true, acceptedAt: true, ip: true, signedPdfUrl: true,
           },
         },
       },
@@ -733,18 +740,23 @@ export class AdminService {
 
       this.importJobs.setProgress(jobId, 0, contactIds.size, 'writing-brokers');
 
-      // 2) Тянем каждый контакт, проверяем IS_BROKER флаг, нормализуем телефон
+      // КБ6 fix #44 (2026-05-25): тянем контакты ПАЧКАМИ по 250
+      // (раньше — по одному, что давало ~5000 запросов и сотни 429-ошибок).
+      // С bulk-методом получается ~20 запросов и ноль (или близко) ошибок.
       const amoPhones = new Set<string>();
       const amoByPhone = new Map<string, { name: string; amoContactId: number }>();
       let notBrokerFlag = 0;
       let invalidPhone = 0;
       let amoErrors = 0;
-      let i = 0;
 
-      for (const contactId of contactIds) {
-        i++;
-        try {
-          const contact: any = await this.amo.getContact(contactId);
+      const idsList = Array.from(contactIds);
+      const BATCH = 250;
+      let processed = 0;
+      for (let b = 0; b < idsList.length; b += BATCH) {
+        const chunk = idsList.slice(b, b + BATCH);
+        const got = await this.amo.getContactsByIds(chunk);
+        for (const contactId of chunk) {
+          const contact: any = got.get(Number(contactId));
           if (!contact) { amoErrors++; continue; }
           const fields = contact.custom_fields_values || [];
           const brokerField = fields.find((f: any) => f.field_id === AMO_CONTACT_FIELDS.IS_BROKER);
@@ -757,12 +769,9 @@ export class AdminService {
           if (!amoByPhone.has(norm.phone)) {
             amoByPhone.set(norm.phone, { name: contact.name || '—', amoContactId: contactId });
           }
-        } catch (_) {
-          amoErrors++;
         }
-        if (i % 20 === 0 || i === contactIds.size) {
-          this.importJobs.setProgress(jobId, i, contactIds.size, 'writing-brokers');
-        }
+        processed += chunk.length;
+        this.importJobs.setProgress(jobId, processed, contactIds.size, 'writing-brokers');
       }
 
       // 3) Все телефоны брокеров в БД
@@ -821,6 +830,11 @@ export class AdminService {
     search?: string;
     includeAll?: string | boolean;
     coordinators?: 'only' | 'exclude' | '' | string;
+    // 2026-06-03: фильтр назначения. 'mine' — только мои (managerId=currentUserId),
+    // 'unassigned' — без назначения, 'all' (или пусто) — все. Если 'mine' — нужен
+    // currentUserId (передаётся через параметр).
+    assignment?: 'mine' | 'unassigned' | 'all' | string;
+    currentUserId?: string;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Number(query.limit) || 30);
@@ -844,6 +858,13 @@ export class AdminService {
     } else if (query.coordinators === 'exclude') {
       where.isCoordinator = false;
     }
+    // 2026-06-03: фильтр распределения по менеджерам КЦ.
+    if (query.assignment === 'mine' && query.currentUserId) {
+      where.assignedManagerId = query.currentUserId;
+    } else if (query.assignment === 'unassigned') {
+      where.assignedManagerId = null;
+    }
+    // 'all' / пусто — никакого фильтра по assignedManagerId не накладываем.
     // Bug fix 2026-05-22 (#3): не показывать оператору брокеров с
     // запланированным звонком в будущем (например +7 дней).
     // Условие OR: либо никогда не звонили (nextCallAt = null), либо
@@ -879,6 +900,9 @@ export class AdminService {
           nextCallAt: true,
           baseSource: true,
           createdAt: true,
+          assignedManagerId: true,
+          assignedAt: true,
+          assignedManager: { select: { id: true, fullName: true } },
           callLogs: {
             select: { id: true, result: true, comment: true, campaign: true, createdAt: true },
             orderBy: { createdAt: 'desc' },
@@ -899,6 +923,57 @@ export class AdminService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  // 2026-06-03: распределение брокеров на менеджеров КЦ. Руководитель КЦ
+  // выбирает чекбоксами несколько брокеров и батч-назначает на менеджера.
+  // Менеджер КЦ дефолтным фильтром видит только своих в очереди обзвона.
+
+  async listKcManagers() {
+    const managers = await this.prisma.broker.findMany({
+      where: { role: 'MANAGER' as any },
+      select: {
+        id: true,
+        fullName: true,
+        _count: { select: { assignedBrokers: true } },
+      },
+      orderBy: { fullName: 'asc' },
+    });
+    return managers.map((m: any) => ({
+      id: m.id,
+      fullName: m.fullName,
+      assignedCount: m._count?.assignedBrokers || 0,
+    }));
+  }
+
+  async assignBrokersToManager(brokerIds: string[], managerId: string) {
+    if (!brokerIds.length) throw new BadRequestException('Не выбрано ни одного брокера');
+    const manager = await this.prisma.broker.findUnique({
+      where: { id: managerId },
+      select: { id: true, role: true, fullName: true },
+    });
+    if (!manager) throw new NotFoundException('Менеджер не найден');
+    if (manager.role !== 'MANAGER' && manager.role !== 'ADMIN') {
+      throw new BadRequestException('Можно назначать только на MANAGER или ADMIN');
+    }
+    const result = await this.prisma.broker.updateMany({
+      where: { id: { in: brokerIds } },
+      data: { assignedManagerId: managerId, assignedAt: new Date() },
+    });
+    return {
+      assigned: result.count,
+      managerId,
+      managerName: manager.fullName,
+    };
+  }
+
+  async unassignBrokers(brokerIds: string[]) {
+    if (!brokerIds.length) throw new BadRequestException('Не выбрано ни одного брокера');
+    const result = await this.prisma.broker.updateMany({
+      where: { id: { in: brokerIds } },
+      data: { assignedManagerId: null, assignedAt: null },
+    });
+    return { unassigned: result.count };
   }
 
   // Правила автообновления брокера по результату звонка.
@@ -1024,6 +1099,192 @@ export class AdminService {
     }
 
     return { callLog, broker: updated };
+  }
+
+  // 2026-05-25: список заявок не переданных в amoCRM (amoSyncStatus=FAILED).
+  // fixationAgency не имеет prisma-relation на Client (только FK-поле
+  // fixationAgencyId), поэтому Agency грузим отдельным запросом.
+  async getAmoFailedClients() {
+    const clients = await this.prisma.client.findMany({
+      where: { amoSyncStatus: 'FAILED' as any },
+      include: {
+        broker: { select: { id: true, fullName: true, phone: true } },
+      },
+      orderBy: { amoSyncLastAttemptAt: 'desc' },
+      take: 200,
+    });
+    const agencyIds = Array.from(new Set(clients.map((c) => c.fixationAgencyId).filter(Boolean) as string[]));
+    const agencies = agencyIds.length
+      ? await this.prisma.agency.findMany({
+          where: { id: { in: agencyIds } },
+          select: { id: true, name: true, inn: true },
+        })
+      : [];
+    const agencyMap = new Map(agencies.map((a) => [a.id, a]));
+    return clients.map((c) => ({
+      id: c.id,
+      fullName: c.fullName,
+      phone: c.phone,
+      project: c.project,
+      broker: c.broker,
+      agency: c.fixationAgencyId ? agencyMap.get(c.fixationAgencyId) || null : null,
+      amoSyncError: c.amoSyncError,
+      amoSyncAttempts: c.amoSyncAttempts,
+      amoSyncLastAttemptAt: c.amoSyncLastAttemptAt,
+      createdAt: c.createdAt,
+    }));
+  }
+
+  // 2026-05-25: ручной retry — менеджер видит FAILED-заявку и нажимает «повторить».
+  // Вызывает amo createFixationRequest снова. При успехе — статус SYNCED.
+  async retryAmoSync(clientId: string) {
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+      include: { broker: true },
+    });
+    if (!client) throw new BadRequestException('Client not found');
+    if (client.amoSyncStatus === 'SYNCED') return { ok: true, message: 'Уже синхронизирован' };
+    if (!client.fixationAgencyId) throw new BadRequestException('У клиента нет fixationAgency');
+    const agency = await this.prisma.agency.findUnique({ where: { id: client.fixationAgencyId } });
+    if (!agency) throw new BadRequestException('Агентство не найдено');
+
+    try {
+      await this.amo.createFixationRequest({
+        clientPhone: client.phone,
+        clientEmail: client.email || undefined,
+        clientName: client.fullName,
+        brokerPhone: client.broker.phone,
+        brokerAmoContactId: client.broker.amoContactId ? Number(client.broker.amoContactId) : undefined,
+        agencyName: agency.name,
+        agencyInn: agency.inn,
+        comment: client.comment || '',
+        project: client.project as any,
+        fromBroker: true,
+      });
+      await this.prisma.client.update({
+        where: { id: clientId },
+        data: {
+          amoSyncStatus: 'SYNCED',
+          amoSyncError: null,
+          amoSyncAttempts: { increment: 1 },
+          amoSyncLastAttemptAt: new Date(),
+        },
+      });
+      return { ok: true, message: 'Заявка передана в amoCRM' };
+    } catch (e: any) {
+      const error = String(e?.message || e).slice(0, 500);
+      await this.prisma.client.update({
+        where: { id: clientId },
+        data: {
+          amoSyncError: error,
+          amoSyncAttempts: { increment: 1 },
+          amoSyncLastAttemptAt: new Date(),
+        },
+      });
+      return { ok: false, error };
+    }
+  }
+
+  // Bug fix 2026-05-25: диагностика статуса amoCRM.
+  // Возвращает { ok, accountName?, error?, tokenConfigured }.
+  // Используется UI чтобы быстро понять — отвалился токен/таймаут/rate-limit.
+  // 2026-05-29: ручной триггер синка Я.Диска
+  async triggerYandexSync() {
+    const publicKey = process.env.YANDEX_DISK_PUBLIC_KEY;
+    if (!publicKey) {
+      return { ok: false, message: 'YANDEX_DISK_PUBLIC_KEY не настроен в .env' };
+    }
+    // Запускаем в фоне, сразу возвращаем "started"
+    const { spawn } = require('child_process');
+    const path = require('path');
+    const scriptPath = path.resolve(__dirname, '../../../../scripts/sync-yandex-files.js');
+    const child = spawn('node', [scriptPath], {
+      env: { ...process.env, YANDEX_DISK_PUBLIC_KEY: publicKey },
+      detached: true,
+      stdio: 'inherit',
+    });
+    child.unref();
+    return { ok: true, message: 'Синхронизация запущена в фоне. Лог в server stdout. Может занять 10-30 минут на первый прогон.' };
+  }
+
+  async checkAmoHealth() {
+    const tokenConfigured = !!process.env.AMO_ACCESS_TOKEN;
+    if (!tokenConfigured) {
+      return { ok: false, tokenConfigured: false, error: 'AMO_ACCESS_TOKEN не настроен в env' };
+    }
+    const started = Date.now();
+    try {
+      const acc = await this.amo.getAccount();
+      return {
+        ok: true,
+        tokenConfigured: true,
+        accountName: acc?.name || acc?.subdomain || null,
+        accountId: acc?.id || null,
+        latencyMs: Date.now() - started,
+      };
+    } catch (e: any) {
+      return {
+        ok: false,
+        tokenConfigured: true,
+        error: String(e?.message || e),
+        latencyMs: Date.now() - started,
+      };
+    }
+  }
+
+  // A3 fix 2026-05-24: список клиентов с UNDER_REVIEW для UI менеджера.
+  // Для каждого находим конкурирующего брокера по phone (старая запись)
+  // и брокера-инициатора (текущий client.brokerId).
+  async getUniquenessConflicts() {
+    const conflicts = await this.prisma.client.findMany({
+      where: { uniquenessStatus: 'UNDER_REVIEW' },
+      include: {
+        broker: { select: { id: true, fullName: true, phone: true } },
+        deals: { select: { id: true, status: true, amount: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const enriched = await Promise.all(
+      conflicts.map(async (c) => {
+        // Конкурирующая запись клиента (другой брокер с тем же телефоном)
+        const others = await this.prisma.client.findMany({
+          where: { phone: c.phone, id: { not: c.id } },
+          include: {
+            broker: { select: { id: true, fullName: true, phone: true } },
+            meetings: { select: { id: true, status: true, date: true } },
+            deals: { select: { id: true, status: true, amount: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+        return {
+          conflictingClient: {
+            id: c.id,
+            fullName: c.fullName,
+            phone: c.phone,
+            project: c.project,
+            uniquenessReason: c.uniquenessReason,
+            createdAt: c.createdAt,
+            broker: c.broker,
+            dealsCount: c.deals.length,
+          },
+          existingClaims: others.map((o) => ({
+            id: o.id,
+            broker: o.broker,
+            uniquenessStatus: o.uniquenessStatus,
+            uniquenessExpiresAt: o.uniquenessExpiresAt,
+            fixationStatus: o.fixationStatus,
+            project: o.project,
+            createdAt: o.createdAt,
+            meetingsCount: o.meetings.length,
+            dealsCount: o.deals.length,
+            hasActiveDeal: o.deals.some((d) => ['PENDING', 'SIGNED', 'PAID'].includes(d.status as any)),
+          })),
+        };
+      })
+    );
+
+    return enriched;
   }
 
   async getCallCenterStats(operatorId: string) {
@@ -1323,6 +1584,56 @@ export class AdminService {
 
   getImportJob(id: string) {
     return this.importJobs.get(id);
+  }
+
+  // ─── Integration settings ────────────────────────────────
+  // 2026-06-04: whitelist ключей, которые админ может править из UI.
+  // Любое значение не из списка → 400. Защита: иначе админ мог бы
+  // подсунуть нагрузочный KV-стор.
+  private static readonly INTEGRATION_KEYS = ['MOREKIT_WEBHOOK_URL'];
+
+  async getIntegrationSettings() {
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: AdminService.INTEGRATION_KEYS } },
+      select: { key: true, value: true, updatedAt: true, updatedBy: true },
+    });
+    const byKey = new Map(rows.map((r) => [r.key, r] as const));
+    // Для каждой настройки отдаём currentValue (БД если есть, иначе env),
+    // dbValue (только если есть запись), envValue (что лежит в окружении).
+    return AdminService.INTEGRATION_KEYS.map((key) => {
+      const row = byKey.get(key);
+      const envValue = process.env[key] || '';
+      return {
+        key,
+        dbValue: row?.value ?? null,
+        envValue,
+        currentValue: row?.value ?? envValue,
+        updatedAt: row?.updatedAt ?? null,
+        updatedBy: row?.updatedBy ?? null,
+      };
+    });
+  }
+
+  async updateIntegrationSetting(key: string, value: string, updatedBy: string) {
+    if (!AdminService.INTEGRATION_KEYS.includes(key)) {
+      throw new BadRequestException(`Ключ ${key} не разрешён к редактированию`);
+    }
+    const trimmed = value.trim();
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      update: { value: trimmed, updatedBy },
+      create: { key, value: trimmed, updatedBy },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        userId: updatedBy,
+        action: 'INTEGRATION_SETTING_UPDATED',
+        entity: 'SystemSetting',
+        entityId: key,
+        payload: { key, valueLength: trimmed.length },
+      },
+    });
+    return { ok: true, key, value: trimmed };
   }
 
 }

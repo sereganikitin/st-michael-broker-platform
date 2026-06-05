@@ -254,13 +254,22 @@ const PROMOS = [
 ];
 
 (async () => {
+  // 2026-05-26 КРИТИЧНЫЙ ФИКС: раньше скрипт безусловно перезаписывал
+  // Projects и Promos на каждом деплое, стирая правки админа из
+  // /admin/projects и /admin/promos. Теперь — только CREATE если нет.
+  // Для принудительной перезаписи: FORCE=1 node seed-from-stmichael.js
+  const FORCE = process.env.FORCE === '1' || process.env.FORCE === 'true';
   const prisma = new PrismaClient();
-  console.log('=== Загрузка контента с stmichael.ru → CMS ===\n');
+  console.log(`=== Контент stmichael.ru → CMS (mode: ${FORCE ? 'FORCE OVERWRITE' : 'create-if-missing'}) ===\n`);
 
   // 1) PROJECTS
   console.log('Проекты:');
   for (const p of PROJECTS) {
     const existing = await prisma.landingProject.findUnique({ where: { slug: p.slug } });
+    if (existing && !FORCE) {
+      console.log(`  - ${p.name} ${p.subtitle || ''} (skip — admin может был редактировать)`);
+      continue;
+    }
     const data = {
       slug: p.slug,
       tag: p.tag,
@@ -288,7 +297,7 @@ const PROMOS = [
     };
     if (existing) {
       await prisma.landingProject.update({ where: { slug: p.slug }, data });
-      console.log(`  ✓ обновлено: ${p.name} ${p.subtitle || ''}`);
+      console.log(`  ✓ force-updated: ${p.name} ${p.subtitle || ''}`);
     } else {
       await prisma.landingProject.create({ data });
       console.log(`  + создано:   ${p.name} ${p.subtitle || ''}`);
@@ -299,6 +308,11 @@ const PROMOS = [
   console.log('\nАкции:');
   // Best-effort dedup by title — promos don't have unique slug
   for (const promo of PROMOS) {
+    const existing = await prisma.landingPromo.findFirst({ where: { title: promo.title } });
+    if (existing && !FORCE) {
+      console.log(`  - ${promo.title} (skip)`);
+      continue;
+    }
     const data = {
       title: promo.title,
       subtitle: promo.subtitle || null,
@@ -312,14 +326,16 @@ const PROMOS = [
       isActive: true,
       expiresAt: promo.expiresAt ? new Date(promo.expiresAt + 'T23:59:59.000Z') : null,
     };
-    const existing = await prisma.landingPromo.findFirst({ where: { title: promo.title } });
     if (existing) {
       await prisma.landingPromo.update({ where: { id: existing.id }, data });
-      console.log(`  ✓ обновлено: ${promo.title}`);
+      console.log(`  ✓ force-updated: ${promo.title}`);
     } else {
       await prisma.landingPromo.create({ data });
       console.log(`  + создано:   ${promo.title}`);
     }
+  }
+  if (!FORCE) {
+    console.log('\nNote: existing records were NOT overwritten. Force: FORCE=1 node ...');
   }
 
   console.log('\n✓ Готово.');

@@ -25,29 +25,32 @@ export class SchedulerService {
     @InjectQueue('notifications') private notificationQueue: Queue,
     private readonly catalogService: CatalogService,
   ) {}
-  // Yandex.Disk materials sync — каждые 12 часов (06:00 и 18:00).
-  // Тянет публичную папку с материалами для брокеров и обновляет Document таблицу.
-  @Cron('0 6,18 * * *')
+  // 2026-05-29: Yandex.Disk локальный кеш файлов — раз в сутки в 04:00.
+  // Скачивает физически файлы в /app/uploads/yandex/, обновляет Document.fileUrl
+  // на /files/yandex/... — nginx отдаёт напрямую без обращения к Я.Диску.
+  // Преимущество: превью видео/фото/PDF открывается в браузере сразу, без
+  // лишнего клика через Я.Диск UI.
+  @Cron('0 4 * * *')
   async handleYandexDiskSync() {
     const publicKey = process.env.YANDEX_DISK_PUBLIC_KEY;
     if (!publicKey) {
       this.logger.warn('YANDEX_DISK_PUBLIC_KEY не настроен — пропускаю синк материалов');
       return;
     }
-    this.logger.log('Yandex.Disk materials sync started...');
+    this.logger.log('Yandex.Disk files sync started (local cache)...');
     try {
       const { spawnSync } = require('child_process');
       const path = require('path');
-      const scriptPath = path.resolve(__dirname, '../../../../scripts/sync-yandex-disk.js');
+      const scriptPath = path.resolve(__dirname, '../../../../scripts/sync-yandex-files.js');
       const result = spawnSync('node', [scriptPath], {
         env: { ...process.env, YANDEX_DISK_PUBLIC_KEY: publicKey },
         encoding: 'utf-8',
-        timeout: 5 * 60 * 1000,
+        timeout: 60 * 60 * 1000, // до часа — на первый прогон много скачать
       });
       if (result.stdout) this.logger.log(result.stdout.trim());
       if (result.stderr) this.logger.error(result.stderr.trim());
     } catch (e) {
-      this.logger.error(`Yandex.Disk sync failed: ${e}`);
+      this.logger.error(`Yandex.Disk files sync failed: ${e}`);
     }
   }
   // Daily catalog XML feed sync at 03:00
@@ -540,5 +543,162 @@ export class SchedulerService {
       }
     }
     this.logger.log(`amoCRM sync complete: ${totalDeals} new deals, ${totalClients} new clients, ${brokers.length} brokers`);
+  }
+
+  // 2026-05-27 ROBUST AMO #1: auto-retry для клиентов с amoSyncStatus=FAILED.
+  // Каждые 5 минут берёт до 20 заявок которые не дошли в amoCRM, пытается
+  // переотправить. Если amo живой — заявки появятся в amo автоматически.
+  // Гасит счётчик попыток — если >10, не пытаемся больше (вечно сломанное).
+  @Cron('*/5 * * * *')
+  async handleAmoFailedRetry() {
+    if (!process.env.AMO_ACCESS_TOKEN) return;
+    const candidates = await this.prisma.client.findMany({
+      where: {
+        amoSyncStatus: 'FAILED' as any,
+        amoSyncAttempts: { lt: 10 },
+      },
+      include: { broker: true },
+      orderBy: { amoSyncLastAttemptAt: 'asc' },
+      take: 20,
+    });
+    if (candidates.length === 0) return;
+    this.logger.log(`amo auto-retry: ${candidates.length} клиентов в очереди`);
+
+    let ok = 0;
+    let failed = 0;
+    for (const client of candidates) {
+      if (!client.fixationAgencyId) continue;
+      const agency = await this.prisma.agency.findUnique({ where: { id: client.fixationAgencyId } });
+      if (!agency) continue;
+      try {
+        await this.amo.createFixationRequest({
+          clientPhone: client.phone,
+          clientEmail: client.email || undefined,
+          clientName: client.fullName,
+          brokerPhone: client.broker.phone,
+          brokerAmoContactId: client.broker.amoContactId ? Number(client.broker.amoContactId) : undefined,
+          agencyName: agency.name,
+          agencyInn: agency.inn,
+          comment: client.comment || '',
+          project: client.project as any,
+          fromBroker: true,
+        });
+        await this.prisma.client.update({
+          where: { id: client.id },
+          data: {
+            amoSyncStatus: 'SYNCED' as any,
+            amoSyncError: null,
+            amoSyncAttempts: { increment: 1 },
+            amoSyncLastAttemptAt: new Date(),
+          },
+        });
+        ok++;
+      } catch (e: any) {
+        const error = String(e?.message || e).slice(0, 500);
+        await this.prisma.client.update({
+          where: { id: client.id },
+          data: {
+            amoSyncError: error,
+            amoSyncAttempts: { increment: 1 },
+            amoSyncLastAttemptAt: new Date(),
+          },
+        });
+        failed++;
+        // Если 401 — токен умер, остальные ретраи бессмысленны до обновления токена.
+        if (error.includes('401') || error.includes('Unauthorized')) {
+          this.logger.error('amo 401 — прерываю auto-retry, надо обновить AMO_ACCESS_TOKEN');
+          await this.alertAmoTokenDead(error);
+          break;
+        }
+      }
+    }
+    this.logger.log(`amo auto-retry: ${ok} success, ${failed} failed`);
+  }
+
+  // 2026-05-27 ROBUST AMO #2: periodic health-check. Каждые 5 минут дёргает
+  // /account amocrm. Если упал — пишет в audit + один раз шлёт Telegram
+  // менеджерам (защита от спама через AmoHealthState).
+  private amoHealthState: { lastOk: boolean; lastErrorAt: number } = { lastOk: true, lastErrorAt: 0 };
+
+  @Cron('*/5 * * * *')
+  async handleAmoHealthCheck() {
+    if (!process.env.AMO_ACCESS_TOKEN) return;
+    try {
+      await this.amo.getAccount();
+      // Восстановилось после ошибки — лог и сброс state
+      if (!this.amoHealthState.lastOk) {
+        this.logger.log('amo health: восстановился ✓');
+        this.amoHealthState.lastOk = true;
+      }
+    } catch (e: any) {
+      const error = String(e?.message || e).slice(0, 200);
+      if (this.amoHealthState.lastOk) {
+        // Был жив — стал мёртв. Первая фиксация падения.
+        this.logger.error(`amo health: упал — ${error}`);
+        this.amoHealthState.lastOk = false;
+        this.amoHealthState.lastErrorAt = Date.now();
+        await this.alertAmoDown(error);
+      } else {
+        // Уже падал — спамить не будем. Но раз в час напоминаем.
+        if (Date.now() - this.amoHealthState.lastErrorAt > 60 * 60 * 1000) {
+          await this.alertAmoDown(error);
+          this.amoHealthState.lastErrorAt = Date.now();
+        }
+      }
+    }
+  }
+
+  private async alertAmoTokenDead(error: string) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'AMO_TOKEN_DEAD',
+          entity: 'System',
+          entityId: 'amo',
+          payload: { error, at: new Date().toISOString() },
+        },
+      });
+      const managers = await this.prisma.broker.findMany({
+        where: { role: 'MANAGER', status: 'ACTIVE' },
+        select: { id: true },
+      });
+      for (const m of managers) {
+        await this.notificationQueue.add('send', {
+          brokerId: m.id,
+          channel: 'TELEGRAM',
+          subject: '🔑 amoCRM: токен умер',
+          body: `Токен AMO_ACCESS_TOKEN истёк или невалиден (${error}). Обнови через gh secret set AMO_ACCESS_TOKEN < newtoken.txt --repo mefremov888-ai/st-michael-broker-platform и сделай пуш.`,
+        }).catch(() => {});
+      }
+    } catch (e: any) {
+      console.error('[alertAmoTokenDead] failed:', e?.message || e);
+    }
+  }
+
+  private async alertAmoDown(error: string) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'AMO_DOWN',
+          entity: 'System',
+          entityId: 'amo',
+          payload: { error, at: new Date().toISOString() },
+        },
+      });
+      const managers = await this.prisma.broker.findMany({
+        where: { role: 'MANAGER', status: 'ACTIVE' },
+        select: { id: true },
+      });
+      for (const m of managers) {
+        await this.notificationQueue.add('send', {
+          brokerId: m.id,
+          channel: 'TELEGRAM',
+          subject: '⚠ amoCRM недоступен',
+          body: `amoCRM не отвечает: ${error}. Заявки сохраняются локально, переотправятся автоматически когда восстановится.`,
+        }).catch(() => {});
+      }
+    } catch (e: any) {
+      console.error('[alertAmoDown] failed:', e?.message || e);
+    }
   }
 }

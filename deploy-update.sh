@@ -56,13 +56,28 @@ done
 # 4) Apply prisma schema changes (idempotent — если изменений нет, ничего не сделает)
 echo ""
 echo "==> [4/4] Применение schema.prisma и обновление CMS-контента..."
-$COMPOSE_CMD exec -T api npx prisma db push \
+# 2026-05-26: явно логируем выход db push — раньше "не фатально" маскировал
+# реальные ошибки миграции, после чего код падал на runtime (Unknown arg).
+if $COMPOSE_CMD exec -T api npx prisma db push \
     --schema=/app/packages/database/prisma/schema.prisma \
-    --accept-data-loss --skip-generate 2>&1 || \
-    echo "    (prisma db push не выполнен — может быть несовместимость, не фатально)"
+    --accept-data-loss --skip-generate; then
+    echo "    ✓ prisma db push выполнен успешно"
+else
+    echo "    ✗✗✗ ВНИМАНИЕ: prisma db push УПАЛ — новые поля могут отсутствовать в БД!"
+    echo "    Это приведёт к runtime-ошибкам в коде, который пишет в новые колонки."
+    echo "    Зайти на сервер и запустить вручную:"
+    echo "      $COMPOSE_CMD exec api npx prisma db push --schema=/app/packages/database/prisma/schema.prisma"
+fi
 
-$COMPOSE_CMD exec -T api node /app/scripts/refresh-cms-content.js 2>&1 || \
-    echo "    (refresh-cms-content пропущен — не фатально)"
+# 2026-05-26 КРИТИЧНЫЙ ФИКС: раньше скрипт делал UPSERT и стирал правки
+# админа из /admin/content при каждом деплое. Теперь — только CREATE
+# (sites без записи), а в этом случае мы и так полагаемся на
+# cms.seedDefaults() при старте API. Запуск отдельным скриптом убран.
+# Для ручной перезаписи запустить вручную:
+#   $COMPOSE_CMD exec api node /app/scripts/refresh-cms-content.js          # safe: skip existing
+#   $COMPOSE_CMD exec api node -e 'process.env.FORCE=1' /app/scripts/refresh-cms-content.js  # force
+# или: $COMPOSE_CMD exec -e FORCE=1 api node /app/scripts/refresh-cms-content.js
+echo "    (refresh-cms-content пропущен — правки админа сохраняются между деплоями)"
 
 # При первом деплое или по запросу — подтянуть актуальные проекты и акции
 # с https://stmichael.ru . Можно отключить установив SKIP_STMICHAEL_SEED=1.

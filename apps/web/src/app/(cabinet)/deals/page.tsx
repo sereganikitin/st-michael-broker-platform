@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
-import { ChevronLeft, ChevronRight, HeartHandshake, DollarSign, TrendingUp, Wallet } from 'lucide-react';
+import { ChevronLeft, ChevronRight, HeartHandshake, TrendingUp, Wallet } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   PENDING: { label: 'В работе', cls: 'bg-warning/20 text-warning' },
@@ -95,7 +95,9 @@ export default function DealsPage() {
         <div className="card">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-text-muted">Общая сумма сделок</span>
-            <DollarSign className="w-5 h-5 text-accent" />
+            {/* Bug fix 2026-06-02: была иконка DollarSign ($). Lucide 0.294
+                не имеет RussianRuble — используем текстовый символ ₽. */}
+            <span className="w-5 h-5 text-accent text-xl font-bold leading-none flex items-center justify-center">₽</span>
           </div>
           <div className="text-xl font-bold">{fmt(summary.totalAmount)}</div>
         </div>
@@ -135,8 +137,8 @@ export default function DealsPage() {
           <div className="text-center py-8 text-text-muted">Сделки не найдены</div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <table className="w-full text-sm min-w-[900px]">
                 <thead>
                   <tr className="text-text-muted text-left border-b border-border">
                     <th className="pb-3 font-medium">Клиент</th>
@@ -145,7 +147,7 @@ export default function DealsPage() {
                     <th className="pb-3 font-medium">Сумма</th>
                     <th className="pb-3 font-medium">Комиссия</th>
                     <th className="pb-3 font-medium">Статус</th>
-                    <th className="pb-3 font-medium">Дата</th>
+                    <th className="pb-3 font-medium" title="Дата подписания договора в amoCRM (если есть). Если ещё не подписан — дата создания сделки.">Дата подписания</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -174,9 +176,9 @@ export default function DealsPage() {
                           {statusLabels[deal.status]?.label || deal.status}
                         </span>
                       </td>
-                      <td className="py-3 text-text-muted">
-                        {/* signedAt — дата из amoCRM (правка 2026-05-13). */}
+                      <td className="py-3 text-text-muted" title={deal.signedAt ? `Подписана ${new Date(deal.signedAt).toLocaleDateString('ru-RU')}` : `Сделка создана ${new Date(deal.createdAt).toLocaleDateString('ru-RU')}, ещё не подписана`}>
                         {new Date(deal.signedAt || deal.createdAt).toLocaleDateString('ru-RU')}
+                        {!deal.signedAt && <span className="text-[10px] text-warning ml-1">(черновик)</span>}
                       </td>
                     </tr>
                   ))}

@@ -1,13 +1,17 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
+import { AmoCrmAdapter } from '@st-michael/integrations';
 
-const KNOWN_KEYS = ['hero', 'advantages', 'commission', 'contact', 'howto', 'projectsSection'] as const;
+const KNOWN_KEYS = ['hero', 'advantages', 'commission', 'contact', 'howto', 'projectsSection', 'cooperation'] as const;
 
 const DEFAULT_CONTENT: Record<string, any> = {
   hero: {
     tag: 'Партнёрская программа',
     title: 'Доход растёт вместе с объёмом продаж агентства',
     titleAccent: 'продаж агентства',
+    // 2026-05-26: возврат к ксениным текстам КБ4 (моя КБ5-правка стёрла их —
+    // пользователь сказал откатить). % зашиты в текст осознанно — Ксеня их
+    // редактирует руками когда меняются.
     description:
       'Суммируем сделки по Зорге 9 и Кварталу Серебряный Бор — вы быстрее выходите на более высокий уровень комиссии. До 8% по Зорге 9 и до 6,25% по Серебряному Бору.',
     stats: [
@@ -51,6 +55,15 @@ const DEFAULT_CONTENT: Record<string, any> = {
     titleAccent: 'Наши проекты',
     subtitle: '',
   },
+  // 2026-06-01: блок «Условия сотрудничества» — раньше был захардкожен в LandingClient.tsx
+  cooperation: {
+    tag: 'Условия сотрудничества',
+    title: 'Всё прозрачно — документы',
+    titleAccent: 'документы',
+    subtitle: 'Брокер может заранее ознакомиться с условиями партнёрства до регистрации',
+    description: 'Мы рассматриваем сотрудничество с позиции «выиграл-выиграл». Все условия зафиксированы в документах и доступны в личном кабинете.',
+    ctaText: 'Стать партнёром',
+  },
   commission: {
     tag: 'Комиссия и условия выплаты',
     title: 'Прогрессивная шкала вознаграждения',
@@ -84,6 +97,7 @@ const DEFAULT_CONTENT: Record<string, any> = {
       { name: 'Champion', range: '500–699 м²', rate: '7,5%', active: false },
       { name: 'Legend', range: '700+ м²', rate: '8,0%', active: false },
     ],
+    // 2026-05-26: возвращён «Квартальный бонус» (был ксенин текст КБ4).
     cards: [
       { title: 'Условия выплаты', text: 'Вознаграждение выплачивается в течение 7 рабочих дней после оплаты клиентом. ПВ ≥ 50% (Зорге 9) или ≥ 30% (Серебряный Бор) — единовременно.' },
       { title: 'Квартальный бонус', text: 'При уровне Strong+ несколько кварталов подряд: +0,1% → +0,15% → +0,2% → +0,25% (максимум). Обнуляется при отсутствии продаж в квартале.' },
@@ -114,6 +128,9 @@ const DEFAULT_CONTENT: Record<string, any> = {
 
 @Injectable()
 export class CmsService {
+  // 2026-05-26: AmoCrmAdapter не зарегистрирован в DI этого модуля, создаём
+  // напрямую. Использует env AMO_ACCESS_TOKEN.
+  private amo = new AmoCrmAdapter();
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
 
   async getAllContent() {
@@ -128,12 +145,47 @@ export class CmsService {
     return row?.value ?? DEFAULT_CONTENT[key] ?? null;
   }
 
+  // КБ6 #45 (2026-05-25): на каждое сохранение CMS-блока пишем revision
+  // в site_content_revisions. История доступна в /admin/content/history.
   async upsertContent(key: string, value: any, updatedBy?: string) {
-    return this.prisma.siteContent.upsert({
+    let editorName: string | null = null;
+    if (updatedBy) {
+      const editor = await this.prisma.broker.findUnique({
+        where: { id: updatedBy },
+        select: { fullName: true },
+      }).catch(() => null);
+      editorName = editor?.fullName || null;
+    }
+    const result = await this.prisma.siteContent.upsert({
       where: { key },
       update: { value, updatedBy },
       create: { key, value, updatedBy },
     });
+    // Revision пишем после upsert — если upsert упал, revision не появится.
+    await this.prisma.siteContentRevision.create({
+      data: { key, value, editorId: updatedBy || null, editorName },
+    }).catch((e) => {
+      // Если таблицы ещё нет (миграция не прошла) — не валим запрос.
+      console.error('[upsertContent] revision write failed:', e?.message || e);
+    });
+    return result;
+  }
+
+  // Список revisions для блока (ограничение — последние 50).
+  async listRevisions(key: string) {
+    return this.prisma.siteContentRevision.findMany({
+      where: { key },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  // Восстановить значение из revision. Создаёт ещё одну revision-запись
+  // с пометкой что это restore (через editorName='restore from <id>').
+  async restoreRevision(revisionId: string, updatedBy?: string) {
+    const rev = await this.prisma.siteContentRevision.findUnique({ where: { id: revisionId } });
+    if (!rev) throw new NotFoundException('Revision not found');
+    return this.upsertContent(rev.key, rev.value, updatedBy);
   }
 
   // ─── Events ─────────────────────────────────────
@@ -352,10 +404,11 @@ export class CmsService {
     if (!data.name || data.name.trim().length < 2) throw new NotFoundException('name required');
     if (!data.phone || data.phone.trim().length < 5) throw new NotFoundException('phone required');
 
-    return this.prisma.contactRequest.create({
+    const phone = data.phone.trim();
+    const created = await this.prisma.contactRequest.create({
       data: {
         name: data.name.trim(),
-        phone: data.phone.trim(),
+        phone,
         email: data.email?.trim() || null,
         message: data.message?.trim() || null,
         source: data.source || 'landing-contact',
@@ -364,6 +417,103 @@ export class CmsService {
         userAgent,
       },
     });
+
+    // 2026-05-26: если заявка с лендинга — заводим/обновляем Broker
+    // карточку и кладём в очередь колл-центра (isInBase=true), чтобы
+    // оператор перезвонил. Сейчас включаем для broker-tour и
+    // landing-contact (обе подразумевают что человек хочет общаться).
+    const callCenterSources = new Set(['broker-tour', 'landing-contact']);
+    if (callCenterSources.has(data.source || '')) {
+      try {
+        await this.upsertBrokerFromLandingLead({
+          fullName: data.name.trim(),
+          phone,
+          email: data.email?.trim() || null,
+          note: data.message?.trim() || null,
+          source: data.source || 'landing-contact',
+        });
+      } catch (e: any) {
+        console.error('[createContactRequest] upsertBrokerFromLandingLead failed:', e?.message || e);
+      }
+    }
+
+    return created;
+  }
+
+  // 2026-05-26: создаёт или обновляет Broker, который оставил заявку с лендинга.
+  // Лояльно к существующему: если phone уже есть — обновляет category/isInBase
+  // и не трогает password/auth-поля. Новых ставит в очередь КЦ (isInBase=true,
+  // status=PENDING, category=WARM, funnelStage=NEW_BROKER).
+  private async upsertBrokerFromLandingLead(data: {
+    fullName: string;
+    phone: string;
+    email: string | null;
+    note: string | null;
+    source: string;
+  }) {
+    // Нормализуем телефон до +7XXXXXXXXXX (как в основной БД).
+    const digits = (data.phone || '').replace(/\D/g, '');
+    let phone = data.phone;
+    if (digits.length === 11 && digits[0] === '8') phone = '+7' + digits.slice(1);
+    else if (digits.length === 11 && digits[0] === '7') phone = '+' + digits;
+    else if (digits.length === 10) phone = '+7' + digits;
+
+    const existing = await this.prisma.broker.findUnique({ where: { phone } });
+    if (existing) {
+      // Уже есть. Не перетираем имя/роль/email, только метим что заявил
+      // через лендинг и пробуждаем для КЦ если был спящий.
+      await this.prisma.broker.update({
+        where: { id: existing.id },
+        data: {
+          isInBase: true,
+          // Если он отказывался от звонков — заявка с лендинга это снимает
+          doNotCall: false,
+          // Если в кэше отложили звонок — забываем (он сам написал, надо звонить сейчас)
+          nextCallAt: null,
+        },
+      });
+      return existing.id;
+    }
+
+    const created = await this.prisma.broker.create({
+      data: {
+        fullName: data.fullName,
+        phone,
+        email: data.email,
+        role: 'BROKER',
+        status: 'PENDING',
+        funnelStage: 'NEW_BROKER',
+        source: (data.source === 'broker-tour' ? 'LANDING_BROKER_TOUR' : 'LANDING_FORM') as any,
+        category: 'WARM' as any, // явная заявка — точно тёплый
+        isInBase: true,
+        baseSource: 'manual',
+        // первое касание — сразу в очередь, оператор увидит сегодня
+        nextCallAt: null,
+      },
+    });
+
+    // 2026-05-26: параллельно создаём карточку в amoCRM (пайплайн БРОКЕРЫ)
+    // — контакт с IS_BROKER + лид + задача КЦ. Если amo упал — не валим:
+    // brokerId в нашей БД создан, синк может пройти позже.
+    try {
+      const amo = await this.amo.createBrokerLeadFromLanding({
+        brokerName: data.fullName,
+        brokerPhone: phone,
+        brokerEmail: data.email,
+        source: data.source === 'broker-tour' ? 'LANDING_BROKER_TOUR' : 'LANDING_FORM',
+        note: data.note,
+      });
+      if (amo?.contactId) {
+        await this.prisma.broker.update({
+          where: { id: created.id },
+          data: { amoContactId: BigInt(amo.contactId) as any },
+        }).catch(() => {});
+      }
+    } catch (e: any) {
+      console.error('[upsertBrokerFromLandingLead] amo create failed:', e?.message || e);
+    }
+
+    return created.id;
   }
 
   async listContactRequests(query: { page?: number; limit?: number; source?: string; processed?: string }) {
@@ -454,6 +604,43 @@ export class CmsService {
       }
     } catch (e) {
       // Не валим seedDefaults если миграция не отработала
+    }
+
+    // 2026-05-26: ОТКАТ КБ5-миграции. Моя предыдущая «стирающая» миграция
+    // снесла ксенины тексты КБ4. Теперь — обратное: удаляем мои КБ5-тексты
+    // («Прогрессивная шкала: чем больше квадратных метров…», «Конкурентная
+    // комиссия», убранный «Квартальный бонус») чтобы при пересоздании
+    // подхватились возвращённые ксенины DEFAULT_CONTENT.
+    try {
+      const hero = await this.prisma.siteContent.findUnique({ where: { key: 'hero' } });
+      if (hero) {
+        const desc = (hero.value as any)?.description || '';
+        if (desc.startsWith('Прогрессивная шкала комиссии: чем больше квадратных метров')) {
+          await this.prisma.siteContent.delete({ where: { key: 'hero' } });
+        }
+      }
+      const adv2 = await this.prisma.siteContent.findUnique({ where: { key: 'advantages' } });
+      if (adv2) {
+        const items = (adv2.value as any)?.items || [];
+        const hasMyKb5 = items.some((it: any) =>
+          it?.title === 'Конкурентная комиссия' ||
+          /Прогрессивная шкала — растёт вместе с объёмом продаж/.test(it?.description || '')
+        );
+        if (hasMyKb5) {
+          await this.prisma.siteContent.delete({ where: { key: 'advantages' } });
+        }
+      }
+      const comm = await this.prisma.siteContent.findUnique({ where: { key: 'commission' } });
+      if (comm) {
+        const cards = (comm.value as any)?.cards || [];
+        const hasQuarterly = cards.some((c: any) => c?.title === 'Квартальный бонус');
+        // Если квартального НЕТ — значит это моя обрезанная версия КБ5, сносим
+        if (!hasQuarterly && cards.length > 0) {
+          await this.prisma.siteContent.delete({ where: { key: 'commission' } });
+        }
+      }
+    } catch (e) {
+      // не валим seedDefaults
     }
 
     for (const key of KNOWN_KEYS) {

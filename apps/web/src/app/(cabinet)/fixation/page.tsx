@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -41,11 +41,31 @@ export default function FixationPage() {
   const [isForeign, setIsForeign] = useState(false); // правка 2026-05-14: иностранные номера
   const [phoneDigits, setPhoneDigits] = useState(''); // только цифры для RU +7
   const [foreignPhone, setForeignPhone] = useState(''); // raw text для иностранных
+  // Bug fix 2026-06-02: тип недвижимости должен соответствовать проекту.
+  // Зорге 9 — апарт-комплекс, Серебряный бор — жилой (квартиры).
+  // Коммерческие площади есть в обоих корпусах.
+  const propertyTypesByProject: Record<string, Array<'Квартира' | 'Апартаменты' | 'Коммерческая'>> = {
+    ZORGE9: ['Апартаменты', 'Коммерческая'],
+    SILVER_BOR: ['Квартира', 'Коммерческая'],
+  };
   const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState(''); // правка 2026-05-15: необязательное
   const [lastName, setLastName] = useState('');
   const [project, setProject] = useState('ZORGE9');
-  const [propertyType, setPropertyType] = useState<'Квартира' | 'Апартаменты' | 'Коммерческая'>('Квартира');
+  // Тип недвижимости зависит от проекта: Зорге 9 — апартаменты, Серебряный
+  // бор (Берзарина 37) — квартиры. Коммерческие помещения есть в обоих.
+  // Bug fix 2026-06-02: «Квартира» для Зорге была доступна — это ошибка.
+  const [propertyType, setPropertyType] = useState<'Квартира' | 'Апартаменты' | 'Коммерческая'>('Апартаменты');
+
+  // При смене проекта — переключаем тип, если текущее значение
+  // не входит в допустимые для проекта.
+  useEffect(() => {
+    const allowed = propertyTypesByProject[project] || [];
+    if (allowed.length && !allowed.includes(propertyType)) {
+      setPropertyType(allowed[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project]);
   const [roomsCount, setRoomsCount] = useState<string>(''); // студия/1/2/3/4+
   const [sqm, setSqm] = useState('');
   const [amount, setAmount] = useState(''); // raw digits
@@ -59,6 +79,16 @@ export default function FixationPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  // КБ7 (2026-05-26): пользователь нажал «Отправить» хотя бы раз —
+  // с этого момента подсвечиваем красным невалидные поля и пишем
+  // под каждым «Заполните это поле». До первой попытки не дёргаем.
+  const [attempted, setAttempted] = useState(false);
+  // 2026-05-25: если amo упал — показываем брокеру предупреждение и
+  // список менеджеров с телефонами, чтобы он мог позвонить напрямую.
+  const [amoWarn, setAmoWarn] = useState<{
+    message: string;
+    managers: { fullName: string; phone: string; telegram: string | null }[];
+  } | null>(null);
 
   const brokerAgency = broker?.agencies?.[0];
 
@@ -84,6 +114,20 @@ export default function FixationPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAttempted(true);
+    // КБ7: валидируем перед отправкой. Если что-то не так — показываем
+    // пользователю красные поля и НЕ дёргаем сервер.
+    const foreignD = foreignPhone.replace(/\D/g, '').length;
+    const phoneOk = isForeign ? foreignD >= 7 : phoneDigits.length === 10;
+    if (!phoneOk || !firstName.trim() || !sqm || !amount || !brokerAgency?.inn) {
+      setError('Заполните все обязательные поля (отмечены красным)');
+      // Прокрутим к первому невалидному.
+      setTimeout(() => {
+        const el = document.querySelector('.field-invalid') as HTMLElement | null;
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
+      return;
+    }
     setLoading(true);
     setError('');
 
@@ -97,30 +141,64 @@ export default function FixationPage() {
       phone = '+7' + phoneDigits;
     }
 
+    const payload = {
+      phone,
+      fullName,
+      email: email || undefined,
+      project,
+      agencyInn: brokerAgency?.inn || '',
+      propertyType,
+      roomsCount: roomsCount || undefined,
+      amount: amount ? Number(amount) : undefined,
+      sqm: sqm ? Number(sqm) : undefined,
+      clientRegion: clientRegion || undefined,
+      presentationSent,
+      purchaseTiming: purchaseTiming || undefined,
+      readinessLevel: readinessLevel || undefined,
+      participants: participants
+        .filter((p) => p.firstName || p.lastName || p.phone)
+        .map((p) => ({
+          firstName: p.firstName,
+          lastName: p.lastName,
+          phone: p.phone ? '+7' + p.phone : '',
+        })),
+    };
+
     try {
-      await apiPost('/clients/fix', {
-        phone,
-        fullName,
-        email: email || undefined,
-        project,
-        agencyInn: brokerAgency?.inn || '',
-        propertyType,
-        roomsCount: roomsCount || undefined,
-        amount: amount ? Number(amount) : undefined,
-        sqm: sqm ? Number(sqm) : undefined,
-        clientRegion: clientRegion || undefined,
-        presentationSent,
-        purchaseTiming: purchaseTiming || undefined,
-        readinessLevel: readinessLevel || undefined,
-        participants: participants
-          .filter((p) => p.firstName || p.lastName || p.phone)
-          .map((p) => ({
-            firstName: p.firstName,
-            lastName: p.lastName,
-            phone: p.phone ? '+7' + p.phone : '',
-          })),
-      });
-      setShowSuccess(true);
+      const result: any = await apiPost('/clients/fix', payload);
+      // 2026-05-26: если бэк говорит «уже есть твой клиент» — спрашиваем
+      // подтверждение и при OK повторяем с confirmDuplicate=true.
+      if (result?.status === 'REQUIRES_CONFIRMATION') {
+        const fmt = (s: any) => s ? new Date(s).toLocaleDateString('ru-RU') : '—';
+        const ec = result.existingClient || {};
+        const ok = window.confirm(
+          `${result.message}\n\n` +
+          `Существующая фиксация:\n` +
+          `• ${ec.fullName} (${ec.phone})\n` +
+          `• Статус: ${ec.uniquenessStatus}\n` +
+          `• Создана: ${fmt(ec.createdAt)}\n` +
+          `• Активна до: ${fmt(ec.uniquenessExpiresAt)}\n` +
+          `• Сделок: ${ec.dealsCount}\n\n` +
+          `Создать новую фиксацию всё равно?`
+        );
+        if (!ok) { setLoading(false); return; }
+        const result2: any = await apiPost('/clients/fix', { ...payload, confirmDuplicate: true });
+        if (result2?.amoSyncStatus === 'FAILED' && Array.isArray(result2?.managerContacts)) {
+          setAmoWarn({
+            message: result2.message || 'Заявка сохранена в кабинете, но не передана в amoCRM.',
+            managers: result2.managerContacts,
+          });
+        }
+        setShowSuccess(true);
+      } else {
+        if (result?.amoSyncStatus === 'FAILED' && Array.isArray(result?.managerContacts)) {
+          setAmoWarn({
+            message: result.message || 'Заявка сохранена в кабинете, но не передана в amoCRM.',
+            managers: result.managerContacts,
+          });
+        }
+        setShowSuccess(true);
+      }
     } catch (err: any) {
       setError(err.message || 'Ошибка при отправке заявки');
     }
@@ -136,7 +214,7 @@ export default function FixationPage() {
     setEmail('');
     setLastName('');
     setProject('ZORGE9');
-    setPropertyType('Квартира');
+    setPropertyType('Апартаменты');
     setRoomsCount('');
     setSqm('');
     setAmount('');
@@ -146,6 +224,7 @@ export default function FixationPage() {
     setPurchaseTiming('');
     setReadinessLevel('Тёплый');
     setShowSuccess(false);
+    setAmoWarn(null);
   };
 
   const brokerPhoneDisplay = broker?.phone || '—';
@@ -176,10 +255,10 @@ export default function FixationPage() {
             {!isForeign ? (
               <>
                 <div className="flex">
-                  <span className="inline-flex items-center px-3 bg-surface-secondary border border-r-0 border-border rounded-l text-text-muted text-sm">+7</span>
+                  <span className={`inline-flex items-center px-3 bg-surface-secondary border border-r-0 rounded-l text-text-muted text-sm ${attempted && phoneDigits.length !== 10 ? 'border-error field-invalid' : 'border-border'}`}>+7</span>
                   <input
                     type="tel"
-                    className="input rounded-l-none"
+                    className={`input rounded-l-none ${attempted && phoneDigits.length !== 10 ? 'border-error field-invalid' : ''}`}
                     placeholder="(999) 123-45-67"
                     // value — отформатированный «(999) 123-45-67» от текущих phoneDigits.
                     // При onChange — извлекаем только цифры (не больше 10).
@@ -209,18 +288,24 @@ export default function FixationPage() {
                 {phoneDigits.length === 10 && (
                   <div className="text-xs text-text-muted mt-1">{formatPhoneFromDigits(phoneDigits)}</div>
                 )}
+                {attempted && phoneDigits.length !== 10 && (
+                  <div className="text-xs text-error mt-1">Заполните это поле — телефон 10 цифр</div>
+                )}
               </>
             ) : (
               <>
                 <input
                   type="tel"
-                  className="input"
+                  className={`input ${attempted && foreignDigitsCount < 7 ? 'border-error field-invalid' : ''}`}
                   placeholder="+998 90 123 45 67"
                   value={foreignPhone}
                   onChange={(e) => setForeignPhone(e.target.value)}
                   required
                 />
                 <div className="text-xs text-text-muted mt-1">Иностранный — введи полный номер с кодом страны (любой формат)</div>
+                {attempted && foreignDigitsCount < 7 && (
+                  <div className="text-xs text-error mt-1">Заполните это поле — минимум 7 цифр</div>
+                )}
               </>
             )}
           </div>
@@ -230,11 +315,14 @@ export default function FixationPage() {
               <label className="label">Имя *</label>
               <input
                 type="text"
-                className="input"
+                className={`input ${attempted && !firstName.trim() ? 'border-error field-invalid' : ''}`}
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 required
               />
+              {attempted && !firstName.trim() && (
+                <div className="text-xs text-error mt-1">Заполните это поле</div>
+              )}
             </div>
             <div>
               <label className="label">Фамилия</label>
@@ -277,9 +365,9 @@ export default function FixationPage() {
                 value={propertyType}
                 onChange={(e) => setPropertyType(e.target.value as any)}
               >
-                <option value="Квартира">Квартира</option>
-                <option value="Апартаменты">Апартаменты</option>
-                <option value="Коммерческая">Коммерческая</option>
+                {(propertyTypesByProject[project] || []).map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -306,12 +394,15 @@ export default function FixationPage() {
                 type="number"
                 min="0"
                 step="0.01"
-                className="input"
+                className={`input ${attempted && !sqm ? 'border-error field-invalid' : ''}`}
                 placeholder="45.5"
                 value={sqm}
                 onChange={(e) => setSqm(e.target.value)}
                 required
               />
+              {attempted && !sqm && (
+                <div className="text-xs text-error mt-1">Заполните это поле</div>
+              )}
             </div>
           </div>
 
@@ -320,7 +411,7 @@ export default function FixationPage() {
             <input
               type="text"
               inputMode="numeric"
-              className="input"
+              className={`input ${attempted && !amount ? 'border-error field-invalid' : ''}`}
               placeholder="25 000 000"
               value={formatMoney(amount)}
               onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))}
@@ -330,6 +421,9 @@ export default function FixationPage() {
               <div className="text-xs text-text-muted mt-1">
                 {Number(amount).toLocaleString('ru-RU')} ₽
               </div>
+            )}
+            {attempted && !amount && (
+              <div className="text-xs text-error mt-1">Заполните это поле</div>
             )}
           </div>
 
@@ -444,13 +538,13 @@ export default function FixationPage() {
           <button
             type="submit"
             className="btn btn-primary w-full"
-            disabled={loading || !canSubmit}
+            disabled={loading}
           >
             {loading ? 'Отправка...' : 'Отправить заявку'}
           </button>
 
-          {!brokerAgency?.inn && (
-            <div className="text-xs text-warning">
+          {attempted && !brokerAgency?.inn && (
+            <div className="text-xs text-error">
               У вас не привязано агентство с ИНН. Заполните данные в Профиле перед фиксацией.
             </div>
           )}
@@ -470,11 +564,41 @@ export default function FixationPage() {
               <X className="w-5 h-5" />
             </button>
             <div className="text-center py-4">
-              <div className="mx-auto w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mb-4">
-                <CheckCircle2 className="w-10 h-10 text-success" />
-              </div>
-              <h2 className="text-2xl font-bold mb-2">Запрос отправлен</h2>
-              <p className="text-text-muted mb-6 text-sm">Заявка на фиксацию клиента успешно создана.</p>
+              {amoWarn ? (
+                <>
+                  <div className="mx-auto w-16 h-16 bg-warning/20 rounded-full flex items-center justify-center mb-4">
+                    <CheckCircle2 className="w-10 h-10 text-warning" />
+                  </div>
+                  <h2 className="text-xl font-bold mb-2">Заявка сохранена</h2>
+                  <p className="text-text-muted mb-4 text-sm text-left">{amoWarn.message}</p>
+                  {amoWarn.managers.length > 0 && (
+                    <div className="text-left bg-warning/10 border border-warning/30 rounded p-3 mb-4 text-sm">
+                      <div className="font-semibold mb-2">Менеджеры по брокерам:</div>
+                      <ul className="space-y-1">
+                        {amoWarn.managers.map((m, i) => (
+                          <li key={i} className="flex flex-wrap items-center gap-x-2">
+                            <span>{m.fullName}</span>
+                            {m.phone && (
+                              <a href={`tel:${m.phone}`} className="text-accent underline">{m.phone}</a>
+                            )}
+                            {m.telegram && (
+                              <a href={`https://t.me/${m.telegram.replace(/^@/, '')}`} target="_blank" rel="noreferrer" className="text-info underline">tg: @{m.telegram.replace(/^@/, '')}</a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="mx-auto w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mb-4">
+                    <CheckCircle2 className="w-10 h-10 text-success" />
+                  </div>
+                  <h2 className="text-2xl font-bold mb-2">Запрос отправлен</h2>
+                  <p className="text-text-muted mb-6 text-sm">Заявка на фиксацию клиента успешно создана.</p>
+                </>
+              )}
               <div className="flex flex-col gap-2">
                 <button
                   className="btn btn-primary w-full"

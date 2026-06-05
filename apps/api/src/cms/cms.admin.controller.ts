@@ -30,13 +30,33 @@ export class AdminCmsController {
 
   @Patch('content/:key')
   @ApiOperation({ summary: 'Upsert content block' })
-  @Roles(UserRole.ADMIN)
+  // 2026-05-26: расширил роли — раньше только ADMIN, что вызывало 403
+  // когда MANAGER пытался сохранить через /admin/content. Теперь MANAGER тоже
+  // может править блоки (история правок всё фиксирует — кто и когда менял).
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async upsert(
     @Param('key') key: string,
     @Body() body: { value: any },
     @CurrentUser() user: CurrentUserPayload,
   ) {
     return this.cms.upsertContent(key, body.value, user?.id);
+  }
+
+  // КБ6 #45 (2026-05-25): история правок CMS-блока.
+  @Get('content/:key/history')
+  @ApiOperation({ summary: 'История правок блока (последние 50)' })
+  async listRevisions(@Param('key') key: string) {
+    return this.cms.listRevisions(key);
+  }
+
+  @Post('content/revisions/:id/restore')
+  @ApiOperation({ summary: 'Откатить блок к выбранной revision' })
+  @Roles(UserRole.ADMIN)
+  async restoreRevision(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.cms.restoreRevision(id, user?.id);
   }
 
   // ─── Events ─────────────────────────────

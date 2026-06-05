@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { FileText, Save, Plus, Trash2 } from 'lucide-react';
+import { FileText, Save, Plus, Trash2, History, RotateCcw, X } from 'lucide-react';
 
 type ContentMap = Record<string, any>;
 
@@ -13,6 +13,7 @@ const BLOCKS: { key: string; label: string }[] = [
   { key: 'projectsSection', label: 'Заголовок «Наши проекты»' },
   { key: 'advantages', label: 'Преимущества' },
   { key: 'commission', label: 'Комиссия' },
+  { key: 'cooperation', label: 'Условия сотрудничества' },
   { key: 'contact', label: 'Контакты' },
 ];
 
@@ -35,6 +36,10 @@ export default function AdminContentPage() {
   const [tab, setTab] = useState<string>('hero');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  // КБ6 #45: история правок текущего блока (Google Docs-стиль)
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   if (broker && broker.role !== 'ADMIN' && broker.role !== 'MANAGER') {
     return <div className="card">Доступ запрещён</div>;
@@ -134,15 +139,84 @@ export default function AdminContentPage() {
         {tab === 'projectsSection' && <ProjectsSectionEditor content={content.projectsSection || {}} updateField={updateField} />}
         {tab === 'advantages' && <AdvantagesEditor content={content.advantages || {}} updateField={updateField} updateArrayItem={updateArrayItem} addArrayItem={addArrayItem} removeArrayItem={removeArrayItem} />}
         {tab === 'commission' && <CommissionEditor content={content.commission || {}} updateField={updateField} updateArrayItem={updateArrayItem} addArrayItem={addArrayItem} removeArrayItem={removeArrayItem} />}
+        {tab === 'cooperation' && <CooperationEditor content={content.cooperation || {}} updateField={updateField} />}
         {tab === 'contact' && <ContactEditor content={content.contact || {}} updateField={updateField} />}
 
-        <div className="mt-6 pt-4 border-t border-border flex gap-2">
+        <div className="mt-6 pt-4 border-t border-border flex gap-2 items-center flex-wrap">
           <button className="btn btn-primary flex items-center gap-2" onClick={() => saveBlock(tab)} disabled={saving || !isAdmin}>
             <Save className="w-4 h-4" /> {saving ? 'Сохранение...' : 'Сохранить'}
+          </button>
+          <button
+            className="btn btn-secondary flex items-center gap-2"
+            onClick={async () => {
+              setHistoryOpen(true);
+              setHistoryLoading(true);
+              try {
+                const h = await apiGet(`/admin/cms/content/${tab}/history`);
+                setHistory(Array.isArray(h) ? h : []);
+              } catch { setHistory([]); }
+              setHistoryLoading(false);
+            }}
+          >
+            <History className="w-4 h-4" /> История правок
           </button>
           {!isAdmin && <span className="text-xs text-text-muted self-center">Только админ может сохранять</span>}
         </div>
       </div>
+
+      {historyOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setHistoryOpen(false)}>
+          <div className="bg-surface rounded-xl max-w-3xl w-full max-h-[88vh] overflow-y-auto p-6 relative" onClick={(e) => e.stopPropagation()}>
+            <button className="absolute top-4 right-4 text-text-muted hover:text-text" onClick={() => setHistoryOpen(false)}>
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
+              <History className="w-5 h-5 text-accent" /> История правок: {BLOCKS.find((b) => b.key === tab)?.label || tab}
+            </h2>
+            <p className="text-xs text-text-muted mb-4">
+              Каждое сохранение блока создаёт запись. Кнопка «Восстановить» откатит блок к этому состоянию.
+            </p>
+
+            {historyLoading && <div className="text-text-muted text-sm">Загрузка…</div>}
+            {!historyLoading && history.length === 0 && <div className="text-text-muted text-sm">Правок пока нет.</div>}
+
+            <div className="space-y-3">
+              {history.map((rev) => (
+                <div key={rev.id} className="border border-border rounded-lg p-3">
+                  <div className="flex justify-between items-start gap-3 mb-2">
+                    <div>
+                      <div className="text-sm font-medium">{rev.editorName || 'Система'}</div>
+                      <div className="text-xs text-text-muted">{new Date(rev.createdAt).toLocaleString('ru-RU')}</div>
+                    </div>
+                    {isAdmin && (
+                      <button
+                        className="btn btn-secondary inline-flex items-center gap-1 text-xs"
+                        onClick={async () => {
+                          if (!confirm(`Восстановить блок «${tab}» к этому состоянию?`)) return;
+                          try {
+                            await api(`/admin/cms/content/revisions/${rev.id}/restore`, { method: 'POST' });
+                            const fresh = await apiGet('/admin/cms/content');
+                            setContent(fresh || {});
+                            setMessage(`Восстановлено из revision от ${new Date(rev.createdAt).toLocaleString('ru-RU')}`);
+                            setHistoryOpen(false);
+                            setTimeout(() => setMessage(''), 4000);
+                          } catch (e: any) { setMessage(e.message || 'Ошибка восстановления'); }
+                        }}
+                      >
+                        <RotateCcw className="w-3 h-3" /> Восстановить
+                      </button>
+                    )}
+                  </div>
+                  <pre className="text-xs bg-surface-secondary p-2 rounded max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                    {JSON.stringify(rev.value, null, 2).slice(0, 1500)}
+                    {JSON.stringify(rev.value, null, 2).length > 1500 && '\n…'}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -274,6 +348,26 @@ function ProjectsSectionEditor({ content, updateField }: any) {
       <FieldTextarea label="Подзаголовок (можно пустым)" value={content.subtitle || ''} onChange={(v) => updateField('projectsSection', 'subtitle', v)} />
       <div className="text-xs text-text-muted">
         Сами карточки проектов — в разделе <code>/admin/projects</code>. Здесь только заголовок и подзаголовок над ними.
+      </div>
+    </div>
+  );
+}
+
+// ── COOPERATION ────────────────────────────────────────
+// 2026-06-01: блок «Условия сотрудничества» на лендинге (между «Как начать»
+// и футером). Документы (.pdf условий) — в разделе /admin/documents,
+// категория = cooperation. Здесь только тексты.
+function CooperationEditor({ content, updateField }: any) {
+  return (
+    <div className="space-y-4">
+      <FieldText label="Тег (надзаголовок)" value={content.tag || ''} onChange={(v) => updateField('cooperation', 'tag', v)} />
+      <FieldText label="Заголовок" value={content.title || ''} onChange={(v) => updateField('cooperation', 'title', v)} />
+      <FieldText label="Акцент в заголовке (выделится золотым)" value={content.titleAccent || ''} onChange={(v) => updateField('cooperation', 'titleAccent', v)} />
+      <FieldTextarea label="Подзаголовок" value={content.subtitle || ''} onChange={(v) => updateField('cooperation', 'subtitle', v)} />
+      <FieldTextarea label="Описание (основной текст слева)" value={content.description || ''} onChange={(v) => updateField('cooperation', 'description', v)} />
+      <FieldText label="Текст кнопки" value={content.ctaText || ''} onChange={(v) => updateField('cooperation', 'ctaText', v)} hint="по умолчанию «Стать партнёром»" />
+      <div className="text-xs text-text-muted">
+        Документы (PDF условий) — в разделе <code>/admin/documents</code> с категорией <code>cooperation</code>.
       </div>
     </div>
   );

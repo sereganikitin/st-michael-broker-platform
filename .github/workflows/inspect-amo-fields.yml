@@ -20,6 +20,8 @@ on:
           - both
           - leads
           - contacts
+          - pipelines
+          - task_types
 
 concurrency:
   group: inspect-amo

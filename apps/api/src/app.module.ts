@@ -9,6 +9,7 @@ import { DealsModule } from './deals/deals.module';
 import { CommissionModule } from './commission/commission.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { CallerModule } from './caller/caller.module';
+import { BrokerCallsModule } from './broker-calls/broker-calls.module';
 import { NotificationModule } from './notification/notification.module';
 import { DocumentsModule } from './documents/documents.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -49,6 +50,7 @@ import { OfferModule } from './offer/offer.module';
     CommissionModule,
     MeetingsModule,
     CallerModule,
+    BrokerCallsModule,
     NotificationModule,
     DocumentsModule,
     AnalyticsModule,

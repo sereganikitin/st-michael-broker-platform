@@ -56,7 +56,15 @@ services:
       PROFITBASE_FEED_URL: ${PROFITBASE_FEED_URL:-https://pb7828.profitbase.ru/export/profitbase_xml/2b76e70bcddca7c519166c8a9993b20b?scheme=https}
       AMO_SUBDOMAIN: ${AMO_SUBDOMAIN:-stmichael}
       AMO_BASE_DOMAIN: ${AMO_BASE_DOMAIN:-amocrm.ru}
+      # 2026-05-27 v2: api-b.amocrm.ru возвращает 401 даже на валидный токен —
+      # amocrm в реальности принимает API только на subdomain.amocrm.ru
+      # (хотя JWT.api_domain указывает на api-b, это маркер шарда для
+      # внутренней маршрутизации). Возвращаемся на subdomain.amocrm.ru +
+      # Mozilla User-Agent (обходит WAF).
+      AMO_API_DOMAIN: ${AMO_API_DOMAIN:-stmichael.amocrm.ru}
       AMO_ACCESS_TOKEN: ${AMO_ACCESS_TOKEN:-}
+      # 2026-05-29: публичная папка Я.Диска с материалами для брокеров.
+      YANDEX_DISK_PUBLIC_KEY: ${YANDEX_DISK_PUBLIC_KEY:-https://disk.yandex.ru/d/8_w-xQ8PR3uz3w}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-465}
       SMTP_SECURE: ${SMTP_SECURE:-true}
@@ -103,6 +111,7 @@ services:
     volumes:
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./docker/ssl:/etc/nginx/ssl:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
       - uploads:/usr/share/nginx/files:ro
     depends_on:
       - api

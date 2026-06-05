@@ -66,6 +66,9 @@ enum BrokerSource {
   BROKER_CABINET // Зарегистрировался через кабинет
   PHONE_CALL // Позвонил на линию
   CLOSED_AS_BROKER // Закрыт как брокер (с причиной)
+  // 2026-05-26: заявки с лендинга → попадают в очередь КЦ
+  LANDING_BROKER_TOUR // Записался на брокер-тур
+  LANDING_FORM // Оставил контакт через форму на лендинге
 }
 
 enum FixationStatus {
@@ -108,6 +111,9 @@ enum CallDirection {
 }
 
 enum CallStatus {
+  // 2026-06-02: статус «звонок инициирован, ещё не завершён» —
+  // используется брокерским callback'ом до прихода webhook от Mango.
+  INITIATED
   COMPLETED
   NO_ANSWER
   BUSY
@@ -270,6 +276,13 @@ model Broker {
   nextCallAt             DateTime?                @map("next_call_at")
   isInBase               Boolean                  @default(false) @map("is_in_base")
   baseSource             String?                  @map("base_source") // 'google_sheet' | 'amocrm' | 'manual'
+  // 2026-06-03: распределение брокера на менеджера КЦ. Self-FK на Broker.id
+  // где role=MANAGER. Руководитель КЦ батч-назначает, менеджер видит
+  // дефолтным фильтром «только мои» в /admin/call-center.
+  assignedManagerId      String?                  @map("assigned_manager_id")
+  assignedManager        Broker?                  @relation("BrokerAssignedManager", fields: [assignedManagerId], references: [id])
+  assignedBrokers        Broker[]                 @relation("BrokerAssignedManager")
+  assignedAt             DateTime?                @map("assigned_at")
   phones                 BrokerPhone[]
   callLogs               CallLog[]
   clients                Client[]
@@ -285,6 +298,7 @@ model Broker {
 
   @@index([category])
   @@index([nextCallAt])
+  @@index([assignedManagerId])
   @@map("brokers")
 }
 
@@ -308,15 +322,30 @@ model Client {
   status              ClientStatus     @default(NEW)
   deals               Deal[]
   meetings            Meeting[]
+  calls               Call[]
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
   // amoCRM dates — для показа в кабинете вместо нашей sync-даты.
   amoCreatedAt        DateTime?        @map("amo_created_at")
   amoUpdatedAt        DateTime?        @map("amo_updated_at")
+  // 2026-05-25: статус синка с amoCRM. Если amo упал во время фиксации,
+  // клиент НЕ теряется (остаётся в БД), а сюда пишем FAILED и amoSyncError.
+  // Менеджеры/координаторы видят список FAILED, scheduler ретраит.
+  amoSyncStatus       AmoSyncStatus    @default(SYNCED) @map("amo_sync_status")
+  amoSyncError        String?          @map("amo_sync_error")
+  amoSyncAttempts     Int              @default(0) @map("amo_sync_attempts")
+  amoSyncLastAttemptAt DateTime?       @map("amo_sync_last_attempt_at")
 
   @@index([phone])
   @@index([brokerId])
+  @@index([amoSyncStatus])
   @@map("clients")
+}
+
+enum AmoSyncStatus {
+  SYNCED
+  PENDING
+  FAILED
 }
 
 model Lot {
@@ -402,6 +431,10 @@ model Call {
   id            String        @id @default(uuid())
   brokerId      String        @map("broker_id")
   broker        Broker        @relation(fields: [brokerId], references: [id])
+  // 2026-06-02: брокер→клиент звонки из кабинета через Mango. clientId
+  // nullable, потому что есть исторические звонки КЦ→брокер без клиента.
+  clientId      String?       @map("client_id")
+  client        Client?       @relation(fields: [clientId], references: [id])
   mangoCallId   String?       @map("mango_call_id")
   direction     CallDirection @default(OUTBOUND)
   status        CallStatus    @default(COMPLETED)
@@ -413,9 +446,14 @@ model Call {
   attemptNumber Int           @default(1) @map("attempt_number")
   cycleDay      Int           @default(1) @map("cycle_day")
   materialsSent Json?         @map("materials_sent")
+  // 2026-06-02: время инициации звонка (брокер нажал «Позвонить»).
+  // Отделяем от createdAt, который может смещаться при webhook-апдейте.
+  initiatedAt   DateTime      @default(now()) @map("initiated_at")
   createdAt     DateTime      @default(now()) @map("created_at")
 
   @@index([brokerId, createdAt])
+  @@index([clientId, createdAt])
+  @@index([mangoCallId])
   @@map("calls")
 }
 
@@ -630,6 +668,35 @@ model SiteContent {
 
   @@map("site_content")
 }
+
+// 2026-06-04: KV-таблица для админ-настроек, которые администратор хочет
+// менять из UI без релиза/SSH. Например MOREKIT_WEBHOOK_URL — Анна из
+// Morekit'а периодически даёт новый URL («копия предыдущего процесса»).
+// Читается с env-fallback: если в БД нет ключа — берём process.env[KEY].
+model SystemSetting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("system_settings")
+}
+
+// КБ6 #45 (2026-05-25): история правок CMS-блоков. На каждое изменение
+// SiteContent сохраняем снимок предыдущего значения, кто и когда правил.
+// Позволяет откатиться / посмотреть изменения «как в Google Docs».
+model SiteContentRevision {
+  id         String   @id @default(uuid())
+  key        String   // тот же что в SiteContent
+  value      Json     // снимок значения после правки
+  editorId   String?  @map("editor_id")     // brokerId редактора (если есть)
+  editorName String?  @map("editor_name")   // ФИО на момент правки (для истории)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([key, createdAt])
+  @@map("site_content_revisions")
+}
+
 
 model LandingEvent {
   id          String   @id @default(uuid())

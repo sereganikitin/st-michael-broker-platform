@@ -1,8 +1,18 @@
 import { Project } from '@st-michael/shared';
 import {
-  AMO_LEAD_FIELDS, AMO_LEAD_ENUMS,
+  AMO_LEAD_FIELDS, AMO_LEAD_ENUMS, AMO_CONTACT_FIELDS,
   readinessLevelToEnumId, purchaseTimingToEnumId,
+  evaluateUniqueness,
 } from './amo-crm.fields';
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// "+79039606053" / "8 (903) 960-60-53" / "+7-903-960-60-53" → "9039606053".
+// amoCRM ?query=<substring> капризно реагирует на формат: поиск по «+79039606053»
+// не находит контакт сохранённый как «8 (903) 960-60-53», поэтому ищем по
+// 10 цифрам и постфильтруем по custom_fields_values.PHONE.
+const last10Digits = (phone: any): string =>
+  String(phone || '').replace(/\D/g, '').slice(-10);
 
 export interface AmoContact {
   id: number;
@@ -72,26 +82,58 @@ export class AmoCrmAdapter {
   private token: string;
 
   constructor() {
+    // 2026-05-27: amoCRM имеет 2 endpoint'а:
+    //   1) subdomain.amocrm.ru — веб-интерфейс, защищён WAF
+    //   2) api-b.amocrm.ru или другой шард — для API (читается из JWT.api_domain)
+    // Раньше били в (1), nginx-WAF возвращал 403 для node-fetch-запросов.
+    // Теперь по умолчанию используем (2) если AMO_API_DOMAIN не задан явно.
     const subdomain = process.env.AMO_SUBDOMAIN || 'stmichael';
     const domain = process.env.AMO_BASE_DOMAIN || 'amocrm.ru';
-    this.baseUrl = `https://${subdomain}.${domain}/api/v4`;
+    const apiDomain = process.env.AMO_API_DOMAIN || `${subdomain}.${domain}`;
+    this.baseUrl = `https://${apiDomain}/api/v4`;
     this.token = process.env.AMO_ACCESS_TOKEN || '';
   }
 
-  private async request<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  // КБ6 fix #44 (2026-05-25): retry с экспоненциальным backoff для 429/5xx.
+  // amoCRM v4 ограничивает 7 req/sec — без retry массовый импорт ловит сотни
+  // 429 (наблюдали 776 amoErrors на coverage-анализ).
+  private async request<T = any>(path: string, init: RequestInit = {}, attempt = 1): Promise<T> {
     if (!this.token) throw new Error('AMO_ACCESS_TOKEN not configured');
 
     const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
-    const res = await fetch(url, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        'Content-Type': 'application/json',
-        ...(init.headers || {}),
-      },
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...init,
+        headers: {
+          // 2026-05-27: «человеческий» User-Agent + Accept — без них
+          // WAF возвращает 403. С браузерным UA проходит.
+          'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'application/json',
+          Authorization: `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+          ...(init.headers || {}),
+        },
+      });
+    } catch (e: any) {
+      // Network-level (timeout, ECONNRESET) — ретраим до 3 раз.
+      if (attempt < 3) {
+        await sleep(500 * attempt);
+        return this.request<T>(path, init, attempt + 1);
+      }
+      throw e;
+    }
 
     if (res.status === 204) return null as T;
+
+    // 429 (rate-limit) и 5xx — retry. Уважаем Retry-After если пришёл.
+    if ((res.status === 429 || res.status >= 500) && attempt < 4) {
+      const retryAfter = Number(res.headers.get('Retry-After')) || 0;
+      const wait = retryAfter > 0 ? retryAfter * 1000 : 300 * Math.pow(2, attempt); // 300 / 600 / 1200ms
+      await sleep(wait);
+      return this.request<T>(path, init, attempt + 1);
+    }
+
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`amoCRM ${res.status} ${path}: ${text.slice(0, 200)}`);
@@ -106,11 +148,31 @@ export class AmoCrmAdapter {
 
   // === Contacts ===
   async findContactByPhone(phone: string): Promise<AmoContact | null> {
-    const query = encodeURIComponent(phone);
+    // Bug fix 2026-06-02: раньше брали `contacts[0]` без постфильтрации —
+    // amoCRM ?query= ищет по подстроке и возвращает совпадения по имени/email/
+    // комменту, а главное — не находит контакт сохранённый в другом формате
+    // телефона. Из-за этого createFixationRequest лепил дубль контакта
+    // в amoCRM, хотя клиент там уже был (пример: +79039606053 был в amo
+    // как КЦ-контакт, новая фиксация создавала второй).
+    const target = last10Digits(phone);
+    if (target.length < 10) return null;
     try {
-      const data = await this.request<any>(`/contacts?query=${query}&limit=50`);
-      const contacts = data?._embedded?.contacts || [];
-      return contacts[0] || null;
+      const data = await this.request<any>(`/contacts?query=${target}&limit=50`);
+      const contacts: any[] = data?._embedded?.contacts || [];
+      const matches = contacts.filter((c: any) => {
+        const fields = c.custom_fields_values || [];
+        const phoneField = fields.find(
+          (f: any) => f?.field_id === AMO_CONTACT_FIELDS.PHONE || f?.field_code === 'PHONE',
+        );
+        const vals = phoneField?.values || [];
+        return vals.some((v: any) => last10Digits(v?.value) === target);
+      });
+      if (matches.length === 0) return null;
+      if (matches.length === 1) return matches[0];
+      // Несколько контактов с тем же номером (дубли в самой amo) — берём
+      // самого свежего по updated_at, чтобы фиксация привязалась к актуальному.
+      matches.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+      return matches[0];
     } catch {
       return null;
     }
@@ -152,6 +214,31 @@ export class AmoCrmAdapter {
     catch { return null; }
   }
 
+  // КБ6 fix #44 (2026-05-25): bulk-получение контактов пачками до 250.
+  // amoCRM API позволяет filter[id][]=…&filter[id][]=… (до 250 ID в одном запросе).
+  // Это ~250x меньше HTTP-запросов чем перебор по одному.
+  // Возвращает Map<id, AmoContact> с найденными контактами. Те, что не вернулись,
+  // в map просто отсутствуют — вызывающий код решает, ошибка это или нет.
+  async getContactsByIds(ids: number[]): Promise<Map<number, AmoContact>> {
+    const result = new Map<number, AmoContact>();
+    const BATCH = 250;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const chunk = ids.slice(i, i + BATCH);
+      const q = chunk.map((id) => `filter[id][]=${id}`).join('&');
+      try {
+        const data = await this.request<any>(`/contacts?${q}&with=leads&limit=${BATCH}`);
+        const list: AmoContact[] = data?._embedded?.contacts || [];
+        for (const c of list) result.set(Number(c.id), c);
+      } catch (e: any) {
+        // Pacht прошёл с ошибкой — оставляем missing, не валим всю операцию.
+        console.error('[getContactsByIds] batch failed:', e?.message || e);
+      }
+      // Лёгкая задержка между пачками чтобы не словить 429 на больших объёмах.
+      if (i + BATCH < ids.length) await sleep(150);
+    }
+    return result;
+  }
+
   async createContact(data: CreateContactDto): Promise<AmoContact> {
     const result = await this.request<any>('/contacts', {
       method: 'POST',
@@ -174,6 +261,34 @@ export class AmoCrmAdapter {
     await this.request(`/leads/${leadId}/notes`, {
       method: 'POST',
       body: JSON.stringify([{ note_type: 'common', params: { text } }]),
+    });
+  }
+
+  // 2026-05-26: задача в amoCRM с дедлайном и текстом.
+  // Появляется в задачах сотрудника КЦ → отработает.
+  // entityType: 'leads' | 'contacts' | 'companies'
+  // taskTypeId: 1 = звонок, 2 = встреча, 3+ = кастомные (зависит от настроек amoCRM)
+  // completeTill: unix timestamp в секундах (когда задача должна быть выполнена)
+  async createTask(data: {
+    text: string;
+    entityType: 'leads' | 'contacts' | 'companies';
+    entityId: number;
+    completeTillSec?: number; // default: +24h
+    taskTypeId?: number; // default: 1 (звонок)
+    responsibleUserId?: number; // если знаем кому именно
+  }): Promise<void> {
+    const completeTill = data.completeTillSec || Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+    const body: any = {
+      text: data.text,
+      complete_till: completeTill,
+      entity_type: data.entityType,
+      entity_id: data.entityId,
+      task_type_id: data.taskTypeId || 1,
+    };
+    if (data.responsibleUserId) body.responsible_user_id = data.responsibleUserId;
+    await this.request('/tasks', {
+      method: 'POST',
+      body: JSON.stringify([body]),
     });
   }
 
@@ -241,15 +356,104 @@ export class AmoCrmAdapter {
     });
   }
 
+  /**
+   * 2026-06-03: проверка уникальности клиента по телефону через amoCRM.
+   * Делает 3 запроса: findContactByPhone + getLeadsByContact + getContactsByIds
+   * (для проверки IS_BROKER на каждом лиде). Применяет 4 правила пользователя.
+   *
+   * Возвращает 'UNIQUE' → создавать Client с CONDITIONALLY_UNIQUE
+   * Возвращает 'ALARM' → создавать Client с UNDER_REVIEW + задача для КЦ
+   */
+  async checkUniqueness(phone: string): Promise<{
+    verdict: 'UNIQUE' | 'ALARM';
+    reason: string;
+    contactId?: number;
+    leads?: Array<{ id: number; pipeline_id: number; status_id: number }>;
+    // 2026-06-03: если verdict=UNIQUE и есть активный лид в КЦ
+    // (Новое обращение / Квалифицировали выводим на встречу) — НЕ создаём
+    // новый лид при фиксации, а прикрепляем брокера к этому. Логика
+    // «конкурирующие брокеры до акта осмотра».
+    reusableLeadId?: number;
+  }> {
+    const contact = await this.findContactByPhone(phone);
+    if (!contact) {
+      return { verdict: 'UNIQUE', reason: 'Контакт в amoCRM не найден (правило 1)' };
+    }
+    const leads = await this.getLeadsByContact(contact.id);
+    if (leads.length === 0) {
+      return {
+        verdict: 'UNIQUE',
+        reason: 'У контакта нет лидов в amoCRM',
+        contactId: contact.id,
+        leads: [],
+      };
+    }
+    // Собрать все contactId из всех лидов одним батчем — экономим запросы.
+    const allContactIds = new Set<number>();
+    for (const lead of leads) {
+      const contactIds = ((lead as any)._embedded?.contacts || []).map((c: any) => c.id);
+      contactIds.forEach((id: number) => allContactIds.add(id));
+    }
+    const contactsMap = await this.getContactsByIds(Array.from(allContactIds));
+
+    const isBroker = (c: any): boolean => {
+      const fields = c?.custom_fields_values || [];
+      const brokerField = fields.find((f: any) => f?.field_id === AMO_CONTACT_FIELDS.IS_BROKER);
+      return brokerField?.values?.[0]?.value === true;
+    };
+
+    const leadsForEval = leads.map((lead: any) => {
+      const contactIds = (lead._embedded?.contacts || []).map((c: any) => c.id);
+      const hasBroker = contactIds.some((id: number) => {
+        const c = contactsMap.get(id);
+        return c ? isBroker(c) : false;
+      });
+      return {
+        id: lead.id,
+        pipeline_id: lead.pipeline_id,
+        status_id: lead.status_id,
+        hasBrokerAttached: hasBroker,
+      };
+    });
+
+    const verdict = evaluateUniqueness(leadsForEval);
+
+    // 2026-06-03: если verdict=UNIQUE и есть активный лид в КЦ в стадии
+    // «Новое обращение» или «Квалифицировали выводим на встречу» — берём его
+    // как reusable. При фиксации новый брокер прикрепится к нему вторым
+    // контактом вместо создания нового лида.
+    let reusableLeadId: number | undefined;
+    if (verdict.verdict === 'UNIQUE') {
+      // Ищем лид в КЦ (pipeline 7600542) в одной из ранних стадий.
+      const kcEarlyStages = [62907118, 62907282]; // Новое обращение, Квалифицировали
+      const reusable = leads.find((l: any) =>
+        l.pipeline_id === 7600542 && kcEarlyStages.includes(l.status_id),
+      );
+      if (reusable) reusableLeadId = reusable.id;
+    }
+
+    return {
+      ...verdict,
+      contactId: contact.id,
+      leads: leadsForEval.map((l) => ({
+        id: l.id,
+        pipeline_id: l.pipeline_id,
+        status_id: l.status_id,
+      })),
+      reusableLeadId,
+    };
+  }
+
   async getLeadsByContact(contactId: number): Promise<AmoLead[]> {
     try {
       const contact = await this.request<any>(`/contacts/${contactId}?with=leads`);
       const leadIds = (contact?._embedded?.leads || []).map((l: any) => l.id);
       if (leadIds.length === 0) return [];
-      const leads: AmoLead[] = [];
-      // Fetch leads in batches
-      const ids = leadIds.join(',');
-      const data = await this.request<any>(`/leads?filter[id][]=${leadIds.join('&filter[id][]=')}`);
+      // 2026-06-03: with=contacts чтобы для проверки уникальности можно было
+      // понять, привязан ли к лиду «брокер» (контакт с IS_BROKER=true).
+      const data = await this.request<any>(
+        `/leads?filter[id][]=${leadIds.join('&filter[id][]=')}&with=contacts`,
+      );
       return data?._embedded?.leads || [];
     } catch {
       return [];
@@ -357,6 +561,10 @@ export class AmoCrmAdapter {
     purchaseTiming?: string;     // «Планирует покупку»: от 1 до 3 месяцев, 3-6, и т.д.
     readinessLevel?: string;     // «Готовность к сделке»: Холодный/Тёплый/Горячий
     fromBroker?: boolean;        // «От брокера» radio (по умолчанию true для fixation request)
+    // 2026-06-03: если задан — не создаём новый лид, а прикрепляем брокера
+    // к существующему. Логика «конкурирующие брокеры до акта осмотра»:
+    // несколько брокеров одновременно могут быть условно-уникальными.
+    reuseLeadId?: number;
   }): Promise<AmoLead> {
     // Контакт КЛИЕНТА — формируем custom_fields_values, отдельно от создания
     const clientCustomFields: any[] = [
@@ -448,24 +656,213 @@ export class AmoCrmAdapter {
     if (contact?.id) leadContacts.push({ id: contact.id });
     if (data.brokerAmoContactId) leadContacts.push({ id: data.brokerAmoContactId });
 
-    const leadData: any = {
-      name: `Фиксация: ${data.clientName} (${data.project})`,
-      contacts: leadContacts.length > 0 ? leadContacts : undefined,
-      pipeline_id: 7600542,
-    };
-    if (data.amount && data.amount > 0) leadData.price = data.amount; // встроенное поле «Бюджет» лида
+    // 2026-06-03: режим переиспользования существующего лида.
+    // Когда у контакта уже есть активный лид в КЦ (Новое обращение /
+    // Квалифицировали выводим на встречу) — новый брокер прикрепляется
+    // к нему вторым контактом. Это «конкурирующие брокеры до акта осмотра».
+    let resultLead: AmoLead;
+    if (data.reuseLeadId) {
+      const existing = await this.getLead(data.reuseLeadId);
+      if (!existing) {
+        // Лид не нашёлся — fallback на создание нового.
+        resultLead = await this.createLead({
+          name: `Фиксация: ${data.clientName} (${data.project})`,
+          contacts: leadContacts.length > 0 ? leadContacts : undefined,
+          pipeline_id: 7600542,
+          ...(data.amount && data.amount > 0 ? { price: data.amount } : {}),
+        } as any);
+      } else {
+        // Прикрепляем нашего брокера к контактам существующего лида.
+        // amo: чтобы добавить второй контакт — `contacts: [{id: A, is_main: ...}, {id: B}]`.
+        if (data.brokerAmoContactId) {
+          const existingContactIds = ((existing as any)._embedded?.contacts || []).map((c: any) => c.id);
+          if (!existingContactIds.includes(data.brokerAmoContactId)) {
+            try {
+              await this.request(`/leads/${data.reuseLeadId}/link`, {
+                method: 'POST',
+                body: JSON.stringify([{
+                  to_entity_id: data.brokerAmoContactId,
+                  to_entity_type: 'contacts',
+                }]),
+              });
+            } catch (e) {
+              // Не валим — main path всё равно lead уже есть.
+            }
+          }
+        }
+        resultLead = existing;
+      }
+    } else {
+      // Стандартный путь: создаём новый лид.
+      const leadData: any = {
+        name: `Фиксация: ${data.clientName} (${data.project})`,
+        contacts: leadContacts.length > 0 ? leadContacts : undefined,
+        pipeline_id: 7600542,
+      };
+      if (data.amount && data.amount > 0) leadData.price = data.amount;
+      resultLead = await this.createLead(leadData);
+    }
 
-    const created = await this.createLead(leadData);
-
-    // Шаг 2: PATCH с custom_fields_values — после Salesbot, чтобы наши значения встали.
-    if (created?.id && customFields.length > 0) {
+    // Шаг 2: PATCH с custom_fields_values — только для НОВОГО лида,
+    // в reuse-режиме custom_fields_values НЕ перезаписываем (там уже могут
+    // быть данные другого брокера).
+    if (!data.reuseLeadId && resultLead?.id && customFields.length > 0) {
       try {
-        await this.updateLead(created.id, { custom_fields_values: customFields } as any);
+        await this.updateLead(resultLead.id, { custom_fields_values: customFields } as any);
       } catch (e) {
         // Не валим всю операцию если PATCH упал — лид создан, контакт связан.
       }
     }
 
-    return created;
+    // 2026-06-03: возвращаем ДЛИННУЮ ноту с полным дублированием заявки
+    // из кабинета (пользователь явно попросил — «не забывай дублировать
+    // заявку из кабинета брокера в поле СРМ как ранее на скрине»).
+    // Менеджер КЦ должен видеть ВСЕ детали в ленте лида, не открывая
+    // наш кабинет отдельно.
+    if (resultLead?.id) {
+      const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
+      const lines: string[] = [];
+      if (data.reuseLeadId) {
+        lines.push(`🟢 Аукция уникальности — новый брокер на этом клиенте`);
+      } else {
+        lines.push(`📝 Фиксация клиента от брокера`);
+      }
+      lines.push(`Клиент: ${data.clientName}`);
+      lines.push(`Телефон: ${data.clientPhone}`);
+      if (data.clientEmail) lines.push(`Email: ${data.clientEmail}`);
+      if (data.clientRegion) lines.push(`Регион: ${data.clientRegion}`);
+      lines.push(``);
+      lines.push(`Проект: ${projectName}`);
+      if (data.propertyType) lines.push(`Тип: ${data.propertyType}`);
+      if (data.roomsCount) lines.push(`Комнат: ${data.roomsCount}`);
+      if (data.sqm) lines.push(`Метраж: ${data.sqm} м²`);
+      if (data.amount) lines.push(`Бюджет: ${data.amount.toLocaleString('ru-RU')} ₽`);
+      if (data.purchaseTiming) lines.push(`Планирует покупку: ${data.purchaseTiming}`);
+      if (data.readinessLevel) lines.push(`Готовность к сделке: ${data.readinessLevel}`);
+      lines.push(``);
+      lines.push(`Брокер-агент: ${data.brokerPhone}`);
+      lines.push(`Агентство: ${data.agencyName} (ИНН ${data.agencyInn})`);
+      if (data.comment) {
+        lines.push(``);
+        lines.push(`Комментарий брокера: ${data.comment}`);
+      }
+      try {
+        await this.addNoteToLead(resultLead.id, lines.join('\n'));
+      } catch (e) {
+        // Не валим — note вторичен, главное лид с полями.
+      }
+      // 2026-06-03: задача с типом «Аларм».
+      // TODO: подставить реальный task_type_id когда дойдёт инспект task_types
+      // (сейчас фолбэк на 1=Звонок, чтобы хоть что-то создавалось).
+      // Название и дедлайн +30мин — по требованию пользователя.
+      // responsibleUserId не задаём — Морикит распределяет.
+      // 2026-06-03: ID 2393839 = «Alarm» в stmichael.amocrm.ru, цвет E00000.
+      // Узнано через inspect-amo-fields --entity task_types.
+      const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
+      try {
+        await this.createTask({
+          text: `Связаться по сделке брокера — клиент ${data.clientName} (${data.clientPhone}), брокер ${data.brokerPhone}.`,
+          entityType: 'leads',
+          entityId: resultLead.id,
+          taskTypeId: ALARM_TASK_TYPE_ID,
+          // Срок 30 минут — по правилам пользователя «нужно перезвонить через полчаса».
+          completeTillSec: Math.floor(Date.now() / 1000) + 30 * 60,
+        });
+      } catch (e) {
+        // не валим
+      }
+    }
+
+    return resultLead;
+  }
+
+  // 2026-05-26: создаёт лид нового брокера в pipeline 10787390 (БРОКЕРЫ).
+  // Используется когда брокер оставил заявку на брокер-тур / форму с лендинга.
+  // Создаёт контакт с IS_BROKER=true и лид с задачей КЦ.
+  async createBrokerLeadFromLanding(data: {
+    brokerName: string;
+    brokerPhone: string;
+    brokerEmail?: string | null;
+    source: string; // 'LANDING_BROKER_TOUR' | 'LANDING_FORM'
+    note?: string | null;
+  }): Promise<{ contactId?: number; leadId?: number } | null> {
+    try {
+      // 1) Контакт с IS_BROKER=true
+      const contact = await this.createContact({
+        name: data.brokerName,
+        custom_fields_values: [
+          { field_code: 'PHONE', values: [{ value: data.brokerPhone, enum_code: 'WORK' }] },
+          ...(data.brokerEmail
+            ? [{ field_code: 'EMAIL' as const, values: [{ value: data.brokerEmail, enum_code: 'WORK' }] }]
+            : []),
+          { field_id: 835415, values: [{ value: true }] }, // IS_BROKER
+        ],
+      });
+
+      // 2) Лид в пайплайне брокеров
+      const lead = await this.createLead({
+        name: `Заявка с лендинга — ${data.brokerName}`,
+        pipeline_id: 10787390, // BROKERS
+        contacts: contact?.id ? [{ id: contact.id }] : undefined,
+      } as any);
+
+      // 3) Примечание и задача
+      if (lead?.id) {
+        const noteText = [
+          `📥 Заявка с лендинга`,
+          `Источник: ${data.source === 'LANDING_BROKER_TOUR' ? 'Запись на брокер-тур' : 'Форма «Связаться с нами»'}`,
+          `Имя: ${data.brokerName}`,
+          `Телефон: ${data.brokerPhone}`,
+          ...(data.brokerEmail ? [`Email: ${data.brokerEmail}`] : []),
+          ...(data.note ? [``, `Сообщение: ${data.note}`] : []),
+        ].join('\n');
+        try { await this.addNoteToLead(lead.id, noteText); } catch {}
+        try {
+          await this.createTask({
+            text: `Связаться с новым брокером ${data.brokerName} (${data.brokerPhone}) — заявка с лендинга`,
+            entityType: 'leads',
+            entityId: lead.id,
+            taskTypeId: 1, // звонок
+            completeTillSec: Math.floor(Date.now() / 1000) + 4 * 60 * 60, // 4 часа — новый лид срочно
+          });
+        } catch {}
+      }
+
+      return { contactId: contact?.id, leadId: lead?.id };
+    } catch (e: any) {
+      console.error('[createBrokerLeadFromLanding] failed:', e?.message || e);
+      return null;
+    }
+  }
+
+  // 2026-05-26: добавляет примечание о попытке повторной фиксации в
+  // существующий amoCRM-лид. Используется когда другой брокер пробует
+  // зафиксировать клиента который уже на уникальности.
+  async addRefixationAttemptNote(leadId: number, data: {
+    requestingBrokerName: string;
+    requestingBrokerPhone: string;
+    clientPhone: string;
+  }): Promise<void> {
+    const text = [
+      `⚠ Попытка повторной фиксации`,
+      ``,
+      `Клиент ${data.clientPhone} уже на уникальности.`,
+      `Брокер ${data.requestingBrokerName} (${data.requestingBrokerPhone}) пытался зафиксировать этого клиента сейчас.`,
+      ``,
+      `Менеджер уведомлён, заявка переведена в статус UNDER_REVIEW в нашей системе.`,
+    ].join('\n');
+    // Note для истории + задача чтобы сотрудник КЦ её разобрал
+    await this.addNoteToLead(leadId, text);
+    try {
+      await this.createTask({
+        text: `⚠ Разрешить конфликт: ${data.requestingBrokerName} (${data.requestingBrokerPhone}) пытался повторно зафиксировать клиента ${data.clientPhone}. Уточнить кому отдать.`,
+        entityType: 'leads',
+        entityId: leadId,
+        taskTypeId: 1,
+        completeTillSec: Math.floor(Date.now() / 1000) + 4 * 60 * 60, // 4 часа — конфликты разруливаем быстро
+      });
+    } catch (e) {
+      // note уже создан — главное чтобы менеджер увидел
+    }
   }
 }

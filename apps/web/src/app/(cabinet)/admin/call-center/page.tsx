@@ -77,8 +77,20 @@ interface QueueBroker {
   nextCallAt: string | null;
   baseSource: string | null;
   createdAt: string;
+  // 2026-06-03: распределение по менеджерам КЦ.
+  assignedManagerId: string | null;
+  assignedAt: string | null;
+  assignedManager: { id: string; fullName: string } | null;
   callLogs: Array<{ id: string; result: string; comment: string | null; campaign: string | null; createdAt: string }>;
 }
+
+interface KcManager {
+  id: string;
+  fullName: string;
+  assignedCount: number;
+}
+
+type AssignmentFilter = 'mine' | 'unassigned' | 'all';
 
 interface QueueResponse {
   brokers: QueueBroker[];
@@ -113,6 +125,15 @@ export default function AdminCallCenterPage() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  // 2026-06-03: распределение брокеров на менеджеров КЦ. Менеджер по дефолту
+  // видит только своих; админ — всех. Можно переключить вручную.
+  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>(
+    me?.role === 'MANAGER' ? 'mine' : 'all',
+  );
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [managers, setManagers] = useState<KcManager[]>([]);
+  const [batchManagerId, setBatchManagerId] = useState('');
+  const [batchBusy, setBatchBusy] = useState(false);
 
   const loadQueue = useCallback(() => {
     setLoading(true);
@@ -121,18 +142,89 @@ export default function AdminCallCenterPage() {
     if (categoryFilter) p.set('category', categoryFilter);
     if (includeAll) p.set('includeAll', 'true');
     if (coordinatorsFilter) p.set('coordinators', coordinatorsFilter);
+    if (assignmentFilter && assignmentFilter !== 'all') p.set('assignment', assignmentFilter);
     apiGet<QueueResponse>(`/admin/call-center/queue?${p}`)
       .then(setQueue)
       .catch(() => setQueue({ brokers: [], total: 0, page: 1, limit: 20, totalPages: 1 }))
       .finally(() => setLoading(false));
-  }, [page, search, categoryFilter, includeAll, coordinatorsFilter]);
+  }, [page, search, categoryFilter, includeAll, coordinatorsFilter, assignmentFilter]);
 
   const loadStats = useCallback(() => {
     apiGet<CallCenterStats>('/admin/call-center/stats').then(setStats).catch(() => {});
   }, []);
 
+  const loadManagers = useCallback(() => {
+    // ADMIN видит список менеджеров для назначения; для MANAGER он не нужен.
+    if (me?.role !== 'ADMIN') return;
+    apiGet<KcManager[]>('/admin/call-center/managers').then(setManagers).catch(() => setManagers([]));
+  }, [me?.role]);
+
   useEffect(() => { loadQueue(); }, [loadQueue]);
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { loadManagers(); }, [loadManagers]);
+
+  // При смене страницы или фильтра — сбрасываем выбор (не путаем менеджера).
+  useEffect(() => { setSelected(new Set()); }, [page, search, categoryFilter, includeAll, coordinatorsFilter, assignmentFilter]);
+
+  const toggleSelected = (id: string) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+  };
+  const selectAllVisible = () => {
+    if (!queue) return;
+    const visibleIds = queue.brokers.map((b) => b.id);
+    const allSelected = visibleIds.every((id) => selected.has(id));
+    if (allSelected) {
+      const next = new Set(selected);
+      for (const id of visibleIds) next.delete(id);
+      setSelected(next);
+    } else {
+      setSelected(new Set([...selected, ...visibleIds]));
+    }
+  };
+  const clearSelected = () => setSelected(new Set());
+
+  const handleAssign = async () => {
+    if (!batchManagerId || selected.size === 0) return;
+    setBatchBusy(true);
+    try {
+      const res: any = await apiPost('/admin/call-center/assign', {
+        brokerIds: Array.from(selected),
+        managerId: batchManagerId,
+      });
+      setMessage(`Назначено ${res?.assigned} брокеров на ${res?.managerName}`);
+      setTimeout(() => setMessage(''), 3000);
+      clearSelected();
+      loadQueue();
+      loadManagers();
+    } catch (e: any) {
+      setMessage(`Ошибка: ${e?.message || 'не удалось назначить'}`);
+      setTimeout(() => setMessage(''), 4000);
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+  const handleUnassign = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Снять назначение менеджера с ${selected.size} брокеров?`)) return;
+    setBatchBusy(true);
+    try {
+      const res: any = await apiPost('/admin/call-center/unassign', {
+        brokerIds: Array.from(selected),
+      });
+      setMessage(`Снято назначение с ${res?.unassigned}`);
+      setTimeout(() => setMessage(''), 3000);
+      clearSelected();
+      loadQueue();
+      loadManagers();
+    } catch (e: any) {
+      setMessage(`Ошибка: ${e?.message || 'не удалось'}`);
+      setTimeout(() => setMessage(''), 4000);
+    } finally {
+      setBatchBusy(false);
+    }
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,6 +282,17 @@ export default function AdminCallCenterPage() {
             <option value="only">Только координаторы</option>
             <option value="exclude">Только брокеры (без координаторов)</option>
           </select>
+          {/* 2026-06-03: фильтр распределения. Менеджер по дефолту видит «мои». */}
+          <select
+            className="input w-auto"
+            value={assignmentFilter}
+            onChange={(e) => { setAssignmentFilter(e.target.value as AssignmentFilter); setPage(1); }}
+            title="Фильтр распределения по менеджерам КЦ"
+          >
+            <option value="mine">{me?.role === 'MANAGER' ? 'Только мои' : 'Назначенные на меня'}</option>
+            <option value="unassigned">Без назначения</option>
+            <option value="all">Все</option>
+          </select>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={includeAll} onChange={(e) => { setIncludeAll(e.target.checked); setPage(1); }} />
             Показать также «не звонить»
@@ -197,11 +300,60 @@ export default function AdminCallCenterPage() {
         </div>
       </div>
 
+      {/* 2026-06-03: батч-панель назначения. Видна только админу,
+          когда выбрано хотя бы 1. */}
+      {me?.role === 'ADMIN' && selected.size > 0 && (
+        <div className="card border-accent bg-accent/5">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="font-medium">Выбрано: {selected.size}</div>
+            <select
+              className="input w-auto"
+              value={batchManagerId}
+              onChange={(e) => setBatchManagerId(e.target.value)}
+            >
+              <option value="">— менеджер КЦ —</option>
+              {managers.map((m) => (
+                <option key={m.id} value={m.id}>{m.fullName} ({m.assignedCount})</option>
+              ))}
+            </select>
+            <button
+              className="btn btn-primary"
+              disabled={!batchManagerId || batchBusy}
+              onClick={handleAssign}
+            >
+              {batchBusy ? '…' : 'Назначить'}
+            </button>
+            <button
+              className="btn btn-secondary"
+              disabled={batchBusy}
+              onClick={handleUnassign}
+              title="Снять назначение менеджера у выбранных"
+            >
+              Снять назначение
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={clearSelected}
+              title="Сбросить выбор"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Очередь */}
       <div className="card">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">Очередь обзвона</h2>
-          <span className="text-sm text-text-muted">Всего: {queue?.total ?? 0}</span>
+          <div className="flex items-center gap-3 text-sm">
+            {me?.role === 'ADMIN' && queue && queue.brokers.length > 0 && (
+              <button className="text-accent hover:underline" onClick={selectAllVisible}>
+                {queue.brokers.every((b) => selected.has(b.id)) ? 'Снять выбор страницы' : 'Выбрать всю страницу'}
+              </button>
+            )}
+            <span className="text-text-muted">Всего: {queue?.total ?? 0}</span>
+          </div>
         </div>
 
         {loading ? (
@@ -221,6 +373,9 @@ export default function AdminCallCenterPage() {
                   const nextBroker = queue.brokers[idx + 1];
                   onCallLogged(nextBroker?.id || null);
                 }}
+                showCheckbox={me?.role === 'ADMIN'}
+                selected={selected.has(b.id)}
+                onSelectToggle={() => toggleSelected(b.id)}
               />
             ))}
           </div>
@@ -259,38 +414,74 @@ function BrokerRow({
   expanded,
   onToggle,
   onLogged,
+  showCheckbox = false,
+  selected = false,
+  onSelectToggle,
 }: {
   broker: QueueBroker;
   expanded: boolean;
   onToggle: () => void;
   onLogged: () => void;
+  showCheckbox?: boolean;
+  selected?: boolean;
+  onSelectToggle?: () => void;
 }) {
   const cat = categoryLabels[broker.category];
   const lastResult = broker.callLogs[0];
 
   return (
-    <div className={`border rounded-lg ${expanded ? 'border-accent bg-accent/5' : 'border-border'}`}>
+    <div className={`border rounded-lg flex items-center ${expanded ? 'border-accent bg-accent/5' : selected ? 'border-accent bg-accent/10' : 'border-border'}`}>
+      {showCheckbox && (
+        <label
+          className="pl-3 py-3 cursor-pointer flex items-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onSelectToggle}
+            className="w-4 h-4 cursor-pointer"
+            title="Выбрать для батч-назначения"
+          />
+        </label>
+      )}
       <button
         onClick={onToggle}
         className="w-full p-3 flex items-center gap-3 text-left hover:bg-surface-secondary/50 transition rounded-lg"
       >
         <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1.5fr_auto_1fr] gap-3 items-center">
-          <div className="font-medium text-sm truncate flex items-center gap-1">
-            {broker.doNotCall && <Ban className="w-3 h-3 text-error flex-shrink-0" />}
-            {broker.isCoordinator && <span className="text-[10px] px-1 rounded bg-accent/20 text-accent">КООРД</span>}
-            {broker.fullName}
+          <div className="min-w-0">
+            <div className="font-medium text-sm truncate flex items-center gap-1">
+              {broker.doNotCall && <Ban className="w-3 h-3 text-error flex-shrink-0" />}
+              {broker.isCoordinator && <span className="text-[10px] px-1 rounded bg-accent/20 text-accent">КООРД</span>}
+              {broker.fullName}
+            </div>
+            {broker.assignedManager && (
+              <div className="text-[10px] text-text-muted truncate">
+                👤 {broker.assignedManager.fullName}
+              </div>
+            )}
           </div>
           <div className="text-sm font-mono">{broker.phone}</div>
           <div className="text-xs text-text-muted truncate">{broker.coordinatorAgency || '—'}</div>
           <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${cat?.cls || ''}`}>{cat?.label || broker.category}</span>
-          <div className="text-xs text-text-muted">
-            {lastResult ? (
-              <>
-                <div>{resultLabels[lastResult.result] || lastResult.result}</div>
-                <div className="text-[10px]">{new Date(lastResult.createdAt).toLocaleDateString('ru-RU')}</div>
-              </>
-            ) : (
+          {/* Bug fix 2026-06-02: в превью показываем ВСЮ историю звонков
+              (до 2 последних), а не только последний результат. Раньше
+              менеджеру приходилось раскрывать карточку, чтобы увидеть
+              предыдущие звонки. */}
+          <div className="text-xs text-text-muted space-y-0.5">
+            {broker.callLogs.length === 0 ? (
               <span className="italic">не звонили</span>
+            ) : (
+              broker.callLogs.slice(0, 2).map((c) => (
+                <div key={c.id} className="leading-tight">
+                  <div className="truncate">
+                    {resultLabels[c.result] || c.result}
+                    {c.campaign && <span className="ml-1 text-[10px] px-1 rounded bg-surface-secondary">{c.campaign}</span>}
+                  </div>
+                  <div className="text-[10px] opacity-70">{new Date(c.createdAt).toLocaleDateString('ru-RU')}</div>
+                </div>
+              ))
             )}
           </div>
         </div>

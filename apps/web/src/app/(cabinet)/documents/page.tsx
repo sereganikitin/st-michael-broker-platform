@@ -102,7 +102,9 @@ export default function DocumentsPage() {
                     <div className="font-medium text-sm truncate">{doc.name}</div>
                     <div className="text-xs text-text-muted">
                       {doc.type}{doc.fileSize ? ` · ${formatSize(doc.fileSize)}` : ''}
-                      {doc.description ? ` · ${doc.description}` : ''}
+                      {/* Bug fix 2026-06-02: [seed:...] маркер — техника
+                          для идемпотентности seed-скрипта, не для UI. */}
+                      {doc.description && !/^\[seed:/i.test(doc.description) ? ` · ${doc.description}` : ''}
                     </div>
                   </div>
                 </div>

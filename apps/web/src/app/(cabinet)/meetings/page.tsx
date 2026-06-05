@@ -17,6 +17,17 @@ const typeLabels: Record<string, string> = {
   BROKER_TOUR: 'Брокер-тур',
 };
 
+// Bug fix 2026-06-02: в дропдаун выбора клиента для встречи попадали клиенты
+// с истёкшей уникальностью. Встречу с таким клиентом нельзя планировать —
+// нужно сначала продлить или зафиксировать. Фильтр держит:
+//  - FIXED (фиксация принята менеджером) — встреча точно можно
+//  - CONDITIONALLY_UNIQUE/UNDER_REVIEW + срок не истёк
+const isUniquenessActive = (c: any): boolean => {
+  if (c?.fixationStatus === 'FIXED') return true;
+  if (!c?.uniquenessExpiresAt) return false;
+  return new Date(c.uniquenessExpiresAt).getTime() > Date.now();
+};
+
 function extractExtraPhone(comment: string | null): string {
   if (!comment) return '';
   const m = comment.match(/Доп\. телефон:\s*([+\d\s\-()]+)/);
@@ -267,12 +278,16 @@ export default function MeetingsPage() {
                 required
               >
                 <option value="">Выберите клиента</option>
-                {clients.map((c) => (
+                {clients.filter(isUniquenessActive).map((c) => (
                   <option key={c.id} value={c.id}>{c.fullName} — {c.phone}</option>
                 ))}
               </select>
-              {clients.length === 0 && (
-                <div className="text-xs text-text-muted mt-1">Сначала добавьте клиента в разделе "Клиенты"</div>
+              {clients.filter(isUniquenessActive).length === 0 && (
+                <div className="text-xs text-text-muted mt-1">
+                  {clients.length === 0
+                    ? 'Сначала добавьте клиента в разделе "Клиенты"'
+                    : 'Нет клиентов с активной уникальностью. Продлите уникальность в разделе "Клиенты".'}
+                </div>
               )}
             </div>
 

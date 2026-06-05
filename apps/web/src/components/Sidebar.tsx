@@ -17,6 +17,8 @@ import {
   BarChart3,
   Megaphone,
   PhoneCall,
+  AlertTriangle,
+  Plug,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -36,6 +38,8 @@ const navigation = [
 const adminNavigation = [
   { name: 'Аналитика платформы', href: '/admin/analytics', icon: BarChart3 },
   { name: 'Колл-центр', href: '/admin/call-center', icon: PhoneCall },
+  { name: 'Конфликты уникальности', href: '/admin/uniqueness-conflicts', icon: AlertTriangle },
+  { name: 'Заявки без amoCRM', href: '/admin/amo-failed', icon: AlertTriangle },
   { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
   { name: 'Комиссия — политики', href: '/admin/commission-policies', icon: Calculator },
   { name: 'Управление встречами', href: '/admin/meetings', icon: CalendarPlus },
@@ -45,7 +49,9 @@ const adminNavigation = [
   { name: 'Лендинг — Акции', href: '/admin/promos', icon: Megaphone },
   { name: 'Лендинг — События', href: '/admin/events', icon: Calendar },
   { name: 'Лендинг — Проекты', href: '/admin/projects', icon: Building },
+  { name: 'Лендинг — Новости', href: '/admin/news', icon: FileText },
   { name: 'Файлы и документы', href: '/admin/documents', icon: FileText },
+  { name: 'Интеграции', href: '/admin/integrations', icon: Plug },
 ];
 
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
@@ -70,10 +76,11 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
         )}
       >
         <div className="p-6 flex items-center justify-between">
-          <div>
+          {/* 2026-05-27: лого кликабельно → возвращает на лендинг (/) */}
+          <Link href="/" className="block hover:opacity-80 transition" title="Вернуться на главную">
             <h2 className="text-xl font-bold text-accent">ST Michael</h2>
             <p className="text-sm text-text-muted">Кабинет брокера</p>
-          </div>
+          </Link>
           {onClose && (
             <button
               onClick={onClose}

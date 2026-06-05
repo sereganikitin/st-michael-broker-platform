@@ -223,7 +223,7 @@ export class CatalogService {
     building?: string;
     propertyType?: string;
     windowView?: string;
-    readyYear?: number;
+    readyYear?: number | string;
     hasBalcony?: boolean | string;
     hasTerrace?: boolean | string;
     isPenthouse?: boolean | string;
@@ -260,7 +260,15 @@ export class CatalogService {
     if (filters.windowView) {
       where.windowView = { contains: filters.windowView, mode: 'insensitive' };
     }
-    if (filters.readyYear) where.builtYear = Number(filters.readyYear);
+    if (filters.readyYear) {
+      // Bug fix 2026-06-02: фронт может прислать 'done' для запроса всех
+      // уже сданных лотов (Зорге 9 — 2023/2024). Группируем в одну опцию.
+      if (String(filters.readyYear) === 'done') {
+        where.builtYear = { lt: new Date().getFullYear() };
+      } else {
+        where.builtYear = Number(filters.readyYear);
+      }
+    }
 
     const toBool = (v: any) => v === true || v === 'true' || v === '1' || v === 1;
     if (filters.hasBalcony && toBool(filters.hasBalcony)) where.hasBalcony = true;
@@ -318,9 +326,13 @@ export class CatalogService {
       _count: true,
     });
 
-    // Get distinct buildings — filtered by selected project if any
+    // КБ6 (2026-05-25): фильтр «Корпус» учитывает project + propertyType +
+    // rooms, чтобы не показывать корпуса, в которых нет лотов с выбранным
+    // типом/комнатностью.
     const buildingsWhere: any = { ...notSold, building: { not: '' } };
     if (filters.project) buildingsWhere.project = filters.project;
+    if (filters.propertyType) buildingsWhere.propertyType = { contains: filters.propertyType, mode: 'insensitive' };
+    if (filters.rooms) buildingsWhere.rooms = filters.rooms;
     const buildings = await this.prisma.lot.groupBy({
       by: ['building'],
       where: buildingsWhere,

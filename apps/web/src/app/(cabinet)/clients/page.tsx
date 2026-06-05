@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight, X, AlertTriangle } from 'lucide-react';
+import { apiGet, apiPost } from '@/lib/api';
+import { Search, ChevronLeft, ChevronRight, X, AlertTriangle, Mail, Building, User, Phone as PhoneIcon, Calendar, FileText, CheckCircle2, AlertCircle, PhoneCall } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   CONDITIONALLY_UNIQUE: { label: 'Уникален', cls: 'bg-success/20 text-success' },
@@ -35,76 +35,316 @@ function daysUntilExpiry(expiresAt: string | null): number | null {
   return Math.ceil(ms / (24 * 60 * 60 * 1000));
 }
 
-function ClientDetail({ client, onClose }: { client: any; onClose: () => void }) {
+// 2026-06-02: кнопка callback через Mango. Mango сначала наберёт телефон
+// брокера (из его профиля), брокер берёт трубку — Mango соединяет с клиентом.
+function CallButton({ clientId, variant = 'icon' }: { clientId: string; variant?: 'icon' | 'full' }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res: any = await apiPost('/broker-calls/initiate', { clientId });
+      setMsg({ ok: true, text: res?.message || 'Mango сейчас наберёт вас.' });
+    } catch (err: any) {
+      setMsg({ ok: false, text: err?.message || 'Не удалось инициировать звонок' });
+    } finally {
+      setBusy(false);
+      setTimeout(() => setMsg(null), 6000);
+    }
+  };
+
+  if (variant === 'icon') {
+    return (
+      <button
+        type="button"
+        onClick={handle}
+        disabled={busy}
+        title="Позвонить клиенту через Mango (callback на ваш телефон)"
+        className="p-1.5 rounded hover:bg-accent/10 text-accent disabled:opacity-50"
+      >
+        <PhoneCall className="w-4 h-4" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="inline-block">
+      <button
+        type="button"
+        onClick={handle}
+        disabled={busy}
+        className="btn btn-primary flex items-center gap-2 text-sm"
+      >
+        <PhoneCall className="w-4 h-4" /> {busy ? 'Соединяю…' : 'Позвонить'}
+      </button>
+      {msg && (
+        <div className={`mt-2 text-xs ${msg.ok ? 'text-success' : 'text-error'}`}>{msg.text}</div>
+      )}
+    </div>
+  );
+}
+
+function CallHistory({ clientId }: { clientId: string }) {
+  const [calls, setCalls] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    apiGet(`/broker-calls?clientId=${clientId}&limit=20`)
+      .then((d: any) => setCalls(d?.calls || []))
+      .catch(() => setCalls([]))
+      .finally(() => setLoading(false));
+  }, [clientId]);
+
+  if (loading) return <div className="text-xs text-text-muted">Загрузка истории…</div>;
+  if (calls.length === 0) return <div className="text-xs text-text-muted italic">Звонков пока не было</div>;
+
+  const statusLabel: Record<string, { label: string; cls: string }> = {
+    INITIATED: { label: 'Соединяем…', cls: 'text-warning' },
+    COMPLETED: { label: 'Завершён', cls: 'text-success' },
+    NO_ANSWER: { label: 'Не ответил', cls: 'text-text-muted' },
+    BUSY: { label: 'Занято', cls: 'text-text-muted' },
+    UNAVAILABLE: { label: 'Недоступен', cls: 'text-text-muted' },
+    FAILED: { label: 'Ошибка', cls: 'text-error' },
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {calls.map((c) => (
+        <div key={c.id} className="bg-surface-secondary rounded p-2 text-xs flex items-center justify-between">
+          <div>
+            <span className={statusLabel[c.status]?.cls || ''}>{statusLabel[c.status]?.label || c.status}</span>
+            {c.durationSec ? <span className="text-text-muted ml-2">{Math.round(c.durationSec)} сек</span> : null}
+          </div>
+          <div className="flex items-center gap-2">
+            {c.recordingUrl && (
+              <a href={c.recordingUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">запись</a>
+            )}
+            <span className="text-text-muted">{new Date(c.initiatedAt || c.createdAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// КБ6 (2026-05-25): расширенная карточка клиента.
+// Грузим полные данные через GET /clients/:id (с deals, meetings, broker),
+// показываем максимум информации из БД.
+function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose: () => void }) {
+  const [client, setClient] = useState<any>(shallowClient);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiGet(`/clients/${shallowClient.id}`)
+      .then((d: any) => setClient(d || shallowClient))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [shallowClient.id]);
+
+  const daysLeft = daysUntilExpiry(client.uniquenessExpiresAt);
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-surface rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 relative"
+        className="bg-surface rounded-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-6 relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button className="absolute top-4 right-4 text-text-muted hover:text-text" onClick={onClose}>
           <X className="w-5 h-5" />
         </button>
 
-        <h2 className="text-xl font-bold mb-1">{client.fullName}</h2>
-        <p className="text-text-muted text-sm mb-4">{formatPhone(client.phone)}</p>
+        <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
+          <User className="w-5 h-5 text-accent" /> {client.fullName}
+        </h2>
+        <p className="text-text-muted text-sm mb-4 flex items-center gap-2">
+          <PhoneIcon className="w-4 h-4" /> {formatPhone(client.phone)}
+          {client.email && (
+            <>
+              <span className="mx-1">·</span>
+              <Mail className="w-4 h-4" /> {client.email}
+            </>
+          )}
+        </p>
 
-        <div className="flex gap-2 mb-4">
+        {/* 2026-06-02: callback через Mango — кнопка прямо в шапке карточки. */}
+        <div className="mb-4">
+          <CallButton clientId={client.id} variant="full" />
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-4">
           <span className={`text-xs px-2 py-1 rounded ${statusLabels[client.uniquenessStatus]?.cls || 'bg-text-muted/20'}`}>
             {statusLabels[client.uniquenessStatus]?.label || client.uniquenessStatus}
           </span>
+          {client.fixationStatus && client.fixationStatus !== 'NOT_FIXED' && (
+            <span className="text-xs px-2 py-1 rounded bg-info/20 text-info">{client.fixationStatus}</span>
+          )}
+          {client.inspectionActSigned && (
+            <span className="text-xs px-2 py-1 rounded bg-success/20 text-success inline-flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> Акт осмотра подписан
+            </span>
+          )}
+          {client.amoSyncStatus === 'FAILED' && (
+            <span className="text-xs px-2 py-1 rounded bg-error/20 text-error inline-flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" /> Не передан в amoCRM
+            </span>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3 text-sm mb-4">
-          {client.email && (
+          <div className="bg-surface-secondary rounded-lg p-3">
+            <span className="text-text-muted block text-xs">Проект</span>
+            <span className="font-medium flex items-center gap-1">
+              <Building className="w-4 h-4" /> {projectLabels[client.project] || client.project}
+            </span>
+          </div>
+          <div className="bg-surface-secondary rounded-lg p-3">
+            <span className="text-text-muted block text-xs">Статус клиента</span>
+            <span className="font-medium">{client.status}</span>
+          </div>
+          <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+            <span className="text-text-muted block text-xs flex items-center gap-1">
+              <Calendar className="w-3 h-3" /> Уникальность до
+            </span>
+            <span className="font-medium">
+              {client.uniquenessExpiresAt ? new Date(client.uniquenessExpiresAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+            </span>
+            {daysLeft !== null && (
+              <div className={`text-xs mt-1 ${daysLeft < 0 ? 'text-error' : daysLeft <= 1 ? 'text-error' : daysLeft <= 7 ? 'text-warning' : 'text-text-muted'}`}>
+                {daysLeft < 0
+                  ? `⚠ истекла ${-daysLeft} дн. назад`
+                  : daysLeft === 0
+                    ? '⚠ истекает сегодня'
+                    : `осталось ${daysLeft} ${daysLeft === 1 ? 'день' : daysLeft < 5 ? 'дня' : 'дней'} (можно продлить)`}
+              </div>
+            )}
+            {client.uniquenessReason && (
+              <div className="text-xs mt-1 text-text-muted">Основание: {client.uniquenessReason}</div>
+            )}
+          </div>
+          {client.broker && (
             <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
-              <span className="text-text-muted block text-xs">Email</span>
-              <span className="font-medium">{client.email}</span>
+              <span className="text-text-muted block text-xs">Брокер</span>
+              <span className="font-medium">{client.broker.fullName}</span>
+              <span className="text-xs text-text-muted ml-2">{formatPhone(client.broker.phone)}</span>
             </div>
           )}
           <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Проект</span>
-            <span className="font-medium">{projectLabels[client.project] || client.project}</span>
+            <span className="text-text-muted block text-xs">Создано</span>
+            <span className="font-medium">{new Date(client.createdAt).toLocaleDateString('ru-RU')}</span>
           </div>
           <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Статус</span>
-            <span className="font-medium">{client.status}</span>
+            <span className="text-text-muted block text-xs">Обновлено</span>
+            <span className="font-medium">{new Date(client.updatedAt || client.amoUpdatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
           </div>
-          <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Дата создания в amoCRM</span>
-            <span className="font-medium">{new Date(client.amoCreatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
-            {(() => {
-              const d = daysUntilExpiry(client.uniquenessExpiresAt);
-              if (d === null) return null;
-              if (d < 0) return <div className="text-xs text-error mt-1">⚠ уникальность истекла {-d} дн. назад</div>;
-              if (d === 0) return <div className="text-xs text-error mt-1">⚠ уникальность истекает сегодня</div>;
-              const cls = d <= 7 ? 'text-warning' : 'text-text-muted';
-              return <div className={`text-xs mt-1 ${cls}`}>осталось {d} {d === 1 ? 'день' : (d < 5 ? 'дня' : 'дней')} до окончания уникальности (30 дн)</div>;
-            })()}
-          </div>
+          {client.fixationAgency && (
+            <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+              <span className="text-text-muted block text-xs">Агентство фиксации</span>
+              <span className="font-medium">{client.fixationAgency.name}</span>
+              <span className="text-xs text-text-muted ml-2">ИНН {client.fixationAgency.inn}</span>
+              {client.fixationAgency.phone && <span className="text-xs text-text-muted ml-2">{client.fixationAgency.phone}</span>}
+            </div>
+          )}
+          {client.amoLeadId && (
+            <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+              <span className="text-text-muted block text-xs">amoCRM Lead ID</span>
+              <span className="font-medium font-mono text-xs">{String(client.amoLeadId)}</span>
+            </div>
+          )}
         </div>
 
         {client.comment && (
           <div className="bg-surface-secondary rounded-lg p-3 mb-4">
-            <span className="text-text-muted block text-xs mb-1">Комментарий</span>
+            <span className="text-text-muted block text-xs mb-1 flex items-center gap-1">
+              <FileText className="w-3 h-3" /> Детали с фиксации
+            </span>
             <span className="text-sm whitespace-pre-wrap">{client.comment}</span>
           </div>
         )}
 
-        {client.deals && client.deals.length > 0 && (
-          <div>
-            <h3 className="text-sm font-medium mb-2">Сделки</h3>
+        {client.amoSyncStatus === 'FAILED' && client.amoSyncError && (
+          <div className="bg-error/10 border border-error/30 rounded-lg p-3 mb-4">
+            <span className="text-text-muted block text-xs mb-1 text-error">amoCRM ошибка</span>
+            <span className="text-xs font-mono break-all">{client.amoSyncError}</span>
+            <div className="text-xs text-text-muted mt-1">Попыток: {client.amoSyncAttempts || 0}</div>
+          </div>
+        )}
+
+        {/* 2026-06-02: история звонков по клиенту — из broker-calls. */}
+        <div className="mb-4">
+          <h3 className="text-sm font-medium mb-2 flex items-center gap-1">
+            <PhoneCall className="w-4 h-4" /> История звонков
+          </h3>
+          <CallHistory clientId={client.id} />
+        </div>
+
+        {Array.isArray(client.meetings) && client.meetings.length > 0 && (
+          <div className="mb-4">
+            <h3 className="text-sm font-medium mb-2 flex items-center gap-1">
+              <Calendar className="w-4 h-4" /> Встречи ({client.meetings.length})
+            </h3>
             <div className="space-y-2">
-              {client.deals.map((deal: any) => (
-                <div key={deal.id} className="bg-surface-secondary rounded-lg p-3 flex justify-between text-sm">
-                  <span>Статус: {deal.status}</span>
-                  {deal.amount && <span className="font-medium">{Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽</span>}
+              {client.meetings.map((m: any) => (
+                <div key={m.id} className="bg-surface-secondary rounded-lg p-3 flex justify-between text-sm">
+                  <span>{new Date(m.date).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                  <span className="text-text-muted">{m.status}{m.type ? ` · ${m.type}` : ''}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
+
+        {Array.isArray(client.deals) && client.deals.length > 0 && (
+          <div>
+            <h3 className="text-sm font-medium mb-2">Сделки ({client.deals.length})</h3>
+            <div className="space-y-2">
+              {client.deals.map((deal: any) => (
+                <div key={deal.id} className="bg-surface-secondary rounded-lg p-3 text-sm">
+                  <div className="flex justify-between">
+                    <span>{deal.status}{deal.contractType ? ` · ${deal.contractType}` : ''}</span>
+                    {deal.amount && <span className="font-medium">{Math.round(Number(deal.amount)).toLocaleString('ru-RU')} ₽</span>}
+                  </div>
+                  <div className="flex justify-between text-xs text-text-muted mt-1">
+                    {deal.lot && <span>{deal.lot.building || ''} {deal.lot.floor ? `${deal.lot.floor} эт.` : ''} {deal.lot.sqm ? `${deal.lot.sqm} м²` : ''}</span>}
+                    {deal.commissionAmount && <span>Комиссия: {Math.round(Number(deal.commissionAmount)).toLocaleString('ru-RU')} ₽</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {Array.isArray(client.uniquenessHistory) && client.uniquenessHistory.length > 0 && (
+          <div className="mt-4">
+            <h3 className="text-sm font-medium mb-2">История</h3>
+            <div className="space-y-1.5">
+              {client.uniquenessHistory.map((h: any) => {
+                const labels: Record<string, string> = {
+                  CLIENT_FIXATION: '🆕 Создана фиксация',
+                  CLIENT_FIXATION_CONFLICT: '⚠ Конфликт фиксации',
+                  UNIQUENESS_EXTENDED: '⏰ Продление уникальности',
+                  UNIQUENESS_RESOLVED: '✅ Конфликт разрешён',
+                  CLIENT_FIXED: '📌 Закреплён',
+                  AMO_SYNC_FAILED: '❌ Не передан в amoCRM',
+                };
+                return (
+                  <div key={h.id} className="bg-surface-secondary rounded p-2 text-xs">
+                    <div className="flex justify-between">
+                      <span>{labels[h.action] || h.action}</span>
+                      <span className="text-text-muted">{new Date(h.createdAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                    </div>
+                    {h.payload?.reason && <div className="text-text-muted mt-1">Причина: {h.payload.reason}</div>}
+                    {h.payload?.scenario && <div className="text-text-muted mt-1">Сценарий: {h.payload.scenario}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {loading && <div className="text-xs text-text-muted mt-3">Догружаю детали…</div>}
       </div>
     </div>
   );
@@ -178,8 +418,9 @@ export default function ClientsPage() {
       })()}
 
       <div className="card mb-6">
-        <div className="flex flex-wrap gap-4">
-          <form onSubmit={handleSearch} className="flex-1 min-w-[200px] relative">
+        {/* КБ6 #46: на моб фильтры в столбик, на десктопе — в строку */}
+        <div className="flex flex-col md:flex-row md:flex-wrap gap-2 md:gap-4">
+          <form onSubmit={handleSearch} className="flex-1 min-w-0 md:min-w-[200px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
             <input
               className="input pl-10"
@@ -220,15 +461,18 @@ export default function ClientsPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            {/* КБ6 #46: явная min-w для таблицы — на моб горизонтальный скролл */}
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <table className="w-full text-sm min-w-[700px]">
                 <thead>
                   <tr className="text-text-muted text-left border-b border-border">
                     <th className="pb-3 font-medium">ФИО</th>
                     <th className="pb-3 font-medium">Телефон</th>
                     <th className="pb-3 font-medium">Проект</th>
                     <th className="pb-3 font-medium">Уникальность</th>
-                    <th className="pb-3 font-medium">Дата</th>
+                    <th className="pb-3 font-medium">Уникален до</th>
+                    <th className="pb-3 font-medium" title="Дата создания заявки в amoCRM">Дата</th>
+                    <th className="pb-3 font-medium w-10"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -257,7 +501,20 @@ export default function ClientsPage() {
                         })()}
                       </td>
                       <td className="py-3 text-text-muted">
+                        {/* КБ6: колонка «Уникален до» — дата окончания 30-дн уникальности.
+                            Подсветка: ≤1 дн — красный, ≤7 дн — оранжевый. */}
+                        {c.uniquenessExpiresAt ? (() => {
+                          const d = daysUntilExpiry(c.uniquenessExpiresAt);
+                          const dateStr = new Date(c.uniquenessExpiresAt).toLocaleDateString('ru-RU');
+                          const cls = d === null ? '' : d < 0 ? 'text-error' : d <= 1 ? 'text-error' : d <= 7 ? 'text-warning' : '';
+                          return <span className={cls}>{dateStr}</span>;
+                        })() : '—'}
+                      </td>
+                      <td className="py-3 text-text-muted" title="Дата создания заявки в amoCRM">
                         {new Date(c.amoCreatedAt || c.createdAt).toLocaleDateString('ru-RU')}
+                      </td>
+                      <td className="py-3">
+                        <CallButton clientId={c.id} variant="icon" />
                       </td>
                     </tr>
                   ))}
