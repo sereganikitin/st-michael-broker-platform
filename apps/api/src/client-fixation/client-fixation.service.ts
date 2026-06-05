@@ -95,10 +95,18 @@ export class ClientFixationService {
       // Теперь: запрашиваем у amo вердикт UNIQUE / ALARM. Если ALARM — создаём
       // Client с UNDER_REVIEW + задача в amo для КЦ.
       // Если amo упал — fallback на старую логику (only local DB).
-      let amoVerdict: { verdict: 'UNIQUE' | 'ALARM'; reason: string; contactId?: number; leads?: any[]; reusableLeadId?: number } | null = null;
+      let amoVerdict: {
+        verdict: 'UNIQUE' | 'ALARM';
+        reason: string;
+        contactId?: number;
+        leads?: any[];
+        reusableLeadId?: number;
+        triggerType?: 'DEFERRED_DEMAND' | 'NEW_REQUEST_NO_BROKER' | 'ACTIVE_SALES';
+        triggerLeadId?: number;
+      } | null = null;
       try {
         amoVerdict = await this.amoCrmAdapter.checkUniqueness(data.phone);
-        console.log(`[fixClient] amo uniqueness verdict: ${amoVerdict.verdict} — ${amoVerdict.reason}${amoVerdict.reusableLeadId ? ` — reusableLeadId=${amoVerdict.reusableLeadId}` : ''}`);
+        console.log(`[fixClient] amo uniqueness verdict: ${amoVerdict.verdict} — ${amoVerdict.reason}${amoVerdict.reusableLeadId ? ` — reusableLeadId=${amoVerdict.reusableLeadId}` : ''}${amoVerdict.triggerType ? ` — triggerType=${amoVerdict.triggerType}` : ''}`);
       } catch (e: any) {
         console.error('[fixClient] amo checkUniqueness failed, fallback to local DB only:', e?.message || e);
       }
@@ -129,14 +137,30 @@ export class ClientFixationService {
         }
         // 2026-06-03: формат по требованию пользователя:
         // - длинная нота с дублированием всей заявки из кабинета
-        // - задача «Связаться по сделке брокера» с типом «Аларм», срок 30 мин
+        // - задача с типом «Аларм», срок 30 мин
         // - распределение через Морикит (responsibleUserId не задаём)
+        // 2026-06-05: для triggerType=DEFERRED_DEMAND текст задачи специфичен —
+        // КЦ должен УТОЧНИТЬ у клиента, действительно ли он сейчас работает
+        // с этим брокером (клиент ранее сам говорил «не готов»).
         if (amoVerdict.leads && amoVerdict.leads.length > 0) {
-          const firstActiveLead = amoVerdict.leads[0];
+          // Если есть конкретный лид-триггер (DEFERRED / NEW_REQUEST / ACTIVE_SALES) —
+          // нота и задача идут на него, иначе на первый активный.
+          const targetLead =
+            amoVerdict.leads.find((l: any) => l.id === amoVerdict?.triggerLeadId) ||
+            amoVerdict.leads[0];
           const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
+          const isDeferred = amoVerdict.triggerType === 'DEFERRED_DEMAND';
           // Длинная нота — полная копия заявки
           const lines: string[] = [];
-          lines.push(`⚠️ АЛАРМ уникальности — требуется ручная проверка КЦ`);
+          if (isDeferred) {
+            lines.push(`⚠️ АЛАРМ: «Отложенный спрос» — уточнить у клиента`);
+            lines.push(`Клиент ранее сам сообщил, что пока не готов покупать.`);
+            lines.push(`Сейчас брокер пришёл с фиксацией. КЦ нужно созвониться`);
+            lines.push(`с клиентом и узнать: действительно ли он работает с этим`);
+            lines.push(`брокером, или это попытка перехвата заявки.`);
+          } else {
+            lines.push(`⚠️ АЛАРМ уникальности — требуется ручная проверка КЦ`);
+          }
           lines.push(`Причина: ${amoVerdict.reason}`);
           lines.push(``);
           lines.push(`Клиент: ${data.fullName}`);
@@ -159,19 +183,21 @@ export class ClientFixationService {
             lines.push(`Комментарий брокера: ${data.comment}`);
           }
           try {
-            await this.amoCrmAdapter.addNoteToLead(firstActiveLead.id, lines.join('\n'));
+            await this.amoCrmAdapter.addNoteToLead(targetLead.id, lines.join('\n'));
           } catch (e: any) {
             console.error('[fixClient amo-alarm] note failed:', e?.message || e);
           }
-          // Задача типа «Аларм», название «Связаться по сделке брокера»,
-          // срок 30 минут. ID типа «Аларм» через env (или 1=звонок как fallback).
+          // Задача типа «Аларм», срок 30 минут. Текст зависит от triggerType.
           // 2026-06-03: ID 2393839 = «Alarm» в stmichael.amocrm.ru (цвет E00000).
           const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
+          const taskText = isDeferred
+            ? `«Отложенный спрос» + фиксация брокера — уточнить у клиента ${data.fullName} (${data.phone}), действительно ли он работает с брокером ${broker.fullName} (${broker.phone}). Ранее клиент сам говорил, что пока не готов.`
+            : `Связаться по сделке брокера — клиент ${data.fullName} (${data.phone}), брокер ${broker.phone}.`;
           try {
             await this.amoCrmAdapter.createTask({
-              text: `Связаться по сделке брокера — клиент ${data.fullName} (${data.phone}), брокер ${broker.phone}.`,
+              text: taskText,
               entityType: 'leads',
-              entityId: firstActiveLead.id,
+              entityId: targetLead.id,
               taskTypeId: ALARM_TASK_TYPE_ID,
               completeTillSec: Math.floor(Date.now() / 1000) + 30 * 60,
             });
