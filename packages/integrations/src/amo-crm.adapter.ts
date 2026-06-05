@@ -374,6 +374,11 @@ export class AmoCrmAdapter {
     // новый лид при фиксации, а прикрепляем брокера к этому. Логика
     // «конкурирующие брокеры до акта осмотра».
     reusableLeadId?: number;
+    // 2026-06-05: тип триггера ALARM (DEFERRED_DEMAND / NEW_REQUEST_NO_BROKER
+    // / ACTIVE_SALES) и id лида, который его вызвал — для формирования
+    // специфичной ноты и задачи КЦ.
+    triggerType?: 'DEFERRED_DEMAND' | 'NEW_REQUEST_NO_BROKER' | 'ACTIVE_SALES';
+    triggerLeadId?: number;
   }> {
     const contact = await this.findContactByPhone(phone);
     if (!contact) {
@@ -441,6 +446,8 @@ export class AmoCrmAdapter {
         status_id: l.status_id,
       })),
       reusableLeadId,
+      triggerType: verdict.triggerType,
+      triggerLeadId: verdict.triggerLeadId,
     };
   }
 

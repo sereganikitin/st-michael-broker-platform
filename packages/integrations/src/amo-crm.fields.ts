@@ -123,6 +123,22 @@ export function isKcMeetingHeldStatus(pipelineId: number, statusId: number): boo
 }
 
 /**
+ * 2026-06-05: статус «Отложенный спрос» во всех воронках.
+ * Клиент сам ранее звонил и сказал «пока не готов покупать». Это отдельный
+ * сценарий: при попытке фиксации брокером этого клиента КЦ должен уточнить
+ * у клиента, действительно ли он сейчас работает с этим брокером, или это
+ * попытка перехватить заявку.
+ */
+export function isDeferredDemandStatus(pipelineId: number, statusId: number): boolean {
+  return (
+    (pipelineId === AMO_PIPELINES.KC && statusId === AMO_KC_STATUS.DEFERRED) ||
+    (pipelineId === AMO_PIPELINES.BERZARINA && statusId === AMO_BERZARINA_STATUS.DEFERRED) ||
+    (pipelineId === AMO_PIPELINES.ZORGE9 && statusId === AMO_ZORGE_STATUS.DEFERRED) ||
+    (pipelineId === AMO_PIPELINES.TOLBUKHINA && statusId === AMO_TOLBUKHINA_STATUS.DEFERRED)
+  );
+}
+
+/**
  * 2026-06-03: алгоритм проверки уникальности по правилам пользователя.
  *
  * Контекст: при фиксации брокером нового клиента нужно понять, конкурирует ли
@@ -140,6 +156,11 @@ export function isKcMeetingHeldStatus(pipelineId: number, statusId: number): boo
  *
  * Возвращает 'UNIQUE' если все лиды прошли, иначе 'ALARM'.
  */
+export type UniquenessTriggerType =
+  | 'DEFERRED_DEMAND'      // лид в «Отложенный спрос»
+  | 'NEW_REQUEST_NO_BROKER' // активная стадия без привязанного брокера
+  | 'ACTIVE_SALES';         // встреча назначена / сделка / контроль оплаты и т.д.
+
 export function evaluateUniqueness(
   leads: Array<{
     id: number;
@@ -147,7 +168,7 @@ export function evaluateUniqueness(
     status_id: number;
     hasBrokerAttached: boolean;
   }>,
-): { verdict: 'UNIQUE' | 'ALARM'; reason: string } {
+): { verdict: 'UNIQUE' | 'ALARM'; reason: string; triggerType?: UniquenessTriggerType; triggerLeadId?: number } {
   if (!leads || leads.length === 0) {
     return { verdict: 'UNIQUE', reason: 'Контакт в amoCRM не найден или нет лидов' };
   }
@@ -156,6 +177,17 @@ export function evaluateUniqueness(
     // Финальные стадии — пропускаем (правило 2).
     if (isClosedLostStatus(lead.status_id)) continue;
     if (isKcMeetingHeldStatus(lead.pipeline_id, lead.status_id)) continue;
+
+    // 2026-06-05: «Отложенный спрос» — отдельный сценарий ALARM.
+    // Клиент сам говорил «не готов». КЦ должен уточнить, нужен ли брокер.
+    if (isDeferredDemandStatus(lead.pipeline_id, lead.status_id)) {
+      return {
+        verdict: 'ALARM',
+        reason: `Клиент в «Отложенный спрос» (лид ${lead.id}, pipeline=${lead.pipeline_id}). Ранее клиент сам сообщил, что пока не готов покупать. КЦ нужно уточнить у клиента — действительно ли он сейчас работает с этим брокером.`,
+        triggerType: 'DEFERRED_DEMAND',
+        triggerLeadId: lead.id,
+      };
+    }
 
     // Активные допустимые стадии (правила 3, 4).
     const isAllowedStage =
@@ -169,6 +201,8 @@ export function evaluateUniqueness(
         return {
           verdict: 'ALARM',
           reason: `Лид ${lead.id} в активной стадии без привязанного брокера (pipeline=${lead.pipeline_id}, status=${lead.status_id}).`,
+          triggerType: 'NEW_REQUEST_NO_BROKER',
+          triggerLeadId: lead.id,
         };
       }
     }
@@ -177,6 +211,8 @@ export function evaluateUniqueness(
     return {
       verdict: 'ALARM',
       reason: `Лид ${lead.id} в активной стадии продаж (pipeline=${lead.pipeline_id}, status=${lead.status_id}). Требуется ручная проверка КЦ.`,
+      triggerType: 'ACTIVE_SALES',
+      triggerLeadId: lead.id,
     };
   }
 
