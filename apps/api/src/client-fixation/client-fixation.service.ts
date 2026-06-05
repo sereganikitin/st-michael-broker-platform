@@ -153,11 +153,7 @@ export class ClientFixationService {
           // Длинная нота — полная копия заявки
           const lines: string[] = [];
           if (isDeferred) {
-            lines.push(`⚠️ АЛАРМ: «Отложенный спрос» — уточнить у клиента`);
-            lines.push(`Клиент ранее сам сообщил, что пока не готов покупать.`);
-            lines.push(`Сейчас брокер пришёл с фиксацией. КЦ нужно созвониться`);
-            lines.push(`с клиентом и узнать: действительно ли он работает с этим`);
-            lines.push(`брокером, или это попытка перехвата заявки.`);
+            lines.push(`Брокер заявляет на клиента. Связаться с клиентом.`);
           } else {
             lines.push(`⚠️ АЛАРМ уникальности — требуется ручная проверка КЦ`);
           }
@@ -191,7 +187,7 @@ export class ClientFixationService {
           // 2026-06-03: ID 2393839 = «Alarm» в stmichael.amocrm.ru (цвет E00000).
           const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
           const taskText = isDeferred
-            ? `«Отложенный спрос» + фиксация брокера — уточнить у клиента ${data.fullName} (${data.phone}), действительно ли он работает с брокером ${broker.fullName} (${broker.phone}). Ранее клиент сам говорил, что пока не готов.`
+            ? `Брокер заявляет на клиента ${data.fullName} (${data.phone}). Связаться с клиентом.`
             : `Связаться по сделке брокера — клиент ${data.fullName} (${data.phone}), брокер ${broker.phone}.`;
           try {
             await this.amoCrmAdapter.createTask({
