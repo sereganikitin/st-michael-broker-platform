@@ -339,11 +339,14 @@ export class WebhooksService {
   //     навсегда, статус не трогаем;
   //   • если у brokers.amoContactId есть в списке контактов лида:
   //       - был REJECTED → восстанавливаем CONDITIONALLY_UNIQUE +30 дней;
+  //       - 2026-06-05: был UNDER_REVIEW → CONDITIONALLY_UNIQUE +30 дней
+  //         (одобрение от КЦ через прикрепление брокера к лиду в amo);
   //       - иначе оставляем как есть;
   //   • если нет:
   //       - был CONDITIONALLY_UNIQUE → REJECTED («Не уникален»).
-  // UNDER_REVIEW / EXPIRED оставляем как есть — это решение менеджера или
-  // авто-timeout, не должно перетираться auto-detect логикой.
+  // UNDER_REVIEW при отсутствии брокера остаётся — потому что это
+  // дефолтное состояние ALARM-фиксации (брокер ещё не прикреплён).
+  // EXPIRED не трогаем — авто-timeout, не должен перетираться.
   private async syncBrokerAttachmentFromLead(leadId: number): Promise<void> {
     if (!leadId) return;
 
@@ -375,13 +378,19 @@ export class WebhooksService {
 
       const attached = leadContactIds.includes(brokerAmoId);
 
-      if (attached && client.uniquenessStatus === UniquenessStatus.REJECTED) {
+      if (attached && (
+        client.uniquenessStatus === UniquenessStatus.REJECTED ||
+        client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW
+      )) {
+        const wasUnderReview = client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW;
         await this.prisma.client.update({
           where: { id: client.id },
           data: {
             uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
             uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
-            uniquenessReason: 'Брокер прикреплён обратно к лиду в amoCRM',
+            uniquenessReason: wasUnderReview
+              ? 'КЦ одобрил — брокер прикреплён к лиду в amoCRM'
+              : 'Брокер прикреплён обратно к лиду в amoCRM',
           },
         });
         await this.prisma.auditLog.create({
@@ -389,10 +398,14 @@ export class WebhooksService {
             action: 'UNIQUENESS_RESOLVED',
             entity: 'Client',
             entityId: client.id,
-            payload: { trigger: 'AMO_BROKER_REATTACHED', amoLeadId: leadId, brokerAmoContactId: brokerAmoId },
+            payload: {
+              trigger: wasUnderReview ? 'AMO_KC_APPROVED' : 'AMO_BROKER_REATTACHED',
+              amoLeadId: leadId,
+              brokerAmoContactId: brokerAmoId,
+            },
           },
         });
-        this.logger.log(`Client ${client.id}: REJECTED → CONDITIONALLY_UNIQUE (broker re-attached to lead ${leadId})`);
+        this.logger.log(`Client ${client.id}: ${wasUnderReview ? 'UNDER_REVIEW' : 'REJECTED'} → CONDITIONALLY_UNIQUE (broker attached to lead ${leadId})`);
       } else if (!attached && client.uniquenessStatus === UniquenessStatus.CONDITIONALLY_UNIQUE) {
         await this.prisma.client.update({
           where: { id: client.id },
