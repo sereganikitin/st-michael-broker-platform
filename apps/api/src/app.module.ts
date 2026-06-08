@@ -23,6 +23,7 @@ import { AdminModule } from './admin/admin.module';
 import { CmsModule } from './cms/cms.module';
 import { OfferModule } from './offer/offer.module';
 import { AmoTokenBootstrapService } from './common/amo-token-bootstrap.service';
+import { MangoBootstrapService } from './common/mango-bootstrap.service';
 
 @Module({
   imports: [
@@ -63,6 +64,6 @@ import { AmoTokenBootstrapService } from './common/amo-token-bootstrap.service';
     OfferModule,
   ],
   controllers: [HealthController],
-  providers: [AmoTokenBootstrapService],
+  providers: [AmoTokenBootstrapService, MangoBootstrapService],
 })
 export class AppModule {}

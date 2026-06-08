@@ -28,32 +28,57 @@ export interface IMangoAdapter {
   getCallStatus(callId: string): Promise<CallStatus>;
 }
 
-// Mango VPBX API endpoint. Если ваш аккаунт — Контакт-центр, URL другой,
-// поправь после уточнения у коллеги (та задача стоит на эту неделю).
-const MANGO_VPBX_URL =
-  process.env.MANGO_API_URL || 'https://app.mango-office.ru/vpbx';
+// 2026-06-08: модульный shared-state для Mango-конфигурации.
+// Управляется из /admin/integrations через UI без рестарта/SSH.
+// На старте API bootstrap читает из SystemSetting → setMangoConfig().
+// Если в БД пусто — fallback на env.
+type MangoConfig = { apiKey: string; apiSalt: string; apiUrl: string };
+
+const DEFAULT_MANGO_URL = 'https://app.mango-office.ru/vpbx';
+
+let mangoConfig: MangoConfig = {
+  apiKey: process.env.MANGO_API_KEY || '',
+  apiSalt: process.env.MANGO_API_SALT || '',
+  apiUrl: process.env.MANGO_API_URL || DEFAULT_MANGO_URL,
+};
+
+export function setMangoConfig(cfg: Partial<MangoConfig>): void {
+  mangoConfig = {
+    apiKey: cfg.apiKey ?? mangoConfig.apiKey,
+    apiSalt: cfg.apiSalt ?? mangoConfig.apiSalt,
+    // Нормализуем URL: убираем trailing slash, чтобы `${url}/commands/callback`
+    // не получался с двойным слешем.
+    apiUrl: (cfg.apiUrl ?? mangoConfig.apiUrl).replace(/\/+$/, '') || DEFAULT_MANGO_URL,
+  };
+}
+
+export function getMangoConfig(): MangoConfig {
+  return { ...mangoConfig };
+}
 
 /**
  * Mango VPBX integration — outbound callback.
  *
  * Doc: https://www.mango-office.ru/upload/api/vpbx_api.pdf
- * Endpoint: POST {MANGO_VPBX_URL}/commands/callback
+ * Endpoint: POST {apiUrl}/commands/callback
  * Auth: HMAC-SHA256 от (vpbx_api_key + json_body + vpbx_api_salt).
  *
- * ENV:
- *   MANGO_API_KEY  — vpbx_api_key из ЛК Mango
- *   MANGO_API_SALT — vpbx_api_salt оттуда же
- *   MANGO_API_URL  — опционально, переопределить базовый URL
+ * Источники конфигурации (приоритет ↓):
+ *   1. SystemSetting в БД (управляется из /admin/integrations)
+ *   2. env: MANGO_API_KEY / MANGO_API_SALT / MANGO_API_URL
  *
  * Результат звонка прилетит в наш webhook /webhooks/mango/call-result,
  * где мы найдём запись Call по mangoCallId и обновим status/duration/recording.
  */
 export class MangoAdapter implements IMangoAdapter {
   private get apiKey(): string {
-    return process.env.MANGO_API_KEY || '';
+    return mangoConfig.apiKey;
   }
   private get apiSalt(): string {
-    return process.env.MANGO_API_SALT || '';
+    return mangoConfig.apiSalt;
+  }
+  private get apiUrl(): string {
+    return mangoConfig.apiUrl;
   }
 
   private digits(phone: string): string {
@@ -67,7 +92,7 @@ export class MangoAdapter implements IMangoAdapter {
    */
   async initiateCallback(req: CallbackRequest): Promise<{ callId: string }> {
     if (!this.apiKey || !this.apiSalt) {
-      throw new Error('MANGO_API_KEY / MANGO_API_SALT не настроены в .env');
+      throw new Error('Mango: API key / salt не настроены (см. /admin/integrations)');
     }
     const commandId = crypto.randomUUID();
     const fromDigits = this.digits(req.from);
@@ -93,7 +118,7 @@ export class MangoAdapter implements IMangoAdapter {
       json,
     });
 
-    const res = await fetch(`${MANGO_VPBX_URL}/commands/callback`, {
+    const res = await fetch(`${this.apiUrl}/commands/callback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -114,7 +139,7 @@ export class MangoAdapter implements IMangoAdapter {
   async getCallRecording(callId: string): Promise<string> {
     // VPBX API не отдаёт прямую ссылку — запись приходит в webhook
     // call-result (recording_url). Тут — для обратной совместимости.
-    return `${MANGO_VPBX_URL}/queries/recording/${callId}`;
+    return `${this.apiUrl}/queries/recording/${callId}`;
   }
 
   async getCallStatus(callId: string): Promise<CallStatus> {

@@ -41,6 +41,24 @@ const SETTINGS_META: Record<string, { label: string; description: string; placeh
       'Если задан + есть AMO_CLIENT_ID/SECRET в env, адаптер сам обновит access при 401 без участия человека.',
     placeholder: 'def502...',
   },
+  MANGO_API_KEY: {
+    label: 'Mango VPBX — уникальный код АТС',
+    description:
+      '«Уникальный код вашей АТС» из ЛК Mango (vpbx_api_key). Используется как идентификатор приложения и часть HMAC-подписи каждого запроса.',
+    placeholder: 'y918tc9kgaza...',
+  },
+  MANGO_API_SALT: {
+    label: 'Mango VPBX — ключ для подписи',
+    description:
+      '«Ключ для создания подписи» из ЛК Mango (vpbx_api_salt). HMAC-SHA256 от (api_key + json + salt) идёт в параметр sign.',
+    placeholder: 'lor605qgarrx...',
+  },
+  MANGO_API_URL: {
+    label: 'Mango VPBX — API URL',
+    description:
+      'Базовый URL VPBX API. Для обычного аккаунта — https://app.mango-office.ru/vpbx. Если аккаунт Контакт-центр — URL другой.',
+    placeholder: 'https://app.mango-office.ru/vpbx',
+  },
 };
 
 export default function AdminIntegrationsPage() {
