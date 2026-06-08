@@ -4,7 +4,7 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
 import { AmocrmService } from '../amocrm/amocrm.service';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, BROKER_PIPELINE_ID, setAmoTokens, getAmoTokens } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, BROKER_PIPELINE_ID, setAmoTokens, getAmoTokens, setMangoConfig } from '@st-michael/integrations';
 import {
   VALID_CATEGORIES,
   VALID_CALL_FLAGS,
