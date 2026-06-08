@@ -1598,13 +1598,19 @@ export class AdminService {
     'MOREKIT_WEBHOOK_URL',
     'AMO_ACCESS_TOKEN',
     'AMO_REFRESH_TOKEN',
+    // 2026-06-08: Mango VPBX — для исходящих звонков КЦ.
+    'MANGO_API_KEY',
+    'MANGO_API_SALT',
+    'MANGO_API_URL',
   ];
 
-  // Ключи, значение которых не возвращаем в UI «как есть» (длинные JWT-токены).
+  // Ключи, значение которых не возвращаем в UI «как есть» (длинные JWT-токены / API keys).
   // Возвращаем только метаданные: длина, последние 6 символов для верификации.
   private static readonly INTEGRATION_SECRET_KEYS = new Set([
     'AMO_ACCESS_TOKEN',
     'AMO_REFRESH_TOKEN',
+    'MANGO_API_KEY',
+    'MANGO_API_SALT',
   ]);
 
   async getIntegrationSettings() {
@@ -1667,6 +1673,10 @@ export class AdminService {
       const refresh = key === 'AMO_REFRESH_TOKEN' ? trimmed : current.refresh;
       setAmoTokens(access, refresh);
     }
+    // 2026-06-08: то же для Mango — конфиг подхватывается без рестарта.
+    if (key === 'MANGO_API_KEY') setMangoConfig({ apiKey: trimmed });
+    if (key === 'MANGO_API_SALT') setMangoConfig({ apiSalt: trimmed });
+    if (key === 'MANGO_API_URL') setMangoConfig({ apiUrl: trimmed });
     return { ok: true, key };
   }
 
