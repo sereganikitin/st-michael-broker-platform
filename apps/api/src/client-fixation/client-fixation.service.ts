@@ -607,7 +607,6 @@ export class ClientFixationService {
 
     // confirmDuplicate=true → создаём вторую запись Client с тем же
     // phone+brokerId. Это разрешено (нет unique constraint в schema).
-    // Пробрасываем в логику сценария 1 (новый клиент).
     const newClient = await this.prisma.client.create({
       data: {
         brokerId,
@@ -621,20 +620,112 @@ export class ClientFixationService {
         uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
       },
     });
+
+    // 2026-06-08: bug fix — раньше этот путь возвращал amoSyncStatus='SYNCED'
+    // без реальной отправки в amoCRM. В результате при повторной фиксации
+    // того же клиента (test 28) новый лид в amo НЕ создавался, а карточка
+    // в кабинете показывала «Уникален» без блока ошибки. Теперь шлём в amo
+    // как обычно + сохраняем amoLeadId.
+    let amoSyncOk = true;
+    let amoSyncError: string | null = null;
+    let createdAmoLeadId: number | null = null;
+    const dupCommentParts: string[] = [];
+    if (data.propertyType) dupCommentParts.push(`Тип: ${data.propertyType}`);
+    if (data.roomsCount) dupCommentParts.push(`Комнат: ${data.roomsCount}`);
+    if (data.sqm) dupCommentParts.push(`Метраж: ${data.sqm} м²`);
+    if (data.amount) dupCommentParts.push(`Бюджет: ${data.amount.toLocaleString('ru-RU')} ₽`);
+    if (data.comment) dupCommentParts.unshift(data.comment);
+    dupCommentParts.push(`(повторная фиксация того же клиента, предыдущий Client ${existingClient.id})`);
+    const dupFullComment = dupCommentParts.join('. ');
+    try {
+      const resultLead = await this.amoCrmAdapter.createFixationRequest({
+        clientPhone: data.phone,
+        clientEmail: data.email,
+        clientName: data.fullName,
+        clientRegion: data.clientRegion,
+        presentationSent: data.presentationSent,
+        brokerPhone: broker.phone,
+        brokerAmoContactId: broker.amoContactId ? Number(broker.amoContactId) : undefined,
+        agencyName: agency.name,
+        agencyInn: agency.inn,
+        comment: dupFullComment,
+        project: data.project as Project,
+        propertyType: data.propertyType,
+        roomsCount: data.roomsCount,
+        amount: data.amount,
+        sqm: data.sqm,
+        purchaseTiming: data.purchaseTiming,
+        readinessLevel: data.readinessLevel,
+        fromBroker: true,
+      });
+      createdAmoLeadId = resultLead?.id ? Number(resultLead.id) : null;
+    } catch (e: any) {
+      amoSyncOk = false;
+      amoSyncError = String(e?.message || e).slice(0, 500);
+      console.error('[fixClient duplicate] amo createFixationRequest failed:', amoSyncError);
+    }
+
+    try {
+      await this.prisma.client.update({
+        where: { id: newClient.id },
+        data: {
+          amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
+          amoSyncError: amoSyncOk ? null : amoSyncError,
+          amoSyncAttempts: { increment: 1 },
+          amoSyncLastAttemptAt: new Date(),
+          ...(createdAmoLeadId ? { amoLeadId: BigInt(createdAmoLeadId) } : {}),
+        } as any,
+      });
+    } catch (e: any) {
+      console.error('[fixClient duplicate] failed to update amoSyncStatus:', e?.message || e);
+    }
+
+    // Прямой webhook в Morekit — как и в основном пути сценария 1.
+    if (amoSyncOk && createdAmoLeadId) {
+      const morekitUrl = await getSystemSetting(this.prisma, 'MOREKIT_WEBHOOK_URL');
+      if (morekitUrl) {
+        this.morekit.notifyFixation({
+          id: String(createdAmoLeadId),
+          agency: agency.name,
+          broker_id: broker.amoContactId ? String(broker.amoContactId) : '',
+          agent_name: broker.fullName,
+          agent_phone: morekitPhone(broker.phone),
+          agent_mail: broker.email || '',
+          budget: data.amount ? String(data.amount) : '0',
+          clients: [{ name: data.fullName, phone: morekitPhone(data.phone) }],
+          type: data.propertyType || 'Квартира',
+          lead_date: morekitLeadDate(),
+          project: morekitProjectName(String(data.project)),
+        }, morekitUrl).catch((e) => console.error('[fixClient duplicate] morekit notify error:', e?.message || e));
+      }
+    }
+
     try {
       await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', newClient.id, {
         scenario: 'CONFIRMED_DUPLICATE',
         phone: data.phone,
         previousClientId: existingClient.id,
+        amoLeadId: createdAmoLeadId,
+        amoSyncOk,
       });
     } catch (e: any) {
       console.error('[fixClient duplicate] audit failed:', e?.message || e);
     }
+
+    let managerContacts: any = undefined;
+    if (!amoSyncOk) {
+      try { managerContacts = await this.getManagerContacts(); }
+      catch (e: any) { console.error('[fixClient duplicate] getManagerContacts failed:', e?.message || e); }
+    }
+
     return {
       client: newClient,
       status: 'CONDITIONALLY_UNIQUE',
-      amoSyncStatus: 'SYNCED',
-      message: 'Создана новая фиксация (дубликат). Истекает через 30 дней.',
+      amoSyncStatus: amoSyncOk ? 'SYNCED' : 'FAILED',
+      message: amoSyncOk
+        ? 'Создана новая фиксация (дубликат). Истекает через 30 дней.'
+        : 'Создана новая фиксация (дубликат), но не передана в amoCRM. Менеджеры уведомлены.',
+      managerContacts,
     };
   }
 
