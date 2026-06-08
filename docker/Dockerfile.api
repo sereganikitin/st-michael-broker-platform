@@ -27,10 +27,19 @@ RUN --mount=type=cache,target=/root/.npm npm install
 COPY . .
 
 # 4) BUILD STEPS.
+# 2026-06-08: убрали `2>/dev/null` — он глушил реальные ошибки tsc и
+# fallback ветка после || молча отрабатывала с дефектным dist (PR #86
+# проявил: setMangoConfig экспортируется в исходниках, но dist оставался
+# старым и apps/api падал с TS2304 "Cannot find name 'setMangoConfig'").
+# Плюс предварительный rm -rf dist + tsbuildinfo чтобы incremental не
+# тянул кэш предыдущей сборки.
 RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
-RUN npm run build --workspace=packages/shared 2>/dev/null || (cd packages/shared && npx tsc)
-RUN npm run build --workspace=packages/integrations 2>/dev/null || (cd packages/integrations && npx tsc)
-RUN npm run build --workspace=apps/api 2>/dev/null || (cd apps/api && npx nest build)
+RUN rm -rf packages/shared/dist packages/shared/tsconfig.tsbuildinfo \
+ && npm run build --workspace=packages/shared
+RUN rm -rf packages/integrations/dist packages/integrations/tsconfig.tsbuildinfo \
+ && npm run build --workspace=packages/integrations
+RUN rm -rf apps/api/dist apps/api/tsconfig.tsbuildinfo \
+ && npm run build --workspace=apps/api
 
 # ─── runtime ───
 FROM node:20-alpine
