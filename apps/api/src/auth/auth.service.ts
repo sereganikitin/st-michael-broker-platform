@@ -253,17 +253,18 @@ export class AuthService {
       },
     });
 
+    // 2026-06-09: понятные русские сообщения в UI вместо 'Invalid credentials'.
     if (!broker || !broker.passwordHash) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Неверный логин или пароль');
     }
 
     if (broker.status === 'BLOCKED') {
-      throw new UnauthorizedException('Account is blocked');
+      throw new UnauthorizedException('Учётная запись заблокирована. Свяжитесь с менеджером.');
     }
 
     const isValid = await bcrypt.compare(data.password, broker.passwordHash);
     if (!isValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Неверный логин или пароль');
     }
 
     const payload = { sub: broker.id, phone: broker.phone, role: broker.role };
