@@ -3,6 +3,7 @@ import {
   AMO_LEAD_FIELDS, AMO_LEAD_ENUMS, AMO_CONTACT_FIELDS,
   readinessLevelToEnumId, purchaseTimingToEnumId,
   evaluateUniqueness,
+  brokerLeadMarkerFields,
 } from './amo-crm.fields';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -761,6 +762,15 @@ export class AmoCrmAdapter {
     if (data.purchaseTiming) {
       const eid = purchaseTimingToEnumId(data.purchaseTiming);
       if (eid) customFields.push({ field_id: AMO_LEAD_FIELDS.PURCHASE_TIMING, values: [{ enum_id: eid }] });
+    }
+
+    // 2026-06-09: UTM / tracking / calltouch / mango поля — маркер
+    // «Заявка от брокера» во вкладке «utm» в карточке лида. Раньше эти
+    // поля были пустыми у наших брокерских лидов, что отличало их от
+    // лидов, которые ранее обрабатывал Morekit (он проставлял то же
+    // значение). См. brokerLeadMarkerFields() и пример lead 32205511.
+    if (data.fromBroker !== false) {
+      customFields.push(...brokerLeadMarkerFields());
     }
 
     // Шаг 1: создаём лид с минимумом — name, contacts, pipeline, price.
