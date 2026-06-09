@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet, apiPatch } from '@/lib/api';
+import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { Plug, Save, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Plug, Save, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 
 // 2026-06-04: страница админ-настроек интеграций. Сейчас только Morekit URL,
 // но архитектура расширяема — добавляй ключи в SETTINGS_META, в whitelist
@@ -208,10 +208,88 @@ export default function AdminIntegrationsPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* 2026-06-09: спец-кнопка ручного запуска синка Google Sheets
+                      рядом с полем URL. Cron запускается сам каждые 30 мин, но
+                      админу нужно дёрнуть сразу после сохранения URL. */}
+                  {s.key === 'GSHEETS_BROKERS_URL' && (
+                    <GSheetsSyncRow />
+                  )}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 2026-06-09: блок ручного триггера Google Sheets sync прямо из карточки
+ * GSHEETS_BROKERS_URL. Полезен при первой настройке URL и для проверки.
+ * Сам показывает результат последнего запуска (running / lastRunAt /
+ * total / created / updated / errors).
+ */
+function GSheetsSyncRow() {
+  const [running, setRunning] = useState(false);
+  const [last, setLast] = useState<any>(null);
+
+  const loadStatus = async () => {
+    try {
+      const r = await apiGet<any>('/admin/gsheets-brokers/status');
+      setLast(r);
+    } catch {}
+  };
+  useEffect(() => { loadStatus(); }, []);
+
+  const trigger = async () => {
+    setRunning(true);
+    try {
+      const r = await apiPost<any>('/admin/gsheets-brokers/sync-now', {});
+      setLast({ lastRunAt: new Date().toISOString(), lastResult: r });
+    } catch (e: any) {
+      setLast({ lastResult: { ok: false, error: e?.message || 'Ошибка' } });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const r = last?.lastResult;
+  return (
+    <div className="mt-4 pt-3 border-t border-border">
+      <div className="flex items-center gap-3 mb-2">
+        <button
+          type="button"
+          className="btn btn-secondary flex items-center gap-2 text-sm"
+          onClick={trigger}
+          disabled={running}
+        >
+          <RefreshCw className={`w-4 h-4 ${running ? 'animate-spin' : ''}`} />
+          {running ? 'Синкаю…' : 'Запустить синк сейчас'}
+        </button>
+        <span className="text-xs text-text-muted">
+          Обычно ~5-15 сек. Cron в фоне дёргает каждые 30 мин.
+        </span>
+      </div>
+
+      {r && (
+        <div className={`text-sm rounded px-3 py-2 ${r.ok ? 'bg-success/10 text-success' : 'bg-error/10 text-error'}`}>
+          {r.ok ? (
+            <>
+              ✓ Синк ОК. Строк в таблице: <b>{r.total}</b> · создано: <b>{r.created}</b> · обновлено: <b>{r.updated}</b>
+              {r.errors > 0 && <> · ошибок: <b>{r.errors}</b></>}
+              {r.durationMs && <> · {Math.round(r.durationMs / 1000)} сек</>}
+            </>
+          ) : (
+            <>✗ Ошибка: {r.error || 'неизвестная ошибка'}</>
+          )}
+        </div>
+      )}
+
+      {last?.lastRunAt && !r && (
+        <div className="text-xs text-text-muted">
+          Последний запуск: {new Date(last.lastRunAt).toLocaleString('ru-RU')}
         </div>
       )}
     </div>
