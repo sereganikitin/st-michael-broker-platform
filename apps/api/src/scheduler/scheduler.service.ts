@@ -16,6 +16,7 @@ function cleanClientName(raw: string | null | undefined): string {
 }
 import { CatalogService } from '../catalog/catalog.service';
 import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
+import { GoogleSheetsSyncService } from '../admin/google-sheets-sync.service';
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
@@ -24,7 +25,23 @@ export class SchedulerService {
     @Inject('PrismaClient') private prisma: PrismaClient,
     @InjectQueue('notifications') private notificationQueue: Queue,
     private readonly catalogService: CatalogService,
+    private readonly gsheets: GoogleSheetsSyncService,
   ) {}
+
+  // 2026-06-09: каждые 30 минут — синк брокерской базы из Google Sheet.
+  // URL читается из SystemSetting.GSHEETS_BROKERS_URL. Если URL пуст —
+  // сервис сам залогирует warning и завершится без ошибки.
+  @Cron('*/30 * * * *')
+  async handleGSheetsBrokersSync() {
+    const r = await this.gsheets.sync();
+    if (r.inflight) {
+      this.logger.log('[gsheets-brokers] предыдущий синк ещё идёт, skip');
+    } else if (r.ok) {
+      this.logger.log(`[gsheets-brokers] OK: total=${r.total} created=${r.created} updated=${r.updated} errors=${r.errors} ${r.durationMs}ms`);
+    } else if (r.error) {
+      this.logger.warn(`[gsheets-brokers] FAILED: ${r.error}`);
+    }
+  }
   // 2026-05-29: Yandex.Disk локальный кеш файлов — раз в сутки в 04:00.
   // Скачивает физически файлы в /app/uploads/yandex/, обновляет Document.fileUrl
   // на /files/yandex/... — nginx отдаёт напрямую без обращения к Я.Диску.

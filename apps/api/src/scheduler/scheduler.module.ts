@@ -4,12 +4,15 @@ import { BullModule } from '@nestjs/bull';
 import { SchedulerService } from './scheduler.service';
 import { DatabaseModule } from '../database/database.module';
 import { CatalogModule } from '../catalog/catalog.module';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
     DatabaseModule,
     CatalogModule,
+    // 2026-06-09: scheduler дёргает GoogleSheetsSyncService раз в 30 мин.
+    AdminModule,
     BullModule.registerQueue({ name: 'notifications' }),
   ],
   providers: [SchedulerService],

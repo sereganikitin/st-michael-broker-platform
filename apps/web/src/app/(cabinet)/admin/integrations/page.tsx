@@ -59,6 +59,14 @@ const SETTINGS_META: Record<string, { label: string; description: string; placeh
       'Базовый URL VPBX API. Для обычного аккаунта — https://app.mango-office.ru/vpbx. Если аккаунт Контакт-центр — URL другой.',
     placeholder: 'https://app.mango-office.ru/vpbx',
   },
+  GSHEETS_BROKERS_URL: {
+    label: 'Google Sheets — URL CSV-экспорта базы брокеров',
+    description:
+      'Публичная Google Sheet (расшарена «по ссылке: любой может смотреть») с базой брокеров. ' +
+      'Формат URL: https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>. ' +
+      'Каждые 30 минут scheduler скачивает и upsert\'ит брокеров по телефону. Колонки: Имя | Телефон брокера | Кол-во заявок | Встречи | Сделки | ЗВОНОК | Результат звонка | Обзвон по Зорге | Комментарий.',
+    placeholder: 'https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=0',
+  },
 };
 
 export default function AdminIntegrationsPage() {
