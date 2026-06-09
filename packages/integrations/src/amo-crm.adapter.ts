@@ -3,7 +3,6 @@ import {
   AMO_LEAD_FIELDS, AMO_LEAD_ENUMS, AMO_CONTACT_FIELDS,
   readinessLevelToEnumId, purchaseTimingToEnumId,
   evaluateUniqueness,
-  brokerLeadMarkerFields,
 } from './amo-crm.fields';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -764,14 +763,15 @@ export class AmoCrmAdapter {
       if (eid) customFields.push({ field_id: AMO_LEAD_FIELDS.PURCHASE_TIMING, values: [{ enum_id: eid }] });
     }
 
-    // 2026-06-09: UTM / tracking / calltouch / mango поля — маркер
-    // «Заявка от брокера» во вкладке «utm» в карточке лида. Раньше эти
-    // поля были пустыми у наших брокерских лидов, что отличало их от
-    // лидов, которые ранее обрабатывал Morekit (он проставлял то же
-    // значение). См. brokerLeadMarkerFields() и пример lead 32205511.
-    if (data.fromBroker !== false) {
-      customFields.push(...brokerLeadMarkerFields());
-    }
+    // 2026-06-09 OFF: ранее тут подмешивали brokerLeadMarkerFields()
+    // (UTM/tracking/calltouch/mango маркеры «Заявка от брокера»). amoCRM
+    // возвращает 400 на любую попытку поставить эти поля через API
+    // (поля type=text/url но связаны с системными tracking-интеграциями;
+    // их пишут только сами трекеры — Calltouch виджет, Yandex/Google и т.д.).
+    // Из-за 400 валился ВЕСЬ PATCH и остальные кастомные поля (Тип, Бюджет,
+    // От брокера, Дата заявки, Готовность) тоже не применялись.
+    // Лид «Дмитрий от Ивана» (эталон) был заполнен этими маркерами не через
+    // API, а через виджет на стороне amo. См. PR #94.
 
     // Шаг 1: создаём лид с минимумом — name, contacts, pipeline, price.
     // Salesbot/Morekit отрабатывает и пишет свои поля (Этапы продаж, Ответственный КЦ).
@@ -789,6 +789,12 @@ export class AmoCrmAdapter {
     // Когда у контакта уже есть активный лид в КЦ (Новое обращение /
     // Квалифицировали выводим на встречу) — новый брокер прикрепляется
     // к нему вторым контактом. Это «конкурирующие брокеры до акта осмотра».
+    // 2026-06-09: ответственный за лид — fallback на Юлию Арефьеву
+    // (amoUserId=9796826) пока Морикит не распределяет автоматически
+    // (раньше responsible_user_id оставался у автора токена = админа).
+    // Переопределяется через env AMO_DEFAULT_RESPONSIBLE_USER_ID.
+    const defaultResponsibleUserId = Number(process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID || 9796826);
+
     let resultLead: AmoLead;
     if (data.reuseLeadId) {
       const existing = await this.getLead(data.reuseLeadId);
@@ -798,6 +804,7 @@ export class AmoCrmAdapter {
           name: `Фиксация: ${data.clientName} (${data.project})`,
           contacts: leadContacts.length > 0 ? leadContacts : undefined,
           pipeline_id: 7600542,
+          responsible_user_id: defaultResponsibleUserId,
           ...(data.amount && data.amount > 0 ? { price: data.amount } : {}),
         } as any);
       } else {
@@ -827,6 +834,7 @@ export class AmoCrmAdapter {
         name: `Фиксация: ${data.clientName} (${data.project})`,
         contacts: leadContacts.length > 0 ? leadContacts : undefined,
         pipeline_id: 7600542,
+        responsible_user_id: defaultResponsibleUserId,
       };
       if (data.amount && data.amount > 0) leadData.price = data.amount;
       resultLead = await this.createLead(leadData);

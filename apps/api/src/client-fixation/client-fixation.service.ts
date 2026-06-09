@@ -205,12 +205,16 @@ export class ClientFixationService {
             ? `Брокер заявляет на клиента ${data.fullName} (${data.phone}). Связаться с клиентом.`
             : `Связаться по сделке брокера — клиент ${data.fullName} (${data.phone}), брокер ${broker.phone}.`;
           try {
+            // 2026-06-09: ответственный за ALARM-задачу — Юлия Арефьева
+            // (amoUserId=9796826) пока Морикит не распределяет автоматически.
+            // Переопределяется через env AMO_DEFAULT_RESPONSIBLE_USER_ID.
             await this.amoCrmAdapter.createTask({
               text: taskText,
               entityType: 'leads',
               entityId: targetLead.id,
               taskTypeId: ALARM_TASK_TYPE_ID,
               completeTillSec: Math.floor(Date.now() / 1000) + 30 * 60,
+              responsibleUserId: Number(process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID || 9796826),
             });
           } catch (e: any) {
             console.error('[fixClient amo-alarm] task failed:', e?.message || e);
