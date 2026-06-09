@@ -468,7 +468,109 @@ export const AMO_LEAD_FIELDS = {
   READINESS_LEVEL: 839449,           // select "Готовность к сделке"
   QUESTIONNAIRE_FILLED: 842273,      // select "Опросник заполнен"
   BROKER_REQUEST_DATE: 833189,       // date "Дата создания заявки от брокера" (unix sec)
+  // 2026-06-09: UTM / tracking / calltouch / mango поля КЦ-воронки.
+  // Морикит проставляет эти поля при настоящих заявках («Заявка от брокера»
+  // как маркер источника). Для наших фиксаций тоже их заполняем, чтобы
+  // в amo лид выглядел как от брокера (вкладка «utm» в карточке лида).
+  // Узнаны через GET /api/v4/leads/32205511 («Дмитрий от Ивана» — пример).
+  UTM_SOURCE: 618551,
+  UTM_MEDIUM: 618553,
+  UTM_CAMPAIGN: 618555,
+  UTM_CONTENT: 618557,
+  UTM_TERM: 618559,
+  EMAIL_MARKER: 618543,                  // поле «Email» во вкладке utm (не контакта)
+  COMMENT_TO_REQUEST: 618547,            // «Комментарий к заявке»
+  REQUEST_THEME: 618545,                 // «Тема заявки»
+  CREATED_FROM: 618511,                  // «Создана из»
+  UPDATED_FROM: 667383,                  // «Обновлена из»
+  LANDING_PAGE: 618563,                  // «Страница входа на сайт» (URL)
+  TRACKED_SITE: 618561,                  // «Отслеживаемый сайт» (URL)
+  REFERRER_PAGE: 618565,                 // «Страница реферального перехода» (URL)
+  COMPLETION_PAGE: 618567,               // «Страница выполнения обращения» (URL)
+  TRACKED_NUMBER: 618521,                // «Отслеживаемый номер»
+  REDIRECT_NUMBER: 618519,               // «Номер переадресации»
+  CLIENT_NUMBER: 618517,                 // «Номер клиента»
+  REQUEST_TIME: 618527,                  // «Время обращения»
+  CALLTOUCH_REQUEST_ID: 618579,          // «ID заявки в Calltouch»
+  MANGO_LINE_NUMBER: 605883,             // «Номер линии MANGO OFFICE»
+  YANDEX_CLIENT_ID: 618589,
+  GOOGLE_CLIENT_ID: 618587,
+  CALLTOUCH_CLIENT_ID: 618585,
+  CALLTOUCH_CALL_ID: 618577,
+  OS_FIELD: 618573,                      // «Операционная система»
+  BROWSER_FIELD: 618575,                 // «Браузер»
+  SESSION_ID: 618583,
+  CLIENT_NAME_TRACKING: 618541,          // «Имя клиента» (поле трекинга, не основное)
+  RECORDING_URL: 618535,                 // «Скачать запись» (URL)
+  CITY: 618569,                          // «Город»
+  PBX_CALL_ID: 618581,                   // «ID звонка в АТС»
+  CALL_DURATION: 618529,                 // «Длительность»
+  CALL_WAIT_TIME: 618531,                // «Ожидание»
+  DOC_SOURCE: 820653,                    // «источник для документов» («внешний»)
+  BROKER_REQUEST_NUMBER: 667539,         // «Номер заявки брокера»
 } as const;
+
+/**
+ * 2026-06-09: маркер-значение, которое Morekit ставит во все UTM/tracking
+ * поля для лидов от брокера. Мы повторяем то же поведение чтобы вкладка
+ * «utm» в карточке лида не была пустой.
+ */
+export const BROKER_SOURCE_MARKER = 'Заявка от брокера';
+export const BROKER_SOURCE_URL_MARKER = 'http://Заявка от брокера';
+
+/**
+ * Build массив custom_fields_values для маркеров «Заявка от брокера»
+ * (текстовые + URL-поля), которые проставляются на всех брокерских лидах.
+ */
+export function brokerLeadMarkerFields(brokerRequestNumber?: string | number): any[] {
+  const TEXT = BROKER_SOURCE_MARKER;
+  const URL = BROKER_SOURCE_URL_MARKER;
+  const fields: any[] = [
+    // UTM
+    { field_id: AMO_LEAD_FIELDS.UTM_SOURCE,           values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.UTM_MEDIUM,           values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.UTM_CAMPAIGN,         values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.UTM_CONTENT,          values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.UTM_TERM,             values: [{ value: TEXT }] },
+    // Тема/комментарий/email
+    { field_id: AMO_LEAD_FIELDS.EMAIL_MARKER,         values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.COMMENT_TO_REQUEST,   values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.REQUEST_THEME,        values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.CREATED_FROM,         values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.UPDATED_FROM,         values: [{ value: TEXT }] },
+    // URL поля
+    { field_id: AMO_LEAD_FIELDS.LANDING_PAGE,         values: [{ value: URL  }] },
+    { field_id: AMO_LEAD_FIELDS.TRACKED_SITE,         values: [{ value: URL  }] },
+    { field_id: AMO_LEAD_FIELDS.REFERRER_PAGE,        values: [{ value: URL  }] },
+    { field_id: AMO_LEAD_FIELDS.COMPLETION_PAGE,      values: [{ value: URL  }] },
+    { field_id: AMO_LEAD_FIELDS.RECORDING_URL,        values: [{ value: URL  }] },
+    // Calltouch / Mango / Tracking
+    { field_id: AMO_LEAD_FIELDS.TRACKED_NUMBER,       values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.REDIRECT_NUMBER,      values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.CLIENT_NUMBER,        values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.REQUEST_TIME,         values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.CALLTOUCH_REQUEST_ID, values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.MANGO_LINE_NUMBER,    values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.YANDEX_CLIENT_ID,     values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.GOOGLE_CLIENT_ID,     values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.CALLTOUCH_CLIENT_ID,  values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.CALLTOUCH_CALL_ID,    values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.OS_FIELD,             values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.BROWSER_FIELD,        values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.SESSION_ID,           values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.CLIENT_NAME_TRACKING, values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.CITY,                 values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.PBX_CALL_ID,          values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.CALL_DURATION,        values: [{ value: TEXT }] },
+    { field_id: AMO_LEAD_FIELDS.CALL_WAIT_TIME,       values: [{ value: TEXT }] },
+    // Брокерские мета-поля
+    { field_id: AMO_LEAD_FIELDS.DOC_SOURCE,           values: [{ value: 'внешний' }] },
+  ];
+  if (brokerRequestNumber !== undefined && brokerRequestNumber !== null && String(brokerRequestNumber).length > 0) {
+    fields.push({ field_id: AMO_LEAD_FIELDS.BROKER_REQUEST_NUMBER, values: [{ value: String(brokerRequestNumber) }] });
+  }
+  return fields;
+}
 
 // Enum values для select/radio полей лида КЦ.
 export const AMO_LEAD_ENUMS = {
