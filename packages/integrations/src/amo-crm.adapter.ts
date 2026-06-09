@@ -719,8 +719,36 @@ export class AmoCrmAdapter {
     //   833045 — "Стоимость без скидок, руб" (= бюджет покупки)
     //   604555 — "Метраж, м2"
     const customFields: any[] = [];
-    if (data.propertyType) customFields.push({ field_id: 587387, values: [{ value: data.propertyType }] });
-    if (data.roomsCount) customFields.push({ field_id: 583447, values: [{ value: data.roomsCount }] });
+    // 2026-06-09: 587387 «Тип объекта» и 583447 «Кол-во комнат» — это
+    // multiselect (нужны enum_id). PATCH с value=строкой возвращает
+    // 400 Bad Request и валит ВЕСЬ запрос (другие поля тоже не применяются).
+    // Маппинг строка→enum_id пока не реализован — данные брокер ввёл
+    // отдельным блоком в кабинете (см. PR #92), а в комментарий лида
+    // они идут в текстовой ноте. Чтобы не блокировать остальные поля,
+    // отправляем эти два поля как multiselect-enum через текстовый
+    // helper, если совпадает (иначе пропускаем).
+    const propertyTypeEnums: Record<string, number> = {
+      // ID получены через GET /leads/custom_fields/587387 (Тип объекта, multiselect).
+      'квартира': 859233,
+      'апартаменты': 981093,
+      'дом': 859235,
+      'таунхаус': 1025397,
+    };
+    if (data.propertyType) {
+      const enumId = propertyTypeEnums[String(data.propertyType).toLowerCase().trim()];
+      if (enumId) customFields.push({ field_id: 587387, values: [{ enum_id: enumId }] });
+    }
+    const roomsCountEnums: Record<string, number> = {
+      // ID получены через GET /leads/custom_fields/583447 (multiselect).
+      '1': 852923, '1к': 852923, 'однушка': 852923,
+      '2': 852925, '2к': 852925, 'двушка': 852925,
+      '3': 852927, '3к': 852927, 'трёшка': 852927, 'трешка': 852927,
+      'студия': 889059,
+    };
+    if (data.roomsCount) {
+      const enumId = roomsCountEnums[String(data.roomsCount).toLowerCase().trim()];
+      if (enumId) customFields.push({ field_id: 583447, values: [{ enum_id: enumId }] });
+    }
     if (data.amount && data.amount > 0) customFields.push({ field_id: 833045, values: [{ value: String(data.amount) }] });
     if (data.sqm && data.sqm > 0) customFields.push({ field_id: 604555, values: [{ value: String(data.sqm) }] });
     // Правка 2026-05-15: добавляем поля левого сайдбара лида автоматом.
