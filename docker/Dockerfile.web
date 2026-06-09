@@ -21,7 +21,13 @@ RUN --mount=type=cache,target=/root/.npm npm install
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build --workspace=apps/web 2>/dev/null || (cd apps/web && npx next build)
+# 2026-06-09: то же что в Dockerfile.api — чистим .next + tsbuildinfo,
+# убираем 2>/dev/null. Без этого Next.js incremental build переиспользовал
+# .next/cache от прошлого образа и новые правки в page.tsx не попадали в
+# JS-bundle (проявилось как «брокеру всё ещё видны скрытые поля карточки
+# клиента» даже после жёсткой перезагрузки браузера).
+RUN rm -rf apps/web/.next apps/web/tsconfig.tsbuildinfo \
+ && npm run build --workspace=apps/web
 
 # ─── runtime ───
 FROM node:20-alpine
