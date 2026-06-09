@@ -336,6 +336,17 @@ model Client {
   amoSyncAttempts     Int              @default(0) @map("amo_sync_attempts")
   amoSyncLastAttemptAt DateTime?       @map("amo_sync_last_attempt_at")
 
+  // 2026-06-09: поля формы фиксации — раньше склеивались в comment строкой,
+  // что мешало брокеру видеть структурированно. Теперь храним каждое поле
+  // отдельно и показываем в карточке клиента.
+  propertyType        String?          @map("property_type")        // «Квартира» / «Апартаменты» / «Коммерция» и т.п.
+  roomsCount          String?          @map("rooms_count")          // «Студия» / «1» / «2» / ... / «Коммерческое помещение»
+  amount              Decimal?         @db.Decimal(14, 2)            // бюджет покупки, руб.
+  sqm                 Decimal?         @db.Decimal(10, 2)            // метраж, м²
+  clientRegion        String?          @map("client_region")         // «Москва / СПб / другой»
+  purchaseTiming      String?          @map("purchase_timing")       // «1-3 месяца» / «3-6» / «от 5» / «Не выяснил»
+  readinessLevel      String?          @map("readiness_level")       // «Горячий» / «Тёплый» / «Холодный»
+
   @@index([phone])
   @@index([brokerId])
   @@index([amoSyncStatus])

@@ -270,10 +270,65 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
           )}
         </div>
 
+        {/* 2026-06-09: данные с формы фиксации — то, что брокер сам заполнил.
+            Видно всем, включая брокера, чтобы он сам видел детали по своему клиенту. */}
+        {(client.propertyType || client.roomsCount || client.amount || client.sqm ||
+          client.clientRegion || client.purchaseTiming || client.readinessLevel) && (
+          <div className="bg-surface-secondary rounded-lg p-3 mb-4">
+            <span className="text-text-muted block text-xs mb-2 flex items-center gap-1">
+              <FileText className="w-3 h-3" /> Данные заявки от брокера
+            </span>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {client.propertyType && (
+                <div>
+                  <span className="text-text-muted text-xs block">Тип объекта</span>
+                  <span className="font-medium">{client.propertyType}</span>
+                </div>
+              )}
+              {client.roomsCount && (
+                <div>
+                  <span className="text-text-muted text-xs block">Кол-во комнат</span>
+                  <span className="font-medium">{client.roomsCount}</span>
+                </div>
+              )}
+              {client.sqm && (
+                <div>
+                  <span className="text-text-muted text-xs block">Метраж</span>
+                  <span className="font-medium">{Number(client.sqm)} м²</span>
+                </div>
+              )}
+              {client.amount && (
+                <div>
+                  <span className="text-text-muted text-xs block">Бюджет покупки</span>
+                  <span className="font-medium">{Math.round(Number(client.amount)).toLocaleString('ru-RU')} ₽</span>
+                </div>
+              )}
+              {client.clientRegion && (
+                <div>
+                  <span className="text-text-muted text-xs block">Регион клиента</span>
+                  <span className="font-medium">{client.clientRegion}</span>
+                </div>
+              )}
+              {client.purchaseTiming && (
+                <div>
+                  <span className="text-text-muted text-xs block">Планирует покупку</span>
+                  <span className="font-medium">{client.purchaseTiming}</span>
+                </div>
+              )}
+              {client.readinessLevel && (
+                <div>
+                  <span className="text-text-muted text-xs block">Готовность к сделке</span>
+                  <span className="font-medium">{client.readinessLevel}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {client.comment && (
           <div className="bg-surface-secondary rounded-lg p-3 mb-4">
             <span className="text-text-muted block text-xs mb-1 flex items-center gap-1">
-              <FileText className="w-3 h-3" /> Детали с фиксации
+              <FileText className="w-3 h-3" /> Комментарий брокера
             </span>
             <span className="text-sm whitespace-pre-wrap">{client.comment}</span>
           </div>

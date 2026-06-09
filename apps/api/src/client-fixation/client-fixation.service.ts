@@ -48,6 +48,20 @@ export class ClientFixationService {
     const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
     if (!broker) throw new BadRequestException('Broker not found');
 
+    // 2026-06-09: блок полей формы фиксации, общий для всех 4 веток create.
+    // Раньше эти данные склеивались в comment; теперь храним структурированно
+    // и показываем в карточке клиента у брокера. Prisma сама приведёт
+    // number → Decimal для amount/sqm.
+    const fixationFormFields = {
+      propertyType: data.propertyType || null,
+      roomsCount: data.roomsCount || null,
+      amount: data.amount != null ? data.amount : null,
+      sqm: data.sqm != null ? data.sqm : null,
+      clientRegion: data.clientRegion || null,
+      purchaseTiming: data.purchaseTiming || null,
+      readinessLevel: data.readinessLevel || null,
+    } as any;
+
     // Find or create agency
     let agency = await this.prisma.agency.findUnique({
       where: { inn: data.agencyInn },
@@ -123,6 +137,7 @@ export class ClientFixationService {
             fixationAgencyId: agency.id,
             uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
             uniquenessReason: `АЛАРМ из amoCRM: ${amoVerdict.reason}`,
+            ...fixationFormFields,
           },
         });
         try {
@@ -247,6 +262,7 @@ export class ClientFixationService {
             fixationAgencyId: agency.id,
             uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
             uniquenessReason: `Конфликт: клиент уже на уникальности у брокера ${conflictingClient.broker.fullName} (${conflictingClient.broker.phone}). Менеджер проверит.`,
+            ...fixationFormFields,
           },
         });
 
@@ -300,6 +316,7 @@ export class ClientFixationService {
           fixationAgencyId: agency.id,
           uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
           uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+          ...fixationFormFields,
         },
       });
 
@@ -618,6 +635,7 @@ export class ClientFixationService {
         fixationAgencyId: existingClient.fixationAgencyId,
         uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
         uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+        ...fixationFormFields,
       },
     });
 
