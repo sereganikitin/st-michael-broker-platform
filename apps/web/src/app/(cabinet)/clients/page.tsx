@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { Search, ChevronLeft, ChevronRight, X, AlertTriangle, Mail, Building, User, Phone as PhoneIcon, Calendar, FileText, CheckCircle2, AlertCircle, PhoneCall } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
@@ -134,6 +135,13 @@ function CallHistory({ clientId }: { clientId: string }) {
 // Грузим полные данные через GET /clients/:id (с deals, meetings, broker),
 // показываем максимум информации из БД.
 function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose: () => void }) {
+  const { broker } = useAuth();
+  // 2026-06-09: разделение видимости карточки клиента по ролям.
+  // Брокер НЕ видит: кнопку «Позвонить», поле «Статус клиента (NEW)»,
+  // «Обновлено», «Агентство фиксации», «amoCRM Lead ID», блок ошибки
+  // amoCRM, «История звонков», «История» (audit). Это техническая инфа
+  // для КЦ/менеджеров, брокеру она только мешает.
+  const isStaff = broker?.role === 'ADMIN' || broker?.role === 'MANAGER';
   const [client, setClient] = useState<any>(shallowClient);
   const [loading, setLoading] = useState(true);
 
@@ -169,10 +177,13 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
           )}
         </p>
 
-        {/* 2026-06-02: callback через Mango — кнопка прямо в шапке карточки. */}
-        <div className="mb-4">
-          <CallButton clientId={client.id} variant="full" />
-        </div>
+        {/* 2026-06-02: callback через Mango — кнопка прямо в шапке карточки.
+            2026-06-09: только для КЦ/менеджеров. Брокер не звонит клиенту через Mango. */}
+        {isStaff && (
+          <div className="mb-4">
+            <CallButton clientId={client.id} variant="full" />
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-2 mb-4">
           <span className={`text-xs px-2 py-1 rounded ${statusLabels[client.uniquenessStatus]?.cls || 'bg-text-muted/20'}`}>
@@ -186,7 +197,7 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
               <CheckCircle2 className="w-3 h-3" /> Акт осмотра подписан
             </span>
           )}
-          {client.amoSyncStatus === 'FAILED' && (
+          {isStaff && client.amoSyncStatus === 'FAILED' && (
             <span className="text-xs px-2 py-1 rounded bg-error/20 text-error inline-flex items-center gap-1">
               <AlertCircle className="w-3 h-3" /> Не передан в amoCRM
             </span>
@@ -200,10 +211,12 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
               <Building className="w-4 h-4" /> {projectLabels[client.project] || client.project}
             </span>
           </div>
-          <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Статус клиента</span>
-            <span className="font-medium">{client.status}</span>
-          </div>
+          {isStaff && (
+            <div className="bg-surface-secondary rounded-lg p-3">
+              <span className="text-text-muted block text-xs">Статус клиента</span>
+              <span className="font-medium">{client.status}</span>
+            </div>
+          )}
           <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
             <span className="text-text-muted block text-xs flex items-center gap-1">
               <Calendar className="w-3 h-3" /> Уникальность до
@@ -235,11 +248,13 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
             <span className="text-text-muted block text-xs">Создано</span>
             <span className="font-medium">{new Date(client.createdAt).toLocaleDateString('ru-RU')}</span>
           </div>
-          <div className="bg-surface-secondary rounded-lg p-3">
-            <span className="text-text-muted block text-xs">Обновлено</span>
-            <span className="font-medium">{new Date(client.updatedAt || client.amoUpdatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
-          </div>
-          {client.fixationAgency && (
+          {isStaff && (
+            <div className="bg-surface-secondary rounded-lg p-3">
+              <span className="text-text-muted block text-xs">Обновлено</span>
+              <span className="font-medium">{new Date(client.updatedAt || client.amoUpdatedAt || client.createdAt).toLocaleDateString('ru-RU')}</span>
+            </div>
+          )}
+          {isStaff && client.fixationAgency && (
             <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
               <span className="text-text-muted block text-xs">Агентство фиксации</span>
               <span className="font-medium">{client.fixationAgency.name}</span>
@@ -247,7 +262,7 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
               {client.fixationAgency.phone && <span className="text-xs text-text-muted ml-2">{client.fixationAgency.phone}</span>}
             </div>
           )}
-          {client.amoLeadId && (
+          {isStaff && client.amoLeadId && (
             <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
               <span className="text-text-muted block text-xs">amoCRM Lead ID</span>
               <span className="font-medium font-mono text-xs">{String(client.amoLeadId)}</span>
@@ -264,7 +279,7 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
           </div>
         )}
 
-        {client.amoSyncStatus === 'FAILED' && client.amoSyncError && (
+        {isStaff && client.amoSyncStatus === 'FAILED' && client.amoSyncError && (
           <div className="bg-error/10 border border-error/30 rounded-lg p-3 mb-4">
             <span className="text-text-muted block text-xs mb-1 text-error">amoCRM ошибка</span>
             <span className="text-xs font-mono break-all">{client.amoSyncError}</span>
@@ -272,13 +287,16 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
           </div>
         )}
 
-        {/* 2026-06-02: история звонков по клиенту — из broker-calls. */}
-        <div className="mb-4">
-          <h3 className="text-sm font-medium mb-2 flex items-center gap-1">
-            <PhoneCall className="w-4 h-4" /> История звонков
-          </h3>
-          <CallHistory clientId={client.id} />
-        </div>
+        {/* 2026-06-02: история звонков по клиенту — из broker-calls.
+            2026-06-09: только для КЦ/менеджеров. */}
+        {isStaff && (
+          <div className="mb-4">
+            <h3 className="text-sm font-medium mb-2 flex items-center gap-1">
+              <PhoneCall className="w-4 h-4" /> История звонков
+            </h3>
+            <CallHistory clientId={client.id} />
+          </div>
+        )}
 
         {Array.isArray(client.meetings) && client.meetings.length > 0 && (
           <div className="mb-4">
@@ -316,7 +334,7 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
           </div>
         )}
 
-        {Array.isArray(client.uniquenessHistory) && client.uniquenessHistory.length > 0 && (
+        {isStaff && Array.isArray(client.uniquenessHistory) && client.uniquenessHistory.length > 0 && (
           <div className="mt-4">
             <h3 className="text-sm font-medium mb-2">История</h3>
             <div className="space-y-1.5">
@@ -351,6 +369,10 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
 }
 
 export default function ClientsPage() {
+  const { broker } = useAuth();
+  // 2026-06-09: брокер не видит иконку звонка в строках таблицы — звонок
+  // через Mango только для КЦ/менеджеров.
+  const isStaff = broker?.role === 'ADMIN' || broker?.role === 'MANAGER';
   const [clients, setClients] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -514,7 +536,7 @@ export default function ClientsPage() {
                         {new Date(c.amoCreatedAt || c.createdAt).toLocaleDateString('ru-RU')}
                       </td>
                       <td className="py-3">
-                        <CallButton clientId={c.id} variant="icon" />
+                        {isStaff && <CallButton clientId={c.id} variant="icon" />}
                       </td>
                     </tr>
                   ))}

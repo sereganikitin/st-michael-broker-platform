@@ -117,6 +117,15 @@ export class AuthService {
       });
     }
 
+    // 2026-06-09: welcome-email брокеру при регистрации.
+    // SMS отключены (нет провайдера), используем только почту.
+    // Fire-and-forget — не валим регистрацию если SMTP лежит.
+    if (data.email) {
+      this.sendWelcomeEmail(data.email, data.fullName).catch((e) => {
+        console.error('[register] sendWelcomeEmail failed:', e?.message || e);
+      });
+    }
+
     return {
       message: 'Registration successful',
       brokerId: broker.id,
@@ -124,6 +133,53 @@ export class AuthService {
       amoLeadsCount,
       autoSyncTip: amoContactId ? 'Use POST /api/amocrm/sync-my-deals to pull deals/clients' : undefined,
     };
+  }
+
+  /**
+   * 2026-06-09: приветственное письмо после регистрации.
+   * Текст содержит ссылку на кабинет, краткую инструкцию по первым шагам
+   * и контакты КЦ для вопросов. Шлётся через SMTP_*, если они настроены.
+   * При SMTP-ошибке только логируется — не валим регистрацию.
+   */
+  private async sendWelcomeEmail(email: string, fullName: string): Promise<void> {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
+      console.warn('[welcome-email] SMTP не настроен, skip');
+      return;
+    }
+    const webUrl = process.env.WEB_URL || 'https://broker.stmichael.ru';
+    const loginUrl = `${webUrl}/login`;
+    const html = `
+      <p>Здравствуйте, ${fullName}!</p>
+      <p>Вы успешно зарегистрировались в личном кабинете брокера <strong>ST Michael Broker Platform</strong>.</p>
+      <p><strong>Что делать дальше:</strong></p>
+      <ol>
+        <li>Войти в кабинет по ссылке: <a href="${loginUrl}">${loginUrl}</a> (используйте телефон, под которым регистрировались, и ваш пароль).</li>
+        <li>В разделе <em>«Профиль»</em> заполните данные: ФИО, должность, регион, дата рождения, Telegram. Эти данные нужны для оформления сделок и комиссий.</li>
+        <li>В разделе <em>«Подбор квартир»</em> можно сразу посмотреть каталог объектов.</li>
+        <li>Чтобы зафиксировать первого клиента — раздел <em>«Фиксация»</em>. После фиксации клиент закрепляется за вами на 30 дней.</li>
+      </ol>
+      <p><strong>Контакты КЦ для вопросов:</strong></p>
+      <ul>
+        <li>Telegram: <a href="https://t.me/stmichael_broker">@stmichael_broker</a></li>
+        <li>Почта: <a href="mailto:broker@stmichael.ru">broker@stmichael.ru</a></li>
+      </ul>
+      <p>Будем рады долгому и продуктивному сотрудничеству!</p>
+      <p>—<br>Команда ST Michael</p>
+    `;
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 465),
+      secure: process.env.SMTP_SECURE !== 'false',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    });
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: email,
+      subject: 'Добро пожаловать в ST Michael Broker Platform',
+      html,
+    });
+    console.log(`[welcome-email] отправлено ${email}`);
   }
 
   async forgotPassword(email: string) {
