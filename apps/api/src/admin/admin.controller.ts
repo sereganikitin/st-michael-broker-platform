@@ -7,6 +7,7 @@ import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../auth/current-user.decorator';
 import { UserRole } from '@st-michael/shared';
 import { AdminService } from './admin.service';
+import { GoogleSheetsSyncService } from './google-sheets-sync.service';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -14,7 +15,10 @@ import { AdminService } from './admin.service';
 @Roles(UserRole.ADMIN, UserRole.MANAGER)
 @ApiBearerAuth()
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly gsheets: GoogleSheetsSyncService,
+  ) {}
 
   @Get('brokers')
   @ApiOperation({ summary: 'List all brokers (admin/manager only)' })
@@ -279,6 +283,23 @@ export class AdminController {
   async deleteCommissionPolicy(@Param('id') id: string) {
     return this.adminService.deleteCommissionPolicy(id);
   }
+  // ─── Google Sheets sync (admin only) ─────────────────────
+  // 2026-06-09: ручной триггер синка брокерской базы из Google Sheet
+  // + статус последнего запуска. Cron каждые 30 мин — в scheduler.
+  @Get('gsheets-brokers/status')
+  @ApiOperation({ summary: 'Статус последнего синка из Google Sheets' })
+  @Roles(UserRole.ADMIN)
+  getGSheetsStatus() {
+    return this.gsheets.getLastResult();
+  }
+
+  @Post('gsheets-brokers/sync-now')
+  @ApiOperation({ summary: 'Запустить синк из Google Sheets немедленно (manual)' })
+  @Roles(UserRole.ADMIN)
+  triggerGSheetsSync() {
+    return this.gsheets.sync();
+  }
+
   // ─── Integration settings (admin only) ───────────────────
   // 2026-06-04: KV-настройки для интеграций (Morekit URL и т.п.),
   // которые админ хочет менять из UI без релиза/SSH.

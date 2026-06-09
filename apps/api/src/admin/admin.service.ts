@@ -1602,6 +1602,8 @@ export class AdminService {
     'MANGO_API_KEY',
     'MANGO_API_SALT',
     'MANGO_API_URL',
+    // 2026-06-09: Google Sheets — URL CSV-экспорта таблицы с базой брокеров.
+    'GSHEETS_BROKERS_URL',
   ];
 
   // Ключи, значение которых не возвращаем в UI «как есть» (длинные JWT-токены / API keys).
