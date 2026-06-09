@@ -32,7 +32,12 @@ export interface IMangoAdapter {
 // Управляется из /admin/integrations через UI без рестарта/SSH.
 // На старте API bootstrap читает из SystemSetting → setMangoConfig().
 // Если в БД пусто — fallback на env.
-type MangoConfig = { apiKey: string; apiSalt: string; apiUrl: string };
+// 2026-06-09: добавили поле callbackUrl — полный URL integration-webhook
+// шаблона с плейсхолдерами {{Ответственный}} и {{Телефон}}. Пример:
+//   https://integration-webhook.mango-office.ru/webhookapp/common?
+//     code=<ID>&Source=Other&API_key=<API_KEY>&Action=Callback&
+//     EmployeeNUM={{Ответственный}}&TelNumbr={{Телефон}}
+type MangoConfig = { apiKey: string; apiSalt: string; apiUrl: string; callbackUrl: string };
 
 const DEFAULT_MANGO_URL = 'https://app.mango-office.ru/vpbx';
 
@@ -40,6 +45,7 @@ let mangoConfig: MangoConfig = {
   apiKey: process.env.MANGO_API_KEY || '',
   apiSalt: process.env.MANGO_API_SALT || '',
   apiUrl: process.env.MANGO_API_URL || DEFAULT_MANGO_URL,
+  callbackUrl: process.env.MANGO_CALLBACK_URL || '',
 };
 
 export function setMangoConfig(cfg: Partial<MangoConfig>): void {
@@ -49,12 +55,18 @@ export function setMangoConfig(cfg: Partial<MangoConfig>): void {
     // Нормализуем URL: убираем trailing slash, чтобы `${url}/commands/callback`
     // не получался с двойным слешем.
     apiUrl: (cfg.apiUrl ?? mangoConfig.apiUrl).replace(/\/+$/, '') || DEFAULT_MANGO_URL,
+    callbackUrl: cfg.callbackUrl ?? mangoConfig.callbackUrl,
   };
 }
 
 export function getMangoConfig(): MangoConfig {
   return { ...mangoConfig };
 }
+
+// 2026-06-09: in-memory rate-limit для click-to-call (Mango лимит 20/мин).
+// timestamps в мс, чистим до 60 секунд назад при каждом запросе.
+const callTimestamps: number[] = [];
+const MANGO_RATE_LIMIT_PER_MIN = 20;
 
 /**
  * Mango VPBX integration — outbound callback.
@@ -134,6 +146,55 @@ export class MangoAdapter implements IMangoAdapter {
   /** Совместимость со старым stub-API. */
   async initiateCall(from: string, to: string): Promise<{ callId: string }> {
     return this.initiateCallback({ from, to });
+  }
+
+  /**
+   * 2026-06-09: альтернативный путь через готовый integration-webhook URL
+   * от Mango. Не требует HMAC-подписи — просто GET на готовый URL шаблона
+   * с подстановкой EmployeeNUM (внутренний номер оператора) и TelNumbr
+   * (телефон того кого набираем).
+   *
+   * Mango сам обеспечивает обратный webhook со статусом звонка на наш
+   * /api/webhooks/mango/call-result (настраивается в ЛК Mango).
+   *
+   * Лимит: 20 звонков в минуту (проверяется in-memory).
+   */
+  async initiateCallbackViaWebhook(req: { employeeNum: string; phone: string }): Promise<{ callId: string }> {
+    if (!mangoConfig.callbackUrl) {
+      throw new Error('Mango: MANGO_CALLBACK_URL не настроен (см. /admin/integrations)');
+    }
+    if (!req.employeeNum) {
+      throw new Error('Mango: не указан EmployeeNUM (внутренний номер оператора)');
+    }
+    const phone = this.digits(req.phone);
+    if (phone.length < 10) {
+      throw new Error(`Mango: некорректный номер для набора (${req.phone})`);
+    }
+
+    // Rate-limit: чистим записи старше 60 сек.
+    const now = Date.now();
+    while (callTimestamps.length > 0 && now - callTimestamps[0] > 60_000) {
+      callTimestamps.shift();
+    }
+    if (callTimestamps.length >= MANGO_RATE_LIMIT_PER_MIN) {
+      throw new Error(`Mango: превышен лимит ${MANGO_RATE_LIMIT_PER_MIN} звонков в минуту`);
+    }
+
+    // Подставляем плейсхолдеры. Шаблон от Mango:
+    //   EmployeeNUM={{Ответственный}}&TelNumbr={{Телефон}}
+    const url = mangoConfig.callbackUrl
+      .replace(/\{\{Ответственный\}\}/g, encodeURIComponent(req.employeeNum))
+      .replace(/\{\{Телефон\}\}/g, encodeURIComponent(phone));
+
+    const commandId = crypto.randomUUID();
+    callTimestamps.push(now);
+
+    const res = await fetch(url, { method: 'GET' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Mango webhook ${res.status}: ${text.slice(0, 300)}`);
+    }
+    return { callId: commandId };
   }
 
   async getCallRecording(callId: string): Promise<string> {

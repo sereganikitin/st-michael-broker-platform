@@ -1602,6 +1602,9 @@ export class AdminService {
     'MANGO_API_KEY',
     'MANGO_API_SALT',
     'MANGO_API_URL',
+    // 2026-06-09: Mango integration-webhook URL — click-to-call через
+    // готовый GET-шаблон без подписи. Альтернатива VPBX API.
+    'MANGO_CALLBACK_URL',
     // 2026-06-09: Google Sheets — URL CSV-экспорта таблицы с базой брокеров.
     'GSHEETS_BROKERS_URL',
   ];
@@ -1679,6 +1682,7 @@ export class AdminService {
     if (key === 'MANGO_API_KEY') setMangoConfig({ apiKey: trimmed });
     if (key === 'MANGO_API_SALT') setMangoConfig({ apiSalt: trimmed });
     if (key === 'MANGO_API_URL') setMangoConfig({ apiUrl: trimmed });
+    if (key === 'MANGO_CALLBACK_URL') setMangoConfig({ callbackUrl: trimmed });
     return { ok: true, key };
   }
 

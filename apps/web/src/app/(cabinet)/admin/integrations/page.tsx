@@ -59,6 +59,15 @@ const SETTINGS_META: Record<string, { label: string; description: string; placeh
       'Базовый URL VPBX API. Для обычного аккаунта — https://app.mango-office.ru/vpbx. Если аккаунт Контакт-центр — URL другой.',
     placeholder: 'https://app.mango-office.ru/vpbx',
   },
+  MANGO_CALLBACK_URL: {
+    label: 'Mango — Callback URL (integration-webhook)',
+    description:
+      'Полный URL шаблона от Mango с плейсхолдерами {{Ответственный}} и {{Телефон}}. ' +
+      'Используется для click-to-call вместо VPBX API. Например: ' +
+      'https://integration-webhook.mango-office.ru/webhookapp/common?code=...&Source=Other&API_key=...&Action=Callback&EmployeeNUM={{Ответственный}}&TelNumbr={{Телефон}}. ' +
+      'Лимит 20 звонков/мин (проверяется в коде).',
+    placeholder: 'https://integration-webhook.mango-office.ru/webhookapp/common?code=...&EmployeeNUM={{Ответственный}}&TelNumbr={{Телефон}}',
+  },
   GSHEETS_BROKERS_URL: {
     label: 'Google Sheets — URL CSV-экспорта базы брокеров',
     description:

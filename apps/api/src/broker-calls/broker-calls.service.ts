@@ -39,16 +39,29 @@ export class BrokerCallsService {
       throw new BadRequestException('У клиента не указан телефон');
     }
 
-    // Caller ID для клиента — общий офисный номер St Michael.
-    // Берём из ENV (MANGO_OUTBOUND_LINE), если нет — Mango возьмёт дефолт аккаунта.
-    const lineNumber = process.env.MANGO_OUTBOUND_LINE || undefined;
-
-    // Инициируем callback. Mango вернёт command_id (callId) — это наш ключ.
-    const { callId } = await this.mango.initiateCallback({
-      from: broker.phone,
-      to: client.phone,
-      lineNumber,
-    });
+    // 2026-06-09: если у брокера задан mangoEmployeeNum — используем новый
+    // integration-webhook URL (GET без подписи). Иначе fallback на VPBX
+    // POST /commands/callback (HMAC-подпись по api_key/salt). Mango
+    // присылает callback-уведомления о статусе звонка на
+    // /api/webhooks/mango/call-result.
+    let callId: string;
+    if (broker.mangoEmployeeNum) {
+      const r = await this.mango.initiateCallbackViaWebhook({
+        employeeNum: broker.mangoEmployeeNum,
+        phone: client.phone,
+      });
+      callId = r.callId;
+    } else {
+      // Caller ID для клиента — общий офисный номер St Michael.
+      // Берём из ENV (MANGO_OUTBOUND_LINE), если нет — Mango возьмёт дефолт аккаунта.
+      const lineNumber = process.env.MANGO_OUTBOUND_LINE || undefined;
+      const r = await this.mango.initiateCallback({
+        from: broker.phone,
+        to: client.phone,
+        lineNumber,
+      });
+      callId = r.callId;
+    }
 
     // Создаём запись Call со статусом «инициирован» — пользователь увидит её
     // в журнале сразу. Webhook позже допишет duration/recording/result.
