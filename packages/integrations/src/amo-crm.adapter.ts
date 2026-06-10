@@ -817,11 +817,14 @@ export class AmoCrmAdapter {
     // Когда у контакта уже есть активный лид в КЦ (Новое обращение /
     // Квалифицировали выводим на встречу) — новый брокер прикрепляется
     // к нему вторым контактом. Это «конкурирующие брокеры до акта осмотра».
-    // 2026-06-09: ответственный за лид — fallback на Юлию Арефьеву
-    // (amoUserId=9796826) пока Морикит не распределяет автоматически
-    // (раньше responsible_user_id оставался у автора токена = админа).
-    // Переопределяется через env AMO_DEFAULT_RESPONSIBLE_USER_ID.
-    const defaultResponsibleUserId = Number(process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID || 9796826);
+    // 2026-06-10: распределение делает Морикит после webhook'а из
+    // ClientFixationService. Раньше тут стоял жёсткий fallback=9796826
+    // (Юлия), но он перебивал Морикита — тот не перезаписывает уже
+    // занятого ответственного. Теперь по умолчанию НЕ передаём
+    // responsible_user_id; env AMO_DEFAULT_RESPONSIBLE_USER_ID можно
+    // задать вручную через админку только если Морикит сломан.
+    const envFallback = process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID;
+    const defaultResponsibleUserId = envFallback ? Number(envFallback) : undefined;
 
     let resultLead: AmoLead;
     if (data.reuseLeadId) {
@@ -832,7 +835,7 @@ export class AmoCrmAdapter {
           name: `Фиксация: ${data.clientName} (${data.project})`,
           contacts: leadContacts.length > 0 ? leadContacts : undefined,
           pipeline_id: 7600542,
-          responsible_user_id: defaultResponsibleUserId,
+          ...(defaultResponsibleUserId ? { responsible_user_id: defaultResponsibleUserId } : {}),
           ...(data.amount && data.amount > 0 ? { price: data.amount } : {}),
         } as any);
       } else {
@@ -862,8 +865,8 @@ export class AmoCrmAdapter {
         name: `Фиксация: ${data.clientName} (${data.project})`,
         contacts: leadContacts.length > 0 ? leadContacts : undefined,
         pipeline_id: 7600542,
-        responsible_user_id: defaultResponsibleUserId,
       };
+      if (defaultResponsibleUserId) leadData.responsible_user_id = defaultResponsibleUserId;
       if (data.amount && data.amount > 0) leadData.price = data.amount;
       resultLead = await this.createLead(leadData);
     }
@@ -916,26 +919,10 @@ export class AmoCrmAdapter {
       } catch (e) {
         // Не валим — note вторичен, главное лид с полями.
       }
-      // 2026-06-03: задача с типом «Аларм».
-      // TODO: подставить реальный task_type_id когда дойдёт инспект task_types
-      // (сейчас фолбэк на 1=Звонок, чтобы хоть что-то создавалось).
-      // Название и дедлайн +30мин — по требованию пользователя.
-      // responsibleUserId не задаём — Морикит распределяет.
-      // 2026-06-03: ID 2393839 = «Alarm» в stmichael.amocrm.ru, цвет E00000.
-      // Узнано через inspect-amo-fields --entity task_types.
-      const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
-      try {
-        await this.createTask({
-          text: `Связаться по сделке брокера — клиент ${data.clientName} (${data.clientPhone}), брокер ${data.brokerPhone}.`,
-          entityType: 'leads',
-          entityId: resultLead.id,
-          taskTypeId: ALARM_TASK_TYPE_ID,
-          // Срок 30 минут — по правилам пользователя «нужно перезвонить через полчаса».
-          completeTillSec: Math.floor(Date.now() / 1000) + 30 * 60,
-        });
-      } catch (e) {
-        // не валим
-      }
+      // 2026-06-10: задачу «Связаться по сделке брокера» создаёт Морикит
+      // после распределения менеджера КЦ (это его прямая функция).
+      // Раньше мы создавали свою задачу без responsibleUserId — она
+      // валилась на автора OAuth-токена (админа). Удалено.
     }
 
     return resultLead;
