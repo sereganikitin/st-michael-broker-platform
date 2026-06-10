@@ -96,6 +96,8 @@ export class AmocrmService {
       field_code: f.field_code,
       values: f.values,
     }));
+    // 2026-06-10: список задач по этому лиду — чтобы видеть кто ответственный.
+    const tasks = await this.amo.getTasksByEntity('leads', leadId);
     return {
       id: lead.id,
       name: lead.name,
@@ -107,6 +109,7 @@ export class AmocrmService {
       responsible_user_id: lead.responsible_user_id,
       custom_fields_count: customFields.length,
       custom_fields: customFields,
+      tasks,
     };
   }
   async getPipelines() {

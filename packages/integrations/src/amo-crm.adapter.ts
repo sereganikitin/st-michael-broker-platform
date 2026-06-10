@@ -404,6 +404,38 @@ export class AmoCrmAdapter {
     });
   }
 
+  // 2026-06-10: список задач по entity (лиду / контакту). Используется
+  // для диагностики «кто ответственный за задачу» — чтобы убедиться
+  // что Морикит / наш код проставляет правильного человека.
+  async getTasksByEntity(entityType: 'leads' | 'contacts', entityId: number): Promise<Array<{
+    id: number;
+    text: string;
+    task_type_id: number;
+    responsible_user_id: number;
+    is_completed: boolean;
+    complete_till: number;
+    created_at: number;
+  }>> {
+    try {
+      const data = await this.request<any>(
+        `/tasks?filter[entity_type]=${entityType}&filter[entity_id]=${entityId}&limit=50`,
+      );
+      const items = data?._embedded?.tasks || [];
+      return items.map((t: any) => ({
+        id: t.id,
+        text: t.text,
+        task_type_id: t.task_type_id,
+        responsible_user_id: t.responsible_user_id,
+        is_completed: t.is_completed,
+        complete_till: t.complete_till,
+        created_at: t.created_at,
+      }));
+    } catch (e: any) {
+      console.error('[getTasksByEntity] failed:', e?.message || e);
+      return [];
+    }
+  }
+
   async addNoteToContact(contactId: number, text: string): Promise<void> {
     await this.request(`/contacts/${contactId}/notes`, {
       method: 'POST',
