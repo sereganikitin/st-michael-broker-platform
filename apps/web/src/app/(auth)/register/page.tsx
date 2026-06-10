@@ -135,11 +135,25 @@ export default function RegisterPage() {
               <input
                 type="password"
                 className="input"
-                placeholder="Минимум 6 символов"
+                placeholder="Минимум 8 символов"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
+
+            {(() => {
+              const missing: string[] = [];
+              if (!fullName) missing.push('ФИО');
+              if (phoneDigits.length !== 10) missing.push('телефон (10 цифр)');
+              if (!email) missing.push('email');
+              if (inn.length !== 10 && inn.length !== 12) missing.push('ИНН (10 или 12 цифр)');
+              if (password.length < 8) missing.push('пароль (мин. 8 символов)');
+              return missing.length > 0 ? (
+                <div className="text-xs text-text-muted">
+                  Заполни: {missing.join(', ')}
+                </div>
+              ) : null;
+            })()}
 
             <button
               className="btn btn-primary w-full"
@@ -150,7 +164,7 @@ export default function RegisterPage() {
                 !fullName ||
                 !email ||
                 (inn.length !== 10 && inn.length !== 12) ||
-                password.length < 6
+                password.length < 8
               }
             >
               {loading ? 'Регистрация...' : 'Зарегистрироваться'}
