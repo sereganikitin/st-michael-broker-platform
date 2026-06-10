@@ -205,16 +205,30 @@ export class ClientFixationService {
             ? `Брокер заявляет на клиента ${data.fullName} (${data.phone}). Связаться с клиентом.`
             : `Связаться по сделке брокера — клиент ${data.fullName} (${data.phone}), брокер ${broker.phone}.`;
           try {
-            // 2026-06-09: ответственный за ALARM-задачу — Юлия Арефьева
-            // (amoUserId=9796826) пока Морикит не распределяет автоматически.
-            // Переопределяется через env AMO_DEFAULT_RESPONSIBLE_USER_ID.
+            // 2026-06-10: ответственный за ALARM-задачу = ответственный
+            // триггер-лида (Морикит уже распределил его на менеджера КЦ).
+            // Раньше зашивали Юлию 9796826 — это давало «задача висит на
+            // том кто не работает сегодня». Теперь читаем актуального
+            // ответственного из лида. Если по какой-то причине не вытянули
+            // (lid удалён / amo ответил 5xx) — fallback на env или undefined
+            // (amo поставит автора токена, но это лучше чем падать).
+            let leadResponsibleUserId: number | undefined;
+            try {
+              const fullLead = await this.amoCrmAdapter.getLead(targetLead.id);
+              leadResponsibleUserId = (fullLead as any)?.responsible_user_id;
+            } catch (e: any) {
+              console.warn('[fixClient amo-alarm] getLead failed, fallback:', e?.message || e);
+            }
+            const envFallback = process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID;
+            const taskResponsibleUserId = leadResponsibleUserId
+              || (envFallback ? Number(envFallback) : undefined);
             await this.amoCrmAdapter.createTask({
               text: taskText,
               entityType: 'leads',
               entityId: targetLead.id,
               taskTypeId: ALARM_TASK_TYPE_ID,
               completeTillSec: Math.floor(Date.now() / 1000) + 30 * 60,
-              responsibleUserId: Number(process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID || 9796826),
+              responsibleUserId: taskResponsibleUserId,
             });
           } catch (e: any) {
             console.error('[fixClient amo-alarm] task failed:', e?.message || e);

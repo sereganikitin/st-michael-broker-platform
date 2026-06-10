@@ -1006,12 +1006,23 @@ export class AmoCrmAdapter {
     // Note для истории + задача чтобы сотрудник КЦ её разобрал
     await this.addNoteToLead(leadId, text);
     try {
+      // 2026-06-10: задачу ставим на ответственного лида (Морикит уже
+      // распределил его на менеджера КЦ). Без responsibleUserId amo
+      // ставит автора OAuth-токена = админа.
+      let responsibleUserId: number | undefined;
+      try {
+        const lead = await this.getLead(leadId);
+        responsibleUserId = (lead as any)?.responsible_user_id;
+      } catch {
+        // если getLead упал — оставим без ответственного, amo поставит автора токена
+      }
       await this.createTask({
         text: `⚠ Разрешить конфликт: ${data.requestingBrokerName} (${data.requestingBrokerPhone}) пытался повторно зафиксировать клиента ${data.clientPhone}. Уточнить кому отдать.`,
         entityType: 'leads',
         entityId: leadId,
         taskTypeId: 1,
         completeTillSec: Math.floor(Date.now() / 1000) + 4 * 60 * 60, // 4 часа — конфликты разруливаем быстро
+        responsibleUserId,
       });
     } catch (e) {
       // note уже создан — главное чтобы менеджер увидел
