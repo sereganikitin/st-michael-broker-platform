@@ -58,8 +58,21 @@ jobs:
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
             echo "=== Bootstrap: подтягиваем свежий master ==="
+            # 2026-06-10: фиксируем origin на продакшн-репо sereganikitin.
+            # Раньше origin случайно остался на форке mefremov888-ai —
+            # из-за этого мерджи в sereganikitin/master НЕ приезжали
+            # на сервер (форк не синхронизировался). Workflow упорно
+            # показывал success, но код оставался старым.
+            CURRENT_URL=$(git remote get-url origin)
+            EXPECTED_URL="https://github.com/sereganikitin/st-michael-broker-platform.git"
+            if [ "$CURRENT_URL" != "$EXPECTED_URL" ]; then
+              echo "    origin был: $CURRENT_URL"
+              echo "    меняем на:  $EXPECTED_URL"
+              git remote set-url origin "$EXPECTED_URL"
+            fi
             git fetch origin master
             git reset --hard origin/master
+            echo "    HEAD после reset: $(git log --oneline -1)"
             # Обновляем AMO_* в .env из GH secrets.
             # ВАЖНО: appleboy/ssh-action вставляет exit-code-check между
             # строками — поэтому многострочные awk/script ЛОМАЮТСЯ.
