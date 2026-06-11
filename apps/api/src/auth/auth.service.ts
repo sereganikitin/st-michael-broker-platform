@@ -172,6 +172,8 @@ export class AuthService {
       port: Number(process.env.SMTP_PORT || 465),
       secure: process.env.SMTP_SECURE !== 'false',
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      // 2026-06-11: см. forgotPassword ниже — mail.stmichael.ru self-signed.
+      tls: { rejectUnauthorized: false },
     });
     await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -204,6 +206,10 @@ export class AuthService {
           port: Number(process.env.SMTP_PORT || 465),
           secure: process.env.SMTP_SECURE !== 'false',
           auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+          // 2026-06-11: mail.stmichael.ru использует self-signed сертификат —
+          // без этой опции STARTTLS падает с «self-signed certificate» и
+          // sendMail глушится try/catch ниже. Письма пропадают молча.
+          tls: { rejectUnauthorized: false },
         });
         await transporter.sendMail({
           from: process.env.SMTP_FROM || process.env.SMTP_USER,

@@ -64,9 +64,12 @@
     console.log(`  settings:    ${JSON.stringify(w.settings || [])}`);
     console.log(`  created_at:  ${w.created_at}  updated_at: ${w.updated_at}`);
     console.log(``);
+    // 2026-06-11: проверяем именно наш хост — раньше includes('/webhooks/amo')
+    // ловил chat2desk.com/webhooks/amo и давал false positive.
+    const dest = w.destination || '';
     if (
-      w.destination?.includes('/webhooks/amo/lead-update') ||
-      w.destination?.includes('/webhooks/amo')
+      dest.includes('broker.stmichael.ru/api/webhooks/amo/lead-update') ||
+      dest.includes('72.56.241.199/api/webhooks/amo/lead-update')
     ) {
       found = true;
     }
