@@ -23,9 +23,12 @@
   const baseUrl = `https://${apiDomain}/api/v4`;
   const tokens = getAmoTokens();
 
+  // 2026-06-11: явно используем broker.stmichael.ru, не WEB_URL.
+  // WEB_URL на проде содержит IP-адрес сервера (маскируется как secret в логах),
+  // и нам нужен публичный домен для amoCRM webhook'а.
   const destination =
     process.env.WEBHOOK_URL ||
-    `${process.env.WEB_URL || 'https://broker.stmichael.ru'}/api/webhooks/amo/lead-update`;
+    'https://broker.stmichael.ru/api/webhooks/amo/lead-update';
 
   console.log(`═══════════════════════════════════════════`);
   console.log(`Регистрация webhook в amoCRM`);
@@ -38,12 +41,12 @@
     process.exit(1);
   }
 
-  const body = [
-    {
-      destination,
-      settings: ['update_lead', 'status_lead'],
-    },
-  ];
+  // 2026-06-11: amoCRM /api/v4/webhooks ждёт OBJECT не массив. Ошибка
+  // была: "FieldNotExpected" at path "0" → API парсил массив как поле "0".
+  const body = {
+    destination,
+    settings: ['update_lead', 'status_lead'],
+  };
 
   const res = await fetch(`${baseUrl}/webhooks`, {
     method: 'POST',
@@ -65,13 +68,7 @@
   console.log(`✅ HTTP ${res.status}`);
   try {
     const data = JSON.parse(text);
-    const webhooks = data?._embedded?.webhooks || [];
-    for (const w of webhooks) {
-      console.log(`  webhook id: ${w.id}`);
-      console.log(`  destination: ${w.destination}`);
-      console.log(`  settings: ${JSON.stringify(w.settings)}`);
-      console.log(`  disabled: ${w.disabled}`);
-    }
+    console.log(`response: ${JSON.stringify(data, null, 2)}`);
   } catch {
     console.log(text.slice(0, 1000));
   }
