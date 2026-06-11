@@ -3,7 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, AMO_PIPELINES, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, AMO_LEAD_FIELDS, AMO_PIPELINES, getLeadCustomFieldNumber, getLeadCustomFieldValue, pipelineToProject, leadToProject, statusToDealStatus, isDealStage, mapMeetingStatus, BROKER_PIPELINE_ID, MorekitAdapter, morekitPhone, morekitProjectName, morekitLeadDate } from '@st-michael/integrations';
+import { getSystemSetting } from '../common/system-setting';
 /**
  * Чистит имя клиента от служебных суффиксов amoCRM: "от брокера", "от Владимира",
  * "от боркера" (опечатка) и т.п. Убираем всё начиная от слова "от ".
@@ -21,6 +22,7 @@ import { GoogleSheetsSyncService } from '../admin/google-sheets-sync.service';
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
   private readonly amo = new AmoCrmAdapter();
+  private readonly morekit = new MorekitAdapter();
   constructor(
     @Inject('PrismaClient') private prisma: PrismaClient,
     @InjectQueue('notifications') private notificationQueue: Queue,
@@ -616,6 +618,32 @@ export class SchedulerService {
             ...(createdAmoLeadId ? { amoLeadId: BigInt(createdAmoLeadId) } : {}),
           } as any,
         });
+
+        // 2026-06-11: первый createFixationRequest упал — значит
+        // ClientFixationService Морикит НЕ уведомил. Лид в amoCRM теперь
+        // существует, но без responsible_user_id висит на авторе OAuth
+        // (= админ). Дёргаем Морикит здесь, чтобы он распределил менеджера
+        // КЦ по своему графику смен. Fire-and-forget — ошибка Морикита не
+        // должна перезапускать amo-retry.
+        if (createdAmoLeadId) {
+          const morekitUrl = await getSystemSetting(this.prisma, 'MOREKIT_WEBHOOK_URL');
+          if (morekitUrl) {
+            const amount = client.amount ? Number(client.amount) : 0;
+            this.morekit.notifyFixation({
+              id: String(createdAmoLeadId),
+              agency: agency.name,
+              broker_id: client.broker.amoContactId ? String(client.broker.amoContactId) : '',
+              agent_name: client.broker.fullName,
+              agent_phone: morekitPhone(client.broker.phone),
+              agent_mail: client.broker.email || '',
+              budget: amount ? String(amount) : '0',
+              clients: [{ name: client.fullName, phone: morekitPhone(client.phone) }],
+              type: client.propertyType || 'Квартира',
+              lead_date: morekitLeadDate(),
+              project: morekitProjectName(String(client.project)),
+            }, morekitUrl).catch((e) => this.logger.error(`[amo-retry] morekit notify error: ${e?.message || e}`));
+          }
+        }
         ok++;
       } catch (e: any) {
         const error = String(e?.message || e).slice(0, 500);
