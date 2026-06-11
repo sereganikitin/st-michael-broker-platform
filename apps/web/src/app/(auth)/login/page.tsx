@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { parseApiError } from '@/lib/api';
+import { SupportContacts } from '@/components/SupportContacts';
 
 export default function LoginPage() {
   const [phoneDigits, setPhoneDigits] = useState('');
@@ -24,11 +26,11 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: '+7' + phoneDigits, password }),
       });
-      const data = await res.json();
       if (res.ok) {
+        const data = await res.json();
         login(data.accessToken, data.refreshToken);
       } else {
-        setError(data.message || 'Неверный телефон или пароль');
+        setError(await parseApiError(res, 'Неверный телефон или пароль'));
       }
     } catch {
       setError('Ошибка соединения с сервером');
@@ -84,11 +86,20 @@ export default function LoginPage() {
           </button>
         </div>
 
-        <div className="mt-6 text-center">
-          <Link href="/register" className="text-accent hover:text-accent-hover">
-            Нет аккаунта? Зарегистрироваться
-          </Link>
+        <div className="mt-6 text-center space-y-2">
+          <div>
+            <Link href="/forgot-password" className="text-accent hover:text-accent-hover text-sm">
+              Забыли пароль?
+            </Link>
+          </div>
+          <div>
+            <Link href="/register" className="text-accent hover:text-accent-hover">
+              Нет аккаунта? Зарегистрироваться
+            </Link>
+          </div>
         </div>
+
+        <SupportContacts />
       </div>
     </div>
   );

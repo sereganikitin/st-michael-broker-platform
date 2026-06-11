@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { parseApiError } from '@/lib/api';
+import { SupportContacts } from '@/components/SupportContacts';
 
 export default function RegisterPage() {
   const [phoneDigits, setPhoneDigits] = useState('');
@@ -39,12 +41,11 @@ export default function RegisterPage() {
           agencyName: agencyName || undefined,
         }),
       });
-      const data = await res.json();
       if (res.ok) {
         setSuccess(true);
         setTimeout(() => router.push('/'), 2000);
       } else {
-        setError(data.message || 'Ошибка регистрации');
+        setError(await parseApiError(res, 'Ошибка регистрации'));
       }
     } catch {
       setError('Ошибка соединения с сервером');
@@ -177,6 +178,8 @@ export default function RegisterPage() {
             Уже есть аккаунт? Войти
           </Link>
         </div>
+
+        <SupportContacts title="Возникли вопросы при регистрации?" />
       </div>
     </div>
   );
