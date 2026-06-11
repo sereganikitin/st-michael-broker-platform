@@ -28,6 +28,7 @@ on:
           - inspect-contact
           - list-contact-fields
           - inspect-recent-fixations
+          - inspect-broker-attachment
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -127,6 +128,15 @@ jobs:
             if [ "$TASK" = "inspect-recent-fixations" ]; then
               echo "=== inspect-recent-fixations (последние 5 Client из БД с amoSyncError) ==="
               $COMPOSE_CMD exec -T -e LIMIT=5 api node /app/scripts/inspect-recent-fixations.js
+            fi
+
+            if [ "$TASK" = "inspect-broker-attachment" ]; then
+              echo "=== inspect-broker-attachment (диагностика прикрепления брокера к лиду) ==="
+              if [ -z "${{ inputs.phone }}" ]; then
+                echo "ERROR: phone обязателен (формат +7XXXXXXXXXX)"
+                exit 1
+              fi
+              $COMPOSE_CMD exec -T -e PHONE="${{ inputs.phone }}" api node /app/scripts/inspect-broker-attachment.js
             fi
 
             if [ "$TASK" = "list-broker-leads" ]; then
