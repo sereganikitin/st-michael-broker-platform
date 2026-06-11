@@ -849,14 +849,18 @@ export class AmoCrmAdapter {
     // Когда у контакта уже есть активный лид в КЦ (Новое обращение /
     // Квалифицировали выводим на встречу) — новый брокер прикрепляется
     // к нему вторым контактом. Это «конкурирующие брокеры до акта осмотра».
-    // 2026-06-10: распределение делает Морикит после webhook'а из
-    // ClientFixationService. Раньше тут стоял жёсткий fallback=9796826
-    // (Юлия), но он перебивал Морикита — тот не перезаписывает уже
-    // занятого ответственного. Теперь по умолчанию НЕ передаём
-    // responsible_user_id; env AMO_DEFAULT_RESPONSIBLE_USER_ID можно
-    // задать вручную через админку только если Морикит сломан.
+    // 2026-06-11: Морикит ПОКА не настроен на проде — если не передать
+    // responsible_user_id, amoCRM ставит ответственным автора OAuth-токена
+    // (= админ), и лиды копятся у админа. Fallback на Юлю (9796826)
+    // восстанавливает поведение «новый лид → Юлия → она распределяет».
+    // Когда Морикит заработает — выставить env
+    // AMO_DEFAULT_RESPONSIBLE_USER_ID=0, и тогда мы не передаём
+    // responsible_user_id, Морикит распределяет сам.
     const envFallback = process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID;
-    const defaultResponsibleUserId = envFallback ? Number(envFallback) : undefined;
+    const envParsed = envFallback ? Number(envFallback) : NaN;
+    const defaultResponsibleUserId = Number.isFinite(envParsed) && envParsed > 0
+      ? envParsed
+      : 9796826; // Юлия — координатор КЦ
 
     let resultLead: AmoLead;
     if (data.reuseLeadId) {
