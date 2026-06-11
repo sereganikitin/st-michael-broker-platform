@@ -547,6 +547,23 @@ export class AmoCrmAdapter {
   }
 
   /**
+   * 2026-06-11: прикрепить контакт к лиду (в наш сценарий — брокера к старому
+   * лиду клиента по Правилу 1). Эквивалент кнопки «Добавить контакт» в карточке
+   * лида amoCRM. Идемпотентно: если контакт уже привязан, amoCRM вернёт 200 ОК.
+   */
+  async linkContactToLead(leadId: number, contactId: number): Promise<void> {
+    await this.request(`/leads/${leadId}/link`, {
+      method: 'POST',
+      body: JSON.stringify([
+        {
+          to_entity_id: contactId,
+          to_entity_type: 'contacts',
+        },
+      ]),
+    });
+  }
+
+  /**
    * 2026-06-03: проверка уникальности клиента по телефону через amoCRM.
    * Делает 3 запроса: findContactByPhone + getLeadsByContact + getContactsByIds
    * (для проверки IS_BROKER на каждом лиде). Применяет 4 правила пользователя.
@@ -555,28 +572,26 @@ export class AmoCrmAdapter {
    * Возвращает 'ALARM' → создавать Client с UNDER_REVIEW + задача для КЦ
    */
   async checkUniqueness(phone: string): Promise<{
-    verdict: 'UNIQUE' | 'ALARM';
+    rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
+    verdict: 'UNIQUE' | 'ALARM'; // @deprecated: для совместимости со старым кодом
     reason: string;
     contactId?: number;
     leads?: Array<{ id: number; pipeline_id: number; status_id: number }>;
-    // 2026-06-03: если verdict=UNIQUE и есть активный лид в КЦ
-    // (Новое обращение / Квалифицировали выводим на встречу) — НЕ создаём
-    // новый лид при фиксации, а прикрепляем брокера к этому. Логика
-    // «конкурирующие брокеры до акта осмотра».
-    reusableLeadId?: number;
-    // 2026-06-05: тип триггера ALARM (DEFERRED_DEMAND / NEW_REQUEST_NO_BROKER
-    // / ACTIVE_SALES) и id лида, который его вызвал — для формирования
-    // специфичной ноты и задачи КЦ.
     triggerType?: 'DEFERRED_DEMAND' | 'NEW_REQUEST_NO_BROKER' | 'ACTIVE_SALES';
     triggerLeadId?: number;
   }> {
     const contact = await this.findContactByPhone(phone);
     if (!contact) {
-      return { verdict: 'UNIQUE', reason: 'Контакт в amoCRM не найден (правило 1)' };
+      return {
+        rule: 'NO_CONFLICT',
+        verdict: 'UNIQUE',
+        reason: 'Контакт в amoCRM не найден',
+      };
     }
     const leads = await this.getLeadsByContact(contact.id);
     if (leads.length === 0) {
       return {
+        rule: 'NO_CONFLICT',
         verdict: 'UNIQUE',
         reason: 'У контакта нет лидов в amoCRM',
         contactId: contact.id,
@@ -613,29 +628,16 @@ export class AmoCrmAdapter {
 
     const verdict = evaluateUniqueness(leadsForEval);
 
-    // 2026-06-03: если verdict=UNIQUE и есть активный лид в КЦ в стадии
-    // «Новое обращение» или «Квалифицировали выводим на встречу» — берём его
-    // как reusable. При фиксации новый брокер прикрепится к нему вторым
-    // контактом вместо создания нового лида.
-    let reusableLeadId: number | undefined;
-    if (verdict.verdict === 'UNIQUE') {
-      // Ищем лид в КЦ (pipeline 7600542) в одной из ранних стадий.
-      const kcEarlyStages = [62907118, 62907282]; // Новое обращение, Квалифицировали
-      const reusable = leads.find((l: any) =>
-        l.pipeline_id === 7600542 && kcEarlyStages.includes(l.status_id),
-      );
-      if (reusable) reusableLeadId = reusable.id;
-    }
-
     return {
-      ...verdict,
+      rule: verdict.rule,
+      verdict: verdict.verdict,
+      reason: verdict.reason,
       contactId: contact.id,
       leads: leadsForEval.map((l) => ({
         id: l.id,
         pipeline_id: l.pipeline_id,
         status_id: l.status_id,
       })),
-      reusableLeadId,
       triggerType: verdict.triggerType,
       triggerLeadId: verdict.triggerLeadId,
     };

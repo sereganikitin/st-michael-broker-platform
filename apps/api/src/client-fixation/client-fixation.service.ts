@@ -110,22 +110,26 @@ export class ClientFixationService {
       // Client с UNDER_REVIEW + задача в amo для КЦ.
       // Если amo упал — fallback на старую логику (only local DB).
       let amoVerdict: {
+        rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
         verdict: 'UNIQUE' | 'ALARM';
         reason: string;
         contactId?: number;
         leads?: any[];
-        reusableLeadId?: number;
         triggerType?: 'DEFERRED_DEMAND' | 'NEW_REQUEST_NO_BROKER' | 'ACTIVE_SALES';
         triggerLeadId?: number;
       } | null = null;
       try {
         amoVerdict = await this.amoCrmAdapter.checkUniqueness(data.phone);
-        console.log(`[fixClient] amo uniqueness verdict: ${amoVerdict.verdict} — ${amoVerdict.reason}${amoVerdict.reusableLeadId ? ` — reusableLeadId=${amoVerdict.reusableLeadId}` : ''}${amoVerdict.triggerType ? ` — triggerType=${amoVerdict.triggerType}` : ''}`);
+        console.log(`[fixClient] amo uniqueness rule=${amoVerdict.rule} — ${amoVerdict.reason}${amoVerdict.triggerLeadId ? ` — triggerLeadId=${amoVerdict.triggerLeadId}` : ''}`);
       } catch (e: any) {
         console.error('[fixClient] amo checkUniqueness failed, fallback to local DB only:', e?.message || e);
       }
 
-      if (amoVerdict && amoVerdict.verdict === 'ALARM') {
+      // 2026-06-11: RULE_1 (старый лид в КЦ ранних стадиях) + RULE_2 (КЦ-встречи
+      // или активная воронка продаж) — оба идут в ALARM-ветку: НЕ создаём новый
+      // лид в amoCRM, Client → UNDER_REVIEW. Разница только в одном: RULE_1
+      // дополнительно прикрепляет нового брокера контактом к старому лиду.
+      if (amoVerdict && (amoVerdict.rule === 'RULE_1' || amoVerdict.rule === 'RULE_2')) {
         const client = await this.prisma.client.create({
           data: {
             brokerId,
@@ -158,19 +162,34 @@ export class ClientFixationService {
         // КЦ должен УТОЧНИТЬ у клиента, действительно ли он сейчас работает
         // с этим брокером (клиент ранее сам говорил «не готов»).
         if (amoVerdict.leads && amoVerdict.leads.length > 0) {
-          // Если есть конкретный лид-триггер (DEFERRED / NEW_REQUEST / ACTIVE_SALES) —
-          // нота и задача идут на него, иначе на первый активный.
+          // Если есть конкретный лид-триггер — нота и задача идут на него,
+          // иначе на первый активный.
           const targetLead =
             amoVerdict.leads.find((l: any) => l.id === amoVerdict?.triggerLeadId) ||
             amoVerdict.leads[0];
           const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
-          const isDeferred = amoVerdict.triggerType === 'DEFERRED_DEMAND';
+          const isRule1 = amoVerdict.rule === 'RULE_1';
+
+          // RULE_1: прикрепить нового брокера контактом к старому лиду
+          // (через POST /leads/{id}/link). RULE_2: брокера НЕ прикрепляем.
+          if (isRule1 && broker.amoContactId) {
+            try {
+              await this.amoCrmAdapter.linkContactToLead(
+                targetLead.id,
+                Number(broker.amoContactId),
+              );
+              console.log(`[fixClient RULE_1] брокер ${broker.amoContactId} прикреплён к старому лиду ${targetLead.id}`);
+            } catch (e: any) {
+              console.error('[fixClient RULE_1] linkContactToLead failed:', e?.message || e);
+            }
+          }
+
           // Длинная нота — полная копия заявки
           const lines: string[] = [];
-          if (isDeferred) {
-            lines.push(`Брокер заявляет на клиента. Связаться с клиентом.`);
+          if (isRule1) {
+            lines.push(`⚠️ АЛАРМ — новый брокер на этом клиенте. Прикреплён к лиду контактом.`);
           } else {
-            lines.push(`⚠️ АЛАРМ уникальности — требуется ручная проверка КЦ`);
+            lines.push(`⚠️ ПОДТВЕРДИТЬ УНИКАЛЬНОСТЬ — клиент уже активен в этом или другом лиде`);
           }
           lines.push(`Причина: ${amoVerdict.reason}`);
           lines.push(``);
@@ -198,12 +217,12 @@ export class ClientFixationService {
           } catch (e: any) {
             console.error('[fixClient amo-alarm] note failed:', e?.message || e);
           }
-          // Задача типа «Аларм», срок 30 минут. Текст зависит от triggerType.
+          // Задача типа «Аларм», срок 30 минут. Текст зависит от правила.
           // 2026-06-03: ID 2393839 = «Alarm» в stmichael.amocrm.ru (цвет E00000).
           const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
-          const taskText = isDeferred
-            ? `Брокер заявляет на клиента ${data.fullName} (${data.phone}). Связаться с клиентом.`
-            : `Связаться по сделке брокера — клиент ${data.fullName} (${data.phone}), брокер ${broker.phone}.`;
+          const taskText = isRule1
+            ? `Новый брокер на клиенте ${data.fullName} (${data.phone}). Брокер ${broker.fullName} (${broker.phone}) прикреплён к лиду контактом.`
+            : `Подтвердить уникальность — клиент ${data.fullName} (${data.phone}) уже в активной стадии, новый брокер ${broker.fullName} (${broker.phone}) пытается зафиксировать.`;
           try {
             // 2026-06-10: ответственный за ALARM-задачу = ответственный
             // триггер-лида (Морикит уже распределил его на менеджера КЦ).
@@ -380,11 +399,10 @@ export class ClientFixationService {
           purchaseTiming: data.purchaseTiming,
           readinessLevel: data.readinessLevel,
           fromBroker: true, // фиксация ВСЕГДА от брокера
-          // 2026-06-03: если amo-проверка нашла активный лид в КЦ
-          // (Новое обращение / Квалифицировали выв. на встречу) —
-          // прикрепляем нашего брокера к нему вторым контактом, без
-          // дубля лида. Логика «конкурирующие брокеры до акта осмотра».
-          reuseLeadId: amoVerdict?.reusableLeadId,
+          // 2026-06-11: reuseLeadId больше не используется — логика
+          // «конкурирующие брокеры» перенесена в Правило 1 (handled выше
+          // в ALARM-ветке: брокер прикрепляется контактом, нового лида нет).
+          // Сюда попадаем только при RULE_3 / NO_CONFLICT → всегда новый лид.
         });
         createdAmoLeadId = resultLead?.id ? Number(resultLead.id) : null;
       } catch (e: any) {
@@ -394,10 +412,9 @@ export class ClientFixationService {
       }
 
       // 2026-06-04: прямой webhook в Morekit (без Salesbot в amo).
-      // Только для НОВОГО лида (reuse — у того лида уже есть распределение).
       // Fire-and-forget: ошибка Morekit'а не валит фиксацию у брокера.
       // URL берём из админ-настроек (SystemSetting) с env-fallback.
-      if (amoSyncOk && createdAmoLeadId && !amoVerdict?.reusableLeadId) {
+      if (amoSyncOk && createdAmoLeadId) {
         const morekitUrl = await getSystemSetting(this.prisma, 'MOREKIT_WEBHOOK_URL');
         if (morekitUrl) {
           this.morekit.notifyFixation({
@@ -441,8 +458,6 @@ export class ClientFixationService {
             amoSyncLastAttemptAt: new Date(),
             // 2026-06-04: критично сохранять lead id, иначе webhook от amoCRM
             // на этот лид не сможет найти Client (искал по amoLeadId).
-            // В reuseLeadId-режиме сохраняется тот же лид, к которому
-            // мы прикрепились вторым контактом.
             ...(createdAmoLeadId ? { amoLeadId: BigInt(createdAmoLeadId) } : {}),
           } as any,
         });
