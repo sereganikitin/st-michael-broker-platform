@@ -20,8 +20,9 @@
 
 (async () => {
   const PHONE = process.env.PHONE;
-  if (!PHONE) {
-    console.error('ERROR: PHONE env не задан');
+  const EMAIL = process.env.EMAIL;
+  if (!PHONE && !EMAIL) {
+    console.error('ERROR: либо PHONE либо EMAIL env должен быть задан');
     process.exit(1);
   }
 
@@ -31,6 +32,77 @@
   const amo = new AmoCrmAdapter();
 
   try {
+    // 2026-06-11: режим EMAIL — диагностика forgot-password
+    if (EMAIL && !PHONE) {
+      console.log(`═══════════════════════════════════════════`);
+      console.log(`Поиск Broker по email: ${EMAIL}`);
+      console.log(`═══════════════════════════════════════════`);
+
+      // SMTP-настройки
+      console.log(`\n─── SMTP-конфигурация ───`);
+      console.log(`SMTP_HOST:   ${process.env.SMTP_HOST || '(не задан)'}`);
+      console.log(`SMTP_PORT:   ${process.env.SMTP_PORT || '(не задан)'}`);
+      console.log(`SMTP_USER:   ${process.env.SMTP_USER ? process.env.SMTP_USER : '(не задан)'}`);
+      console.log(`SMTP_PASS:   ${process.env.SMTP_PASS ? '(задан, скрыт)' : '(НЕ ЗАДАН)'}`);
+      console.log(`SMTP_FROM:   ${process.env.SMTP_FROM || '(не задан)'}`);
+      console.log(`SMTP_SECURE: ${process.env.SMTP_SECURE || '(default true)'}`);
+      const smtpOk = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+      console.log(`Готово к отправке: ${smtpOk ? 'ДА ✅' : 'НЕТ ❌ (логика молча падает на else-ветке и пишет ссылку только в логи)'}`);
+
+      // Поиск брокера
+      console.log(`\n─── Broker в БД ───`);
+      // Сначала точное совпадение
+      let brokers = await prisma.broker.findMany({
+        where: { email: EMAIL },
+        select: { id: true, fullName: true, email: true, role: true, status: true, createdAt: true, passwordResetExpiresAt: true },
+      });
+      if (brokers.length === 0) {
+        // Регистр-независимый поиск (на случай если ввели Mefremov@... вместо mefremov@...)
+        brokers = await prisma.broker.findMany({
+          where: { email: { equals: EMAIL, mode: 'insensitive' } },
+          select: { id: true, fullName: true, email: true, role: true, status: true, createdAt: true, passwordResetExpiresAt: true },
+        });
+        if (brokers.length > 0) {
+          console.log(`⚠️  Точного совпадения нет, но есть с другим регистром:`);
+        }
+      }
+      if (brokers.length === 0) {
+        console.log(`❌ Broker с email "${EMAIL}" в БД НЕ НАЙДЕН.`);
+        console.log(`   → forgot-password molча возвращает «если email зарегистрирован, ссылка отправлена»`);
+        console.log(`   → письмо НЕ отправляется (логика на auth.service.ts:187: return до отправки)`);
+        console.log(`\n   Все брокеры с похожим email:`);
+        const similar = await prisma.broker.findMany({
+          where: { email: { contains: EMAIL.split('@')[0]?.slice(0, 4) || '', mode: 'insensitive' } },
+          select: { fullName: true, email: true, role: true },
+          take: 10,
+        });
+        for (const b of similar) console.log(`     - ${b.email}  (${b.fullName}, role=${b.role})`);
+      } else {
+        for (const b of brokers) {
+          console.log(`✅ Broker ${b.id}`);
+          console.log(`     fullName: ${b.fullName}`);
+          console.log(`     email:    ${b.email}`);
+          console.log(`     role:     ${b.role}`);
+          console.log(`     status:   ${b.status}`);
+          console.log(`     createdAt: ${b.createdAt?.toISOString()}`);
+          console.log(`     passwordResetExpiresAt: ${b.passwordResetExpiresAt?.toISOString() || '(нет активной reset-сессии)'}`);
+
+          // Свежие audit логи
+          const audits = await prisma.auditLog.findMany({
+            where: { brokerId: b.id, action: { in: ['LOGIN', 'PASSWORD_RESET', 'PASSWORD_RESET_REQUESTED'] } },
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+          });
+          console.log(`     Recent audits (LOGIN/PASSWORD_RESET): ${audits.length}`);
+          for (const a of audits) {
+            console.log(`       ${a.createdAt.toISOString()} ${a.action}`);
+          }
+        }
+      }
+      console.log(`\n═══════════════════════════════════════════`);
+      return;
+    }
+
     // Нормализуем телефон для поиска (как в БД хранится)
     const normalizedPhone = PHONE.startsWith('+') ? PHONE : `+${PHONE}`;
     console.log(`═══════════════════════════════════════════`);

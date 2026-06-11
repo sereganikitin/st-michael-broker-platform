@@ -48,6 +48,9 @@ on:
       contact_id:
         description: 'ID контакта amoCRM (для task=inspect-contact)'
         required: false
+      email:
+        description: 'Email брокера (для task=inspect-broker-attachment, проверка forgot-password)'
+        required: false
 
 jobs:
   run:
@@ -131,12 +134,15 @@ jobs:
             fi
 
             if [ "$TASK" = "inspect-broker-attachment" ]; then
-              echo "=== inspect-broker-attachment (диагностика прикрепления брокера к лиду) ==="
-              if [ -z "${{ inputs.phone }}" ]; then
-                echo "ERROR: phone обязателен (формат +7XXXXXXXXXX)"
+              echo "=== inspect-broker-attachment (диагностика прикрепления брокера или forgot-password) ==="
+              if [ -z "${{ inputs.phone }}" ] && [ -z "${{ inputs.email }}" ]; then
+                echo "ERROR: укажи phone (для проверки фиксации) ИЛИ email (для проверки forgot-password)"
                 exit 1
               fi
-              $COMPOSE_CMD exec -T -e PHONE="${{ inputs.phone }}" api node /app/scripts/inspect-broker-attachment.js
+              $COMPOSE_CMD exec -T \
+                -e PHONE="${{ inputs.phone }}" \
+                -e EMAIL="${{ inputs.email }}" \
+                api node /app/scripts/inspect-broker-attachment.js
             fi
 
             if [ "$TASK" = "list-broker-leads" ]; then
