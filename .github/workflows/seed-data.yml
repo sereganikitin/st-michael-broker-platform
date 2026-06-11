@@ -30,6 +30,7 @@ on:
           - inspect-recent-fixations
           - inspect-broker-attachment
           - inspect-amo-webhooks
+          - setup-amo-webhook
           - test-smtp-send
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
@@ -150,6 +151,11 @@ jobs:
             if [ "$TASK" = "inspect-amo-webhooks" ]; then
               echo "=== inspect-amo-webhooks (список настроенных webhook'ов в amoCRM) ==="
               $COMPOSE_CMD exec -T api node /app/scripts/inspect-amo-webhooks.js
+            fi
+
+            if [ "$TASK" = "setup-amo-webhook" ]; then
+              echo "=== setup-amo-webhook (регистрация webhook'а amoCRM → /api/webhooks/amo/lead-update) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/setup-amo-webhook.js
             fi
 
             if [ "$TASK" = "test-smtp-send" ]; then
