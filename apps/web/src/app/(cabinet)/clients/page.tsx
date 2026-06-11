@@ -219,7 +219,7 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
           )}
           <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
             <span className="text-text-muted block text-xs flex items-center gap-1">
-              <Calendar className="w-3 h-3" /> Уникальность до
+              <Calendar className="w-3 h-3" /> Статус до
             </span>
             <span className="font-medium">
               {client.uniquenessExpiresAt ? new Date(client.uniquenessExpiresAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
@@ -546,8 +546,8 @@ export default function ClientsPage() {
                     <th className="pb-3 font-medium">ФИО</th>
                     <th className="pb-3 font-medium">Телефон</th>
                     <th className="pb-3 font-medium">Проект</th>
-                    <th className="pb-3 font-medium">Уникальность</th>
-                    <th className="pb-3 font-medium">Уникален до</th>
+                    <th className="pb-3 font-medium">Статус</th>
+                    <th className="pb-3 font-medium">Статус до</th>
                     <th className="pb-3 font-medium" title="Дата создания заявки в amoCRM">Дата</th>
                     <th className="pb-3 font-medium w-10"></th>
                   </tr>

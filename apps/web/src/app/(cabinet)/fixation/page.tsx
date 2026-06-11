@@ -70,8 +70,8 @@ export default function FixationPage() {
   const [sqm, setSqm] = useState('');
   const [amount, setAmount] = useState(''); // raw digits
   const [participants, setParticipants] = useState<Participant[]>([]);
-  // Правка 2026-05-22: новые поля по КБ3 (amo интеграция)
-  const [clientRegion, setClientRegion] = useState('');
+  // Правка 2026-05-22: новые поля по КБ3 (amo интеграция).
+  // 2026-06-11: убрано поле clientRegion — лишняя информация для брокера.
   const [presentationSent, setPresentationSent] = useState(false);
   const [purchaseTiming, setPurchaseTiming] = useState('');
   const [readinessLevel, setReadinessLevel] = useState<'Холодный' | 'Тёплый' | 'Горячий' | ''>('Тёплый');
@@ -151,7 +151,6 @@ export default function FixationPage() {
       roomsCount: roomsCount || undefined,
       amount: amount ? Number(amount) : undefined,
       sqm: sqm ? Number(sqm) : undefined,
-      clientRegion: clientRegion || undefined,
       presentationSent,
       purchaseTiming: purchaseTiming || undefined,
       readinessLevel: readinessLevel || undefined,
@@ -427,20 +426,12 @@ export default function FixationPage() {
             )}
           </div>
 
-          {/* Дополнительные поля для amoCRM-лида (правка 2026-05-22, КБ3) */}
+          {/* Дополнительные поля для amoCRM-лида (правка 2026-05-22, КБ3).
+              2026-06-11: убран dev-маркер «(заполнится в amoCRM)» и поле
+              «Регион клиента» — лишняя информация для брокера. */}
           <div className="border-t border-border pt-4 mt-2">
-            <div className="text-xs font-semibold text-text-muted uppercase mb-3">Доп. информация о клиенте (заполнится в amoCRM)</div>
+            <div className="text-xs font-semibold text-text-muted uppercase mb-3">Доп. информация о клиенте</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="label">Регион клиента</label>
-                <input
-                  type="text"
-                  className="input"
-                  placeholder="Москва / СПб / другой"
-                  value={clientRegion}
-                  onChange={(e) => setClientRegion(e.target.value)}
-                />
-              </div>
               <div>
                 <label className="label">Планирует покупку</label>
                 <select className="input" value={purchaseTiming} onChange={(e) => setPurchaseTiming(e.target.value)}>
@@ -461,8 +452,6 @@ export default function FixationPage() {
                   <option value="Горячий">Горячий</option>
                 </select>
               </div>
-              {/* Чекбокс «Презентация отправлена» убран 2026-05-22 по запросу:
-                  это решает менеджер уже после звонка клиенту, не брокер при фиксации. */}
             </div>
           </div>
 
