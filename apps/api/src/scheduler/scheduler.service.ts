@@ -588,7 +588,7 @@ export class SchedulerService {
       const agency = await this.prisma.agency.findUnique({ where: { id: client.fixationAgencyId } });
       if (!agency) continue;
       try {
-        await this.amo.createFixationRequest({
+        const resultLead = await this.amo.createFixationRequest({
           clientPhone: client.phone,
           clientEmail: client.email || undefined,
           clientName: client.fullName,
@@ -600,6 +600,7 @@ export class SchedulerService {
           project: client.project as any,
           fromBroker: true,
         });
+        const createdAmoLeadId = resultLead?.id ? Number(resultLead.id) : null;
         await this.prisma.client.update({
           where: { id: client.id },
           data: {
@@ -607,7 +608,13 @@ export class SchedulerService {
             amoSyncError: null,
             amoSyncAttempts: { increment: 1 },
             amoSyncLastAttemptAt: new Date(),
-          },
+            // 2026-06-11: без этого retry успешно создавал лид в amoCRM,
+            // но id не возвращался обратно в БД — UI продолжал показывать
+            // «не передано в amoCRM», и retry-cron больше не запускался
+            // (статус SYNCED). Webhook от amoCRM искал Client по amoLeadId
+            // и не находил.
+            ...(createdAmoLeadId ? { amoLeadId: BigInt(createdAmoLeadId) } : {}),
+          } as any,
         });
         ok++;
       } catch (e: any) {
