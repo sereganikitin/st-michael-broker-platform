@@ -441,34 +441,45 @@ export class AmoCrmAdapter {
   // не обновляет responsible_user_id на самом лиде — там остаётся автор
   // OAuth-токена (= админ). КЦ-менеджер не видит лид в своих фильтрах.
   //
-  // Этот helper делает post-sync: ждёт `delayMs` чтобы Морикит успел создать
-  // задачу, читает самую свежую задачу на лиде, забирает её responsible_user_id
-  // и проставляет на лид. Возвращает true если ответственный был обновлён.
+  // Этот helper делает post-sync: периодически (раз в intervalMs, до maxAttempts)
+  // читает задачи на лиде. Как только появится задача с responsible_user_id
+  // отличным от текущего на лиде — обновляет лид и выходит. Возвращает true
+  // если ответственный был обновлён.
+  //
+  // 2026-06-11 v2: Морикит создаёт задачу через ~30 сек после webhook'а
+  // (по наблюдению на тестовом лиде 32208713). Раньше делали одну проверку
+  // через 8 сек — не успевали. Теперь polling: 10 сек × 6 попыток = до 60 сек.
   async syncLeadResponsibleFromLatestTask(
     leadId: number,
-    opts: { delayMs?: number } = {},
+    opts: { intervalMs?: number; maxAttempts?: number } = {},
   ): Promise<boolean> {
-    const delay = opts.delayMs ?? 8000;
-    if (delay > 0) await sleep(delay);
-    try {
-      const tasks = await this.getTasksByEntity('leads', leadId);
-      if (!tasks.length) return false;
-      const latest = tasks
-        .filter((t) => !!t.responsible_user_id)
-        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
-      if (!latest?.responsible_user_id) return false;
-      const lead = await this.getLead(leadId);
-      const currentResponsible = (lead as any)?.responsible_user_id;
-      if (currentResponsible === latest.responsible_user_id) return false;
-      await this.updateLead(leadId, { responsible_user_id: latest.responsible_user_id });
-      console.log(
-        `[sync-lead-responsible] lead=${leadId} updated: ${currentResponsible} → ${latest.responsible_user_id} (from task ${latest.id})`,
-      );
-      return true;
-    } catch (e: any) {
-      console.error('[sync-lead-responsible] failed:', e?.message || e);
-      return false;
+    const intervalMs = opts.intervalMs ?? 10000;
+    const maxAttempts = opts.maxAttempts ?? 6;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (intervalMs > 0) await sleep(intervalMs);
+      try {
+        const tasks = await this.getTasksByEntity('leads', leadId);
+        if (!tasks.length) continue;
+        const latest = tasks
+          .filter((t) => !!t.responsible_user_id)
+          .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+        if (!latest?.responsible_user_id) continue;
+        const lead = await this.getLead(leadId);
+        const currentResponsible = (lead as any)?.responsible_user_id;
+        if (currentResponsible === latest.responsible_user_id) return false;
+        await this.updateLead(leadId, { responsible_user_id: latest.responsible_user_id });
+        console.log(
+          `[sync-lead-responsible] lead=${leadId} updated: ${currentResponsible} → ${latest.responsible_user_id} (task ${latest.id}, attempt ${attempt})`,
+        );
+        return true;
+      } catch (e: any) {
+        console.error(`[sync-lead-responsible] attempt ${attempt} failed:`, e?.message || e);
+      }
     }
+    console.warn(
+      `[sync-lead-responsible] lead=${leadId}: задачу с responsible не нашли за ${(maxAttempts * intervalMs) / 1000}с — backup cron поймает позже`,
+    );
+    return false;
   }
 
   async addNoteToContact(contactId: number, text: string): Promise<void> {
