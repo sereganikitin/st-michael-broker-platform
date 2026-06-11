@@ -27,6 +27,7 @@ on:
           - list-amo-users
           - inspect-contact
           - list-contact-fields
+          - inspect-recent-fixations
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -121,6 +122,11 @@ jobs:
                 exit 1
               fi
               $COMPOSE_CMD exec -T -e LEAD_ID="${{ inputs.lead_id }}" api node /app/scripts/inspect-lead.js
+            fi
+
+            if [ "$TASK" = "inspect-recent-fixations" ]; then
+              echo "=== inspect-recent-fixations (последние 5 Client из БД с amoSyncError) ==="
+              $COMPOSE_CMD exec -T -e LIMIT=5 api node /app/scripts/inspect-recent-fixations.js
             fi
 
             if [ "$TASK" = "list-broker-leads" ]; then
