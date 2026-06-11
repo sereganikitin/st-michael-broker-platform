@@ -139,6 +139,52 @@ export function isDeferredDemandStatus(pipelineId: number, statusId: number): bo
 }
 
 /**
+ * 2026-06-11: Лид попадает под Правило 1 — старый лид в КЦ-воронке (7600542)
+ * в ранних стадиях (до встречи): Неразобранное / Новое обращение / Недозвон /
+ * Отложенный спрос / Классифицировали. Поведение при новой фиксации:
+ *   - НЕ создавать новый лид в amoCRM
+ *   - Прикрепить нового брокера как контакт на старый лид
+ *   - Поставить ALARM-задачу на старый лид
+ *   - Client в БД → UNDER_REVIEW (брокер видит «на уточнении»)
+ */
+export function isFixationRule1Lead(pipelineId: number, statusId: number): boolean {
+  if (pipelineId !== AMO_PIPELINES.KC) return false;
+  return (
+    statusId === AMO_KC_STATUS.UNSORTED ||
+    statusId === AMO_KC_STATUS.NEW_REQUEST ||
+    statusId === AMO_KC_STATUS.NO_ANSWER ||
+    statusId === AMO_KC_STATUS.DEFERRED ||
+    statusId === AMO_KC_STATUS.QUALIFIED
+  );
+}
+
+/**
+ * 2026-06-11: Лид попадает под Правило 2 — старый лид в:
+ *   - КЦ-воронка, статусы «Встреча назначена» (62907286) или «Встреча проведена» (142)
+ *   - Любая воронка продаж (Берзарина / Зорге9 / Толбухина), любой АКТИВНЫЙ статус
+ *     (всё кроме 143 «Закрыто и не реализовано»)
+ * Поведение при новой фиксации:
+ *   - НЕ создавать новый лид в amoCRM
+ *   - Брокер НЕ прикрепляется как контакт
+ *   - ALARM-задача «Подтвердить уникальность» на старый лид
+ *   - Client в БД → UNDER_REVIEW
+ */
+export function isFixationRule2Lead(pipelineId: number, statusId: number): boolean {
+  // 143 (closed-lost) — это Правило 3, не 2
+  if (statusId === 143) return false;
+  // КЦ-воронка: встречи
+  if (pipelineId === AMO_PIPELINES.KC) {
+    return statusId === AMO_KC_STATUS.MEETING_SCHEDULED || statusId === AMO_KC_STATUS.MEETING_HELD;
+  }
+  // Воронки продаж — любой активный статус (всё что не 143)
+  return (
+    pipelineId === AMO_PIPELINES.BERZARINA ||
+    pipelineId === AMO_PIPELINES.ZORGE9 ||
+    pipelineId === AMO_PIPELINES.TOLBUKHINA
+  );
+}
+
+/**
  * 2026-06-03: алгоритм проверки уникальности по правилам пользователя.
  *
  * Контекст: при фиксации брокером нового клиента нужно понять, конкурирует ли
@@ -161,6 +207,30 @@ export type UniquenessTriggerType =
   | 'NEW_REQUEST_NO_BROKER' // активная стадия без привязанного брокера
   | 'ACTIVE_SALES';         // встреча назначена / сделка / контроль оплаты и т.д.
 
+/**
+ * 2026-06-11: правило реакции на новую фиксацию когда у клиента уже есть лид.
+ *
+ *   RULE_1 — старый лид в КЦ ранних стадиях (Неразобранное / Новое обращение /
+ *            Недозвон / Отложенный спрос / Классифицировали). Прикрепляем
+ *            нового брокера контактом + ALARM-задача КЦ. Нового лида НЕТ.
+ *   RULE_2 — старый лид в КЦ-встречах (62907286, 142) ИЛИ в любой воронке
+ *            продаж (активный статус). ALARM «подтвердить уникальность»
+ *            на старый лид. Брокер НЕ прикрепляется. Нового лида НЕТ.
+ *   RULE_3 — все лиды контакта закрыты (143). Создаём новый лид без ссылок.
+ *   NO_CONFLICT — у контакта нет лидов (или контакт не найден). Создаём новый.
+ */
+export type FixationRule = 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
+
+export interface UniquenessVerdict {
+  rule: FixationRule;
+  reason: string;
+  triggerLeadId?: number;
+  /** @deprecated 2026-06-11: для обратной совместимости — RULE_1/RULE_2 = ALARM, иначе UNIQUE. */
+  verdict: 'UNIQUE' | 'ALARM';
+  /** @deprecated оставлено для совместимости со старым кодом ALARM-ветки. */
+  triggerType?: UniquenessTriggerType;
+}
+
 export function evaluateUniqueness(
   leads: Array<{
     id: number;
@@ -168,55 +238,59 @@ export function evaluateUniqueness(
     status_id: number;
     hasBrokerAttached: boolean;
   }>,
-): { verdict: 'UNIQUE' | 'ALARM'; reason: string; triggerType?: UniquenessTriggerType; triggerLeadId?: number } {
+): UniquenessVerdict {
   if (!leads || leads.length === 0) {
-    return { verdict: 'UNIQUE', reason: 'Контакт в amoCRM не найден или нет лидов' };
-  }
-
-  for (const lead of leads) {
-    // Финальные стадии — пропускаем (правило 2).
-    if (isClosedLostStatus(lead.status_id)) continue;
-    if (isKcMeetingHeldStatus(lead.pipeline_id, lead.status_id)) continue;
-
-    // 2026-06-05: «Отложенный спрос» — отдельный сценарий ALARM.
-    // Клиент сам говорил «не готов». КЦ должен уточнить, нужен ли брокер.
-    if (isDeferredDemandStatus(lead.pipeline_id, lead.status_id)) {
-      return {
-        verdict: 'ALARM',
-        reason: `Клиент в «Отложенный спрос» (лид ${lead.id}, pipeline=${lead.pipeline_id}). Ранее клиент сам сообщил, что пока не готов покупать. КЦ нужно уточнить у клиента — действительно ли он сейчас работает с этим брокером.`,
-        triggerType: 'DEFERRED_DEMAND',
-        triggerLeadId: lead.id,
-      };
-    }
-
-    // Активные допустимые стадии (правила 3, 4).
-    const isAllowedStage =
-      isNewRequestStatus(lead.pipeline_id, lead.status_id) ||
-      isQualifiedToMeetingStatus(lead.pipeline_id, lead.status_id);
-
-    if (isAllowedStage) {
-      if (lead.hasBrokerAttached) {
-        continue; // ОК, продолжаем проверку
-      } else {
-        return {
-          verdict: 'ALARM',
-          reason: `Лид ${lead.id} в активной стадии без привязанного брокера (pipeline=${lead.pipeline_id}, status=${lead.status_id}).`,
-          triggerType: 'NEW_REQUEST_NO_BROKER',
-          triggerLeadId: lead.id,
-        };
-      }
-    }
-
-    // Всё остальное — Встреча назначена / Сделка / Контроль оплаты и т.д.
     return {
-      verdict: 'ALARM',
-      reason: `Лид ${lead.id} в активной стадии продаж (pipeline=${lead.pipeline_id}, status=${lead.status_id}). Требуется ручная проверка КЦ.`,
-      triggerType: 'ACTIVE_SALES',
-      triggerLeadId: lead.id,
+      rule: 'NO_CONFLICT',
+      verdict: 'UNIQUE',
+      reason: 'Контакт в amoCRM не найден или нет лидов',
     };
   }
 
-  return { verdict: 'UNIQUE', reason: 'Все лиды контакта проверены — конфликта нет' };
+  // Идём по всем лидам. Самое строгое правило побеждает: RULE_2 > RULE_1 > RULE_3.
+  let rule2TriggerLeadId: number | undefined;
+  let rule2Reason = '';
+  let rule1TriggerLeadId: number | undefined;
+  let rule1Reason = '';
+
+  for (const lead of leads) {
+    // 143 «Закрыто и не реализовано» — этот лид считаем за Правило 3
+    // (не блокирует). Дальше смотрим есть ли другие, более строгие.
+    if (isClosedLostStatus(lead.status_id)) continue;
+
+    if (!rule2TriggerLeadId && isFixationRule2Lead(lead.pipeline_id, lead.status_id)) {
+      rule2TriggerLeadId = lead.id;
+      rule2Reason = `Лид ${lead.id} в активной стадии (pipeline=${lead.pipeline_id}, status=${lead.status_id}). Требуется подтверждение уникальности от КЦ.`;
+    } else if (!rule1TriggerLeadId && isFixationRule1Lead(lead.pipeline_id, lead.status_id)) {
+      rule1TriggerLeadId = lead.id;
+      rule1Reason = `Лид ${lead.id} в КЦ-воронке (status=${lead.status_id}). Новый брокер добавлен контактом, КЦ-задача аларм.`;
+    }
+  }
+
+  if (rule2TriggerLeadId) {
+    return {
+      rule: 'RULE_2',
+      verdict: 'ALARM',
+      triggerType: 'ACTIVE_SALES',
+      triggerLeadId: rule2TriggerLeadId,
+      reason: rule2Reason,
+    };
+  }
+  if (rule1TriggerLeadId) {
+    return {
+      rule: 'RULE_1',
+      verdict: 'ALARM',
+      triggerType: 'NEW_REQUEST_NO_BROKER',
+      triggerLeadId: rule1TriggerLeadId,
+      reason: rule1Reason,
+    };
+  }
+  // Все лиды контакта либо закрыты (143), либо у контакта вообще не было активных лидов.
+  return {
+    rule: 'RULE_3',
+    verdict: 'UNIQUE',
+    reason: 'Все активные лиды контакта закрыты, создаём новый',
+  };
 }
 
 export const BROKER_PIPELINE_ID = AMO_PIPELINES.BROKERS;
