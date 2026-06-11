@@ -29,6 +29,8 @@ on:
           - list-contact-fields
           - inspect-recent-fixations
           - inspect-broker-attachment
+          - inspect-amo-webhooks
+          - test-smtp-send
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -143,6 +145,20 @@ jobs:
                 -e PHONE="${{ inputs.phone }}" \
                 -e EMAIL="${{ inputs.email }}" \
                 api node /app/scripts/inspect-broker-attachment.js
+            fi
+
+            if [ "$TASK" = "inspect-amo-webhooks" ]; then
+              echo "=== inspect-amo-webhooks (список настроенных webhook'ов в amoCRM) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/inspect-amo-webhooks.js
+            fi
+
+            if [ "$TASK" = "test-smtp-send" ]; then
+              echo "=== test-smtp-send (реальная отправка тестового SMTP-письма) ==="
+              if [ -z "${{ inputs.email }}" ]; then
+                echo "ERROR: email обязателен — на этот адрес попробуем отправить тестовое письмо"
+                exit 1
+              fi
+              $COMPOSE_CMD exec -T -e TEST_EMAIL="${{ inputs.email }}" api node /app/scripts/test-smtp-send.js
             fi
 
             if [ "$TASK" = "list-broker-leads" ]; then
