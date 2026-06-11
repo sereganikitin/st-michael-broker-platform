@@ -218,7 +218,6 @@ export default function FixationPage() {
     setSqm('');
     setAmount('');
     setParticipants([]);
-    setClientRegion('');
     setPresentationSent(false);
     setPurchaseTiming('');
     setReadinessLevel('Тёплый');
