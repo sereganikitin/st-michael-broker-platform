@@ -577,71 +577,18 @@ export class CmsService {
 
   // Seeds default content (idempotent — only inserts if missing)
   async seedDefaults() {
-    // Одноразовая миграция 2026-05-22-bis: применяем Ксенины правки КБ4
-    // (документ docs/КБ4-изменения-блоков-для-проверки.docx, колонка «СТАЛО»).
-    // В БД сейчас могут лежать «старые» дефолты (Почему брокеры выбирают
-    // нас / ИП-ООО / Зорге 9 и Квартал...) — это означает что никто их
-    // не редактировал руками. Удаляем такие записи, чтобы ниже пересоздались
-    // с актуального DEFAULT_CONTENT (Ксенины тексты КБ4). Кастомы
-    // пользователя (с другими текстами) проверка не тронет — маркеры
-    // однозначные.
-    const oldAdvantagesTitle = 'Почему брокеры выбирают нас';
-    const oldHowtoSubtitle = 'Можно начать сотрудничество с первой сделки — даже с первого дня существования вашего ИП. Без дополнительных условий.';
-    const oldProjectsSubtitle = 'Зорге 9 и Квартал Серебряный Бор. Каждый проект — отдельная прогрессивная шкала комиссии.';
-
-    try {
-      const adv = await this.prisma.siteContent.findUnique({ where: { key: 'advantages' } });
-      if (adv && (adv.value as any)?.title === oldAdvantagesTitle) {
-        await this.prisma.siteContent.delete({ where: { key: 'advantages' } });
-      }
-      const howto = await this.prisma.siteContent.findUnique({ where: { key: 'howto' } });
-      if (howto && (howto.value as any)?.subtitle === oldHowtoSubtitle) {
-        await this.prisma.siteContent.delete({ where: { key: 'howto' } });
-      }
-      const ps = await this.prisma.siteContent.findUnique({ where: { key: 'projectsSection' } });
-      if (ps && (ps.value as any)?.subtitle === oldProjectsSubtitle) {
-        await this.prisma.siteContent.delete({ where: { key: 'projectsSection' } });
-      }
-    } catch (e) {
-      // Не валим seedDefaults если миграция не отработала
-    }
-
-    // 2026-05-26: ОТКАТ КБ5-миграции. Моя предыдущая «стирающая» миграция
-    // снесла ксенины тексты КБ4. Теперь — обратное: удаляем мои КБ5-тексты
-    // («Прогрессивная шкала: чем больше квадратных метров…», «Конкурентная
-    // комиссия», убранный «Квартальный бонус») чтобы при пересоздании
-    // подхватились возвращённые ксенины DEFAULT_CONTENT.
-    try {
-      const hero = await this.prisma.siteContent.findUnique({ where: { key: 'hero' } });
-      if (hero) {
-        const desc = (hero.value as any)?.description || '';
-        if (desc.startsWith('Прогрессивная шкала комиссии: чем больше квадратных метров')) {
-          await this.prisma.siteContent.delete({ where: { key: 'hero' } });
-        }
-      }
-      const adv2 = await this.prisma.siteContent.findUnique({ where: { key: 'advantages' } });
-      if (adv2) {
-        const items = (adv2.value as any)?.items || [];
-        const hasMyKb5 = items.some((it: any) =>
-          it?.title === 'Конкурентная комиссия' ||
-          /Прогрессивная шкала — растёт вместе с объёмом продаж/.test(it?.description || '')
-        );
-        if (hasMyKb5) {
-          await this.prisma.siteContent.delete({ where: { key: 'advantages' } });
-        }
-      }
-      const comm = await this.prisma.siteContent.findUnique({ where: { key: 'commission' } });
-      if (comm) {
-        const cards = (comm.value as any)?.cards || [];
-        const hasQuarterly = cards.some((c: any) => c?.title === 'Квартальный бонус');
-        // Если квартального НЕТ — значит это моя обрезанная версия КБ5, сносим
-        if (!hasQuarterly && cards.length > 0) {
-          await this.prisma.siteContent.delete({ where: { key: 'commission' } });
-        }
-      }
-    } catch (e) {
-      // не валим seedDefaults
-    }
+    // 2026-06-11: УДАЛЕНЫ две одноразовые миграции (2026-05-22-bis КБ4-fix
+    // и 2026-05-26 КБ5-rollback), которые удаляли админские записи
+    // hero/advantages/howto/projectsSection/commission по «маркерам старого
+    // содержимого». Эти миграции работали как ловушка: Ксения убрала
+    // прогрессивную шкалу + карточку «Квартальный бонус» через /admin/content,
+    // а на каждом рестарте API код видел «нет карточки Квартальный бонус» →
+    // удалял её запись → пересоздавал из DEFAULT_CONTENT с прогрессивной
+    // шкалой обратно. Каждый деплой откатывал её правки.
+    //
+    // Миграции свою задачу выполнили ещё в мае 2026 — на проде уже нет
+    // записей с этими «маркерами», условия больше не срабатывают на
+    // легитимные данные. Оставлять их не нужно.
 
     for (const key of KNOWN_KEYS) {
       const exists = await this.prisma.siteContent.findUnique({ where: { key } });
