@@ -532,9 +532,9 @@ export function brokerLeadMarkerFields(brokerRequestNumber?: string | number): a
     { field_id: AMO_LEAD_FIELDS.UTM_CAMPAIGN,         values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.UTM_CONTENT,          values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.UTM_TERM,             values: [{ value: TEXT }] },
-    // Тема/комментарий/email
+    // Тема/email — БЕЗ COMMENT_TO_REQUEST: туда брокер пишет реальный комментарий,
+    // не затираем маркером (2026-06-11).
     { field_id: AMO_LEAD_FIELDS.EMAIL_MARKER,         values: [{ value: TEXT }] },
-    { field_id: AMO_LEAD_FIELDS.COMMENT_TO_REQUEST,   values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.REQUEST_THEME,        values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.CREATED_FROM,         values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.UPDATED_FROM,         values: [{ value: TEXT }] },
