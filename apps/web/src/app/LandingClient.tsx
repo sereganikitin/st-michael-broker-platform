@@ -241,32 +241,58 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
 
   const fullPhone = '+7' + phoneDigits;
 
+  // 2026-06-11: общий парсер ошибок API. Раньше в модалке делали res.json()
+  // ДО проверки res.ok — если API/nginx вернул HTML (502, redeploy, и т.п.),
+  // res.json() кидал SyntaxError «Unexpected token '<', '<html> <h'... is not
+  // valid JSON» и эта raw-строка попадала в пользователя.
+  const parseApiError = async (res: Response, fallback: string): Promise<string> => {
+    let raw: string;
+    try { raw = await res.text(); } catch { return fallback; }
+    if (!raw.trim()) return fallback;
+    try {
+      const data = JSON.parse(raw);
+      const msg = data?.message;
+      if (Array.isArray(msg)) return msg.filter(Boolean).join('; ') || fallback;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+      if (typeof data?.error === 'string' && data.error.trim()) return data.error;
+    } catch { /* HTML — отдадим fallback */ }
+    return fallback;
+  };
+
   const doLogin = async (phone: string, pw: string) => {
     const res = await fetch('/api/auth/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, password: pw }),
     });
-    const data = await res.json();
-    if (res.ok) { login(data.accessToken, data.refreshToken); onSuccess(); }
-    else throw new Error(data.message || 'Ошибка входа');
+    if (res.ok) {
+      const data = await res.json();
+      login(data.accessToken, data.refreshToken);
+      onSuccess();
+    } else {
+      throw new Error(await parseApiError(res, 'Неверный телефон или пароль'));
+    }
   };
 
   const handleLogin = async () => {
     setLoading(true); setError('');
     try { await doLogin(fullPhone, password); }
-    catch (e: any) { setError(e.message || 'Ошибка соединения'); }
+    catch (e: any) { setError(e.message || 'Ошибка соединения с сервером'); }
     setLoading(false);
   };
 
   const handleForgot = async () => {
     setLoading(true); setError('');
     try {
-      await fetch('/api/auth/forgot-password', {
+      const res = await fetch('/api/auth/forgot-password', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-      setForgotSent(true);
-    } catch { setError('Ошибка соединения'); }
+      if (res.ok) {
+        setForgotSent(true);
+      } else {
+        setError(await parseApiError(res, 'Не удалось отправить письмо. Попробуйте ещё раз.'));
+      }
+    } catch { setError('Ошибка соединения с сервером'); }
     setLoading(false);
   };
 
@@ -289,10 +315,12 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
           agencyName: agencyName || undefined,
         }),
       });
-      const data = await res.json();
-      if (res.ok) { await doLogin(fullPhone, password); }
-      else setError(data.message || 'Ошибка регистрации');
-    } catch (e: any) { setError(e.message || 'Ошибка соединения'); }
+      if (res.ok) {
+        await doLogin(fullPhone, password);
+      } else {
+        setError(await parseApiError(res, 'Ошибка регистрации'));
+      }
+    } catch (e: any) { setError(e.message || 'Ошибка соединения с сервером'); }
     setLoading(false);
   };
 
