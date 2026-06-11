@@ -74,6 +74,7 @@ export interface UpdateLeadDto {
   name?: string;
   price?: number;
   status_id?: number;
+  responsible_user_id?: number;
   custom_fields_values?: any[];
 }
 
@@ -433,6 +434,40 @@ export class AmoCrmAdapter {
     } catch (e: any) {
       console.error('[getTasksByEntity] failed:', e?.message || e);
       return [];
+    }
+  }
+
+  // 2026-06-11: Морикит создаёт задачу на КЦ-менеджере по графику смен, НО
+  // не обновляет responsible_user_id на самом лиде — там остаётся автор
+  // OAuth-токена (= админ). КЦ-менеджер не видит лид в своих фильтрах.
+  //
+  // Этот helper делает post-sync: ждёт `delayMs` чтобы Морикит успел создать
+  // задачу, читает самую свежую задачу на лиде, забирает её responsible_user_id
+  // и проставляет на лид. Возвращает true если ответственный был обновлён.
+  async syncLeadResponsibleFromLatestTask(
+    leadId: number,
+    opts: { delayMs?: number } = {},
+  ): Promise<boolean> {
+    const delay = opts.delayMs ?? 8000;
+    if (delay > 0) await sleep(delay);
+    try {
+      const tasks = await this.getTasksByEntity('leads', leadId);
+      if (!tasks.length) return false;
+      const latest = tasks
+        .filter((t) => !!t.responsible_user_id)
+        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+      if (!latest?.responsible_user_id) return false;
+      const lead = await this.getLead(leadId);
+      const currentResponsible = (lead as any)?.responsible_user_id;
+      if (currentResponsible === latest.responsible_user_id) return false;
+      await this.updateLead(leadId, { responsible_user_id: latest.responsible_user_id });
+      console.log(
+        `[sync-lead-responsible] lead=${leadId} updated: ${currentResponsible} → ${latest.responsible_user_id} (from task ${latest.id})`,
+      );
+      return true;
+    } catch (e: any) {
+      console.error('[sync-lead-responsible] failed:', e?.message || e);
+      return false;
     }
   }
 

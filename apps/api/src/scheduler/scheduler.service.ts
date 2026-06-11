@@ -642,6 +642,12 @@ export class SchedulerService {
               lead_date: morekitLeadDate(),
               project: morekitProjectName(String(client.project)),
             }, morekitUrl).catch((e) => this.logger.error(`[amo-retry] morekit notify error: ${e?.message || e}`));
+
+            // 2026-06-11: см. ClientFixationService.fixClient — Морикит не
+            // обновляет responsible на лиде, делаем sync вручную из задачи.
+            this.amo
+              .syncLeadResponsibleFromLatestTask(createdAmoLeadId)
+              .catch((e) => this.logger.error(`[amo-retry] sync lead responsible error: ${e?.message || e}`));
           }
         }
         ok++;

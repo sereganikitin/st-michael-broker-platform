@@ -413,6 +413,15 @@ export class ClientFixationService {
             lead_date: morekitLeadDate(),
             project: morekitProjectName(String(data.project)),
           }, morekitUrl).catch((e) => console.error('[fixClient] morekit notify error:', e?.message || e));
+
+          // 2026-06-11: Морикит обновляет responsible_user_id только на ЗАДАЧЕ,
+          // но не на ЛИДЕ — КЦ-менеджер не видит лид в своих фильтрах.
+          // Post-sync: ждём 8 сек чтобы Морикит успел создать задачу, потом
+          // забираем её responsible_user_id и проставляем на лид.
+          // Fire-and-forget — ошибка sync не валит фиксацию.
+          this.amoCrmAdapter
+            .syncLeadResponsibleFromLatestTask(createdAmoLeadId)
+            .catch((e) => console.error('[fixClient] sync lead responsible error:', e?.message || e));
         }
       }
 
