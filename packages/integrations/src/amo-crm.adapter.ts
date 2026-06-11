@@ -2,7 +2,7 @@ import { Project } from '@st-michael/shared';
 import {
   AMO_LEAD_FIELDS, AMO_LEAD_ENUMS, AMO_CONTACT_FIELDS,
   readinessLevelToEnumId, purchaseTimingToEnumId,
-  evaluateUniqueness,
+  evaluateUniqueness, brokerLeadMarkerFields,
 } from './amo-crm.fields';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -974,6 +974,39 @@ export class AmoCrmAdapter {
         await this.updateLead(resultLead.id, { custom_fields_values: customFields } as any);
       } catch (e) {
         // Не валим всю операцию если PATCH упал — лид создан, контакт связан.
+      }
+    }
+
+    // Шаг 2b: UTM/tracking-маркеры «Заявка от брокера» — ОТДЕЛЬНЫМ PATCH'ем.
+    // Раньше включали в общий PATCH, но amoCRM возвращал 400 на эти поля
+    // (они системные, привязаны к трекерам Calltouch/Yandex/Mango) и из-за
+    // этого ВСЕ кастом-поля терялись (PR #94 их вырубил полностью).
+    // 2026-06-11: возвращаем, но изолированно — если 400, основной PATCH
+    // уже прошёл, мы только маркеры не записали. Если bulk прошёл — отлично,
+    // utm-вкладка в лиде заполнена как у эталонного «Дмитрий от Ивана» 32205511.
+    if (!data.reuseLeadId && resultLead?.id) {
+      const markerFields = brokerLeadMarkerFields();
+      try {
+        await this.updateLead(resultLead.id, { custom_fields_values: markerFields } as any);
+        console.log(`[createFixationRequest] utm-маркеры записаны на лид ${resultLead.id}`);
+      } catch (e: any) {
+        console.warn(
+          `[createFixationRequest] utm-маркеры bulk-PATCH упал на лиде ${resultLead.id}: ${e?.message || e}. Пробую по одному...`,
+        );
+        // Fallback: PATCH каждое поле отдельно, чтобы изолировать «битые»
+        // поля. amoCRM может блокировать одно конкретное (напр. CallTouch),
+        // но остальные пройдут.
+        let ok = 0;
+        let failed = 0;
+        for (const f of markerFields) {
+          try {
+            await this.updateLead(resultLead.id, { custom_fields_values: [f] } as any);
+            ok++;
+          } catch {
+            failed++;
+          }
+        }
+        console.log(`[createFixationRequest] utm-маркеры fallback: ok=${ok} failed=${failed}`);
       }
     }
 
