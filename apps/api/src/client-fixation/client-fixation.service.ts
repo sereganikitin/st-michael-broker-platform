@@ -90,175 +90,57 @@ export class ClientFixationService {
       });
     }
 
+    // 2026-06-11: ПРОВЕРКА УНИКАЛЬНОСТИ В amoCRM ВСЕГДА И ПЕРВОЙ.
+    // Раньше эта проверка была ВНУТРИ `if (!existingClient)` — то есть при
+    // повторной фиксации того же клиента тем же брокером (existingClient
+    // найден в нашей БД) логика RULE_1/RULE_2/RULE_3 НЕ срабатывала, и
+    // создавался дубль amoCRM-лида через duplicate-confirmation flow.
+    // Тест 2026-06-11 (Efremov Mikhail 32209267 + Тест47 32209273):
+    // лид 1 уже был в КЦ «Классифицировали» (62907282 = RULE_1) → должны
+    // были только повесить alarm-задачу, но создали лид 2.
+    let amoVerdict: {
+      rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
+      verdict: 'UNIQUE' | 'ALARM';
+      reason: string;
+      contactId?: number;
+      leads?: any[];
+      triggerType?: 'DEFERRED_DEMAND' | 'NEW_REQUEST_NO_BROKER' | 'ACTIVE_SALES';
+      triggerLeadId?: number;
+    } | null = null;
+    try {
+      amoVerdict = await this.amoCrmAdapter.checkUniqueness(data.phone);
+      console.log(`[fixClient] amo uniqueness rule=${amoVerdict.rule} — ${amoVerdict.reason}${amoVerdict.triggerLeadId ? ` — triggerLeadId=${amoVerdict.triggerLeadId}` : ''}`);
+    } catch (e: any) {
+      console.error('[fixClient] amo checkUniqueness failed, fallback to local DB only:', e?.message || e);
+    }
+
     // Проверяем сначала запись ЭТОГО брокера — если он уже фиксировал, обновляем её.
-    // Правка 2026-05-22 (bug-репорт): глобально смотрим ВСЕХ клиентов с этим
-    // телефоном, чтобы выявить конфликт с уникальностью другого брокера.
-    // Раньше другой брокер «не мешал» — но если у него клиент в активной
-    // CONDITIONALLY_UNIQUE / FIXED уникальности (или есть проведённая встреча)
-    // — это конфликт, фиксацию надо ставить на UNDER_REVIEW и уведомить
-    // менеджеров. Иначе создавали дубль без предупреждения.
     const existingClient = await this.prisma.client.findFirst({
       where: { phone: data.phone, brokerId },
       include: { deals: true, broker: true },
     });
 
+    // 2026-06-11: RULE_1/RULE_2 — alarm-flow, не создаём новый amoCRM лид,
+    // не выпускаем duplicate-confirmation. Срабатывает независимо от того,
+    // есть ли existingClient. Если есть — оставляем как есть (НЕ меняем
+    // его статус: брокер не должен видеть «На проверке» если просто
+    // переподал свою же фиксацию). Если нет — создаём новый Client UNDER_REVIEW.
+    if (amoVerdict && (amoVerdict.rule === 'RULE_1' || amoVerdict.rule === 'RULE_2')) {
+      return await this.handleRule1Or2Alarm({
+        amoVerdict,
+        data,
+        broker,
+        agency,
+        brokerId,
+        existingClient,
+        fixationFormFields,
+      });
+    }
+
     if (!existingClient) {
-      // 2026-06-03: ПРОВЕРКА УНИКАЛЬНОСТИ ПО amoCRM — по 4 правилам пользователя.
-      // Раньше смотрели только в нашу БД (Client table) — а в amo контакт мог
-      // уже иметь активный лид с другим брокером, и мы это не видели.
-      // Теперь: запрашиваем у amo вердикт UNIQUE / ALARM. Если ALARM — создаём
-      // Client с UNDER_REVIEW + задача в amo для КЦ.
-      // Если amo упал — fallback на старую логику (only local DB).
-      let amoVerdict: {
-        rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
-        verdict: 'UNIQUE' | 'ALARM';
-        reason: string;
-        contactId?: number;
-        leads?: any[];
-        triggerType?: 'DEFERRED_DEMAND' | 'NEW_REQUEST_NO_BROKER' | 'ACTIVE_SALES';
-        triggerLeadId?: number;
-      } | null = null;
-      try {
-        amoVerdict = await this.amoCrmAdapter.checkUniqueness(data.phone);
-        console.log(`[fixClient] amo uniqueness rule=${amoVerdict.rule} — ${amoVerdict.reason}${amoVerdict.triggerLeadId ? ` — triggerLeadId=${amoVerdict.triggerLeadId}` : ''}`);
-      } catch (e: any) {
-        console.error('[fixClient] amo checkUniqueness failed, fallback to local DB only:', e?.message || e);
-      }
-
-      // 2026-06-11: RULE_1 (старый лид в КЦ ранних стадиях) + RULE_2 (КЦ-встречи
-      // или активная воронка продаж) — оба идут в ALARM-ветку: НЕ создаём новый
-      // лид в amoCRM, Client → UNDER_REVIEW. Разница только в одном: RULE_1
-      // дополнительно прикрепляет нового брокера контактом к старому лиду.
-      if (amoVerdict && (amoVerdict.rule === 'RULE_1' || amoVerdict.rule === 'RULE_2')) {
-        const client = await this.prisma.client.create({
-          data: {
-            brokerId,
-            phone: data.phone,
-            fullName: data.fullName,
-            email: data.email || null,
-            comment: data.comment,
-            project: data.project as any,
-            fixationAgencyId: agency.id,
-            uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
-            uniquenessReason: `АЛАРМ из amoCRM: ${amoVerdict.reason}`,
-            ...fixationFormFields,
-          },
-        });
-        try {
-          await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
-            scenario: 'AMO_UNIQUENESS_ALARM',
-            amoReason: amoVerdict.reason,
-            amoContactId: amoVerdict.contactId,
-            amoLeads: amoVerdict.leads,
-          });
-        } catch (e: any) {
-          console.error('[fixClient amo-alarm] audit failed:', e?.message || e);
-        }
-        // 2026-06-03: формат по требованию пользователя:
-        // - длинная нота с дублированием всей заявки из кабинета
-        // - задача с типом «Аларм», срок 30 мин
-        // - распределение через Морикит (responsibleUserId не задаём)
-        // 2026-06-05: для triggerType=DEFERRED_DEMAND текст задачи специфичен —
-        // КЦ должен УТОЧНИТЬ у клиента, действительно ли он сейчас работает
-        // с этим брокером (клиент ранее сам говорил «не готов»).
-        if (amoVerdict.leads && amoVerdict.leads.length > 0) {
-          // Если есть конкретный лид-триггер — нота и задача идут на него,
-          // иначе на первый активный.
-          const targetLead =
-            amoVerdict.leads.find((l: any) => l.id === amoVerdict?.triggerLeadId) ||
-            amoVerdict.leads[0];
-          const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
-          const isRule1 = amoVerdict.rule === 'RULE_1';
-
-          // RULE_1: прикрепить нового брокера контактом к старому лиду
-          // (через POST /leads/{id}/link). RULE_2: брокера НЕ прикрепляем.
-          if (isRule1 && broker.amoContactId) {
-            try {
-              await this.amoCrmAdapter.linkContactToLead(
-                targetLead.id,
-                Number(broker.amoContactId),
-              );
-              console.log(`[fixClient RULE_1] брокер ${broker.amoContactId} прикреплён к старому лиду ${targetLead.id}`);
-            } catch (e: any) {
-              console.error('[fixClient RULE_1] linkContactToLead failed:', e?.message || e);
-            }
-          }
-
-          // Длинная нота — полная копия заявки
-          const lines: string[] = [];
-          if (isRule1) {
-            lines.push(`⚠️ АЛАРМ — новый брокер на этом клиенте. Прикреплён к лиду контактом.`);
-          } else {
-            lines.push(`⚠️ ПОДТВЕРДИТЬ УНИКАЛЬНОСТЬ — клиент уже активен в этом или другом лиде`);
-          }
-          lines.push(`Причина: ${amoVerdict.reason}`);
-          lines.push(``);
-          lines.push(`Клиент: ${data.fullName}`);
-          lines.push(`Телефон: ${data.phone}`);
-          if (data.email) lines.push(`Email: ${data.email}`);
-          if (data.clientRegion) lines.push(`Регион: ${data.clientRegion}`);
-          lines.push(``);
-          lines.push(`Проект: ${projectName}`);
-          if (data.propertyType) lines.push(`Тип: ${data.propertyType}`);
-          if (data.roomsCount) lines.push(`Комнат: ${data.roomsCount}`);
-          if (data.sqm) lines.push(`Метраж: ${data.sqm} м²`);
-          if (data.amount) lines.push(`Бюджет: ${data.amount.toLocaleString('ru-RU')} ₽`);
-          if (data.purchaseTiming) lines.push(`Планирует покупку: ${data.purchaseTiming}`);
-          if (data.readinessLevel) lines.push(`Готовность к сделке: ${data.readinessLevel}`);
-          lines.push(``);
-          lines.push(`Брокер-агент: ${broker.fullName} (${broker.phone})`);
-          lines.push(`Агентство: ${agency.name} (ИНН ${agency.inn})`);
-          if (data.comment) {
-            lines.push(``);
-            lines.push(`Комментарий брокера: ${data.comment}`);
-          }
-          try {
-            await this.amoCrmAdapter.addNoteToLead(targetLead.id, lines.join('\n'));
-          } catch (e: any) {
-            console.error('[fixClient amo-alarm] note failed:', e?.message || e);
-          }
-          // Задача типа «Аларм», срок 30 минут. Текст зависит от правила.
-          // 2026-06-03: ID 2393839 = «Alarm» в stmichael.amocrm.ru (цвет E00000).
-          const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
-          const taskText = isRule1
-            ? `Новый брокер на клиенте ${data.fullName} (${data.phone}). Брокер ${broker.fullName} (${broker.phone}) прикреплён к лиду контактом.`
-            : `Подтвердить уникальность — клиент ${data.fullName} (${data.phone}) уже в активной стадии, новый брокер ${broker.fullName} (${broker.phone}) пытается зафиксировать.`;
-          try {
-            // 2026-06-10: ответственный за ALARM-задачу = ответственный
-            // триггер-лида (Морикит уже распределил его на менеджера КЦ).
-            // Раньше зашивали Юлию 9796826 — это давало «задача висит на
-            // том кто не работает сегодня». Теперь читаем актуального
-            // ответственного из лида. Если по какой-то причине не вытянули
-            // (lid удалён / amo ответил 5xx) — fallback на env или undefined
-            // (amo поставит автора токена, но это лучше чем падать).
-            let leadResponsibleUserId: number | undefined;
-            try {
-              const fullLead = await this.amoCrmAdapter.getLead(targetLead.id);
-              leadResponsibleUserId = (fullLead as any)?.responsible_user_id;
-            } catch (e: any) {
-              console.warn('[fixClient amo-alarm] getLead failed, fallback:', e?.message || e);
-            }
-            const envFallback = process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID;
-            const taskResponsibleUserId = leadResponsibleUserId
-              || (envFallback ? Number(envFallback) : undefined);
-            await this.amoCrmAdapter.createTask({
-              text: taskText,
-              entityType: 'leads',
-              entityId: targetLead.id,
-              taskTypeId: ALARM_TASK_TYPE_ID,
-              completeTillSec: Math.floor(Date.now() / 1000) + 30 * 60,
-              responsibleUserId: taskResponsibleUserId,
-            });
-          } catch (e: any) {
-            console.error('[fixClient amo-alarm] task failed:', e?.message || e);
-          }
-        }
-        return {
-          client,
-          status: 'UNDER_REVIEW',
-          message: `Клиент требует ручной проверки КЦ. ${amoVerdict.reason}`,
-        };
-      }
+      // 2026-06-11: amoVerdict + RULE_1/RULE_2 теперь обрабатываются ВЫШЕ
+      // через handleRule1Or2Alarm — сюда попадаем только при RULE_3 или
+      // NO_CONFLICT (либо если amoCRM упал и amoVerdict=null).
 
       // Перед созданием — проверим что нет других брокеров у этого клиента
       // с активной фиксацией или встречей. Если есть — поднимаем UNDER_REVIEW
@@ -786,6 +668,163 @@ export class ClientFixationService {
         ? 'Создана новая фиксация (дубликат). Истекает через 30 дней.'
         : 'Создана новая фиксация (дубликат), но не передана в amoCRM. Менеджеры уведомлены.',
       managerContacts,
+    };
+  }
+
+  /**
+   * 2026-06-11: Обработка RULE_1 / RULE_2 — выделено из fixClient чтобы
+   * срабатывать и для путей с existingClient (повторная фиксация того же
+   * брокера) и без него (новая фиксация). Раньше эта логика была вшита
+   * внутрь `if (!existingClient) {...}` — в результате при повторной
+   * фиксации того же клиента тем же брокером duplicate-confirmation flow
+   * создавал дубль amoCRM-лида минуя проверку amoVerdict.
+   *
+   * Что делает:
+   *   - existingClient есть → возвращаем его БЕЗ изменения статуса (брокер
+   *     не должен видеть «На проверке» если просто переподал свою же фиксацию).
+   *   - existingClient нет → создаём новый Client UNDER_REVIEW.
+   *   - На стороне amoCRM (target = trigger lead):
+   *     • RULE_1: прикрепить нового брокера контактом (POST /leads/{id}/link)
+   *     • Обоим правилам: длинная нота с заявкой + alarm-задача на ответственного триггер-лида
+   */
+  private async handleRule1Or2Alarm(params: {
+    amoVerdict: {
+      rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
+      reason: string;
+      contactId?: number;
+      leads?: any[];
+      triggerLeadId?: number;
+    };
+    data: any;
+    broker: any;
+    agency: any;
+    brokerId: string;
+    existingClient: any | null;
+    fixationFormFields: any;
+  }): Promise<any> {
+    const { amoVerdict, data, broker, agency, brokerId, existingClient, fixationFormFields } = params;
+
+    // Client: создаём новый UNDER_REVIEW, либо берём существующий как есть.
+    let client: any;
+    if (existingClient) {
+      client = existingClient;
+    } else {
+      client = await this.prisma.client.create({
+        data: {
+          brokerId,
+          phone: data.phone,
+          fullName: data.fullName,
+          email: data.email || null,
+          comment: data.comment,
+          project: data.project as any,
+          fixationAgencyId: agency?.id,
+          uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
+          uniquenessReason: `АЛАРМ из amoCRM: ${amoVerdict.reason}`,
+          ...fixationFormFields,
+        },
+      });
+    }
+
+    try {
+      await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
+        scenario: 'AMO_UNIQUENESS_ALARM',
+        amoReason: amoVerdict.reason,
+        amoContactId: amoVerdict.contactId,
+        amoLeads: amoVerdict.leads,
+        isDuplicateFixation: !!existingClient,
+      });
+    } catch (e: any) {
+      console.error('[handleRule1Or2Alarm] audit failed:', e?.message || e);
+    }
+
+    if (amoVerdict.leads && amoVerdict.leads.length > 0) {
+      const targetLead =
+        amoVerdict.leads.find((l: any) => l.id === amoVerdict?.triggerLeadId) ||
+        amoVerdict.leads[0];
+      const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
+      const isRule1 = amoVerdict.rule === 'RULE_1';
+
+      if (isRule1 && broker.amoContactId) {
+        try {
+          await this.amoCrmAdapter.linkContactToLead(
+            targetLead.id,
+            Number(broker.amoContactId),
+          );
+          console.log(`[handleRule1Or2Alarm] брокер ${broker.amoContactId} прикреплён к лиду ${targetLead.id}`);
+        } catch (e: any) {
+          console.error('[handleRule1Or2Alarm] linkContactToLead failed:', e?.message || e);
+        }
+      }
+
+      const lines: string[] = [];
+      if (isRule1) {
+        lines.push(`⚠️ АЛАРМ — новый брокер на этом клиенте. Прикреплён к лиду контактом.`);
+      } else {
+        lines.push(`⚠️ ПОДТВЕРДИТЬ УНИКАЛЬНОСТЬ — клиент уже активен в этом или другом лиде`);
+      }
+      if (existingClient && existingClient.brokerId === brokerId) {
+        lines.push(`(Повторная фиксация от того же брокера — клиент уже в его кабинете)`);
+      }
+      lines.push(`Причина: ${amoVerdict.reason}`);
+      lines.push(``);
+      lines.push(`Клиент: ${data.fullName}`);
+      lines.push(`Телефон: ${data.phone}`);
+      if (data.email) lines.push(`Email: ${data.email}`);
+      lines.push(``);
+      lines.push(`Проект: ${projectName}`);
+      if (data.propertyType) lines.push(`Тип: ${data.propertyType}`);
+      if (data.roomsCount) lines.push(`Комнат: ${data.roomsCount}`);
+      if (data.sqm) lines.push(`Метраж: ${data.sqm} м²`);
+      if (data.amount) lines.push(`Бюджет: ${data.amount.toLocaleString('ru-RU')} ₽`);
+      if (data.purchaseTiming) lines.push(`Планирует покупку: ${data.purchaseTiming}`);
+      if (data.readinessLevel) lines.push(`Готовность к сделке: ${data.readinessLevel}`);
+      lines.push(``);
+      lines.push(`Брокер-агент: ${broker.fullName} (${broker.phone})`);
+      lines.push(`Агентство: ${agency.name} (ИНН ${agency.inn})`);
+      if (data.comment) {
+        lines.push(``);
+        lines.push(`Комментарий брокера: ${data.comment}`);
+      }
+      try {
+        await this.amoCrmAdapter.addNoteToLead(targetLead.id, lines.join('\n'));
+      } catch (e: any) {
+        console.error('[handleRule1Or2Alarm] note failed:', e?.message || e);
+      }
+
+      const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
+      const taskText = isRule1
+        ? `Новый брокер на клиенте ${data.fullName} (${data.phone}). Брокер ${broker.fullName} (${broker.phone}) прикреплён к лиду контактом.`
+        : `Подтвердить уникальность — клиент ${data.fullName} (${data.phone}) уже в активной стадии, новый брокер ${broker.fullName} (${broker.phone}) пытается зафиксировать.`;
+      try {
+        let leadResponsibleUserId: number | undefined;
+        try {
+          const fullLead = await this.amoCrmAdapter.getLead(targetLead.id);
+          leadResponsibleUserId = (fullLead as any)?.responsible_user_id;
+        } catch (e: any) {
+          console.warn('[handleRule1Or2Alarm] getLead failed, fallback:', e?.message || e);
+        }
+        const envFallback = process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID;
+        const taskResponsibleUserId = leadResponsibleUserId
+          || (envFallback ? Number(envFallback) : undefined);
+        await this.amoCrmAdapter.createTask({
+          text: taskText,
+          entityType: 'leads',
+          entityId: targetLead.id,
+          taskTypeId: ALARM_TASK_TYPE_ID,
+          completeTillSec: Math.floor(Date.now() / 1000) + 30 * 60,
+          responsibleUserId: taskResponsibleUserId,
+        });
+      } catch (e: any) {
+        console.error('[handleRule1Or2Alarm] task failed:', e?.message || e);
+      }
+    }
+
+    return {
+      client,
+      status: existingClient ? existingClient.uniquenessStatus : 'UNDER_REVIEW',
+      message: existingClient
+        ? `Клиент уже зафиксирован. Алярм отправлен в КЦ — менеджер увидит ваш повторный запрос.`
+        : `Клиент требует ручной проверки КЦ. ${amoVerdict.reason}`,
     };
   }
 
