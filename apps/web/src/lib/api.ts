@@ -85,6 +85,32 @@ export async function api<T = any>(
   return res.json();
 }
 
+// 2026-06-11: достаёт человекочитаемое сообщение из ответа сломанного fetch.
+// Покрывает три кейса которые попадались в проде:
+//   1) NestJS Zod/UnauthorizedException → { message: "Неверный логин или пароль" }
+//   2) class-validator → { message: ["email must be email", ...] } (array)
+//   3) nginx 502/504 → HTML (res.json() кидает SyntaxError)
+// Если ни один не сработал — возвращает fallback.
+export async function parseApiError(res: Response, fallback: string): Promise<string> {
+  let raw: string;
+  try {
+    raw = await res.text();
+  } catch {
+    return fallback;
+  }
+  if (!raw.trim()) return fallback;
+  try {
+    const data = JSON.parse(raw);
+    const msg = data?.message;
+    if (Array.isArray(msg)) return msg.filter(Boolean).join('; ') || fallback;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (typeof data?.error === 'string' && data.error.trim()) return data.error;
+  } catch {
+    // HTML или другой не-JSON — fallback
+  }
+  return fallback;
+}
+
 // Convenience methods
 export const apiGet = <T = any>(path: string) => api<T>(path);
 
