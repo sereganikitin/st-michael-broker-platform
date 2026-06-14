@@ -142,27 +142,22 @@ export class ClientFixationService {
       // через handleRule1Or2Alarm — сюда попадаем только при RULE_3 или
       // NO_CONFLICT (либо если amoCRM упал и amoVerdict=null).
 
-      // Перед созданием — проверим что нет других брокеров у этого клиента
-      // с активной фиксацией или встречей. Если есть — поднимаем UNDER_REVIEW
-      // и НЕ создаём новый Client до решения менеджера.
-      // Валидные enum-значения (по schema.prisma):
-      //   UniquenessStatus: CONDITIONALLY_UNIQUE, REJECTED, UNDER_REVIEW, EXPIRED — НЕТ CONFIRMED
-      //   FixationStatus:   NOT_FIXED, FIXED, EXPIRED, ANNULLED
-      //   MeetingStatus:    PENDING, CONFIRMED, COMPLETED, CANCELLED
-      // Раньше тут было `['CONDITIONALLY_UNIQUE', 'CONFIRMED']` — невалидный
-      // CONFIRMED валил весь Prisma-запрос с ошибкой, поэтому ВООБЩЕ
-      // не работала фиксация. Bug-репорт 2026-05-22.
+      // 2026-06-14: пока встреча у другого брокера не ПРОВЕДЕНА — несколько
+      // брокеров могут одновременно быть условно уникальными. Блокируем
+      // только если у другого брокера встреча COMPLETED или статус FIXED
+      // (акт осмотра подписан — клиент окончательно за ним).
+      //
+      // Раньше блокировали также любое активное CONDITIONALLY_UNIQUE и любую
+      // CONFIRMED-встречу (запланированную, но ещё не проведённую) — это
+      // давало преждевременное «На проверке» при первой же параллельной
+      // фиксации, ещё до встречи.
       const conflictingClient = await this.prisma.client.findFirst({
         where: {
           phone: data.phone,
           NOT: { brokerId },
           OR: [
-            {
-              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
-              uniquenessExpiresAt: { gt: new Date() },
-            },
             { fixationStatus: 'FIXED' as any },
-            { meetings: { some: { status: { in: ['CONFIRMED', 'COMPLETED'] as any } } } },
+            { meetings: { some: { status: 'COMPLETED' as any } } },
           ],
         },
         include: { broker: true, meetings: true },
@@ -704,7 +699,12 @@ export class ClientFixationService {
   }): Promise<any> {
     const { amoVerdict, data, broker, agency, brokerId, existingClient, fixationFormFields } = params;
 
-    // Client: создаём новый UNDER_REVIEW, либо берём существующий как есть.
+    // 2026-06-14: для RULE_1 (старый лид в КЦ до «Встреча проведена») новый
+    // брокер видит в кабинете «Уникален» — оба брокера могут параллельно
+    // фиксировать клиента, пока встреча не проведена. КЦ всё равно получает
+    // прикрепление контактом + ALARM-задачу. Для RULE_2 поведение прежнее
+    // («На проверке»).
+    const isRule1 = amoVerdict.rule === 'RULE_1';
     let client: any;
     if (existingClient) {
       client = existingClient;
@@ -718,7 +718,12 @@ export class ClientFixationService {
           comment: data.comment,
           project: data.project as any,
           fixationAgencyId: agency?.id,
-          uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
+          uniquenessStatus: isRule1
+            ? UniquenessStatus.CONDITIONALLY_UNIQUE
+            : UniquenessStatus.UNDER_REVIEW,
+          ...(isRule1 && {
+            uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+          }),
           uniquenessReason: `АЛАРМ из amoCRM: ${amoVerdict.reason}`,
           ...fixationFormFields,
         },
@@ -742,7 +747,6 @@ export class ClientFixationService {
         amoVerdict.leads.find((l: any) => l.id === amoVerdict?.triggerLeadId) ||
         amoVerdict.leads[0];
       const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
-      const isRule1 = amoVerdict.rule === 'RULE_1';
 
       if (isRule1 && broker.amoContactId) {
         try {
@@ -821,10 +825,14 @@ export class ClientFixationService {
 
     return {
       client,
-      status: existingClient ? existingClient.uniquenessStatus : 'UNDER_REVIEW',
+      status: existingClient
+        ? existingClient.uniquenessStatus
+        : (isRule1 ? 'CONDITIONALLY_UNIQUE' : 'UNDER_REVIEW'),
       message: existingClient
         ? `Клиент уже зафиксирован. Алярм отправлен в КЦ — менеджер увидит ваш повторный запрос.`
-        : `Клиент требует ручной проверки КЦ. ${amoVerdict.reason}`,
+        : (isRule1
+          ? `Клиент зафиксирован. КЦ уведомлены о параллельной фиксации.`
+          : `Клиент требует ручной проверки КЦ. ${amoVerdict.reason}`),
     };
   }
 

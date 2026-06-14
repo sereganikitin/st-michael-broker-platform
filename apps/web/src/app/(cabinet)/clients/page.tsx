@@ -233,9 +233,6 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
                     : `осталось ${daysLeft} ${daysLeft === 1 ? 'день' : daysLeft < 5 ? 'дня' : 'дней'} (можно продлить)`}
               </div>
             )}
-            {client.uniquenessReason && (
-              <div className="text-xs mt-1 text-text-muted">Основание: {client.uniquenessReason}</div>
-            )}
           </div>
           {client.broker && (
             <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
