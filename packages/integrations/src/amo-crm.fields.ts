@@ -112,9 +112,21 @@ export function isQualifiedToMeetingStatus(pipelineId: number, statusId: number)
   );
 }
 
-/** Финальный статус «Закрыто и не реализовано» (143 — во всех воронках). */
+/**
+ * Финальный статус лида: закрыт.
+ * - 143 «Закрыто и не реализовано» — везде.
+ * - 142 — везде финал: в КЦ это «Встреча проведена» (лид выходит из КЦ),
+ *   в воронках продаж это «Успешно реализовано» (клиент купил).
+ *
+ * 2026-06-14: 142 теперь приравнивается к 143 для uniqueness — если все
+ * лиды контакта в финальных статусах, новая фиксация = RULE_3 (УНИКАЛЕН,
+ * создаём новый лид). Раньше 142 уходил в RULE_2 («На проверке») —
+ * блокировало повторные обращения от того же или другого брокера спустя
+ * время. По решению пользователя 142 = клиент завершил предыдущий цикл,
+ * можно фиксировать заново.
+ */
 export function isClosedLostStatus(statusId: number): boolean {
-  return statusId === 143;
+  return statusId === 143 || statusId === 142;
 }
 
 /** Финал КЦ: «Встреча проведена» (142 для пайплайна КЦ). Считаем как «КЦ завершён». */
@@ -606,8 +618,10 @@ export function brokerLeadMarkerFields(brokerRequestNumber?: string | number): a
     { field_id: AMO_LEAD_FIELDS.UTM_CAMPAIGN,         values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.UTM_CONTENT,          values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.UTM_TERM,             values: [{ value: TEXT }] },
-    // Тема/email — БЕЗ COMMENT_TO_REQUEST: туда брокер пишет реальный комментарий,
-    // не затираем маркером (2026-06-11).
+    // 2026-06-14: COMMENT_TO_REQUEST тоже маркер «Заявка от брокера» —
+    // как у эталонных Морикит-лидов. Реальный комментарий брокера уходит
+    // в ноту лида, а не в это поле трекинга.
+    { field_id: AMO_LEAD_FIELDS.COMMENT_TO_REQUEST,   values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.EMAIL_MARKER,         values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.REQUEST_THEME,        values: [{ value: TEXT }] },
     { field_id: AMO_LEAD_FIELDS.CREATED_FROM,         values: [{ value: TEXT }] },
