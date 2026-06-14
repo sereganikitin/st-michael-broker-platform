@@ -764,6 +764,12 @@ export class AmoCrmAdapter {
     // к существующему. Логика «конкурирующие брокеры до акта осмотра»:
     // несколько брокеров одновременно могут быть условно-уникальными.
     reuseLeadId?: number;
+    // 2026-06-14: id и краткое описание ПРЕДЫДУЩЕГО (закрытого) лида этого
+    // же брокера на этого же клиента. Создаём НОВЫЙ лид + добавляем ссылку
+    // на старый в первой ноте. Используется когда брокер повторно фиксирует
+    // клиента, у которого прошлая сделка закрыта (143 / 142 / CANCELLED).
+    previousLeadId?: number;
+    previousLeadInfo?: string;
   }): Promise<AmoLead> {
     // Контакт КЛИЕНТА — формируем custom_fields_values, отдельно от создания
     const clientCustomFields: any[] = [
@@ -1022,6 +1028,9 @@ export class AmoCrmAdapter {
       const lines: string[] = [];
       if (data.reuseLeadId) {
         lines.push(`🟢 Аукция уникальности — новый брокер на этом клиенте`);
+      } else if (data.previousLeadId) {
+        lines.push(`🔁 Повторная фиксация — клиент возвращается после закрытой сделки`);
+        lines.push(`Предыдущий лид: #${data.previousLeadId}${data.previousLeadInfo ? ` (${data.previousLeadInfo})` : ''}`);
       } else {
         lines.push(`📝 Фиксация клиента от брокера`);
       }
