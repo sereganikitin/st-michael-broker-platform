@@ -679,7 +679,11 @@ export class ClientFixationService {
         amoVerdict.leads[0];
       const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
 
-      if (isRule1 && broker.amoContactId) {
+      // Повторная фиксация ТЕМ ЖЕ брокером — он уже на лиде, не делаем
+      // повторный POST /leads/{id}/link (amo всё равно идемпотентно вернёт
+      // успех, но семантически бессмысленно).
+      const isSameBrokerRefix = !!(existingClient && existingClient.brokerId === brokerId);
+      if (isRule1 && broker.amoContactId && !isSameBrokerRefix) {
         try {
           await this.amoCrmAdapter.linkContactToLead(
             targetLead.id,
@@ -691,14 +695,17 @@ export class ClientFixationService {
         }
       }
 
+      // 2026-06-14: заголовок ноты зависит от того, кто фиксирует —
+      // ДРУГОЙ брокер пришёл на чужого клиента (новый контакт на лиде)
+      // ИЛИ тот же брокер заново подал заявку (нужно КЦ уведомление,
+      // но это не «новый брокер» — текст другой).
       const lines: string[] = [];
-      if (isRule1) {
+      if (isSameBrokerRefix) {
+        lines.push(`⚠️ АЛАРМ — повторная фиксация ТЕМ ЖЕ брокером на этого клиента.`);
+      } else if (isRule1) {
         lines.push(`⚠️ АЛАРМ — новый брокер на этом клиенте. Прикреплён к лиду контактом.`);
       } else {
         lines.push(`⚠️ ПОДТВЕРДИТЬ УНИКАЛЬНОСТЬ — клиент уже активен в этом или другом лиде`);
-      }
-      if (existingClient && existingClient.brokerId === brokerId) {
-        lines.push(`(Повторная фиксация от того же брокера — клиент уже в его кабинете)`);
       }
       lines.push(`Причина: ${amoVerdict.reason}`);
       lines.push(``);
@@ -727,9 +734,11 @@ export class ClientFixationService {
       }
 
       const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
-      const taskText = isRule1
-        ? `Новый брокер на клиенте ${data.fullName} (${data.phone}). Брокер ${broker.fullName} (${broker.phone}) прикреплён к лиду контактом.`
-        : `Подтвердить уникальность — клиент ${data.fullName} (${data.phone}) уже в активной стадии, новый брокер ${broker.fullName} (${broker.phone}) пытается зафиксировать.`;
+      const taskText = isSameBrokerRefix
+        ? `Повторная фиксация тем же брокером — ${broker.fullName} (${broker.phone}) ещё раз подал клиента ${data.fullName} (${data.phone}). Проверить, нужно ли вмешательство КЦ.`
+        : isRule1
+          ? `Новый брокер на клиенте ${data.fullName} (${data.phone}). Брокер ${broker.fullName} (${broker.phone}) прикреплён к лиду контактом.`
+          : `Подтвердить уникальность — клиент ${data.fullName} (${data.phone}) уже в активной стадии, новый брокер ${broker.fullName} (${broker.phone}) пытается зафиксировать.`;
       try {
         let leadResponsibleUserId: number | undefined;
         try {
