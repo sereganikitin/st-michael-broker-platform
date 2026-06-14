@@ -416,20 +416,39 @@ export class ClientFixationService {
       !!amoVerdict && (amoVerdict.rule === 'RULE_3' || amoVerdict.rule === 'NO_CONFLICT');
 
     if (!amoSaysOldClosed && localActive) {
-      // amo упал, но локально фиксация активна — тихий merge, никаких
-      // диалогов «всё равно создать?». Брокер видит ту же карточку.
-      try {
-        await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', existingClient.id, {
-          scenario: 'REFIX_MERGE_ACTIVE',
+      // amo упал, но локально фиксация активна. Создаём отдельный Client
+      // на повторную фиксацию (без amoLeadId — amo сам не доступен), чтобы
+      // брокер видел свою заявку в кабинете. Никаких диалогов «всё равно
+      // создать?». 2026-06-14: раньше тут был тихий merge (return existingClient),
+      // но брокер не видел повторную попытку в списке.
+      const refixClient = await this.prisma.client.create({
+        data: {
+          brokerId,
           phone: data.phone,
+          fullName: data.fullName,
+          email: data.email || null,
+          comment: data.comment,
+          project: data.project as any,
+          fixationAgencyId: agency.id,
+          uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+          uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+          uniquenessReason: 'Повторная фиксация (amoCRM недоступен, синхронизируется позже)',
+          ...fixationFormFields,
+        },
+      });
+      try {
+        await this.logAudit(brokerId, 'CLIENT_FIXATION', 'Client', refixClient.id, {
+          scenario: 'REFIX_AMO_DOWN',
+          phone: data.phone,
+          previousClientId: existingClient.id,
         });
       } catch (e: any) {
         console.error('[fixClient refix-merge] audit failed:', e?.message || e);
       }
       return {
-        client: existingClient,
-        status: existingClient.uniquenessStatus,
-        message: 'У вас уже есть активная фиксация этого клиента.',
+        client: refixClient,
+        status: 'CONDITIONALLY_UNIQUE',
+        message: 'Клиент зафиксирован повторно. Синхронизация с amoCRM произойдёт автоматически.',
       };
     }
 
@@ -612,31 +631,35 @@ export class ClientFixationService {
     // фиксировать клиента, пока встреча не проведена. КЦ всё равно получает
     // прикрепление контактом + ALARM-задачу. Для RULE_2 поведение прежнее
     // («На проверке»).
+    //
+    // 2026-06-14 fix-2: КАЖДАЯ попытка фиксации создаёт отдельную запись
+    // Client — даже повторная от того же брокера. Раньше при существующем
+    // existingClient мы возвращали его как есть, и брокер не видел вторую
+    // попытку в списке кабинета (хотя в amoCRM прилетал второй ALARM).
+    // Теперь создаём новую запись Client (БЕЗ amoLeadId — лид в amo тот же,
+    // не путаем webhook-роутинг), чтобы брокер видел каждую свою заявку.
     const isRule1 = amoVerdict.rule === 'RULE_1';
-    let client: any;
-    if (existingClient) {
-      client = existingClient;
-    } else {
-      client = await this.prisma.client.create({
-        data: {
-          brokerId,
-          phone: data.phone,
-          fullName: data.fullName,
-          email: data.email || null,
-          comment: data.comment,
-          project: data.project as any,
-          fixationAgencyId: agency?.id,
-          uniquenessStatus: isRule1
-            ? UniquenessStatus.CONDITIONALLY_UNIQUE
-            : UniquenessStatus.UNDER_REVIEW,
-          ...(isRule1 && {
-            uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
-          }),
-          uniquenessReason: `АЛАРМ из amoCRM: ${amoVerdict.reason}`,
-          ...fixationFormFields,
-        },
-      });
-    }
+    const client = await this.prisma.client.create({
+      data: {
+        brokerId,
+        phone: data.phone,
+        fullName: data.fullName,
+        email: data.email || null,
+        comment: data.comment,
+        project: data.project as any,
+        fixationAgencyId: agency?.id,
+        uniquenessStatus: isRule1
+          ? UniquenessStatus.CONDITIONALLY_UNIQUE
+          : UniquenessStatus.UNDER_REVIEW,
+        ...(isRule1 && {
+          uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+        }),
+        uniquenessReason: existingClient
+          ? `Повторная фиксация. ${amoVerdict.reason}`
+          : `АЛАРМ из amoCRM: ${amoVerdict.reason}`,
+        ...fixationFormFields,
+      },
+    });
 
     try {
       await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
@@ -733,11 +756,9 @@ export class ClientFixationService {
 
     return {
       client,
-      status: existingClient
-        ? existingClient.uniquenessStatus
-        : (isRule1 ? 'CONDITIONALLY_UNIQUE' : 'UNDER_REVIEW'),
+      status: isRule1 ? 'CONDITIONALLY_UNIQUE' : 'UNDER_REVIEW',
       message: existingClient
-        ? `Клиент уже зафиксирован. Алярм отправлен в КЦ — менеджер увидит ваш повторный запрос.`
+        ? `Клиент зафиксирован повторно. КЦ уведомлены о вашем запросе.`
         : (isRule1
           ? `Клиент зафиксирован. КЦ уведомлены о параллельной фиксации.`
           : `Клиент требует ручной проверки КЦ. ${amoVerdict.reason}`),
