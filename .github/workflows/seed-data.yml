@@ -220,45 +220,25 @@ jobs:
             fi
 
             if [ "$TASK" = "update-amo-meetings-manager" ]; then
-              echo "=== update-amo-meetings-manager (записать AMO_BROKER_MEETINGS_MANAGER_ID + recreate api) ==="
-              if [ -z "${{ inputs.amo_user_id }}" ]; then
-                echo "ERROR: amo_user_id обязателен — это user_id Ксении в amoCRM"
-                echo "Подсказка: запусти task=list-amo-users чтобы увидеть таблицу пользователей."
-                exit 1
-              fi
-              if [ ! -f .env ]; then
-                echo "ERROR: .env не найден в $(pwd)"
-                exit 1
-              fi
-              cp .env ".env.bak.$(date +%s)"
+              echo "=== update-amo-meetings-manager (set AMO_BROKER_MEETINGS_MANAGER_ID) ==="
               AMO_USER_ID='${{ inputs.amo_user_id }}'
               AMO_TASK_TYPE_ID='${{ inputs.amo_meeting_task_type_id }}'
-              # Проверка что user_id числовой — защита от опечаток.
-              if ! echo "$AMO_USER_ID" | grep -qE '^[0-9]+$'; then
-                echo "ERROR: amo_user_id должен быть числом, получено: '$AMO_USER_ID'"
-                exit 1
-              fi
-              if grep -q '^AMO_BROKER_MEETINGS_MANAGER_ID=' .env; then
-                sed -i "s|^AMO_BROKER_MEETINGS_MANAGER_ID=.*|AMO_BROKER_MEETINGS_MANAGER_ID=$AMO_USER_ID|" .env
-              else
-                printf '\nAMO_BROKER_MEETINGS_MANAGER_ID=%s\n' "$AMO_USER_ID" >> .env
-              fi
-              echo "AMO_BROKER_MEETINGS_MANAGER_ID=$AMO_USER_ID записан"
+              test -n "$AMO_USER_ID" || { echo "ERROR: amo_user_id is required"; exit 1; }
+              test -f .env || { echo "ERROR: .env not found in $(pwd)"; exit 1; }
+              cp .env ".env.bak.$(date +%s)"
+              grep -q '^AMO_BROKER_MEETINGS_MANAGER_ID=' .env \
+                && sed -i "s|^AMO_BROKER_MEETINGS_MANAGER_ID=.*|AMO_BROKER_MEETINGS_MANAGER_ID=$AMO_USER_ID|" .env \
+                || printf '\nAMO_BROKER_MEETINGS_MANAGER_ID=%s\n' "$AMO_USER_ID" >> .env
+              echo "AMO_BROKER_MEETINGS_MANAGER_ID=$AMO_USER_ID written"
               if [ -n "$AMO_TASK_TYPE_ID" ]; then
-                if ! echo "$AMO_TASK_TYPE_ID" | grep -qE '^[0-9]+$'; then
-                  echo "ERROR: amo_meeting_task_type_id должен быть числом, получено: '$AMO_TASK_TYPE_ID'"
-                  exit 1
-                fi
-                if grep -q '^AMO_MEETING_TASK_TYPE_ID=' .env; then
-                  sed -i "s|^AMO_MEETING_TASK_TYPE_ID=.*|AMO_MEETING_TASK_TYPE_ID=$AMO_TASK_TYPE_ID|" .env
-                else
-                  printf 'AMO_MEETING_TASK_TYPE_ID=%s\n' "$AMO_TASK_TYPE_ID" >> .env
-                fi
-                echo "AMO_MEETING_TASK_TYPE_ID=$AMO_TASK_TYPE_ID записан"
+                grep -q '^AMO_MEETING_TASK_TYPE_ID=' .env \
+                  && sed -i "s|^AMO_MEETING_TASK_TYPE_ID=.*|AMO_MEETING_TASK_TYPE_ID=$AMO_TASK_TYPE_ID|" .env \
+                  || printf 'AMO_MEETING_TASK_TYPE_ID=%s\n' "$AMO_TASK_TYPE_ID" >> .env
+                echo "AMO_MEETING_TASK_TYPE_ID=$AMO_TASK_TYPE_ID written"
               fi
-              echo "Recreate api container с новыми env..."
+              echo "Recreate api container..."
               $COMPOSE_CMD up -d --force-recreate --no-deps api
-              echo "Готово. Брокеры теперь видят занятые слоты Ксении и при записи создаётся задача в её календаре amoCRM."
+              echo "Done. Brokers will see Ksenia's busy slots from amoCRM and meeting tasks will be created in her calendar."
             fi
 
             if [ "$TASK" = "list-broker-leads" ]; then
