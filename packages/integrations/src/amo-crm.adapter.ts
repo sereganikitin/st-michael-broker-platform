@@ -405,6 +405,43 @@ export class AmoCrmAdapter {
     });
   }
 
+  // 2026-06-15: список НЕзавершённых задач конкретного ответственного
+  // в указанном временном окне. Используется для определения занятых
+  // слотов менеджера встреч (Ксения) — чтобы брокер в кабинете не мог
+  // забронировать время, на которое у неё уже есть задача в amo.
+  // amoCRM filter[complete_till] — unix timestamp в секундах.
+  async getOpenTasksForUser(
+    responsibleUserId: number,
+    fromSec: number,
+    toSec: number,
+  ): Promise<Array<{ id: number; text: string; completeTill: number; durationSec: number }>> {
+    if (!responsibleUserId) return [];
+    try {
+      const params = [
+        `filter[responsible_user_id]=${responsibleUserId}`,
+        `filter[is_completed]=0`,
+        `filter[complete_till][from]=${fromSec}`,
+        `filter[complete_till][to]=${toSec}`,
+        `limit=250`,
+      ].join('&');
+      const data = await this.request<any>(`/tasks?${params}`);
+      const items = data?._embedded?.tasks || [];
+      // У задачи в amo нет «продолжительности» — есть только complete_till
+      // (deadline). Берём фиксированный слот 60 минут (стандарт для встреч
+      // у Ксении). Если задача не «встреча» а просто «позвонить», 60 минут
+      // — пессимистичная оценка, лучше перебдеть чем недобдеть.
+      return items.map((t: any) => ({
+        id: t.id,
+        text: t.text,
+        completeTill: Number(t.complete_till) * 1000, // ms
+        durationSec: 60 * 60,
+      }));
+    } catch (e: any) {
+      console.error('[getOpenTasksForUser] failed:', e?.message || e);
+      return [];
+    }
+  }
+
   // 2026-06-10: список задач по entity (лиду / контакту). Используется
   // для диагностики «кто ответственный за задачу» — чтобы убедиться
   // что Морикит / наш код проставляет правильного человека.
