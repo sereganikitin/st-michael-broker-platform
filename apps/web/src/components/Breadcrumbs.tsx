@@ -9,6 +9,7 @@ const labels: Record<string, string> = {
   clients: 'Мои клиенты',
   meetings: 'Встречи',
   catalog: 'Подбор квартир',
+  favorites: 'Избранное',
   deals: 'Мои сделки',
   commission: 'Комиссия',
   materials: 'Материалы для работы',
