@@ -129,6 +129,24 @@ export function isClosedLostStatus(statusId: number): boolean {
   return statusId === 143 || statusId === 142;
 }
 
+/**
+ * 2026-06-15: лид в воронке продаж — Зорге9 / Берзарина / Толбухина.
+ * После решения пользователя broker-platform НЕ трогает sales-pipeline
+ * лиды никак: не attach контактов, не note-ы, не задачи, не статусы.
+ * Эти карточки полностью под управлением админа/Морикита/менеджеров продаж.
+ *
+ * Для uniqueness sales-лиды игнорируем — повторная фиксация создаёт
+ * новый КЦ-лид независимо от того, что у клиента есть активная карточка
+ * в sales (в т.ч. «Встреча проведена, думают» 62907430/62907358/62907570).
+ */
+export function isSalesPipeline(pipelineId: number): boolean {
+  return (
+    pipelineId === AMO_PIPELINES.BERZARINA ||
+    pipelineId === AMO_PIPELINES.ZORGE9 ||
+    pipelineId === AMO_PIPELINES.TOLBUKHINA
+  );
+}
+
 /** Финал КЦ: «Встреча проведена» (142 для пайплайна КЦ). Считаем как «КЦ завершён». */
 export function isKcMeetingHeldStatus(pipelineId: number, statusId: number): boolean {
   return pipelineId === AMO_PIPELINES.KC && statusId === 142;
@@ -171,29 +189,28 @@ export function isFixationRule1Lead(pipelineId: number, statusId: number): boole
 }
 
 /**
- * 2026-06-11: Лид попадает под Правило 2 — старый лид в:
- *   - КЦ-воронка, статусы «Встреча назначена» (62907286) или «Встреча проведена» (142)
- *   - Любая воронка продаж (Берзарина / Зорге9 / Толбухина), любой АКТИВНЫЙ статус
- *     (всё кроме 143 «Закрыто и не реализовано»)
- * Поведение при новой фиксации:
+ * 2026-06-15: Лид попадает под Правило 2 — старый лид в КЦ-воронке,
+ * статус «Встреча назначена» (62907286). Поведение при новой фиксации:
  *   - НЕ создавать новый лид в amoCRM
  *   - Брокер НЕ прикрепляется как контакт
  *   - ALARM-задача «Подтвердить уникальность» на старый лид
  *   - Client в БД → UNDER_REVIEW
+ *
+ * Изменения:
+ * - 2026-06-14: 142 «Встреча проведена» = closed-lost, не RULE_2.
+ * - 2026-06-15: воронки продаж убраны — sales-pipeline лиды broker-platform
+ *   вообще не трогает. Повторная фиксация при активном sales-лиде → новый
+ *   КЦ-лид (RULE_3). См. isSalesPipeline.
  */
 export function isFixationRule2Lead(pipelineId: number, statusId: number): boolean {
   // 143 (closed-lost) — это Правило 3, не 2
   if (statusId === 143) return false;
-  // КЦ-воронка: встречи
+  // КЦ-воронка: только «Встреча назначена» (после неё 142 = closed-lost).
   if (pipelineId === AMO_PIPELINES.KC) {
-    return statusId === AMO_KC_STATUS.MEETING_SCHEDULED || statusId === AMO_KC_STATUS.MEETING_HELD;
+    return statusId === AMO_KC_STATUS.MEETING_SCHEDULED;
   }
-  // Воронки продаж — любой активный статус (всё что не 143)
-  return (
-    pipelineId === AMO_PIPELINES.BERZARINA ||
-    pipelineId === AMO_PIPELINES.ZORGE9 ||
-    pipelineId === AMO_PIPELINES.TOLBUKHINA
-  );
+  // Воронки продаж — не наша зона ответственности, игнорим.
+  return false;
 }
 
 /**
@@ -269,6 +286,10 @@ export function evaluateUniqueness(
     // 143 «Закрыто и не реализовано» — этот лид считаем за Правило 3
     // (не блокирует). Дальше смотрим есть ли другие, более строгие.
     if (isClosedLostStatus(lead.status_id)) continue;
+    // 2026-06-15: воронки продаж broker-platform не трогает — пропускаем
+    // независимо от статуса. Повторная фиксация при активном sales-лиде
+    // создаёт новый КЦ-лид (RULE_3 если других активных лидов нет).
+    if (isSalesPipeline(lead.pipeline_id)) continue;
 
     if (!rule2TriggerLeadId && isFixationRule2Lead(lead.pipeline_id, lead.status_id)) {
       rule2TriggerLeadId = lead.id;

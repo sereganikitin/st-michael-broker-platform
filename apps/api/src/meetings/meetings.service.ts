@@ -2,7 +2,7 @@ import { Injectable, Inject, NotFoundException, BadRequestException } from '@nes
 import { PrismaClient } from '@st-michael/database';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { AmoCrmAdapter } from '@st-michael/integrations';
+import { AmoCrmAdapter, isSalesPipeline } from '@st-michael/integrations';
 
 @Injectable()
 export class MeetingsService {
@@ -178,32 +178,39 @@ export class MeetingsService {
       select: { amoLeadId: true },
     });
     if (clientForAmo?.amoLeadId) {
-      const note = `Брокер запланировал встречу: ${typeLabel}\nКлиент: ${meeting.client.fullName} (${meeting.client.phone})\nКогда: ${dateStr}\nКомментарий: ${meeting.comment || '(без комментария)'}`;
-      this.amo.addNoteToLead(Number(clientForAmo.amoLeadId), note).catch((e) => {
-        console.error('amoCRM addNoteToLead failed:', e?.message || e);
-      });
-
-      // 2026-06-15 (правки Ксении KB5 п.2В): создаём задачу в amoCRM на
-      // менеджера встреч (Ксения), чтобы встреча отобразилась в её
-      // календаре. Так Ксения видит запись брокера сразу, без захода в
-      // наш кабинет, а другие брокеры не смогут забронировать тот же
-      // слот (getOpenTasksForUser теперь увидит занятость).
-      const managerId = Number(process.env.AMO_BROKER_MEETINGS_MANAGER_ID || 0);
-      if (managerId) {
-        // task_type_id=2 — «Встреча» (стандартный в amoCRM). Если в этой
-        // CRM-конфиге другой — ставим через env.
-        const meetingTaskTypeId = Number(process.env.AMO_MEETING_TASK_TYPE_ID || 2);
-        const taskText = `Встреча ${typeLabel} с клиентом ${meeting.client.fullName} (${meeting.client.phone}). Брокер: ${broker?.fullName || '—'}.${meeting.comment ? ` Коммент: ${meeting.comment}` : ''}`;
-        this.amo.createTask({
-          text: taskText,
-          entityType: 'leads',
-          entityId: Number(clientForAmo.amoLeadId),
-          taskTypeId: meetingTaskTypeId,
-          completeTillSec: Math.floor(meetingDate.getTime() / 1000),
-          responsibleUserId: managerId,
-        }).catch((e) => {
-          console.error('amoCRM createTask (meeting) failed:', e?.message || e);
+      // 2026-06-15: воронки продаж broker-platform не трогает. Если лид
+      // клиента уже в Зорге9/Берзарина/Толбухина — не пишем ни ноту, ни
+      // задачу. Этой картой управляет админ/менеджер продаж.
+      const fullLead = await this.amo
+        .getLead(Number(clientForAmo.amoLeadId))
+        .catch(() => null);
+      const leadPipelineId = Number((fullLead as any)?.pipeline_id || 0);
+      if (leadPipelineId && isSalesPipeline(leadPipelineId)) {
+        console.log(`[createMeeting] лид ${clientForAmo.amoLeadId} в sales-pipeline ${leadPipelineId} — пропускаем amo-запись`);
+      } else {
+        const note = `Брокер запланировал встречу: ${typeLabel}\nКлиент: ${meeting.client.fullName} (${meeting.client.phone})\nКогда: ${dateStr}\nКомментарий: ${meeting.comment || '(без комментария)'}`;
+        this.amo.addNoteToLead(Number(clientForAmo.amoLeadId), note).catch((e) => {
+          console.error('amoCRM addNoteToLead failed:', e?.message || e);
         });
+
+        // 2026-06-15 (правки Ксении KB5 п.2В): создаём задачу в amoCRM на
+        // менеджера встреч (Ксения), чтобы встреча отобразилась в её
+        // календаре.
+        const managerId = Number(process.env.AMO_BROKER_MEETINGS_MANAGER_ID || 0);
+        if (managerId) {
+          const meetingTaskTypeId = Number(process.env.AMO_MEETING_TASK_TYPE_ID || 2);
+          const taskText = `Встреча ${typeLabel} с клиентом ${meeting.client.fullName} (${meeting.client.phone}). Брокер: ${broker?.fullName || '—'}.${meeting.comment ? ` Коммент: ${meeting.comment}` : ''}`;
+          this.amo.createTask({
+            text: taskText,
+            entityType: 'leads',
+            entityId: Number(clientForAmo.amoLeadId),
+            taskTypeId: meetingTaskTypeId,
+            completeTillSec: Math.floor(meetingDate.getTime() / 1000),
+            responsibleUserId: managerId,
+          }).catch((e) => {
+            console.error('amoCRM createTask (meeting) failed:', e?.message || e);
+          });
+        }
       }
     }
 
