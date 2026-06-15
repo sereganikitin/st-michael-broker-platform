@@ -34,6 +34,7 @@ on:
           - test-smtp-send
           - update-smtp-creds
           - update-amo-meetings-manager
+          - backfill-client-amo-lead-id
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -68,6 +69,14 @@ on:
       amo_meeting_task_type_id:
         description: 'amoCRM task_type_id «Встреча» (опционально, default=2)'
         required: false
+      apply:
+        description: 'true = реально применить backfill. По умолчанию dry-run.'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   run:
@@ -239,6 +248,13 @@ jobs:
               echo "Recreate api container..."
               $COMPOSE_CMD up -d --force-recreate --no-deps api
               echo "Done. Brokers will see Ksenia's busy slots from amoCRM and meeting tasks will be created in her calendar."
+            fi
+
+            if [ "$TASK" = "backfill-client-amo-lead-id" ]; then
+              echo "=== backfill-client-amo-lead-id ==="
+              APPLY_VAL='${{ inputs.apply }}'
+              [ -z "$APPLY_VAL" ] && APPLY_VAL=false
+              $COMPOSE_CMD exec -T -e APPLY="$APPLY_VAL" api node /app/scripts/backfill-client-amo-lead-id.js
             fi
 
             if [ "$TASK" = "list-broker-leads" ]; then

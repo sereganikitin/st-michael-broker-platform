@@ -636,9 +636,16 @@ export class ClientFixationService {
     // Client — даже повторная от того же брокера. Раньше при существующем
     // existingClient мы возвращали его как есть, и брокер не видел вторую
     // попытку в списке кабинета (хотя в amoCRM прилетал второй ALARM).
-    // Теперь создаём новую запись Client (БЕЗ amoLeadId — лид в amo тот же,
-    // не путаем webhook-роутинг), чтобы брокер видел каждую свою заявку.
+    //
+    // 2026-06-15 fix-3: повторным Client ОБЯЗАТЕЛЬНО ставим amoLeadId =
+    // triggerLeadId — лид в amo тот же, к нему фактически прикреплены
+    // оба брокера (linkContactToLead в RULE_1). Без amoLeadId webhook
+    // на open/close лида (КЦ открепил брокера) не находил Client второго
+    // брокера и его статус оставался «Уникален» вечно. Множественные
+    // Client с одним amoLeadId — это нормально, нет unique constraint;
+    // syncBrokerAttachmentFromLead итерирует всех findMany.
     const isRule1 = amoVerdict.rule === 'RULE_1';
+    const triggerLeadIdNum = amoVerdict.triggerLeadId ? Number(amoVerdict.triggerLeadId) : null;
     const client = await this.prisma.client.create({
       data: {
         brokerId,
@@ -654,6 +661,7 @@ export class ClientFixationService {
         ...(isRule1 && {
           uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
         }),
+        ...(triggerLeadIdNum && { amoLeadId: BigInt(triggerLeadIdNum) }),
         uniquenessReason: existingClient
           ? `Повторная фиксация. ${amoVerdict.reason}`
           : `АЛАРМ из amoCRM: ${amoVerdict.reason}`,
