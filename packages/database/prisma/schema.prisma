@@ -296,6 +296,7 @@ model Broker {
   pushSubscriptions      PushSubscription[]
   notificationPrefs      NotificationPreference[]
   offerAcceptances       OfferAcceptance[]
+  privacyAcceptances     PrivacyAcceptance[]
   favoriteLots           FavoriteLot[]
   createdAt              DateTime                 @default(now()) @map("created_at")
   updatedAt              DateTime                 @updatedAt @map("updated_at")
@@ -673,6 +674,24 @@ model OfferAcceptance {
   @@unique([brokerId, offerVersion])
   @@index([brokerId])
   @@map("offer_acceptances")
+}
+
+// 2026-06-15 (правки Ксении KB5 #5): согласие на обработку персональных
+// данных по 152-ФЗ. Отдельный документ от оферты — закон требует явное
+// согласие на обработку ПД, оно не покрывается акцептом оферты.
+// Версионируем чтобы при изменении текста требовать переподтверждения.
+model PrivacyAcceptance {
+  id             String   @id @default(uuid())
+  brokerId       String   @map("broker_id")
+  broker         Broker   @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  privacyVersion String   @map("privacy_version")
+  acceptedAt     DateTime @default(now()) @map("accepted_at")
+  ip             String?
+  userAgent      String?  @map("user_agent")
+
+  @@unique([brokerId, privacyVersion])
+  @@index([brokerId])
+  @@map("privacy_acceptances")
 }
 
 model AuditLog {
