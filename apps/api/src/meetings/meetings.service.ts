@@ -182,6 +182,29 @@ export class MeetingsService {
       this.amo.addNoteToLead(Number(clientForAmo.amoLeadId), note).catch((e) => {
         console.error('amoCRM addNoteToLead failed:', e?.message || e);
       });
+
+      // 2026-06-15 (правки Ксении KB5 п.2В): создаём задачу в amoCRM на
+      // менеджера встреч (Ксения), чтобы встреча отобразилась в её
+      // календаре. Так Ксения видит запись брокера сразу, без захода в
+      // наш кабинет, а другие брокеры не смогут забронировать тот же
+      // слот (getOpenTasksForUser теперь увидит занятость).
+      const managerId = Number(process.env.AMO_BROKER_MEETINGS_MANAGER_ID || 0);
+      if (managerId) {
+        // task_type_id=2 — «Встреча» (стандартный в amoCRM). Если в этой
+        // CRM-конфиге другой — ставим через env.
+        const meetingTaskTypeId = Number(process.env.AMO_MEETING_TASK_TYPE_ID || 2);
+        const taskText = `Встреча ${typeLabel} с клиентом ${meeting.client.fullName} (${meeting.client.phone}). Брокер: ${broker?.fullName || '—'}.${meeting.comment ? ` Коммент: ${meeting.comment}` : ''}`;
+        this.amo.createTask({
+          text: taskText,
+          entityType: 'leads',
+          entityId: Number(clientForAmo.amoLeadId),
+          taskTypeId: meetingTaskTypeId,
+          completeTillSec: Math.floor(meetingDate.getTime() / 1000),
+          responsibleUserId: managerId,
+        }).catch((e) => {
+          console.error('amoCRM createTask (meeting) failed:', e?.message || e);
+        });
+      }
     }
 
     return meeting;
@@ -266,16 +289,45 @@ export class MeetingsService {
       : [];
     const bookedMap = new Map(booked.map((b) => [b.slotId, b._count]));
 
+    // 2026-06-15 (правки Ксении KB5 п.2В): синхронизируем с календарём
+    // Ксении в amoCRM. Берём её незавершённые задачи в нужном окне и
+    // вычитаем из доступности — слот, попадающий на задачу, считаем
+    // занятым. Если AMO_BROKER_MEETINGS_MANAGER_ID не задан или amo
+    // недоступен — fail-soft, отдаём только локальную картину.
+    const managerId = Number(process.env.AMO_BROKER_MEETINGS_MANAGER_ID || 0);
+    const amoBusy = managerId
+      ? await this.amo
+          .getOpenTasksForUser(
+            managerId,
+            Math.floor(from.getTime() / 1000),
+            Math.floor(to.getTime() / 1000),
+          )
+          .catch(() => [])
+      : [];
+
     return slots.map((s) => {
       const bookedCount = bookedMap.get(s.id) || 0;
+      const slotStart = s.startsAt.getTime();
+      const slotEnd = slotStart + s.durationMin * 60 * 1000;
+      // Слот пересекается с задачей если интервал задачи [task_start, complete_till]
+      // (где task_start = complete_till - 1h) накладывается на [slotStart, slotEnd].
+      const isBusyInAmo = amoBusy.some((t) => {
+        const taskEnd = t.completeTill;
+        const taskStart = taskEnd - t.durationSec * 1000;
+        return taskStart < slotEnd && taskEnd > slotStart;
+      });
+      const effectiveBooked = isBusyInAmo ? s.capacity : bookedCount;
       return {
         id: s.id,
         startsAt: s.startsAt,
         durationMin: s.durationMin,
         capacity: s.capacity,
         type: s.type,
-        booked: bookedCount,
-        available: Math.max(0, s.capacity - bookedCount),
+        booked: effectiveBooked,
+        available: Math.max(0, s.capacity - effectiveBooked),
+        // диагностика — фронт может показывать «у менеджера занято» отдельно
+        // от «слот полностью забронирован брокерами»
+        ...(isBusyInAmo ? { busyInAmoCrm: true } : {}),
       };
     });
   }
