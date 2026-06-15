@@ -204,8 +204,11 @@ jobs:
                 printf 'SMTP_PASS=%s\n' "$SMTP_PASS_NEW" >> .env
               fi
               echo "SMTP_USER/SMTP_PASS записаны в .env"
-              echo "Restart api container..."
-              $COMPOSE_CMD restart api
+              # 2026-06-15 fix: docker compose restart НЕ перечитывает .env —
+              # env-переменные подставляются в config при СОЗДАНИИ контейнера.
+              # Нужно --force-recreate чтобы compose заново подставил ${SMTP_USER}.
+              echo "Recreate api container с новыми env..."
+              $COMPOSE_CMD up -d --force-recreate --no-deps api
               echo "Готово. Запусти test-smtp-send чтобы проверить, что AUTH проходит."
             fi
 
