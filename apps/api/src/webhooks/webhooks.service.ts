@@ -20,6 +20,15 @@ export class WebhooksService {
   }
 
   // ─── amoCRM Lead Update ─────────────────────────────
+  // 2026-06-15: amoCRM webhook payload — это НЕ единичный объект лида,
+  // а пакетный формат с массивами `leads[update]`, `leads[status]`,
+  // `leads[add]`. Тело шлётся как application/x-www-form-urlencoded с
+  // вложенными ключами (`leads[update][0][id]=...&leads[update][0][status_id]=...`).
+  // Раньше код читал data.id напрямую — и для пакетных webhook'ов это
+  // всегда undefined, из-за чего syncBrokerAttachmentFromLead никогда не
+  // вызывался → открепление брокера в amoCRM не обновляло статус Client.
+  // Теперь обходим все три массива событий и каждое обрабатываем
+  // индивидуально.
   async handleAmoLeadUpdate(data: any, headers: any) {
     const secret = process.env.AMO_WEBHOOK_SECRET || '';
     if (secret && headers['x-amo-signature']) {
@@ -28,38 +37,78 @@ export class WebhooksService {
       }
     }
 
-    this.logger.log(`amoCRM lead update: lead_id=${data.id}, status_id=${data.status_id}`);
+    // Собираем все события лидов из webhook payload. amoCRM v4 шлёт:
+    //   data.leads.add[]    — на создание лида
+    //   data.leads.update[] — на любое обновление (включая link/unlink контактов)
+    //   data.leads.status[] — на смену статуса
+    // Для обратной совместимости с прямыми тестовыми вызовами поддерживаем
+    // и старый формат с data.id на верхнем уровне.
+    const events: Array<{ id: number; status_id?: number; price?: number; custom_fields?: any[] }> = [];
+    const collect = (arr: any) => {
+      if (!Array.isArray(arr)) return;
+      for (const ev of arr) {
+        const id = Number(ev?.id);
+        if (!id || isNaN(id)) continue;
+        events.push({
+          id,
+          status_id: ev?.status_id ? Number(ev.status_id) : undefined,
+          price: ev?.price ? Number(ev.price) : undefined,
+          custom_fields: ev?.custom_fields,
+        });
+      }
+    };
+    collect(data?.leads?.update);
+    collect(data?.leads?.status);
+    collect(data?.leads?.add);
+    if (events.length === 0 && data?.id) {
+      events.push({
+        id: Number(data.id),
+        status_id: data.status_id ? Number(data.status_id) : undefined,
+        price: data.price ? Number(data.price) : undefined,
+        custom_fields: data.custom_fields,
+      });
+    }
 
-    // 2026-06-04: Bug-репорт пользователя — если в amoCRM открепить
-    // брокера-агента от лида (убрать его 2-й контакт), статус «Уникален»
-    // в кабинете брокера должен меняться на «Не уникален» (REJECTED).
-    // И наоборот — если прикрепили обратно, восстанавливаем.
-    // Делаем по любому webhook'у на этот лид, чтобы не зависеть от
-    // конкретного типа события (link/unlink в amo не всегда отдельный
-    // webhook, обычно это leads:update с обновлённым _embedded.contacts).
+    if (events.length === 0) {
+      this.logger.warn(`amoCRM lead webhook: no events extracted from payload keys=[${Object.keys(data || {}).join(',')}]`);
+      return { status: 'processed', matched: false, reason: 'no_events' };
+    }
+
+    this.logger.log(`amoCRM lead webhook: ${events.length} event(s): ${events.map((e) => `${e.id}/${e.status_id ?? '—'}`).join(', ')}`);
+
+    const results: any[] = [];
+    for (const ev of events) {
+      results.push(await this.processLeadEvent(ev));
+    }
+    return { status: 'processed', events: results };
+  }
+
+  private async processLeadEvent(ev: { id: number; status_id?: number; price?: number; custom_fields?: any[] }) {
+    // 2026-06-04: при любом изменении лида проверяем, какие контакты
+    // привязаны сейчас. Если broker.amoContactId есть в списке — он
+    // прикреплён; если нет — открепили и статус Client → REJECTED.
     try {
-      await this.syncBrokerAttachmentFromLead(Number(data.id));
+      await this.syncBrokerAttachmentFromLead(ev.id);
     } catch (e: any) {
-      this.logger.error(`syncBrokerAttachmentFromLead failed for lead ${data.id}: ${e?.message || e}`);
+      this.logger.error(`syncBrokerAttachmentFromLead failed for lead ${ev.id}: ${e?.message || e}`);
     }
 
     // Find deal linked to this amoCRM lead
     const deal = await this.prisma.deal.findFirst({
-      where: { amoDealId: BigInt(data.id) },
+      where: { amoDealId: BigInt(ev.id) },
       include: { client: true },
     });
 
     if (!deal) {
-      this.logger.warn(`No deal found for amo lead ${data.id}`);
-      // Try to find client by amo lead ID
+      // Try to find client by amo lead ID — для записи статуса в comment.
       const client = await this.prisma.client.findFirst({
-        where: { amoLeadId: BigInt(data.id) },
+        where: { amoLeadId: BigInt(ev.id) },
       });
       // 2026-05-26: НЕ перезаписываем comment — там может быть текст
       // с фиксации. Дописываем строкой через \n.
-      if (client && data.status_id) {
+      if (client && ev.status_id) {
         const nowIso = new Date().toISOString().slice(0, 16).replace('T', ' ');
-        const append = `[${nowIso}] amoCRM статус: ${data.status_id}`;
+        const append = `[${nowIso}] amoCRM статус: ${ev.status_id}`;
         const newComment = client.comment
           ? `${client.comment}\n${append}`.slice(-2000)
           : append;
@@ -68,7 +117,7 @@ export class WebhooksService {
           data: { comment: newComment },
         });
       }
-      return { status: 'processed', matched: false };
+      return { leadId: ev.id, matched: false };
     }
 
     // Map amoCRM status to deal status
@@ -81,26 +130,22 @@ export class WebhooksService {
     };
 
     const updateData: any = {};
-    if (data.status_id && statusMap[data.status_id]) {
-      updateData.status = statusMap[data.status_id];
+    if (ev.status_id && statusMap[ev.status_id]) {
+      updateData.status = statusMap[ev.status_id];
       if (updateData.status === 'SIGNED') updateData.signedAt = new Date();
       if (updateData.status === 'PAID') updateData.paidAt = new Date();
     }
-    // 2026-05-26: amount/commissionAmount обновляем ТОЛЬКО если у нас
-    // локально ещё пусто (или нолик). Если админ уже проставил —
-    // не перетираем (webhook может прийти с устаревшим значением).
-    if (data.price && (!deal.amount || Number(deal.amount) === 0)) {
-      updateData.amount = data.price;
-      updateData.commissionAmount = (data.price * Number(deal.commissionRate)) / 100;
+    if (ev.price && (!deal.amount || Number(deal.amount) === 0)) {
+      updateData.amount = ev.price;
+      updateData.commissionAmount = (ev.price * Number(deal.commissionRate)) / 100;
     }
 
     if (Object.keys(updateData).length > 0) {
       await this.prisma.deal.update({ where: { id: deal.id }, data: updateData });
     }
 
-    // Agency: тоже только если у нас её ещё нет
-    if (data.custom_fields && !deal.agencyId) {
-      const agencyField = data.custom_fields.find((f: any) => f.field_name === 'agency_id');
+    if (ev.custom_fields && !deal.agencyId) {
+      const agencyField = ev.custom_fields.find((f: any) => f.field_name === 'agency_id');
       if (agencyField?.values?.[0]?.value) {
         await this.prisma.deal.update({
           where: { id: deal.id },
@@ -114,11 +159,11 @@ export class WebhooksService {
         action: 'AMO_LEAD_UPDATE',
         entity: 'Deal',
         entityId: deal.id,
-        payload: { amoLeadId: data.id, statusId: data.status_id },
+        payload: { amoLeadId: ev.id, statusId: ev.status_id },
       },
     });
 
-    return { status: 'processed', dealId: deal.id };
+    return { leadId: ev.id, dealId: deal.id };
   }
 
   // ─── amoCRM Contact Update ──────────────────────────
