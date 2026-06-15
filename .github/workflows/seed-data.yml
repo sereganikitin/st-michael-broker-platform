@@ -253,7 +253,7 @@ jobs:
             if [ "$TASK" = "backfill-client-amo-lead-id" ]; then
               echo "=== backfill-client-amo-lead-id ==="
               APPLY_VAL='${{ inputs.apply }}'
-              [ -z "$APPLY_VAL" ] && APPLY_VAL=false
+              : ${APPLY_VAL:=false}
               $COMPOSE_CMD exec -T -e APPLY="$APPLY_VAL" api node /app/scripts/backfill-client-amo-lead-id.js
             fi
 
