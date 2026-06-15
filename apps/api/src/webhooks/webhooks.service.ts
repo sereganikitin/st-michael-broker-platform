@@ -403,12 +403,15 @@ export class WebhooksService {
     const leadContactIds: number[] = ((lead?._embedded?.contacts as any[]) || [])
       .map((c) => Number(c.id))
       .filter((id) => !isNaN(id));
+    const leadStatusId = Number(lead?.status_id || 0);
+    const leadPipelineId = Number(lead?.pipeline_id || 0);
 
     const clients = await this.prisma.client.findMany({
       where: { amoLeadId: BigInt(leadId) },
       include: {
         broker: { select: { id: true, fullName: true, amoContactId: true } },
         deals: { select: { id: true, status: true } },
+        meetings: { select: { id: true, status: true } },
       },
     });
 
@@ -420,6 +423,35 @@ export class WebhooksService {
 
       const brokerAmoId = client.broker?.amoContactId ? Number(client.broker.amoContactId) : null;
       if (!brokerAmoId) continue; // нечего проверять — брокер не синкан с amo
+
+      // 2026-06-15 (правка 3): если КЦ-лид закрылся (143) И встреча
+      // НЕ была проведена — фиксация брокера отклоняется. Встреча
+      // считается проведённой если в нашей БД есть meetings со статусом
+      // COMPLETED ИЛИ если у лида в amo был статус 142 (но к моменту
+      // 143 уже нет, поэтому опираемся на локальный COMPLETED).
+      const meetingHeld = client.meetings.some((m) => m.status === 'COMPLETED');
+      if (leadStatusId === 143 && leadPipelineId === 7600542 && !meetingHeld) {
+        if (client.uniquenessStatus !== UniquenessStatus.REJECTED) {
+          await this.prisma.client.update({
+            where: { id: client.id },
+            data: {
+              uniquenessStatus: UniquenessStatus.REJECTED,
+              uniquenessReason: 'КЦ закрыл лид без проведённой встречи',
+              uniquenessExpiresAt: null,
+            },
+          });
+          await this.prisma.auditLog.create({
+            data: {
+              action: 'UNIQUENESS_RESOLVED',
+              entity: 'Client',
+              entityId: client.id,
+              payload: { trigger: 'KC_CLOSED_BEFORE_MEETING', amoLeadId: leadId },
+            },
+          });
+          this.logger.log(`Client ${client.id}: → REJECTED (КЦ-лид ${leadId} закрыт 143 без проведённой встречи)`);
+        }
+        continue;
+      }
 
       const attached = leadContactIds.includes(brokerAmoId);
 

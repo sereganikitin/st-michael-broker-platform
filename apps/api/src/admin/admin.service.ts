@@ -4,7 +4,7 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
 import { AmocrmService } from '../amocrm/amocrm.service';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, BROKER_PIPELINE_ID, setAmoTokens, getAmoTokens, setMangoConfig } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, BROKER_PIPELINE_ID, setAmoTokens, getAmoTokens, setMangoConfig, isSalesPipeline } from '@st-michael/integrations';
 import {
   VALID_CATEGORIES,
   VALID_CALL_FLAGS,
@@ -652,11 +652,20 @@ export class AdminService {
     });
 
     // Обновление в amoCRM (если есть линк к лиду + нашли amoUserId).
+    // 2026-06-15: воронки продаж broker-platform не трогает. Если лид
+    // клиента уже в sales pipeline (Зорге9/Берзарина/Толбухина) — не
+    // меняем ответственного, этим занимается админ продаж вручную.
     let amoUpdated = false;
     if (client.amoLeadId && newAmoUserId) {
       try {
-        await this.amo.updateLead(Number(client.amoLeadId), { responsible_user_id: newAmoUserId } as any);
-        amoUpdated = true;
+        const fullLead = await this.amo.getLead(Number(client.amoLeadId)).catch(() => null);
+        const pipelineId = Number((fullLead as any)?.pipeline_id || 0);
+        if (pipelineId && isSalesPipeline(pipelineId)) {
+          console.log(`[reassignClient] лид ${client.amoLeadId} в sales-pipeline ${pipelineId} — не трогаем responsible_user_id`);
+        } else {
+          await this.amo.updateLead(Number(client.amoLeadId), { responsible_user_id: newAmoUserId } as any);
+          amoUpdated = true;
+        }
       } catch (e) {
         // Логируем, но не валим всю операцию (в нашей БД уже передано).
       }
