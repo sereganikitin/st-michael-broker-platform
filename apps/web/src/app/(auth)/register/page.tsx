@@ -10,7 +10,7 @@ import { SupportContacts } from '@/components/SupportContacts';
 // До первого submit ошибки не показываем — не давим на пользователя.
 // После submit поля с ошибкой подсвечиваем красной рамкой + текстом снизу.
 type FieldErrors = Partial<Record<
-  'fullName' | 'phone' | 'email' | 'inn' | 'password' | 'passwordConfirm',
+  'fullName' | 'phone' | 'email' | 'inn' | 'password' | 'passwordConfirm' | 'offer' | 'privacy',
   string
 >>;
 
@@ -22,6 +22,8 @@ export default function RegisterPage() {
   const [inn, setInn] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [offerAccepted, setOfferAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -42,6 +44,8 @@ export default function RegisterPage() {
     if (inn.length !== 10 && inn.length !== 12) errs.inn = 'ИНН должен быть 10 или 12 цифр';
     if (password.length < 8) errs.password = 'Минимум 8 символов';
     if (passwordConfirm !== password) errs.passwordConfirm = 'Пароли не совпадают';
+    if (!offerAccepted) errs.offer = 'Необходимо принять Договор-оферту';
+    if (!privacyAccepted) errs.privacy = 'Необходимо дать согласие на обработку ПД';
     return errs;
   };
 
@@ -65,6 +69,8 @@ export default function RegisterPage() {
           inn,
           innType: 'AGENCY',
           agencyName: agencyName || undefined,
+          offerAccepted,
+          privacyAccepted,
         }),
       });
       if (res.ok) {
@@ -200,6 +206,44 @@ export default function RegisterPage() {
                 onChange={(e) => { setPasswordConfirm(e.target.value); if (submitted) setFieldErrors(validate()); }}
               />
               {errorText('passwordConfirm')}
+            </div>
+
+            <div className="pt-2 border-t border-border space-y-3">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1 accent-accent"
+                  checked={offerAccepted}
+                  onChange={(e) => { setOfferAccepted(e.target.checked); if (submitted) setFieldErrors(validate()); }}
+                />
+                <span className="text-sm text-text leading-relaxed">
+                  Я ознакомлен(а) и принимаю условия{' '}
+                  <Link href="/offer" target="_blank" className="text-accent hover:underline">
+                    Договора-оферты
+                  </Link>{' '}
+                  о сотрудничестве с партнёрами по продаже недвижимости{' '}
+                  <span className="text-error">*</span>
+                </span>
+              </label>
+              {fieldErrors.offer && <div className="text-xs text-error ml-6">{fieldErrors.offer}</div>}
+
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1 accent-accent"
+                  checked={privacyAccepted}
+                  onChange={(e) => { setPrivacyAccepted(e.target.checked); if (submitted) setFieldErrors(validate()); }}
+                />
+                <span className="text-sm text-text leading-relaxed">
+                  Я даю{' '}
+                  <Link href="/privacy" target="_blank" className="text-accent hover:underline">
+                    согласие на обработку персональных данных
+                  </Link>{' '}
+                  в соответствии с 152-ФЗ{' '}
+                  <span className="text-error">*</span>
+                </span>
+              </label>
+              {fieldErrors.privacy && <div className="text-xs text-error ml-6">{fieldErrors.privacy}</div>}
             </div>
 
             <button

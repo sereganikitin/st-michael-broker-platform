@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Patch, Body, UseGuards, HttpCode, HttpStatus, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Req, UseGuards, HttpCode, HttpStatus, UploadedFile, UseInterceptors } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthService } from './auth.service';
@@ -15,9 +16,13 @@ export class AuthController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Register broker' })
   @ApiResponse({ status: 201, description: 'Broker registered, OTP sent' })
-  async register(@Body() body: unknown) {
-    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string };
-    return this.authService.register(data);
+  async register(@Body() body: unknown, @Req() req: Request) {
+    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string; offerAccepted?: boolean; privacyAccepted?: boolean };
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      || req.socket?.remoteAddress
+      || null;
+    const ua = (req.headers['user-agent'] as string) || null;
+    return this.authService.register(data, ip, ua);
   }
 
   @Post('send-otp')
