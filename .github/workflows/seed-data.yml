@@ -32,6 +32,7 @@ on:
           - inspect-amo-webhooks
           - setup-amo-webhook
           - test-smtp-send
+          - update-smtp-creds
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -53,6 +54,12 @@ on:
         required: false
       email:
         description: 'Email брокера (для task=inspect-broker-attachment, проверка forgot-password)'
+        required: false
+      smtp_user:
+        description: 'SMTP логин (для update-smtp-creds). Для Exchange формат stmichael\broker_st'
+        required: false
+      smtp_pass:
+        description: 'SMTP пароль (для update-smtp-creds). Скрыт в логах.'
         required: false
 
 jobs:
@@ -165,6 +172,41 @@ jobs:
                 exit 1
               fi
               $COMPOSE_CMD exec -T -e TEST_EMAIL="${{ inputs.email }}" api node /app/scripts/test-smtp-send.js
+            fi
+
+            if [ "$TASK" = "update-smtp-creds" ]; then
+              echo "=== update-smtp-creds (обновить SMTP_USER/SMTP_PASS в .env + restart api) ==="
+              if [ -z "${{ inputs.smtp_user }}" ] || [ -z "${{ inputs.smtp_pass }}" ]; then
+                echo "ERROR: smtp_user и smtp_pass обязательны"
+                exit 1
+              fi
+              echo "::add-mask::${{ inputs.smtp_pass }}"
+              if [ ! -f .env ]; then
+                echo "ERROR: .env не найден в $(pwd)"
+                exit 1
+              fi
+              # Бэкап перед правкой — на случай отката.
+              cp .env ".env.bak.$(date +%s)"
+              # Экранирование значений для sed replacement: \, &, |, / → \X.
+              # Для Exchange логина 'stmichael\broker_st' это критично, иначе \b сожрётся.
+              SMTP_USER_NEW='${{ inputs.smtp_user }}'
+              SMTP_PASS_NEW='${{ inputs.smtp_pass }}'
+              SMTP_USER_ESC=$(printf '%s' "$SMTP_USER_NEW" | sed -e 's/[&|\\/]/\\&/g')
+              SMTP_PASS_ESC=$(printf '%s' "$SMTP_PASS_NEW" | sed -e 's/[&|\\/]/\\&/g')
+              if grep -q '^SMTP_USER=' .env; then
+                sed -i "s|^SMTP_USER=.*|SMTP_USER=$SMTP_USER_ESC|" .env
+              else
+                printf '\nSMTP_USER=%s\n' "$SMTP_USER_NEW" >> .env
+              fi
+              if grep -q '^SMTP_PASS=' .env; then
+                sed -i "s|^SMTP_PASS=.*|SMTP_PASS=$SMTP_PASS_ESC|" .env
+              else
+                printf 'SMTP_PASS=%s\n' "$SMTP_PASS_NEW" >> .env
+              fi
+              echo "SMTP_USER/SMTP_PASS записаны в .env"
+              echo "Restart api container..."
+              $COMPOSE_CMD restart api
+              echo "Готово. Запусти test-smtp-send чтобы проверить, что AUTH проходит."
             fi
 
             if [ "$TASK" = "list-broker-leads" ]; then
