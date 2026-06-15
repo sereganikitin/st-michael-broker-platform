@@ -339,7 +339,17 @@ export default function MeetingsPage() {
                       {slotsLoading ? (
                         <div className="text-text-muted text-sm">Загрузка слотов…</div>
                       ) : slots.length === 0 ? (
-                        <div className="text-text-muted text-sm">На эту дату нет доступных слотов. Попросите менеджера настроить расписание или укажите время вручную.</div>
+                        <div className="text-sm text-text-muted">
+                          На эту дату слоты ещё не подгрузились — укажите удобное время вручную.
+                          {' '}
+                          <button
+                            type="button"
+                            className="text-accent hover:underline font-medium"
+                            onClick={() => { setUseSlots(false); setForm({ ...form, slotId: '', date: '' }); }}
+                          >
+                            Указать вручную
+                          </button>
+                        </div>
                       ) : (
                         <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
                           {slots.map((s) => {

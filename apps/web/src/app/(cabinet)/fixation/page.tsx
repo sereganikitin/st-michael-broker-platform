@@ -344,6 +344,62 @@ export default function FixationPage() {
             />
           </div>
 
+          {/* 2026-06-15 (правки Ксении): кнопку «Добавить участника» подняли
+              к блоку с ФИО клиента, чтобы её было видно сразу — не
+              приходится прокручивать форму до конца. */}
+          {participants.length > 0 && (
+            <div className="space-y-3 pt-4 border-t border-border">
+              <div className="text-sm font-medium">Дополнительные участники</div>
+              {participants.map((p, i) => (
+                <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
+                  <div>
+                    <label className="label text-xs">Имя</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={p.firstName}
+                      onChange={(e) => updateParticipant(i, 'firstName', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="label text-xs">Фамилия</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={p.lastName}
+                      onChange={(e) => updateParticipant(i, 'lastName', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="label text-xs">Телефон</label>
+                    <input
+                      type="tel"
+                      className="input"
+                      placeholder="+7 (999) 123-45-67"
+                      value={p.phone ? formatPhoneFromDigits(p.phone) : ''}
+                      onChange={(e) => updateParticipantPhone(i, e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary text-error"
+                    onClick={() => removeParticipant(i)}
+                    aria-label="Удалить"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            className="btn btn-secondary flex items-center gap-2"
+            onClick={addParticipant}
+          >
+            <Plus className="w-4 h-4" /> Добавить участника (супруг и т.д.)
+          </button>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="label">Проект *</label>
@@ -464,60 +520,6 @@ export default function FixationPage() {
               <input type="text" className="input bg-surface-secondary" value={brokerPhoneDisplay} readOnly />
             </div>
           </div>
-
-          {participants.length > 0 && (
-            <div className="space-y-3 pt-4 border-t border-border">
-              <div className="text-sm font-medium">Дополнительные участники</div>
-              {participants.map((p, i) => (
-                <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
-                  <div>
-                    <label className="label text-xs">Имя</label>
-                    <input
-                      type="text"
-                      className="input"
-                      value={p.firstName}
-                      onChange={(e) => updateParticipant(i, 'firstName', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label text-xs">Фамилия</label>
-                    <input
-                      type="text"
-                      className="input"
-                      value={p.lastName}
-                      onChange={(e) => updateParticipant(i, 'lastName', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label text-xs">Телефон</label>
-                    <input
-                      type="tel"
-                      className="input"
-                      placeholder="+7 (999) 123-45-67"
-                      value={p.phone ? formatPhoneFromDigits(p.phone) : ''}
-                      onChange={(e) => updateParticipantPhone(i, e.target.value)}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary text-error"
-                    onClick={() => removeParticipant(i)}
-                    aria-label="Удалить"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <button
-            type="button"
-            className="btn btn-secondary flex items-center gap-2"
-            onClick={addParticipant}
-          >
-            <Plus className="w-4 h-4" /> Добавить участника (супруг и т.д.)
-          </button>
 
           {error && (
             <div className="p-3 bg-error/20 text-error rounded-lg text-sm">{error}</div>
