@@ -36,6 +36,9 @@
     port: Number(process.env.SMTP_PORT || 465),
     secure: process.env.SMTP_SECURE !== 'false',
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    // 2026-06-15: тот же фикс что и в auth.service.ts — mail.stmichael.ru
+    // ставит self-signed сертификат, без этой опции verify/STARTTLS падает.
+    tls: { rejectUnauthorized: false },
     logger: true,
     debug: true,
   });
