@@ -33,6 +33,7 @@ on:
           - setup-amo-webhook
           - test-smtp-send
           - update-smtp-creds
+          - update-amo-meetings-manager
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -60,6 +61,12 @@ on:
         required: false
       smtp_pass:
         description: 'SMTP пароль (для update-smtp-creds). Скрыт в логах.'
+        required: false
+      amo_user_id:
+        description: 'amoCRM user_id (для update-amo-meetings-manager). Узнать через task=list-amo-users.'
+        required: false
+      amo_meeting_task_type_id:
+        description: 'amoCRM task_type_id «Встреча» (опционально, default=2)'
         required: false
 
 jobs:
@@ -210,6 +217,48 @@ jobs:
               echo "Recreate api container с новыми env..."
               $COMPOSE_CMD up -d --force-recreate --no-deps api
               echo "Готово. Запусти test-smtp-send чтобы проверить, что AUTH проходит."
+            fi
+
+            if [ "$TASK" = "update-amo-meetings-manager" ]; then
+              echo "=== update-amo-meetings-manager (записать AMO_BROKER_MEETINGS_MANAGER_ID + recreate api) ==="
+              if [ -z "${{ inputs.amo_user_id }}" ]; then
+                echo "ERROR: amo_user_id обязателен — это user_id Ксении в amoCRM"
+                echo "Подсказка: запусти task=list-amo-users чтобы увидеть таблицу пользователей."
+                exit 1
+              fi
+              if [ ! -f .env ]; then
+                echo "ERROR: .env не найден в $(pwd)"
+                exit 1
+              fi
+              cp .env ".env.bak.$(date +%s)"
+              AMO_USER_ID='${{ inputs.amo_user_id }}'
+              AMO_TASK_TYPE_ID='${{ inputs.amo_meeting_task_type_id }}'
+              # Проверка что user_id числовой — защита от опечаток.
+              if ! echo "$AMO_USER_ID" | grep -qE '^[0-9]+$'; then
+                echo "ERROR: amo_user_id должен быть числом, получено: '$AMO_USER_ID'"
+                exit 1
+              fi
+              if grep -q '^AMO_BROKER_MEETINGS_MANAGER_ID=' .env; then
+                sed -i "s|^AMO_BROKER_MEETINGS_MANAGER_ID=.*|AMO_BROKER_MEETINGS_MANAGER_ID=$AMO_USER_ID|" .env
+              else
+                printf '\nAMO_BROKER_MEETINGS_MANAGER_ID=%s\n' "$AMO_USER_ID" >> .env
+              fi
+              echo "AMO_BROKER_MEETINGS_MANAGER_ID=$AMO_USER_ID записан"
+              if [ -n "$AMO_TASK_TYPE_ID" ]; then
+                if ! echo "$AMO_TASK_TYPE_ID" | grep -qE '^[0-9]+$'; then
+                  echo "ERROR: amo_meeting_task_type_id должен быть числом, получено: '$AMO_TASK_TYPE_ID'"
+                  exit 1
+                fi
+                if grep -q '^AMO_MEETING_TASK_TYPE_ID=' .env; then
+                  sed -i "s|^AMO_MEETING_TASK_TYPE_ID=.*|AMO_MEETING_TASK_TYPE_ID=$AMO_TASK_TYPE_ID|" .env
+                else
+                  printf 'AMO_MEETING_TASK_TYPE_ID=%s\n' "$AMO_TASK_TYPE_ID" >> .env
+                fi
+                echo "AMO_MEETING_TASK_TYPE_ID=$AMO_TASK_TYPE_ID записан"
+              fi
+              echo "Recreate api container с новыми env..."
+              $COMPOSE_CMD up -d --force-recreate --no-deps api
+              echo "Готово. Брокеры теперь видят занятые слоты Ксении и при записи создаётся задача в её календаре amoCRM."
             fi
 
             if [ "$TASK" = "list-broker-leads" ]; then
