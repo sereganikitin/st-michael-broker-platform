@@ -296,6 +296,7 @@ model Broker {
   pushSubscriptions      PushSubscription[]
   notificationPrefs      NotificationPreference[]
   offerAcceptances       OfferAcceptance[]
+  favoriteLots           FavoriteLot[]
   createdAt              DateTime                 @default(now()) @map("created_at")
   updatedAt              DateTime                 @updatedAt @map("updated_at")
 
@@ -398,6 +399,7 @@ model Lot {
   discountPercent  Decimal?  @map("discount_percent") @db.Decimal(5, 2)
   discountName     String?   @map("discount_name")
   deals            Deal[]
+  favoritedBy      FavoriteLot[]
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
@@ -641,6 +643,23 @@ model Mailing {
 
 // Acceptance record of the public offer (договор оферты) by a broker.
 // Stored per offer version so admin can publish a new version without invalidating prior acceptances.
+// 2026-06-15 (правки Ксении KB5 #3): «избранное» лотов для брокера.
+// Раньше хранили в localStorage — терялось при очистке кэша и не
+// синхронизировалось между устройствами. Теперь в БД, одна запись на
+// (broker, lot). Каскад: удалили лот → ушёл из избранного автоматом.
+model FavoriteLot {
+  id        String   @id @default(uuid())
+  brokerId  String   @map("broker_id")
+  broker    Broker   @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  lotId     String   @map("lot_id")
+  lot       Lot      @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([brokerId, lotId])
+  @@index([brokerId])
+  @@map("favorite_lots")
+}
+
 model OfferAcceptance {
   id           String   @id @default(uuid())
   brokerId     String   @map("broker_id")
