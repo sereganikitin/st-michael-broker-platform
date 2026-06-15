@@ -25,13 +25,13 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
 const navigation = [
-  { name: 'Фиксация', href: '/fixation', icon: UserCheck },
-  { name: 'Клиенты / Заявки', href: '/clients', icon: Users },
+  { name: 'Проверить клиента на уникальность', href: '/fixation', icon: UserCheck },
+  { name: 'Мои клиенты / заявки', href: '/clients', icon: Users },
   { name: 'Записаться на встречу', href: '/meetings', icon: CalendarPlus },
   { name: 'Подбор квартир', href: '/catalog', icon: Building },
-  { name: 'Сделки', href: '/deals', icon: HeartHandshake },
+  { name: 'Мои сделки', href: '/deals', icon: HeartHandshake },
   { name: 'Комиссия', href: '/commission', icon: Calculator },
-  { name: 'Материалы для брокеров', href: '/materials', icon: BookOpen },
+  { name: 'Материалы для работы', href: '/materials', icon: BookOpen },
   { name: 'Документы', href: '/documents', icon: FileText },
 ];
 

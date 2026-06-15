@@ -6,6 +6,14 @@ import Link from 'next/link';
 import { parseApiError } from '@/lib/api';
 import { SupportContacts } from '@/components/SupportContacts';
 
+// 2026-06-15: подсветка обязательных полей при попытке submit (правки Ксении).
+// До первого submit ошибки не показываем — не давим на пользователя.
+// После submit поля с ошибкой подсвечиваем красной рамкой + текстом снизу.
+type FieldErrors = Partial<Record<
+  'fullName' | 'phone' | 'email' | 'inn' | 'password' | 'passwordConfirm',
+  string
+>>;
+
 export default function RegisterPage() {
   const [phoneDigits, setPhoneDigits] = useState('');
   const [fullName, setFullName] = useState('');
@@ -13,16 +21,36 @@ export default function RegisterPage() {
   const [agencyName, setAgencyName] = useState('');
   const [inn, setInn] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [submitted, setSubmitted] = useState(false);
   const router = useRouter();
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10));
   };
 
+  const validate = (): FieldErrors => {
+    const errs: FieldErrors = {};
+    if (!fullName.trim()) errs.fullName = 'Заполните ФИО';
+    if (phoneDigits.length !== 10) errs.phone = 'Введите 10 цифр номера';
+    if (!email) errs.email = 'Введите email';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errs.email = 'Неверный формат email';
+    if (inn.length !== 10 && inn.length !== 12) errs.inn = 'ИНН должен быть 10 или 12 цифр';
+    if (password.length < 8) errs.password = 'Минимум 8 символов';
+    if (passwordConfirm !== password) errs.passwordConfirm = 'Пароли не совпадают';
+    return errs;
+  };
+
   const handleRegister = async () => {
+    setSubmitted(true);
+    const errs = validate();
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
     setLoading(true);
     setError('');
     try {
@@ -35,8 +63,6 @@ export default function RegisterPage() {
           email,
           password,
           inn,
-          // 2026-06-04: личный ИНН убрали из формы — брокер всегда работает
-          // через юр. лицо или ИП, личный ИНН не используется.
           innType: 'AGENCY',
           agencyName: agencyName || undefined,
         }),
@@ -52,6 +78,23 @@ export default function RegisterPage() {
     }
     setLoading(false);
   };
+
+  // Перевалидация на лету после первого submit — чтобы подсветка снималась
+  // сразу как пользователь ввёл недостающее.
+  const onChange = <T extends string>(setter: (v: T) => void) => (v: T) => {
+    setter(v);
+    if (submitted) {
+      setFieldErrors(validate());
+    }
+  };
+
+  const fieldClass = (k: keyof FieldErrors) =>
+    `input${fieldErrors[k] ? ' border-error focus:ring-error' : ''}`;
+
+  const errorText = (k: keyof FieldErrors) =>
+    fieldErrors[k] ? (
+      <div className="text-xs text-error mt-1">{fieldErrors[k]}</div>
+    ) : null;
 
   return (
     <div className="min-h-screen flex items-center justify-center">
@@ -71,40 +114,43 @@ export default function RegisterPage() {
         ) : (
           <div className="space-y-4">
             <div>
-              <label className="label">ФИО</label>
+              <label className="label">ФИО <span className="text-error">*</span></label>
               <input
                 type="text"
-                className="input"
+                className={fieldClass('fullName')}
                 placeholder="Иванов Иван Иванович"
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                onChange={(e) => { setFullName(e.target.value); if (submitted) setFieldErrors(validate()); }}
               />
+              {errorText('fullName')}
             </div>
 
             <div>
-              <label className="label">Номер телефона</label>
+              <label className="label">Номер телефона <span className="text-error">*</span></label>
               <div className="flex">
                 <span className="inline-flex items-center px-3 bg-surface-secondary border border-r-0 border-border rounded-l text-text-muted text-sm">+7</span>
                 <input
                   type="tel"
-                  className="input rounded-l-none"
+                  className={fieldClass('phone') + ' rounded-l-none'}
                   placeholder="9991234567"
                   value={phoneDigits}
-                  onChange={handlePhoneChange}
+                  onChange={(e) => { handlePhoneChange(e); if (submitted) setFieldErrors(validate()); }}
                   maxLength={10}
                 />
               </div>
+              {errorText('phone')}
             </div>
 
             <div>
-              <label className="label">Email</label>
+              <label className="label">Email <span className="text-error">*</span></label>
               <input
                 type="email"
-                className="input"
+                className={fieldClass('email')}
                 placeholder="example@mail.ru"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); if (submitted) setFieldErrors(validate()); }}
               />
+              {errorText('email')}
             </div>
 
             <div>
@@ -119,54 +165,47 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="label">ИНН агентства (юр. лица или ИП)</label>
+              <label className="label">ИНН агентства (юр. лица или ИП) <span className="text-error">*</span></label>
               <input
                 type="text"
                 inputMode="numeric"
-                className="input"
+                className={fieldClass('inn')}
                 placeholder="10 цифр для юр. лица или 12 цифр для ИП"
                 value={inn}
-                onChange={(e) => setInn(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                onChange={(e) => { setInn(e.target.value.replace(/\D/g, '').slice(0, 12)); if (submitted) setFieldErrors(validate()); }}
                 maxLength={12}
               />
+              {errorText('inn')}
             </div>
 
             <div>
-              <label className="label">Пароль</label>
+              <label className="label">Пароль <span className="text-error">*</span></label>
               <input
                 type="password"
-                className="input"
+                className={fieldClass('password')}
                 placeholder="Минимум 8 символов"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => { setPassword(e.target.value); if (submitted) setFieldErrors(validate()); }}
               />
+              {errorText('password')}
             </div>
 
-            {(() => {
-              const missing: string[] = [];
-              if (!fullName) missing.push('ФИО');
-              if (phoneDigits.length !== 10) missing.push('телефон (10 цифр)');
-              if (!email) missing.push('email');
-              if (inn.length !== 10 && inn.length !== 12) missing.push('ИНН (10 или 12 цифр)');
-              if (password.length < 8) missing.push('пароль (мин. 8 символов)');
-              return missing.length > 0 ? (
-                <div className="text-xs text-text-muted">
-                  Заполни: {missing.join(', ')}
-                </div>
-              ) : null;
-            })()}
+            <div>
+              <label className="label">Повторите пароль <span className="text-error">*</span></label>
+              <input
+                type="password"
+                className={fieldClass('passwordConfirm')}
+                placeholder="Введите пароль ещё раз"
+                value={passwordConfirm}
+                onChange={(e) => { setPasswordConfirm(e.target.value); if (submitted) setFieldErrors(validate()); }}
+              />
+              {errorText('passwordConfirm')}
+            </div>
 
             <button
               className="btn btn-primary w-full"
               onClick={handleRegister}
-              disabled={
-                loading ||
-                phoneDigits.length !== 10 ||
-                !fullName ||
-                !email ||
-                (inn.length !== 10 && inn.length !== 12) ||
-                password.length < 8
-              }
+              disabled={loading}
             >
               {loading ? 'Регистрация...' : 'Зарегистрироваться'}
             </button>
