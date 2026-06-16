@@ -475,6 +475,37 @@ export class WebhooksService {
 
       const attached = leadContactIds.includes(brokerAmoId);
 
+      // 2026-06-16: маркер «исключения» — Client был создан как RULE_EXCEPTION_AFTER_SALES_MEETING.
+      // Лифт UNDER_REVIEW → CONDITIONALLY_UNIQUE ТОЛЬКО когда L2 (текущий лид)
+      // дойдёт до 62907282 «Квалифицировали и выводим на встречу» в КЦ
+      // (или дальше: 62907286 / 142). Просто «attached» не достаточно.
+      const isExceptionClient = !!client.uniquenessReason?.startsWith('EXCEPTION_AFTER_SALES_MEETING:');
+      const exceptionLiftStatuses = new Set([62907282, 62907286, 142]); // QUALIFIED, MEETING_SCHEDULED, MEETING_HELD
+
+      if (attached && isExceptionClient && client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW) {
+        if (exceptionLiftStatuses.has(leadStatusId)) {
+          await this.prisma.client.update({
+            where: { id: client.id },
+            data: {
+              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+              uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+              uniquenessReason: `КЦ-лид перешёл в статус ${leadStatusId} — исключение снято`,
+            },
+          });
+          await this.prisma.auditLog.create({
+            data: {
+              action: 'UNIQUENESS_RESOLVED',
+              entity: 'Client',
+              entityId: client.id,
+              payload: { trigger: 'EXCEPTION_LIFTED_BY_KC_STATUS', amoLeadId: leadId, leadStatusId },
+            },
+          });
+          this.logger.log(`Client ${client.id}: EXCEPTION UNDER_REVIEW → CONDITIONALLY_UNIQUE (L2 ${leadId} достиг status=${leadStatusId})`);
+        }
+        // Иначе остаёмся в UNDER_REVIEW (КЦ ещё не квалифицировал)
+        continue;
+      }
+
       if (attached && (
         client.uniquenessStatus === UniquenessStatus.REJECTED ||
         client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW
@@ -541,6 +572,42 @@ export class WebhooksService {
           },
         });
         this.logger.log(`Client ${client.id}: ${client.uniquenessStatus} → REJECTED (брокер не прикреплён к лиду ${leadId}, status=${leadStatusId})`);
+      }
+    }
+
+    // 2026-06-16: если этот лид закрылся 143 (КЦ или sales), и у нас
+    // есть Client-записи с маркером EXCEPTION_AFTER_SALES_MEETING на
+    // том же телефоне (брокер B ждал решения) — снимаем UNDER_REVIEW
+    // → CONDITIONALLY_UNIQUE. Брокер A провалился, B свободен.
+    if (leadStatusId === 143 && clients.length > 0) {
+      const phones = Array.from(new Set(clients.map((c) => c.phone))).filter(Boolean);
+      if (phones.length > 0) {
+        const exceptionClients = await this.prisma.client.findMany({
+          where: {
+            phone: { in: phones as string[] },
+            uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
+            uniquenessReason: { startsWith: 'EXCEPTION_AFTER_SALES_MEETING:' },
+          },
+        });
+        for (const ec of exceptionClients) {
+          await this.prisma.client.update({
+            where: { id: ec.id },
+            data: {
+              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+              uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+              uniquenessReason: `Брокер A провалился (lead ${leadId} закрыт 143), исключение снято`,
+            },
+          });
+          await this.prisma.auditLog.create({
+            data: {
+              action: 'UNIQUENESS_RESOLVED',
+              entity: 'Client',
+              entityId: ec.id,
+              payload: { trigger: 'EXCEPTION_LIFTED_BY_BROKER_A_FAILED', amoLeadId: leadId },
+            },
+          });
+          this.logger.log(`Client ${ec.id}: EXCEPTION UNDER_REVIEW → CONDITIONALLY_UNIQUE (брокер A провалился на лиде ${leadId})`);
+        }
       }
     }
   }

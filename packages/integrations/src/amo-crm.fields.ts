@@ -147,6 +147,104 @@ export function isSalesPipeline(pipelineId: number): boolean {
   );
 }
 
+/**
+ * 2026-06-16: лид в воронке продаж в стадии «Встреча назначена» —
+ * это самое начало sales-pipeline (после Морикит-создания вслед за
+ * КЦ-«Встреча проведена»). Для новой фиксации B → RULE_2 (UNDER_REVIEW,
+ * без новой карточки). Брокер A только-только начал в продажах.
+ */
+export function isSalesMeetingScheduledStatus(pipelineId: number, statusId: number): boolean {
+  return (
+    (pipelineId === AMO_PIPELINES.BERZARINA && statusId === AMO_BERZARINA_STATUS.MEETING_SCHEDULED) ||
+    (pipelineId === AMO_PIPELINES.ZORGE9 && statusId === AMO_ZORGE_STATUS.MEETING_SCHEDULED) ||
+    (pipelineId === AMO_PIPELINES.TOLBUKHINA && statusId === AMO_TOLBUKHINA_STATUS.MEETING_SCHEDULED)
+  );
+}
+
+/**
+ * 2026-06-16: «средние» стадии воронки продаж — встреча уже прошла, но
+ * до сделки ещё не дошло. Для новой фиксации B действует ИСКЛЮЧЕНИЕ:
+ *   - создаём L2 в КЦ (новая карточка)
+ *   - прикрепляем брокера B контактом к L2
+ *   - НО Client.uniquenessStatus = UNDER_REVIEW (не Уникален!)
+ *   - сниматься будет когда L2 достигнет статуса «Квалифицировали»
+ *     (62907282 в КЦ) или когда L1 (старая sales-карточка A) закроется 143.
+ *
+ * Стадии:
+ *   - MEETING_DONE_THINKING «Встреча проведена, думают»
+ *   - DEFERRED               «Отложенный спрос»
+ *   - ORAL_BOOKING           «Устная бронь»
+ *   - BOOKING_REMOVED        «Снята бронь» (близка к «думают»)
+ */
+export function isSalesExceptionStatus(pipelineId: number, statusId: number): boolean {
+  if (pipelineId === AMO_PIPELINES.BERZARINA) {
+    return (
+      statusId === AMO_BERZARINA_STATUS.MEETING_DONE_THINKING ||
+      statusId === AMO_BERZARINA_STATUS.DEFERRED ||
+      statusId === AMO_BERZARINA_STATUS.ORAL_BOOKING ||
+      statusId === AMO_BERZARINA_STATUS.BOOKING_REMOVED
+    );
+  }
+  if (pipelineId === AMO_PIPELINES.ZORGE9) {
+    return (
+      statusId === AMO_ZORGE_STATUS.MEETING_DONE_THINKING ||
+      statusId === AMO_ZORGE_STATUS.DEFERRED ||
+      statusId === AMO_ZORGE_STATUS.ORAL_BOOKING ||
+      statusId === AMO_ZORGE_STATUS.BOOKING_REMOVED
+    );
+  }
+  if (pipelineId === AMO_PIPELINES.TOLBUKHINA) {
+    return (
+      statusId === AMO_TOLBUKHINA_STATUS.MEETING_DONE_THINKING ||
+      statusId === AMO_TOLBUKHINA_STATUS.DEFERRED ||
+      statusId === AMO_TOLBUKHINA_STATUS.ORAL_BOOKING ||
+      statusId === AMO_TOLBUKHINA_STATUS.BOOKING_REMOVED
+    );
+  }
+  return false;
+}
+
+/**
+ * 2026-06-16: «поздние» стадии воронки продаж — клиент уже на пути
+ * к сделке (платная бронь, подготовка, сделка, регистрация, контроль
+ * оплаты). Для новой фиксации B → REJECTED сразу. Брокер A уже занял.
+ *   - PAID_BOOKING       «Платная бронь»
+ *   - DEAL_PREP          «Подготовка сделки»
+ *   - DEAL               «Сделка»
+ *   - DEAL_REGISTERED    «Сделка зарегистрирована»
+ *   - PAYMENT_CONTROL    «Контроль оплаты»
+ */
+export function isSalesDealStatus(pipelineId: number, statusId: number): boolean {
+  if (pipelineId === AMO_PIPELINES.BERZARINA) {
+    return [
+      AMO_BERZARINA_STATUS.PAID_BOOKING,
+      AMO_BERZARINA_STATUS.DEAL_PREP,
+      AMO_BERZARINA_STATUS.DEAL,
+      AMO_BERZARINA_STATUS.DEAL_REGISTERED,
+      AMO_BERZARINA_STATUS.PAYMENT_CONTROL,
+    ].includes(statusId as any);
+  }
+  if (pipelineId === AMO_PIPELINES.ZORGE9) {
+    return [
+      AMO_ZORGE_STATUS.PAID_BOOKING,
+      AMO_ZORGE_STATUS.DEAL_PREP,
+      AMO_ZORGE_STATUS.DEAL,
+      AMO_ZORGE_STATUS.DEAL_REGISTERED,
+      AMO_ZORGE_STATUS.PAYMENT_CONTROL,
+    ].includes(statusId as any);
+  }
+  if (pipelineId === AMO_PIPELINES.TOLBUKHINA) {
+    return [
+      AMO_TOLBUKHINA_STATUS.PAID_BOOKING,
+      AMO_TOLBUKHINA_STATUS.DEAL_PREP,
+      AMO_TOLBUKHINA_STATUS.DEAL,
+      AMO_TOLBUKHINA_STATUS.DEAL_REGISTERED,
+      AMO_TOLBUKHINA_STATUS.PAYMENT_CONTROL,
+    ].includes(statusId as any);
+  }
+  return false;
+}
+
 /** Финал КЦ: «Встреча проведена» (142 для пайплайна КЦ). Считаем как «КЦ завершён». */
 export function isKcMeetingHeldStatus(pipelineId: number, statusId: number): boolean {
   return pipelineId === AMO_PIPELINES.KC && statusId === 142;
@@ -248,7 +346,23 @@ export type UniquenessTriggerType =
  *   RULE_3 — все лиды контакта закрыты (143). Создаём новый лид без ссылок.
  *   NO_CONFLICT — у контакта нет лидов (или контакт не найден). Создаём новый.
  */
-export type FixationRule = 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
+export type FixationRule =
+  | 'RULE_1'
+  | 'RULE_2'
+  | 'RULE_3'
+  | 'NO_CONFLICT'
+  // 2026-06-16: новый брокер пытается зафиксировать клиента, у которого
+  // уже есть активная sales-карточка в стадии «Встреча проведена, думают»
+  // / «Отложенный спрос» / «Устная бронь» / «Снята бронь». Создаём L2
+  // в КЦ + прикрепляем брокера, но статус Client = UNDER_REVIEW.
+  // Лифт в CONDITIONALLY_UNIQUE — когда L2 дойдёт до «Квалифицировали»
+  // (62907282) или старая sales-карточка закроется 143.
+  | 'RULE_EXCEPTION_AFTER_SALES_MEETING'
+  // 2026-06-16: новый брокер пытается зафиксировать клиента, у которого
+  // sales-карточка уже на «Платной брони» / «Подготовке» / «Сделке» /
+  // «Сделке зарегистрирована» / «Контроле оплаты». Брокер A уже занял,
+  // B не имеет смысла — REJECTED сразу, без создания новой карточки.
+  | 'RULE_REJECT_SALES_DEAL';
 
 export interface UniquenessVerdict {
   rule: FixationRule;
@@ -276,20 +390,38 @@ export function evaluateUniqueness(
     };
   }
 
-  // Идём по всем лидам. Самое строгое правило побеждает: RULE_2 > RULE_1 > RULE_3.
+  // Идём по всем лидам. Самое строгое побеждает:
+  //   RULE_REJECT_SALES_DEAL > RULE_EXCEPTION_AFTER_SALES_MEETING > RULE_2 > RULE_1 > RULE_3
+  let rejectDealTriggerLeadId: number | undefined;
+  let rejectDealReason = '';
+  let exceptionTriggerLeadId: number | undefined;
+  let exceptionReason = '';
   let rule2TriggerLeadId: number | undefined;
   let rule2Reason = '';
   let rule1TriggerLeadId: number | undefined;
   let rule1Reason = '';
 
   for (const lead of leads) {
-    // 143 «Закрыто и не реализовано» — этот лид считаем за Правило 3
-    // (не блокирует). Дальше смотрим есть ли другие, более строгие.
+    // 143 / 142 — финал, не блокирует.
     if (isClosedLostStatus(lead.status_id)) continue;
-    // 2026-06-15: воронки продаж broker-platform не трогает — пропускаем
-    // независимо от статуса. Повторная фиксация при активном sales-лиде
-    // создаёт новый КЦ-лид (RULE_3 если других активных лидов нет).
-    if (isSalesPipeline(lead.pipeline_id)) continue;
+
+    // 2026-06-16: разные стадии sales-pipeline → разные правила.
+    if (isSalesPipeline(lead.pipeline_id)) {
+      if (!rejectDealTriggerLeadId && isSalesDealStatus(lead.pipeline_id, lead.status_id)) {
+        rejectDealTriggerLeadId = lead.id;
+        rejectDealReason = `Лид ${lead.id} уже в сделке (pipeline=${lead.pipeline_id}, status=${lead.status_id}). Брокер B не уникален.`;
+      } else if (!exceptionTriggerLeadId && isSalesExceptionStatus(lead.pipeline_id, lead.status_id)) {
+        exceptionTriggerLeadId = lead.id;
+        exceptionReason = `Лид ${lead.id} в средней стадии sales-pipeline (pipeline=${lead.pipeline_id}, status=${lead.status_id}). Брокер A на финишной прямой, B = UNDER_REVIEW.`;
+      } else if (!rule2TriggerLeadId && isSalesMeetingScheduledStatus(lead.pipeline_id, lead.status_id)) {
+        // «Встреча назначена» в продажах = аналог КЦ RULE_2 (UNDER_REVIEW
+        // без новой карточки). См. ответ пользователя 2026-06-16.
+        rule2TriggerLeadId = lead.id;
+        rule2Reason = `Лид ${lead.id} в стадии «Встреча назначена» воронки продаж. Брокер не прикрепляется, требуется подтверждение от КЦ.`;
+      }
+      // Прочие статусы (если есть) — игнорим.
+      continue;
+    }
 
     if (!rule2TriggerLeadId && isFixationRule2Lead(lead.pipeline_id, lead.status_id)) {
       rule2TriggerLeadId = lead.id;
@@ -300,6 +432,24 @@ export function evaluateUniqueness(
     }
   }
 
+  if (rejectDealTriggerLeadId) {
+    return {
+      rule: 'RULE_REJECT_SALES_DEAL',
+      verdict: 'ALARM',
+      triggerType: 'ACTIVE_SALES',
+      triggerLeadId: rejectDealTriggerLeadId,
+      reason: rejectDealReason,
+    };
+  }
+  if (exceptionTriggerLeadId) {
+    return {
+      rule: 'RULE_EXCEPTION_AFTER_SALES_MEETING',
+      verdict: 'ALARM',
+      triggerType: 'ACTIVE_SALES',
+      triggerLeadId: exceptionTriggerLeadId,
+      reason: exceptionReason,
+    };
+  }
   if (rule2TriggerLeadId) {
     return {
       rule: 'RULE_2',
