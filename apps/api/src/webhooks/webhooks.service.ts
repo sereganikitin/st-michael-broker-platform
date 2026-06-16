@@ -424,19 +424,22 @@ export class WebhooksService {
       const brokerAmoId = client.broker?.amoContactId ? Number(client.broker.amoContactId) : null;
       if (!brokerAmoId) continue; // нечего проверять — брокер не синкан с amo
 
-      // 2026-06-15 (правка 3): если КЦ-лид закрылся (143) И встреча
-      // НЕ была проведена — фиксация брокера отклоняется. Встреча
-      // считается проведённой если в нашей БД есть meetings со статусом
-      // COMPLETED ИЛИ если у лида в amo был статус 142 (но к моменту
-      // 143 уже нет, поэтому опираемся на локальный COMPLETED).
-      const meetingHeld = client.meetings.some((m) => m.status === 'COMPLETED');
-      if (leadStatusId === 143 && leadPipelineId === 7600542 && !meetingHeld) {
+      // 2026-06-16 (правка 3, жёсткая версия): если КЦ-лид закрылся в
+      // статусе 143 «Закрыто и не реализовано» — у ВСЕХ Client с этим
+      // лидом фиксация отклоняется. Включая брокера, у которого была
+      // встреча: до сделки клиент не дошёл, уникальность сгорает.
+      // Если клиент вернётся — любой брокер сможет фиксировать заново.
+      //
+      // Раньше условие было !meetingHeld — attached-брокер с проведённой
+      // встречей оставался CONDITIONALLY_UNIQUE вечно, что неправильно
+      // если КЦ потом закрыл лид без перехода в воронку продаж.
+      if (leadStatusId === 143 && leadPipelineId === 7600542) {
         if (client.uniquenessStatus !== UniquenessStatus.REJECTED) {
           await this.prisma.client.update({
             where: { id: client.id },
             data: {
               uniquenessStatus: UniquenessStatus.REJECTED,
-              uniquenessReason: 'КЦ закрыл лид без проведённой встречи',
+              uniquenessReason: 'КЦ закрыл лид (Закрыто и не реализовано)',
               uniquenessExpiresAt: null,
             },
           });
@@ -445,10 +448,10 @@ export class WebhooksService {
               action: 'UNIQUENESS_RESOLVED',
               entity: 'Client',
               entityId: client.id,
-              payload: { trigger: 'KC_CLOSED_BEFORE_MEETING', amoLeadId: leadId },
+              payload: { trigger: 'KC_LEAD_CLOSED_143', amoLeadId: leadId },
             },
           });
-          this.logger.log(`Client ${client.id}: → REJECTED (КЦ-лид ${leadId} закрыт 143 без проведённой встречи)`);
+          this.logger.log(`Client ${client.id}: → REJECTED (КЦ-лид ${leadId} закрыт 143)`);
         }
         continue;
       }
