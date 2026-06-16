@@ -30,57 +30,74 @@ export class WebhooksService {
   // Теперь обходим все три массива событий и каждое обрабатываем
   // индивидуально.
   async handleAmoLeadUpdate(data: any, headers: any) {
-    const secret = process.env.AMO_WEBHOOK_SECRET || '';
-    if (secret && headers['x-amo-signature']) {
-      if (!this.verifyHmac(JSON.stringify(data), headers['x-amo-signature'], secret)) {
-        throw new BadRequestException('Invalid signature');
+    // 2026-06-16: ВСЕГДА возвращаем 200 OK. amoCRM отключает webhook
+    // (disabled=true) если он несколько раз подряд вернул 5xx или
+    // connection refused (например, во время деплоя api). Из-за этого
+    // полностью разрывается синхронизация прикрепления/открепления
+    // брокеров — пришлось вручную пересоздавать через setup-amo-webhook.
+    // Теперь любое исключение ловим, логируем, отвечаем 200.
+    try {
+      const secret = process.env.AMO_WEBHOOK_SECRET || '';
+      if (secret && headers['x-amo-signature']) {
+        if (!this.verifyHmac(JSON.stringify(data), headers['x-amo-signature'], secret)) {
+          this.logger.warn('amoCRM webhook: invalid signature');
+          return { status: 'processed', error: 'invalid_signature' };
+        }
       }
-    }
 
-    // Собираем все события лидов из webhook payload. amoCRM v4 шлёт:
-    //   data.leads.add[]    — на создание лида
-    //   data.leads.update[] — на любое обновление (включая link/unlink контактов)
-    //   data.leads.status[] — на смену статуса
-    // Для обратной совместимости с прямыми тестовыми вызовами поддерживаем
-    // и старый формат с data.id на верхнем уровне.
-    const events: Array<{ id: number; status_id?: number; price?: number; custom_fields?: any[] }> = [];
-    const collect = (arr: any) => {
-      if (!Array.isArray(arr)) return;
-      for (const ev of arr) {
-        const id = Number(ev?.id);
-        if (!id || isNaN(id)) continue;
+      // Собираем все события лидов из webhook payload. amoCRM v4 шлёт:
+      //   data.leads.add[]    — на создание лида
+      //   data.leads.update[] — на любое обновление (включая link/unlink контактов)
+      //   data.leads.status[] — на смену статуса
+      // Для обратной совместимости с прямыми тестовыми вызовами поддерживаем
+      // и старый формат с data.id на верхнем уровне.
+      const events: Array<{ id: number; status_id?: number; price?: number; custom_fields?: any[] }> = [];
+      const collect = (arr: any) => {
+        if (!Array.isArray(arr)) return;
+        for (const ev of arr) {
+          const id = Number(ev?.id);
+          if (!id || isNaN(id)) continue;
+          events.push({
+            id,
+            status_id: ev?.status_id ? Number(ev.status_id) : undefined,
+            price: ev?.price ? Number(ev.price) : undefined,
+            custom_fields: ev?.custom_fields,
+          });
+        }
+      };
+      collect(data?.leads?.update);
+      collect(data?.leads?.status);
+      collect(data?.leads?.add);
+      if (events.length === 0 && data?.id) {
         events.push({
-          id,
-          status_id: ev?.status_id ? Number(ev.status_id) : undefined,
-          price: ev?.price ? Number(ev.price) : undefined,
-          custom_fields: ev?.custom_fields,
+          id: Number(data.id),
+          status_id: data.status_id ? Number(data.status_id) : undefined,
+          price: data.price ? Number(data.price) : undefined,
+          custom_fields: data.custom_fields,
         });
       }
-    };
-    collect(data?.leads?.update);
-    collect(data?.leads?.status);
-    collect(data?.leads?.add);
-    if (events.length === 0 && data?.id) {
-      events.push({
-        id: Number(data.id),
-        status_id: data.status_id ? Number(data.status_id) : undefined,
-        price: data.price ? Number(data.price) : undefined,
-        custom_fields: data.custom_fields,
-      });
-    }
 
-    if (events.length === 0) {
-      this.logger.warn(`amoCRM lead webhook: no events extracted from payload keys=[${Object.keys(data || {}).join(',')}]`);
-      return { status: 'processed', matched: false, reason: 'no_events' };
-    }
+      if (events.length === 0) {
+        this.logger.warn(`amoCRM lead webhook: no events extracted from payload keys=[${Object.keys(data || {}).join(',')}]`);
+        return { status: 'processed', matched: false, reason: 'no_events' };
+      }
 
-    this.logger.log(`amoCRM lead webhook: ${events.length} event(s): ${events.map((e) => `${e.id}/${e.status_id ?? '—'}`).join(', ')}`);
+      this.logger.log(`amoCRM lead webhook: ${events.length} event(s): ${events.map((e) => `${e.id}/${e.status_id ?? '—'}`).join(', ')}`);
 
-    const results: any[] = [];
-    for (const ev of events) {
-      results.push(await this.processLeadEvent(ev));
+      const results: any[] = [];
+      for (const ev of events) {
+        try {
+          results.push(await this.processLeadEvent(ev));
+        } catch (e: any) {
+          this.logger.error(`processLeadEvent failed for lead ${ev.id}: ${e?.message || e}`);
+          results.push({ leadId: ev.id, error: String(e?.message || e).slice(0, 200) });
+        }
+      }
+      return { status: 'processed', events: results };
+    } catch (e: any) {
+      this.logger.error(`handleAmoLeadUpdate top-level error: ${e?.message || e}`);
+      return { status: 'processed', error: String(e?.message || e).slice(0, 200) };
     }
-    return { status: 'processed', events: results };
   }
 
   private async processLeadEvent(ev: { id: number; status_id?: number; price?: number; custom_fields?: any[] }) {
