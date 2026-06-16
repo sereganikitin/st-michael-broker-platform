@@ -404,6 +404,22 @@ function CommissionEditor({ content, updateField, updateArrayItem, addArrayItem,
     updateField('commission', 'levelsByProject', lp);
   };
 
+  // 2026-06-16: переключатель FLAT/PROGRESSIVE по проекту + поля для FLAT.
+  const modeByProject = content.modeByProject || {};
+  const flatRateByProject = content.flatRateByProject || {};
+  const flatNoteByProject = content.flatNoteByProject || {};
+  const currentMode: 'FLAT' | 'PROGRESSIVE' = modeByProject[activeProject] || 'PROGRESSIVE';
+  const setProjectMode = (mode: 'FLAT' | 'PROGRESSIVE') => {
+    updateField('commission', 'modeByProject', { ...modeByProject, [activeProject]: mode });
+  };
+  const setProjectFlatRate = (rate: string) => {
+    const n = parseFloat(rate.replace(',', '.'));
+    updateField('commission', 'flatRateByProject', { ...flatRateByProject, [activeProject]: isNaN(n) ? 0 : n });
+  };
+  const setProjectFlatNote = (note: string) => {
+    updateField('commission', 'flatNoteByProject', { ...flatNoteByProject, [activeProject]: note });
+  };
+
   return (
     <div className="space-y-4">
       <FieldText label="Тег" value={content.tag || ''} onChange={(v) => updateField('commission', 'tag', v)} />
@@ -426,30 +442,82 @@ function CommissionEditor({ content, updateField, updateArrayItem, addArrayItem,
               }`}
             >
               {p === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}
-              <span className="ml-2 text-xs opacity-70">({(levelsByProject[p] || []).length} уровней)</span>
+              <span className="ml-2 text-xs opacity-70">
+                ({(modeByProject[p] || 'PROGRESSIVE') === 'FLAT' ? `FLAT ${flatRateByProject[p] ?? '—'}%` : `${(levelsByProject[p] || []).length} уровней`})
+              </span>
             </button>
           ))}
         </div>
 
-        <div className="space-y-2">
-          {projectLevels.map((lv: any, i: number) => (
-            <div key={i} className="flex gap-2 items-center">
-              <input className="input flex-1" placeholder="Название (Start)" value={lv.name || ''} onChange={(e) => updateProjectLevel(i, { name: e.target.value })} />
-              <input className="input flex-1" placeholder="Объём (0–59 м²)" value={lv.range || ''} onChange={(e) => updateProjectLevel(i, { range: e.target.value })} />
-              <input className="input w-24" placeholder="Ставка (5,0%)" value={lv.rate || ''} onChange={(e) => updateProjectLevel(i, { rate: e.target.value })} />
-              <label className="flex items-center gap-1 text-xs whitespace-nowrap">
-                <input type="checkbox" checked={!!lv.active} onChange={(e) => updateProjectLevel(i, { active: e.target.checked })} /> active
-              </label>
-              <button className="btn btn-secondary text-error" onClick={() => removeProjectLevel(i)}><Trash2 className="w-4 h-4" /></button>
-            </div>
-          ))}
+        {/* 2026-06-16: режим комиссии для выбранного проекта */}
+        <div className="flex gap-3 mb-4 p-3 bg-surface-secondary rounded">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name={`mode-${activeProject}`}
+              checked={currentMode === 'PROGRESSIVE'}
+              onChange={() => setProjectMode('PROGRESSIVE')}
+              className="accent-accent"
+            />
+            <span className="text-sm">Прогрессивная шкала</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name={`mode-${activeProject}`}
+              checked={currentMode === 'FLAT'}
+              onChange={() => setProjectMode('FLAT')}
+              className="accent-accent"
+            />
+            <span className="text-sm">Фиксированная ставка</span>
+          </label>
         </div>
-        <button className="btn btn-secondary mt-2 flex items-center gap-2 text-sm" onClick={addProjectLevel}>
-          <Plus className="w-4 h-4" /> Добавить уровень в {activeProject === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}
-        </button>
-        <p className="text-xs text-text-muted mt-2">
-          Серебряный Бор по новому ТЗ имеет только 6 уровней (без Legend), максимум — Champion 6,25%.
-        </p>
+
+        {currentMode === 'FLAT' ? (
+          <div className="space-y-2">
+            <div className="flex gap-2 items-center">
+              <label className="text-sm w-32">Ставка %</label>
+              <input
+                className="input w-32"
+                placeholder="4.0"
+                value={flatRateByProject[activeProject] ?? ''}
+                onChange={(e) => setProjectFlatRate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-sm">Пояснение (опционально)</label>
+              <textarea
+                className="input"
+                rows={2}
+                placeholder="Единая ставка по проекту..."
+                value={flatNoteByProject[activeProject] || ''}
+                onChange={(e) => setProjectFlatNote(e.target.value)}
+              />
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {projectLevels.map((lv: any, i: number) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input className="input flex-1" placeholder="Название (Start)" value={lv.name || ''} onChange={(e) => updateProjectLevel(i, { name: e.target.value })} />
+                  <input className="input flex-1" placeholder="Объём (0–59 м²)" value={lv.range || ''} onChange={(e) => updateProjectLevel(i, { range: e.target.value })} />
+                  <input className="input w-24" placeholder="Ставка (5,0%)" value={lv.rate || ''} onChange={(e) => updateProjectLevel(i, { rate: e.target.value })} />
+                  <label className="flex items-center gap-1 text-xs whitespace-nowrap">
+                    <input type="checkbox" checked={!!lv.active} onChange={(e) => updateProjectLevel(i, { active: e.target.checked })} /> active
+                  </label>
+                  <button className="btn btn-secondary text-error" onClick={() => removeProjectLevel(i)}><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+            </div>
+            <button className="btn btn-secondary mt-2 flex items-center gap-2 text-sm" onClick={addProjectLevel}>
+              <Plus className="w-4 h-4" /> Добавить уровень в {activeProject === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}
+            </button>
+            <p className="text-xs text-text-muted mt-2">
+              Серебряный Бор по новому ТЗ имеет только 6 уровней (без Legend), максимум — Champion 6,25%.
+            </p>
+          </>
+        )}
       </div>
 
       <div>

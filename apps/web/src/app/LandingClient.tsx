@@ -43,13 +43,36 @@ function slugToProject(slug: string | undefined): string | null {
 // иначе таблица levels из политики. Fallback на CMS levelsByProject если в
 // БД нет активной политики (например для свежего инстанса).
 function CommissionScale({
-  project, activePolicies, cmsLevelsByProject, cmsLevels,
+  project, activePolicies, cmsLevelsByProject, cmsLevels, cmsModeByProject, cmsFlatRateByProject, cmsFlatNoteByProject,
 }: {
   project: string;
   activePolicies: Array<{ project: string; mode: 'PROGRESSIVE' | 'FLAT'; flatRate: number | null; levels: any[] | null }>;
   cmsLevelsByProject?: Record<string, any[]>;
   cmsLevels?: any[];
+  cmsModeByProject?: Record<string, 'FLAT' | 'PROGRESSIVE'>;
+  cmsFlatRateByProject?: Record<string, number>;
+  cmsFlatNoteByProject?: Record<string, string>;
 }) {
+  // 2026-06-16: новый приоритет CMS — modeByProject[project].
+  // Если 'FLAT' → одна карточка «единая ставка X%».
+  // Если 'PROGRESSIVE' (или не задано) → шкала из cmsLevelsByProject.
+  // Только если ни того ни другого нет в CMS — fallback на БД commission-policies.
+  const cmsMode = cmsModeByProject?.[project];
+  if (cmsMode === 'FLAT') {
+    const rate = cmsFlatRateByProject?.[project];
+    const note = cmsFlatNoteByProject?.[project] || '';
+    return (
+      <div className="comm-table">
+        <div className="ct-head"><span>Условие</span><span></span><span>Ставка</span></div>
+        <div className="ct-row active">
+          <span className="ct-level">Все сделки проекта</span>
+          <span className="ct-range">{note || 'единая ставка'}</span>
+          <span className="ct-rate">{rate != null ? `${String(rate).replace('.', ',')}%` : '—'}</span>
+        </div>
+      </div>
+    );
+  }
+
   // 2026-05-28: приоритет CMS-content над commission-policies для отображения.
   // Раньше БД-политика (FLAT/PROGRESSIVE) перебивала шкалу из /admin/content
   // → админ редактировал 7 уровней в CMS, а лендинг показывал FLAT 5% из БД.
@@ -952,7 +975,22 @@ const DEFAULT_COMMISSION = {
   // в рамках одного проекта, не по обоим. Сообщение под клиента: больше
   // продаёшь — выше ставка.
   subtitle: 'Чем больше квадратных метров продаёте в рамках одного проекта — тем выше ваша ставка комиссии. Действует с 1 января по 30 июня 2026 года.',
-  // Per-project levels (preferred). Fallback to "levels" if absent.
+  // 2026-06-16: режим комиссии по проекту. По умолчанию для ZORGE9 — FLAT 4%
+  // (действует с 07.05.2026, см. seed-commission-policies.js).
+  // Для SILVER_BOR — PROGRESSIVE с шкалой ниже.
+  modeByProject: {
+    ZORGE9: 'FLAT' as 'FLAT' | 'PROGRESSIVE',
+    SILVER_BOR: 'PROGRESSIVE' as 'FLAT' | 'PROGRESSIVE',
+  },
+  flatRateByProject: {
+    ZORGE9: 4.0,
+    SILVER_BOR: 0,
+  },
+  flatNoteByProject: {
+    ZORGE9: 'Единая ставка по проекту Зорге 9 с 07 мая 2026 года.',
+    SILVER_BOR: '',
+  },
+  // Per-project levels (используется только для проектов с modeByProject = 'PROGRESSIVE').
   levelsByProject: {
     ZORGE9: [
       { name: 'Start', range: '0–59 м²', rate: '5,0%', active: false },
@@ -1595,6 +1633,9 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
                 activePolicies={activePolicies}
                 cmsLevelsByProject={commission.levelsByProject}
                 cmsLevels={commission.levels}
+                cmsModeByProject={commission.modeByProject}
+                cmsFlatRateByProject={commission.flatRateByProject}
+                cmsFlatNoteByProject={commission.flatNoteByProject}
               />
             </div>
             <div className="comm-info">
