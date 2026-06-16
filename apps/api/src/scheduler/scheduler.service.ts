@@ -643,11 +643,11 @@ export class SchedulerService {
               project: morekitProjectName(String(client.project)),
             }, morekitUrl).catch((e) => this.logger.error(`[amo-retry] morekit notify error: ${e?.message || e}`));
 
-            // 2026-06-11: см. ClientFixationService.fixClient — Морикит не
-            // обновляет responsible на лиде, делаем sync вручную из задачи.
-            this.amo
-              .syncLeadResponsibleFromLatestTask(createdAmoLeadId)
-              .catch((e) => this.logger.error(`[amo-retry] sync lead responsible error: ${e?.message || e}`));
+            // 2026-06-16: убрали syncLeadResponsibleFromLatestTask.
+            // Раньше синкали responsible_user_id с самой свежей задачи,
+            // но при каждой новой ALARM-задаче ответственный лида
+            // менялся (что нежелательно). Морикит сам ставит responsible
+            // при создании лида/задачи — не перетираем.
           }
         }
         ok++;
@@ -673,44 +673,12 @@ export class SchedulerService {
     this.logger.log(`amo auto-retry: ${ok} success, ${failed} failed`);
   }
 
-  // 2026-06-11: BACKUP-cron для лидов которые inline-sync не успел поймать
-  // (Морикит создал задачу позже 60 сек, или API процесс рестартился).
-  // Каждые 3 минуты берёт до 20 свежих Client (createdAt > now-30мин) с
-  // amoLeadId, читает соответствующий лид + задачи. Если у лида
-  // responsible_user_id отличается от responsible самой свежей задачи —
-  // синкает. AMO_OAUTH_USER_ID — id владельца токена (= админ Св. Михаил
-  // 6089620), от которого amoCRM ставит дефолтного ответственного на
-  // новый лид. В фильтре опционально игнорим этот id если он у задачи.
-  @Cron('*/3 * * * *')
-  async handleLeadResponsibleSync() {
-    if (!process.env.AMO_ACCESS_TOKEN) return;
-    const since = new Date(Date.now() - 30 * 60 * 1000);
-    const candidates = await this.prisma.client.findMany({
-      where: {
-        amoLeadId: { not: null },
-        createdAt: { gte: since },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-    });
-    if (!candidates.length) return;
-    let synced = 0;
-    for (const c of candidates) {
-      if (!c.amoLeadId) continue;
-      try {
-        const ok = await this.amo.syncLeadResponsibleFromLatestTask(
-          Number(c.amoLeadId),
-          { intervalMs: 0, maxAttempts: 1 }, // одна попытка без задержки
-        );
-        if (ok) synced++;
-      } catch (e: any) {
-        this.logger.error(`[lead-responsible-sync] lead=${c.amoLeadId} error: ${e?.message || e}`);
-      }
-    }
-    if (synced > 0) {
-      this.logger.log(`[lead-responsible-sync] обновлено ${synced} лидов из ${candidates.length}`);
-    }
-  }
+  // 2026-06-16: отключён. Раньше каждые 3 мин синкали responsible_user_id
+  // лида с самой свежей задачи — но при каждой новой ALARM-задаче (от
+  // повторных фиксаций / handleRule1Or2Alarm / прикрепления брокеров)
+  // ответственный лида менялся, чего не хотелось. Морикит сам ставит
+  // responsible при создании лида/задачи. Если кто-то меняет вручную в
+  // amo — оставляем его выбор.
 
   // 2026-05-27 ROBUST AMO #2: periodic health-check. Каждые 5 минут дёргает
   // /account amocrm. Если упал — пишет в audit + один раз шлёт Telegram
