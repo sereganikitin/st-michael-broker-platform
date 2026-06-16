@@ -503,41 +503,27 @@ export class WebhooksService {
           },
         });
         this.logger.log(`Client ${client.id}: ${wasUnderReview ? 'UNDER_REVIEW' : 'REJECTED'} → CONDITIONALLY_UNIQUE (broker attached to lead ${leadId})`);
-      } else if (!attached && client.uniquenessStatus === UniquenessStatus.CONDITIONALLY_UNIQUE) {
-        await this.prisma.client.update({
-          where: { id: client.id },
-          data: {
-            uniquenessStatus: UniquenessStatus.REJECTED,
-            uniquenessReason: 'Брокер откреплён от лида в amoCRM',
-            uniquenessExpiresAt: null,
-          },
-        });
-        await this.prisma.auditLog.create({
-          data: {
-            action: 'UNIQUENESS_RESOLVED',
-            entity: 'Client',
-            entityId: client.id,
-            payload: { trigger: 'AMO_BROKER_DETACHED', amoLeadId: leadId, brokerAmoContactId: brokerAmoId },
-          },
-        });
-        this.logger.log(`Client ${client.id}: CONDITIONALLY_UNIQUE → REJECTED (broker detached from lead ${leadId})`);
       } else if (
         !attached
-        && client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW
-        && (leadStatusId === 142 || leadStatusId === 143)
+        && (
+          client.uniquenessStatus === UniquenessStatus.CONDITIONALLY_UNIQUE
+          || client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW
+        )
       ) {
-        // 2026-06-16: Client был UNDER_REVIEW (КЦ должен был одобрить),
-        // лид дошёл до финала (142 «Встреча проведена» или 143 «Закрыто
-        // и не реализовано»), но брокера так и не прикрепили → КЦ его
-        // отклонил, REJECTED. Без этого Client оставался «На проверке»
-        // навечно.
+        // 2026-06-16: жёсткое правило по решению пользователя — если брокер
+        // НЕ в списке контактов лида, его фиксация = REJECTED. Не важно,
+        // в какой стадии лид (62907286 «Встреча назначена», или финал).
+        // Раньше для UNDER_REVIEW требовался переход в 142/143 — это
+        // оставляло Client «На проверке» при просто «открепили». Новое
+        // правило: amoCRM-контакты = источник истины уникальности.
+        const wasUnderReview = client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW;
         await this.prisma.client.update({
           where: { id: client.id },
           data: {
             uniquenessStatus: UniquenessStatus.REJECTED,
-            uniquenessReason: leadStatusId === 142
-              ? 'КЦ провёл встречу с другим брокером, ваша фиксация не одобрена'
-              : 'КЦ закрыл лид без вашего участия',
+            uniquenessReason: wasUnderReview
+              ? 'КЦ не прикрепил брокера к лиду, фиксация отклонена'
+              : 'Брокер откреплён от лида в amoCRM',
             uniquenessExpiresAt: null,
           },
         });
@@ -546,10 +532,15 @@ export class WebhooksService {
             action: 'UNIQUENESS_RESOLVED',
             entity: 'Client',
             entityId: client.id,
-            payload: { trigger: 'KC_FINALIZED_WITHOUT_BROKER', amoLeadId: leadId, leadStatusId, brokerAmoContactId: brokerAmoId },
+            payload: {
+              trigger: wasUnderReview ? 'KC_DID_NOT_ATTACH' : 'AMO_BROKER_DETACHED',
+              amoLeadId: leadId,
+              leadStatusId,
+              brokerAmoContactId: brokerAmoId,
+            },
           },
         });
-        this.logger.log(`Client ${client.id}: UNDER_REVIEW → REJECTED (лид ${leadId} в финале ${leadStatusId} без прикрепления брокера)`);
+        this.logger.log(`Client ${client.id}: ${client.uniquenessStatus} → REJECTED (брокер не прикреплён к лиду ${leadId}, status=${leadStatusId})`);
       }
     }
   }
