@@ -501,6 +501,35 @@ export class WebhooksService {
           },
         });
         this.logger.log(`Client ${client.id}: CONDITIONALLY_UNIQUE → REJECTED (broker detached from lead ${leadId})`);
+      } else if (
+        !attached
+        && client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW
+        && (leadStatusId === 142 || leadStatusId === 143)
+      ) {
+        // 2026-06-16: Client был UNDER_REVIEW (КЦ должен был одобрить),
+        // лид дошёл до финала (142 «Встреча проведена» или 143 «Закрыто
+        // и не реализовано»), но брокера так и не прикрепили → КЦ его
+        // отклонил, REJECTED. Без этого Client оставался «На проверке»
+        // навечно.
+        await this.prisma.client.update({
+          where: { id: client.id },
+          data: {
+            uniquenessStatus: UniquenessStatus.REJECTED,
+            uniquenessReason: leadStatusId === 142
+              ? 'КЦ провёл встречу с другим брокером, ваша фиксация не одобрена'
+              : 'КЦ закрыл лид без вашего участия',
+            uniquenessExpiresAt: null,
+          },
+        });
+        await this.prisma.auditLog.create({
+          data: {
+            action: 'UNIQUENESS_RESOLVED',
+            entity: 'Client',
+            entityId: client.id,
+            payload: { trigger: 'KC_FINALIZED_WITHOUT_BROKER', amoLeadId: leadId, leadStatusId, brokerAmoContactId: brokerAmoId },
+          },
+        });
+        this.logger.log(`Client ${client.id}: UNDER_REVIEW → REJECTED (лид ${leadId} в финале ${leadStatusId} без прикрепления брокера)`);
       }
     }
   }
