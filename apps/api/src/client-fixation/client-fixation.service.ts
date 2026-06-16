@@ -99,7 +99,7 @@ export class ClientFixationService {
     // лид 1 уже был в КЦ «Классифицировали» (62907282 = RULE_1) → должны
     // были только повесить alarm-задачу, но создали лид 2.
     let amoVerdict: {
-      rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
+      rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT' | 'RULE_EXCEPTION_AFTER_SALES_MEETING' | 'RULE_REJECT_SALES_DEAL';
       verdict: 'UNIQUE' | 'ALARM';
       reason: string;
       contactId?: number;
@@ -135,6 +135,41 @@ export class ClientFixationService {
         existingClient,
         fixationFormFields,
       });
+    }
+
+    // 2026-06-16: RULE_REJECT_SALES_DEAL — клиент уже в стадии сделки
+    // (Платная бронь / Подготовка / Сделка / Зарегистрирована / Контроль
+    // оплаты) у брокера A. Брокер B даже не пытается — REJECTED сразу,
+    // новой карточки не создаём.
+    if (amoVerdict && amoVerdict.rule === 'RULE_REJECT_SALES_DEAL') {
+      const client = await this.prisma.client.create({
+        data: {
+          brokerId,
+          phone: data.phone,
+          fullName: data.fullName,
+          email: data.email || null,
+          comment: data.comment,
+          project: data.project as any,
+          fixationAgencyId: agency?.id,
+          uniquenessStatus: UniquenessStatus.REJECTED,
+          uniquenessReason: `Клиент уже в стадии сделки (lead=${amoVerdict.triggerLeadId}). Уникальность отклонена.`,
+          ...fixationFormFields,
+        },
+      });
+      try {
+        await this.logAudit(brokerId, 'CLIENT_FIXATION_CONFLICT', 'Client', client.id, {
+          scenario: 'SALES_DEAL_REJECT',
+          amoReason: amoVerdict.reason,
+          amoLeadId: amoVerdict.triggerLeadId,
+        });
+      } catch (e: any) {
+        console.error('[fixClient sales-deal-reject] audit failed:', e?.message || e);
+      }
+      return {
+        client,
+        status: 'REJECTED',
+        message: 'Клиент уже на стадии сделки у другого брокера. Уникальность невозможна.',
+      };
     }
 
     if (!existingClient) {
@@ -218,6 +253,13 @@ export class ClientFixationService {
         };
       }
 
+      // 2026-06-16: RULE_EXCEPTION_AFTER_SALES_MEETING — клиент уже в
+      // средней стадии sales-pipeline у брокера A (думают/отложенный/
+      // устная/снята бронь). Создаём L2 и прикрепляем B как обычно, но
+      // в кабинете B статус UNDER_REVIEW. Снимется когда L2 дойдёт до
+      // 62907282 «Квалифицировали» (webhook) или старая sales-карточка
+      // закроется 143. Маркер для webhook: префикс в uniquenessReason.
+      const isExceptionAfterSalesMeeting = amoVerdict?.rule === 'RULE_EXCEPTION_AFTER_SALES_MEETING';
       // Scenario 1: New client
       const client = await this.prisma.client.create({
         data: {
@@ -228,8 +270,15 @@ export class ClientFixationService {
           comment: data.comment,
           project: data.project as any,
           fixationAgencyId: agency.id,
-          uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
-          uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+          uniquenessStatus: isExceptionAfterSalesMeeting
+            ? UniquenessStatus.UNDER_REVIEW
+            : UniquenessStatus.CONDITIONALLY_UNIQUE,
+          uniquenessExpiresAt: isExceptionAfterSalesMeeting
+            ? null
+            : new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+          uniquenessReason: isExceptionAfterSalesMeeting
+            ? `EXCEPTION_AFTER_SALES_MEETING:${amoVerdict?.triggerLeadId || ''} ${amoVerdict?.reason || ''}`
+            : null,
           ...fixationFormFields,
         },
       });
@@ -612,7 +661,7 @@ export class ClientFixationService {
    */
   private async handleRule1Or2Alarm(params: {
     amoVerdict: {
-      rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
+      rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT' | 'RULE_EXCEPTION_AFTER_SALES_MEETING' | 'RULE_REJECT_SALES_DEAL';
       reason: string;
       contactId?: number;
       leads?: any[];

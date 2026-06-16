@@ -609,7 +609,7 @@ export class AmoCrmAdapter {
    * Возвращает 'ALARM' → создавать Client с UNDER_REVIEW + задача для КЦ
    */
   async checkUniqueness(phone: string): Promise<{
-    rule: 'RULE_1' | 'RULE_2' | 'RULE_3' | 'NO_CONFLICT';
+    rule: import('./amo-crm.fields').FixationRule;
     verdict: 'UNIQUE' | 'ALARM'; // @deprecated: для совместимости со старым кодом
     reason: string;
     contactId?: number;
