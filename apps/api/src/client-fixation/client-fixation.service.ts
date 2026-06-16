@@ -308,12 +308,13 @@ export class ClientFixationService {
             project: morekitProjectName(String(data.project)),
           }, morekitUrl).catch((e) => console.error('[fixClient] morekit notify error:', e?.message || e));
 
-          // 2026-06-16: убрали syncLeadResponsibleFromLatestTask. Раньше
-          // забирали responsible_user_id с самой свежей задачи и ставили
-          // на лид, но при каждой новой задаче (ALARM от повторных
-          // фиксаций / прикрепления брокеров) ответственный лида менялся.
-          // Морикит сам ставит responsible на лиде при создании — не
-          // перетираем.
+          // 2026-06-16: первичная фиксация (новый лид) — синкаем
+          // responsible_user_id с Морикит-задачи на сам лид. Это
+          // ОДНОКРАТНО, при создании. Повторные ALARM-задачи
+          // (handleRule1Or2Alarm) ответственного лида НЕ меняют.
+          this.amoCrmAdapter
+            .syncLeadResponsibleFromLatestTask(createdAmoLeadId)
+            .catch((e) => console.error('[fixClient] sync lead responsible error:', e?.message || e));
         }
       }
 
@@ -555,7 +556,11 @@ export class ClientFixationService {
           lead_date: morekitLeadDate(),
           project: morekitProjectName(String(data.project)),
         }, morekitUrl).catch((e) => console.error('[fixClient refix] morekit notify error:', e?.message || e));
-        // 2026-06-16: убрали syncLeadResponsibleFromLatestTask — см. fixClient ниже.
+        // 2026-06-16: refix-after-closed создаёт НОВЫЙ лид — синкаем
+        // responsible как и при первичной фиксации.
+        this.amoCrmAdapter
+          .syncLeadResponsibleFromLatestTask(createdAmoLeadId)
+          .catch((e) => console.error('[fixClient refix] sync lead responsible error:', e?.message || e));
       }
     }
 
