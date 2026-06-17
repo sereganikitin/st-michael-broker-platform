@@ -249,6 +249,7 @@ function PhoneInput({ value, onChange, style }: { value: string; onChange: (v: s
 function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 'register'; onClose: () => void; onSwitch: () => void; onSuccess: () => void }) {
   const [phoneDigits, setPhoneDigits] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [middleName, setMiddleName] = useState('');
@@ -326,6 +327,10 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   const handleRegister = async () => {
     if (password.length < 8) {
       setError('Пароль должен быть не менее 8 символов');
+      return;
+    }
+    if (password !== passwordConfirm) {
+      setError('Пароли не совпадают');
       return;
     }
     setLoading(true); setError('');
@@ -434,13 +439,22 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
             <input placeholder={mode === 'register' ? 'Пароль (минимум 8 символов)' : 'Пароль'} type="password" value={password} onChange={e=>setPassword(e.target.value)}
               onKeyDown={e=>e.key==='Enter' && (mode==='login' ? handleLogin() : handleRegister())}
               style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+            {mode === 'register' && (
+              <input placeholder="Подтвердите пароль" type="password" value={passwordConfirm} onChange={e=>setPasswordConfirm(e.target.value)}
+                onKeyDown={e=>e.key==='Enter' && handleRegister()}
+                style={{
+                  padding:'12px 16px',
+                  border: `1px solid ${passwordConfirm && password !== passwordConfirm ? '#c33' : 'rgba(0,0,0,0.12)'}`,
+                  borderRadius:4,fontSize:14,outline:'none',
+                }} />
+            )}
             <button onClick={mode==='login' ? handleLogin : handleRegister}
               disabled={
                 loading ||
                 !password ||
                 (mode === 'login'
                   ? phoneDigits.length !== 10
-                  : (!firstName || !lastName || !email || phoneDigits.length !== 10 || (inn.length !== 10 && inn.length !== 12) || password.length < 8 || !offerAccepted || !privacyAccepted))
+                  : (!firstName || !lastName || !email || phoneDigits.length !== 10 || (inn.length !== 10 && inn.length !== 12) || password.length < 8 || password !== passwordConfirm || !offerAccepted || !privacyAccepted))
               }
               style={{padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
               {loading ? <><span className="lp-spinner" />{mode==='login' ? 'Вход' : 'Регистрация'}</> : mode==='login' ? 'ВОЙТИ' : 'ЗАРЕГИСТРИРОВАТЬСЯ'}
