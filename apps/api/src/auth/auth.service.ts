@@ -924,6 +924,84 @@ export class AuthService {
     return { agency: { id: agency.id, name: agency.name, inn: agency.inn } };
   }
 
+  /**
+   * 2026-06-17: смена primary-агентства брокера по ИНН.
+   * Сценарий: при регистрации ввели неправильный ИНН — надо исправить.
+   * - Находим (или создаём) Agency по новому ИНН.
+   * - Если у брокера уже есть primary BrokerAgency на ТОТ ЖЕ ИНН — просто
+   *   возвращаем как есть (no-op).
+   * - Иначе: удаляем все BrokerAgency где isPrimary=true у этого брокера
+   *   (старые «неправильные»), затем создаём новую primary.
+   * - Историю фиксаций и сделок не трогаем — Client.fixationAgencyId
+   *   указывает на старую Agency, это часть истории.
+   */
+  async replacePrimaryAgencyByInn(brokerId: string, inn: string) {
+    const cleanInn = String(inn || '').replace(/\D/g, '');
+    if (cleanInn.length < 10 || cleanInn.length > 12) {
+      throw new BadRequestException('ИНН должен быть 10 или 12 цифр');
+    }
+
+    let agency = await this.prisma.agency.findUnique({ where: { inn: cleanInn } });
+    if (!agency) {
+      let amoName: string | null = null;
+      try {
+        const amoCompany = await this.amo.findCompanyByInn(cleanInn);
+        if (amoCompany) {
+          amoName = amoCompany.name;
+        } else {
+          const created = await this.amo.createCompany({ name: `Агентство ${cleanInn}` });
+          amoName = created?.name || `Агентство ${cleanInn}`;
+        }
+      } catch {
+        amoName = `Агентство ${cleanInn}`;
+      }
+      agency = await this.prisma.agency.create({
+        data: { name: amoName!, inn: cleanInn },
+      });
+    }
+
+    const existingPrimary = await this.prisma.brokerAgency.findFirst({
+      where: { brokerId, isPrimary: true },
+      include: { agency: true },
+    });
+
+    if (existingPrimary?.agencyId === agency.id) {
+      return { agency: { id: agency.id, name: agency.name, inn: agency.inn }, changed: false };
+    }
+
+    // Удаляем старую primary-связь(и).
+    await this.prisma.brokerAgency.deleteMany({
+      where: { brokerId, isPrimary: true },
+    });
+
+    // Удаляем неосновную связь с этим же агентством, чтобы не было дубля
+    // при создании ниже.
+    await this.prisma.brokerAgency.deleteMany({
+      where: { brokerId, agencyId: agency.id },
+    });
+
+    await this.prisma.brokerAgency.create({
+      data: {
+        brokerId,
+        agencyId: agency.id,
+        isPrimary: true,
+      },
+    });
+
+    // Sync в amoCRM: подтянем актуальный ИНН/название агентства в карточку.
+    await this.syncBrokerProfileToAmo(brokerId).catch((e) => {
+      console.error('amoCRM sync after replaceAgency failed:', e);
+    });
+
+    return {
+      agency: { id: agency.id, name: agency.name, inn: agency.inn },
+      replacedFrom: existingPrimary
+        ? { id: existingPrimary.agency.id, name: existingPrimary.agency.name, inn: existingPrimary.agency.inn }
+        : null,
+      changed: true,
+    };
+  }
+
   async changePassword(brokerId: string, currentPassword: string, newPassword: string) {
     if (!newPassword || newPassword.length < 8) {
       throw new BadRequestException('Новый пароль должен быть не менее 8 символов');
