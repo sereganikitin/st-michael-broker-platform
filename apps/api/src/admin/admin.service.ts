@@ -719,6 +719,54 @@ export class AdminService {
     };
   }
 
+  // ─── Ручная смена uniquenessStatus клиента (admin only, критические случаи) ──
+  // 2026-06-17: бывает что webhook / amoCRM-логика не довела клиента до правильного
+  // статуса (баг, race condition, ручная правка в amo). Админ из кабинета может
+  // выставить любой статус с обязательной причиной — она пишется в uniquenessReason
+  // и в auditLog.
+  async setClientUniquenessStatus(
+    clientId: string,
+    newStatus: 'CONDITIONALLY_UNIQUE' | 'UNDER_REVIEW' | 'REJECTED',
+    reason: string,
+    executorId: string,
+  ) {
+    if (!reason || reason.trim().length < 3) {
+      throw new BadRequestException('Нужна причина (минимум 3 символа)');
+    }
+    if (!['CONDITIONALLY_UNIQUE', 'UNDER_REVIEW', 'REJECTED'].includes(newStatus)) {
+      throw new BadRequestException(`Неверный статус: ${newStatus}`);
+    }
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, uniquenessStatus: true, brokerId: true, fullName: true, phone: true },
+    });
+    if (!client) throw new NotFoundException('Client not found');
+
+    const oldStatus = client.uniquenessStatus;
+    const UNIQUENESS_DAYS = 30;
+    const data: any = {
+      uniquenessStatus: newStatus,
+      uniquenessReason: `[Ручная правка админом] ${reason.trim()} (было: ${oldStatus})`,
+    };
+    if (newStatus === 'CONDITIONALLY_UNIQUE') {
+      data.uniquenessExpiresAt = new Date(Date.now() + UNIQUENESS_DAYS * 86400 * 1000);
+    } else if (newStatus === 'REJECTED') {
+      data.uniquenessExpiresAt = null;
+    }
+
+    await this.prisma.client.update({ where: { id: clientId }, data });
+    await this.prisma.auditLog.create({
+      data: {
+        userId: executorId,
+        action: 'CLIENT_UNIQUENESS_STATUS_MANUAL_CHANGE',
+        entity: 'Client',
+        entityId: clientId,
+        payload: { oldStatus, newStatus, reason: reason.trim(), clientName: client.fullName, phone: client.phone },
+      } as any,
+    });
+    return { success: true, clientId, oldStatus, newStatus };
+  }
+
   // ─── Аналитика покрытия: что в amoCRM, чего нет в нашей базе ────────
   // Dry-run: не пишет в БД, только сравнивает телефоны. Идёт в фоне,
   // потому что обход 5000+ контактов в амо по одному GET-запросу долгий.

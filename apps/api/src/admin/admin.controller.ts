@@ -332,4 +332,17 @@ export class AdminController {
     return this.adminService.reassignClient(id, body.newBrokerId, body.reason, user.id);
   }
 
+  // 2026-06-17: ручная смена uniquenessStatus админом из кабинета брокера.
+  // Только для критических случаев — когда автоматика не довела клиента до
+  // правильного статуса.
+  @Patch('clients/:id/uniqueness-status')
+  @ApiOperation({ summary: 'Смена uniquenessStatus клиента (admin only, критические случаи)' })
+  async setClientUniquenessStatus(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() body: { status: 'CONDITIONALLY_UNIQUE' | 'UNDER_REVIEW' | 'REJECTED'; reason: string },
+  ) {
+    return this.adminService.setClientUniquenessStatus(id, body.status, body.reason, user.id);
+  }
+
 }
