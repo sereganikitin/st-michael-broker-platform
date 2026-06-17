@@ -737,6 +737,27 @@ export class ClientFixationService {
         amoVerdict.leads[0];
       const projectName = ({ ZORGE9: 'Зорге 9', SILVER_BOR: 'Берзарина 37' } as Record<string, string>)[String(data.project)] || String(data.project);
 
+      // 2026-06-17: если триггер-лид в воронке продаж (например, sales
+      // «Встреча назначена» 62907158) — не пишем туда ничего. Правило
+      // от 15.06 «воронку продаж не трогаем» + уточнение 17.06: аларм
+      // создаётся только в КЦ-карточках 62907286. Client всё равно
+      // получит UNDER_REVIEW (уже создан выше).
+      const targetIsSalesPipeline = (
+        targetLead.pipeline_id === 7600546 ||  // Берзарина
+        targetLead.pipeline_id === 7600550 ||  // Зорге9
+        targetLead.pipeline_id === 7600554     // Толбухина
+      );
+      if (targetIsSalesPipeline) {
+        console.log(`[handleRule1Or2Alarm] targetLead ${targetLead.id} в sales-pipeline ${targetLead.pipeline_id} — пропускаем amo-записи (note/task/link)`);
+        return {
+          client,
+          status: isRule1 ? 'CONDITIONALLY_UNIQUE' : 'UNDER_REVIEW',
+          message: isRule1
+            ? `Клиент зафиксирован. КЦ уведомлены о параллельной фиксации.`
+            : `Клиент требует ручной проверки КЦ. ${amoVerdict.reason}`,
+        };
+      }
+
       // Повторная фиксация ТЕМ ЖЕ брокером — он уже на лиде, не делаем
       // повторный POST /leads/{id}/link (amo всё равно идемпотентно вернёт
       // успех, но семантически бессмысленно).
