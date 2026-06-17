@@ -255,13 +255,9 @@ jobs:
             if [ "$TASK" = "api-logs" ]; then
               echo "=== api-logs ==="
               FILTER='${{ inputs.phone }}'
-              if [ -n "$FILTER" ]; then
-                echo "--- filter: $FILTER ---"
-                $COMPOSE_CMD logs --tail 3000 api 2>&1 | grep -i "$FILTER" | tail -100
-              else
-                echo "--- last 150 lines ---"
-                $COMPOSE_CMD logs --tail 200 api 2>&1 | tail -150
-              fi
+              : ${FILTER:=__noFilter__}
+              echo "--- filter: $FILTER ---"
+              $COMPOSE_CMD logs --tail 2000 api 2>&1 | tail -300 | grep -i -E "(handleRule|fixClient|Alarm|alarm|note|task|amo |webhook|$FILTER)" | tail -150 || true
             fi
 
             if [ "$TASK" = "force-sync-lead" ]; then
