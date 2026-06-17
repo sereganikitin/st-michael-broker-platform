@@ -396,8 +396,15 @@ export function evaluateUniqueness(
   let rejectDealReason = '';
   let exceptionTriggerLeadId: number | undefined;
   let exceptionReason = '';
-  let rule2TriggerLeadId: number | undefined;
-  let rule2Reason = '';
+  // 2026-06-17 fix: КЦ-триггер для RULE_2 хранится отдельно от sales-триггера,
+  // чтобы КЦ ВСЕГДА побеждал. Раньше первый встреченный (часто sales-дочерний)
+  // занимал rule2TriggerLeadId и алармы не доходили до КЦ-карточки.
+  // Лид 32216245 (КЦ Встреча назначена) + 32216249 (sales Встреча назначена):
+  // sales побеждал, handleRule1Or2Alarm видел sales-pipeline и early-return.
+  let rule2KcTriggerLeadId: number | undefined;
+  let rule2KcReason = '';
+  let rule2SalesTriggerLeadId: number | undefined;
+  let rule2SalesReason = '';
   let rule1TriggerLeadId: number | undefined;
   let rule1Reason = '';
 
@@ -413,24 +420,29 @@ export function evaluateUniqueness(
       } else if (!exceptionTriggerLeadId && isSalesExceptionStatus(lead.pipeline_id, lead.status_id)) {
         exceptionTriggerLeadId = lead.id;
         exceptionReason = `Лид ${lead.id} в средней стадии sales-pipeline (pipeline=${lead.pipeline_id}, status=${lead.status_id}). Брокер A на финишной прямой, B = UNDER_REVIEW.`;
-      } else if (!rule2TriggerLeadId && isSalesMeetingScheduledStatus(lead.pipeline_id, lead.status_id)) {
+      } else if (!rule2SalesTriggerLeadId && isSalesMeetingScheduledStatus(lead.pipeline_id, lead.status_id)) {
         // «Встреча назначена» в продажах = аналог КЦ RULE_2 (UNDER_REVIEW
         // без новой карточки). См. ответ пользователя 2026-06-16.
-        rule2TriggerLeadId = lead.id;
-        rule2Reason = `Лид ${lead.id} в стадии «Встреча назначена» воронки продаж. Брокер не прикрепляется, требуется подтверждение от КЦ.`;
+        rule2SalesTriggerLeadId = lead.id;
+        rule2SalesReason = `Лид ${lead.id} в стадии «Встреча назначена» воронки продаж. Брокер не прикрепляется, требуется подтверждение от КЦ.`;
       }
       // Прочие статусы (если есть) — игнорим.
       continue;
     }
 
-    if (!rule2TriggerLeadId && isFixationRule2Lead(lead.pipeline_id, lead.status_id)) {
-      rule2TriggerLeadId = lead.id;
-      rule2Reason = `Лид ${lead.id} в активной стадии (pipeline=${lead.pipeline_id}, status=${lead.status_id}). Требуется подтверждение уникальности от КЦ.`;
+    if (!rule2KcTriggerLeadId && isFixationRule2Lead(lead.pipeline_id, lead.status_id)) {
+      rule2KcTriggerLeadId = lead.id;
+      rule2KcReason = `Лид ${lead.id} в активной стадии (pipeline=${lead.pipeline_id}, status=${lead.status_id}). Требуется подтверждение уникальности от КЦ.`;
     } else if (!rule1TriggerLeadId && isFixationRule1Lead(lead.pipeline_id, lead.status_id)) {
       rule1TriggerLeadId = lead.id;
       rule1Reason = `Лид ${lead.id} в КЦ-воронке (status=${lead.status_id}). Новый брокер добавлен контактом, КЦ-задача аларм.`;
     }
   }
+
+  // КЦ-триггер всегда побеждает sales-триггер для RULE_2 — alarm должен попадать
+  // в КЦ-карточку, где сидит менеджер.
+  const rule2TriggerLeadId = rule2KcTriggerLeadId ?? rule2SalesTriggerLeadId;
+  const rule2Reason = rule2KcTriggerLeadId ? rule2KcReason : rule2SalesReason;
 
   if (rejectDealTriggerLeadId) {
     return {
