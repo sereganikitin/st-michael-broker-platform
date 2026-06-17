@@ -36,6 +36,7 @@ on:
           - update-amo-meetings-manager
           - backfill-client-amo-lead-id
           - force-sync-lead
+          - api-logs
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -249,6 +250,16 @@ jobs:
               echo "Recreate api container..."
               $COMPOSE_CMD up -d --force-recreate --no-deps api
               echo "Done. Brokers will see Ksenia's busy slots from amoCRM and meeting tasks will be created in her calendar."
+            fi
+
+            if [ "$TASK" = "api-logs" ]; then
+              echo "=== api-logs ==="
+              FILTER='${{ inputs.phone }}'
+              if [ -n "$FILTER" ]; then
+                $COMPOSE_CMD logs --tail 2000 api 2>&1 | grep -i -E "(handleRule|alarm|fixClient|note|task|$FILTER)" | tail -80
+              else
+                $COMPOSE_CMD logs --tail 800 api 2>&1 | grep -i -E "handleRule|alarm|fixClient|note|task" | tail -80
+              fi
             fi
 
             if [ "$TASK" = "force-sync-lead" ]; then
