@@ -269,6 +269,68 @@ function Row({ icon: Icon, label, value }: { icon: any; label: string; value: st
 }
 
 
+// 2026-06-17: смена ИНН primary-агентства (если при регистрации был
+// введён неправильно). Используется в AgencySection.
+function ReplaceAgencyInnForm({ currentInn, onReplaced, onCancel }: { currentInn: string; onReplaced: () => void; onCancel: () => void }) {
+  const [inn, setInn] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const submit = async () => {
+    if (inn.length !== 10 && inn.length !== 12) {
+      setErr('ИНН должен быть 10 или 12 цифр');
+      return;
+    }
+    if (inn === currentInn) {
+      setErr('Этот ИНН уже привязан');
+      return;
+    }
+    setSaving(true); setErr('');
+    try {
+      await apiPost('/auth/me/agency/replace', { inn });
+      onReplaced();
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось сменить агентство');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="p-4 bg-warning/10 border border-warning/40 rounded-lg space-y-3 mt-3">
+      <div className="text-sm font-medium">Сменить ИНН агентства</div>
+      <p className="text-xs text-text-muted">
+        Если при регистрации вы ошибочно ввели не тот ИНН — введите правильный.
+        Старая привязка снимется, история фиксаций и сделок останется.
+        Текущий ИНН: <strong>{currentInn}</strong>.
+      </p>
+      <input
+        className="input"
+        placeholder="Новый ИНН (10 или 12 цифр)"
+        value={inn}
+        onChange={(e) => setInn(e.target.value.replace(/\D/g, '').slice(0, 12))}
+      />
+      <label className="flex items-start gap-2 text-xs cursor-pointer">
+        <input type="checkbox" className="mt-0.5" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />
+        <span>Подтверждаю: новый ИНН верный, заменить старый</span>
+      </label>
+      {err && <div className="text-xs text-error">{err}</div>}
+      <div className="flex gap-2">
+        <button
+          className="btn btn-primary"
+          onClick={submit}
+          disabled={saving || (inn.length !== 10 && inn.length !== 12) || !confirm}
+        >
+          {saving ? 'Замена...' : 'Заменить'}
+        </button>
+        <button className="btn btn-secondary" onClick={onCancel} disabled={saving}>
+          Отмена
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Форма привязки агентства по ИНН (правка 2026-05-15) ─────
 function AttachAgencyForm({ onAttached }: { onAttached: () => void }) {
   const [inn, setInn] = useState('');
@@ -322,6 +384,7 @@ function AttachAgencyForm({ onAttached }: { onAttached: () => void }) {
 function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged: () => void }) {
   const primary = profile.agencies.find((a) => a.isPrimary) || profile.agencies[0];
   const [editing, setEditing] = useState(false);
+  const [replacingInn, setReplacingInn] = useState(false);
   const [legalAddress, setLegalAddress] = useState('');
   const [bankName, setBankName] = useState('');
   const [bankBik, setBankBik] = useState('');
@@ -367,10 +430,15 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
           <Building className="w-5 h-5 text-accent" />
           Агентства
         </h3>
-        {primary && !editing && (
-          <button className="btn btn-secondary flex items-center gap-2" onClick={startEdit}>
-            <Pencil className="w-4 h-4" /> Реквизиты
-          </button>
+        {primary && !editing && !replacingInn && (
+          <div className="flex gap-2">
+            <button className="btn btn-secondary flex items-center gap-2" onClick={() => setReplacingInn(true)}>
+              <Pencil className="w-4 h-4" /> Сменить ИНН
+            </button>
+            <button className="btn btn-secondary flex items-center gap-2" onClick={startEdit}>
+              <Pencil className="w-4 h-4" /> Реквизиты
+            </button>
+          </div>
         )}
       </div>
 
@@ -379,6 +447,14 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
 
       {profile.agencies.length === 0 && (
         <AttachAgencyForm onAttached={onChanged} />
+      )}
+
+      {replacingInn && primary && (
+        <ReplaceAgencyInnForm
+          currentInn={primary.inn}
+          onReplaced={() => { setReplacingInn(false); onChanged(); }}
+          onCancel={() => setReplacingInn(false)}
+        />
       )}
 
       {editing && primary ? (

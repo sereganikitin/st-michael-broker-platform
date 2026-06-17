@@ -256,6 +256,10 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   const [agencyName, setAgencyName] = useState('');
   const [inn, setInn] = useState('');
   const [innType, setInnType] = useState<'PERSONAL' | 'AGENCY'>('AGENCY');
+  // 2026-06-17: чекбоксы оферты/ПД — без них бэк (PR #134) валит регистрацию
+  // ошибкой «Поле offerAccepted: необходимо принять Договор-оферту».
+  const [offerAccepted, setOfferAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -336,6 +340,8 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
           inn: inn || undefined,
           innType: inn ? innType : undefined,
           agencyName: agencyName || undefined,
+          offerAccepted,
+          privacyAccepted,
         }),
       });
       if (res.ok) {
@@ -403,6 +409,23 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                     ИНН агентства
                   </label>
                 </div>
+                {/* 2026-06-17: чекбоксы оферты и согласия на ПД (PR #134). Без них бэк валит регистрацию. */}
+                <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,color:'#1a1a1a',cursor:'pointer',lineHeight:1.5}}>
+                  <input type="checkbox" checked={offerAccepted} onChange={e=>setOfferAccepted(e.target.checked)} style={{marginTop:3,accentColor:'#B4936F'}} />
+                  <span>
+                    Я ознакомлен(а) и принимаю условия{' '}
+                    <a href="/offer" target="_blank" rel="noreferrer" style={{color:'#B4936F',textDecoration:'underline'}}>Договора-оферты</a>
+                    {' '}<span style={{color:'#c33'}}>*</span>
+                  </span>
+                </label>
+                <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,color:'#1a1a1a',cursor:'pointer',lineHeight:1.5}}>
+                  <input type="checkbox" checked={privacyAccepted} onChange={e=>setPrivacyAccepted(e.target.checked)} style={{marginTop:3,accentColor:'#B4936F'}} />
+                  <span>
+                    Я даю{' '}
+                    <a href="/privacy" target="_blank" rel="noreferrer" style={{color:'#B4936F',textDecoration:'underline'}}>согласие на обработку персональных данных</a>
+                    {' '}<span style={{color:'#c33'}}>*</span>
+                  </span>
+                </label>
               </>
             )}
             {mode === 'login' && (
@@ -417,7 +440,7 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                 !password ||
                 (mode === 'login'
                   ? phoneDigits.length !== 10
-                  : (!firstName || !lastName || !email || phoneDigits.length !== 10 || (inn.length !== 10 && inn.length !== 12) || password.length < 8))
+                  : (!firstName || !lastName || !email || phoneDigits.length !== 10 || (inn.length !== 10 && inn.length !== 12) || password.length < 8 || !offerAccepted || !privacyAccepted))
               }
               style={{padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
               {loading ? <><span className="lp-spinner" />{mode==='login' ? 'Вход' : 'Регистрация'}</> : mode==='login' ? 'ВОЙТИ' : 'ЗАРЕГИСТРИРОВАТЬСЯ'}

@@ -134,4 +134,16 @@ export class AuthController {
     return this.authService.attachAgencyByInn(user.id, body.inn);
   }
 
+  // 2026-06-17: смена primary-агентства (при опечатке в ИНН).
+  @Post('me/agency/replace')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Заменить основное агентство брокера на новое по ИНН' })
+  async replaceAgency(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { inn: string },
+  ) {
+    return this.authService.replacePrimaryAgencyByInn(user.id, body.inn);
+  }
 }
