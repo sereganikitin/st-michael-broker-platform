@@ -37,6 +37,7 @@ on:
           - backfill-client-amo-lead-id
           - force-sync-lead
           - api-logs
+          - find-test-leads
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -276,6 +277,11 @@ jobs:
               APPLY_VAL='${{ inputs.apply }}'
               : ${APPLY_VAL:=false}
               $COMPOSE_CMD exec -T -e APPLY="$APPLY_VAL" api node /app/scripts/backfill-client-amo-lead-id.js
+            fi
+
+            if [ "$TASK" = "find-test-leads" ]; then
+              echo "=== find-test-leads (поиск тестовых лидов в amoCRM — НИЧЕГО НЕ УДАЛЯЕТ) ==="
+              $COMPOSE_CMD exec -T api node /app/scripts/find-test-leads.js
             fi
 
             if [ "$TASK" = "list-broker-leads" ]; then
