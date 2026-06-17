@@ -299,7 +299,7 @@ export default function MaterialsPage() {
           По вопросам получения материалов:&nbsp;
           <a href="tel:+74951504010" className="text-accent font-medium">+7 (495) 150-40-10</a>
           <span className="text-text-muted mx-3">•</span>
-          <a href="mailto:broker@stmichael.ru" className="text-accent font-medium">broker@stmichael.ru</a>
+          <a href="mailto:info@zorge9.com" className="text-accent font-medium">info@zorge9.com</a>
         </p>
       </div>
 

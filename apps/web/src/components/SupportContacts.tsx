@@ -17,8 +17,8 @@ export function SupportContacts({ title = 'Не получается войти?
         </div>
         <div>
           Email:{' '}
-          <a href="mailto:broker@stmichael.ru" className="text-accent hover:text-accent-hover">
-            broker@stmichael.ru
+          <a href="mailto:info@zorge9.com" className="text-accent hover:text-accent-hover">
+            info@zorge9.com
           </a>
         </div>
         <div>

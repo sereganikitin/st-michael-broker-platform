@@ -95,7 +95,7 @@ function renderEmailLayout(opts: {
           <p style="margin:0;font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#3a3a3a;">
             Telegram&nbsp;<a href="https://t.me/stmichael_broker" style="color:#B4936F;text-decoration:none;">@stmichael_broker</a>
             &nbsp;·&nbsp;
-            <a href="mailto:broker@stmichael.ru" style="color:#B4936F;text-decoration:none;">broker@stmichael.ru</a>
+            <a href="mailto:info@zorge9.com" style="color:#B4936F;text-decoration:none;">info@zorge9.com</a>
           </p>
         </td></tr>
       </table>

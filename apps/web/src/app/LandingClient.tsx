@@ -1073,7 +1073,7 @@ const DEFAULT_CONTACT = {
   blockTitle: 'Горячая линия по работе с партнёрами',
   phone: '+7 (499) 226-22-49',
   phoneHours: 'Ежедневно с 9:00 до 21:00',
-  email: 'broker@stmichael.ru',
+  email: 'info@zorge9.com',
   telegram: 'https://t.me/stmichaelBroker',
   managers: [
     {
