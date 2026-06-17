@@ -1,6 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
-import { AmoCrmAdapter } from '@st-michael/integrations';
+import { AmoCrmAdapter, MorekitAdapter, morekitPhone, morekitLeadDate } from '@st-michael/integrations';
+import { getSystemSetting } from '../common/system-setting';
 
 const KNOWN_KEYS = ['hero', 'advantages', 'commission', 'contact', 'howto', 'projectsSection', 'cooperation'] as const;
 
@@ -131,6 +132,7 @@ export class CmsService {
   // 2026-05-26: AmoCrmAdapter не зарегистрирован в DI этого модуля, создаём
   // напрямую. Использует env AMO_ACCESS_TOKEN.
   private amo = new AmoCrmAdapter();
+  private morekit = new MorekitAdapter();
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
 
   async getAllContent() {
@@ -495,6 +497,8 @@ export class CmsService {
     // 2026-05-26: параллельно создаём карточку в amoCRM (пайплайн БРОКЕРЫ)
     // — контакт с IS_BROKER + лид + задача КЦ. Если amo упал — не валим:
     // brokerId в нашей БД создан, синк может пройти позже.
+    let amoLeadId: number | undefined;
+    let amoContactId: number | undefined;
     try {
       const amo = await this.amo.createBrokerLeadFromLanding({
         brokerName: data.fullName,
@@ -503,14 +507,43 @@ export class CmsService {
         source: data.source === 'broker-tour' ? 'LANDING_BROKER_TOUR' : 'LANDING_FORM',
         note: data.note,
       });
-      if (amo?.contactId) {
+      amoLeadId = amo?.leadId;
+      amoContactId = amo?.contactId;
+      if (amoContactId) {
         await this.prisma.broker.update({
           where: { id: created.id },
-          data: { amoContactId: BigInt(amo.contactId) as any },
+          data: { amoContactId: BigInt(amoContactId) as any },
         }).catch(() => {});
       }
     } catch (e: any) {
       console.error('[upsertBrokerFromLandingLead] amo create failed:', e?.message || e);
+    }
+
+    // 2026-06-17: дублируем уведомление в Морикит — он создаст вторую задачу
+    // на КЦ-менеджере по графику смен (Ксения как руководитель направления
+    // может пропустить — нужен явный обзвон от КЦ-оператора). Лид остаётся
+    // на Ксении (PR #165), а задача Морикита уйдёт на текущего оператора КЦ.
+    if (amoLeadId) {
+      try {
+        const morekitUrl = await getSystemSetting(this.prisma, 'MOREKIT_WEBHOOK_URL');
+        if (morekitUrl) {
+          this.morekit.notifyFixation({
+            id: String(amoLeadId),
+            agency: '',
+            broker_id: amoContactId ? String(amoContactId) : '',
+            agent_name: data.fullName, // новый брокер сам же «агент»
+            agent_phone: morekitPhone(phone),
+            agent_mail: data.email || '',
+            budget: '0',
+            clients: [{ name: data.fullName, phone: morekitPhone(phone) }],
+            type: 'Брокер-тур',
+            lead_date: morekitLeadDate(),
+            project: data.source === 'broker-tour' ? 'Брокер-тур' : 'Заявка с лендинга',
+          }, morekitUrl).catch((e) => console.error('[upsertBrokerFromLandingLead] morekit notify error:', e?.message || e));
+        }
+      } catch (e: any) {
+        console.error('[upsertBrokerFromLandingLead] morekit setup failed:', e?.message || e);
+      }
     }
 
     return created.id;
