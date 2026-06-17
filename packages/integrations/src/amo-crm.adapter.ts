@@ -1152,11 +1152,21 @@ export class AmoCrmAdapter {
         ],
       });
 
+      // 2026-06-17: ответственный — менеджер брокеров (Ксения). Раньше lead
+      // и task создавались без responsible_user_id → попадали на тех.админа,
+      // КЦ-менеджер их в своих фильтрах НЕ видел. Берём из env: сначала
+      // AMO_BROKER_MEETINGS_MANAGER_ID (Ксения, уже настроена), иначе
+      // AMO_DEFAULT_RESPONSIBLE_USER_ID. Если оба пусты — оставляем как было.
+      const brokerMgrEnv = process.env.AMO_BROKER_MEETINGS_MANAGER_ID
+        || process.env.AMO_DEFAULT_RESPONSIBLE_USER_ID;
+      const responsibleUserId = brokerMgrEnv ? Number(brokerMgrEnv) : undefined;
+
       // 2) Лид в пайплайне брокеров
       const lead = await this.createLead({
         name: `Заявка с лендинга — ${data.brokerName}`,
         pipeline_id: 10787390, // BROKERS
         contacts: contact?.id ? [{ id: contact.id }] : undefined,
+        ...(responsibleUserId ? { responsible_user_id: responsibleUserId } : {}),
       } as any);
 
       // 3) Примечание и задача
@@ -1177,8 +1187,11 @@ export class AmoCrmAdapter {
             entityId: lead.id,
             taskTypeId: 1, // звонок
             completeTillSec: Math.floor(Date.now() / 1000) + 4 * 60 * 60, // 4 часа — новый лид срочно
+            responsibleUserId,
           });
-        } catch {}
+        } catch (e: any) {
+          console.error('[createBrokerLeadFromLanding] task failed:', e?.message || e);
+        }
       }
 
       return { contactId: contact?.id, leadId: lead?.id };
