@@ -806,10 +806,12 @@ export class ClientFixationService {
         lines.push(``);
         lines.push(`Комментарий брокера: ${data.comment}`);
       }
+      console.log(`[handleRule1Or2Alarm] пишу alarm-нота + задача в КЦ-лид ${targetLead.id} (pipeline=${targetLead.pipeline_id} status=${targetLead.status_id})`);
       try {
         await this.amoCrmAdapter.addNoteToLead(targetLead.id, lines.join('\n'));
+        console.log(`[handleRule1Or2Alarm] note записана в лид ${targetLead.id}`);
       } catch (e: any) {
-        console.error('[handleRule1Or2Alarm] note failed:', e?.message || e);
+        console.error(`[handleRule1Or2Alarm] note failed для лида ${targetLead.id}:`, e?.message || e);
       }
 
       const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);

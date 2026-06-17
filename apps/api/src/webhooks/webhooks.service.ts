@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
-import { AmoCrmAdapter } from '@st-michael/integrations';
+import { AmoCrmAdapter, isSalesPipeline, isSalesExceptionStatus, isSalesDealStatus } from '@st-michael/integrations';
 import * as crypto from 'crypto';
 
 const UNIQUENESS_DAYS = 30;
@@ -607,6 +607,112 @@ export class WebhooksService {
             },
           });
           this.logger.log(`Client ${ec.id}: EXCEPTION UNDER_REVIEW → CONDITIONALLY_UNIQUE (брокер A провалился на лиде ${leadId})`);
+        }
+      }
+    }
+
+    // 2026-06-17: ретро-обработка sales-pipeline переходов. Если sales-лид
+    // (Зорге/Берзарина/Толбухина) перешёл в exception stage (Встреча
+    // проведена, думают / Отложенный / Устная бронь / Снята бронь) или
+    // в deal stage (Платная бронь и далее), нужно ретроактивно обновить
+    // параллельных брокеров — тех, кто зафиксировался до того, как sales
+    // достиг этой стадии (и тогда они получили CONDITIONALLY_UNIQUE по
+    // RULE_3, потому что sales ещё не было в exception/deal стадии).
+    //
+    // Параллельный брокер = тот, чей amoContactId НЕ в списке contacts
+    // этого sales-лида. Брокер A (тот, кто привёл клиента) — прикреплён.
+    if (isSalesPipeline(leadPipelineId)) {
+      let phones: string[] = Array.from(new Set(clients.map((c) => c.phone))).filter(Boolean) as string[];
+      if (phones.length === 0) {
+        // Если у нас нет Client'ов на этом sales-лиде (брокер A фиксировался
+        // не через нас, а Морикит создал sales), достанем телефоны из
+        // контактов лида.
+        const contactIds: number[] = ((lead?._embedded?.contacts as any[]) || [])
+          .map((c) => Number(c.id))
+          .filter((id) => !isNaN(id));
+        const phonesSet = new Set<string>();
+        for (const cid of contactIds) {
+          try {
+            const contact: any = await this.amo.getContact(cid);
+            const pf = contact?.custom_fields_values?.find((f: any) => f.field_code === 'PHONE');
+            for (const v of (pf?.values || [])) {
+              const raw = String(v?.value || '').replace(/\D/g, '');
+              if (raw.length === 11) phonesSet.add('+' + raw);
+              else if (raw.length === 10) phonesSet.add('+7' + raw);
+            }
+          } catch (e: any) {
+            this.logger.warn(`[sales-retroactive] getContact ${cid} failed: ${e?.message || e}`);
+          }
+        }
+        phones = Array.from(phonesSet);
+      }
+
+      if (phones.length > 0) {
+        const isExceptionStage = isSalesExceptionStatus(leadPipelineId, leadStatusId);
+        const isDealStage = isSalesDealStatus(leadPipelineId, leadStatusId);
+
+        if (isExceptionStage) {
+          // Параллельные брокеры с CONDITIONALLY_UNIQUE → UNDER_REVIEW + EXCEPTION marker
+          const candidates = await this.prisma.client.findMany({
+            where: {
+              phone: { in: phones },
+              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+            },
+            include: { broker: { select: { amoContactId: true } } },
+          });
+          for (const c of candidates) {
+            const brokerAmoId = c.broker?.amoContactId ? Number(c.broker.amoContactId) : null;
+            const brokerOnLead = brokerAmoId && leadContactIds.includes(brokerAmoId);
+            if (brokerOnLead) continue; // это брокер A на этом лиде, пропускаем
+            await this.prisma.client.update({
+              where: { id: c.id },
+              data: {
+                uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
+                uniquenessReason: `EXCEPTION_AFTER_SALES_MEETING:${leadId} sales-карточка в exception stage`,
+                uniquenessExpiresAt: null,
+              },
+            });
+            await this.prisma.auditLog.create({
+              data: {
+                action: 'UNIQUENESS_RESOLVED',
+                entity: 'Client',
+                entityId: c.id,
+                payload: { trigger: 'SALES_REACHED_EXCEPTION_STAGE', amoLeadId: leadId, leadStatusId },
+              },
+            });
+            this.logger.log(`Client ${c.id}: CONDITIONALLY_UNIQUE → UNDER_REVIEW (sales lead ${leadId} в exception stage, брокер ${brokerAmoId} не прикреплён)`);
+          }
+        } else if (isDealStage) {
+          // Параллельные брокеры с любым активным → REJECTED
+          const candidates = await this.prisma.client.findMany({
+            where: {
+              phone: { in: phones },
+              uniquenessStatus: { in: [UniquenessStatus.CONDITIONALLY_UNIQUE, UniquenessStatus.UNDER_REVIEW] },
+            },
+            include: { broker: { select: { amoContactId: true } } },
+          });
+          for (const c of candidates) {
+            const brokerAmoId = c.broker?.amoContactId ? Number(c.broker.amoContactId) : null;
+            const brokerOnLead = brokerAmoId && leadContactIds.includes(brokerAmoId);
+            if (brokerOnLead) continue;
+            await this.prisma.client.update({
+              where: { id: c.id },
+              data: {
+                uniquenessStatus: UniquenessStatus.REJECTED,
+                uniquenessReason: `Sales-карточка перешла в стадию сделки, ваша фиксация отклонена`,
+                uniquenessExpiresAt: null,
+              },
+            });
+            await this.prisma.auditLog.create({
+              data: {
+                action: 'UNIQUENESS_RESOLVED',
+                entity: 'Client',
+                entityId: c.id,
+                payload: { trigger: 'SALES_REACHED_DEAL_STAGE', amoLeadId: leadId, leadStatusId },
+              },
+            });
+            this.logger.log(`Client ${c.id}: → REJECTED (sales lead ${leadId} в deal stage, брокер ${brokerAmoId} не прикреплён)`);
+          }
         }
       }
     }
