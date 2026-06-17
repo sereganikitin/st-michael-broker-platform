@@ -21,7 +21,7 @@ function configureWebPush() {
   if (webPushConfigured) return;
   const pub = process.env.VAPID_PUBLIC_KEY;
   const prv = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT || 'mailto:broker@stmichael.ru';
+  const subject = process.env.VAPID_SUBJECT || 'mailto:info@zorge9.com';
   if (pub && prv) {
     webpush.setVapidDetails(subject, pub, prv);
     webPushConfigured = true;
