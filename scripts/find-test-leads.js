@@ -3,10 +3,9 @@
  * Поиск «тестовых» лидов в amoCRM — кандидатов на удаление.
  * НИЧЕГО НЕ УДАЛЯЕТ. Только печатает список.
  *
- * Эвристика «тестовый»:
- *   - имя лида или контакта содержит: test, тест, asdf, qwer, broker_test
- *   - имя контакта = повтор одного слова ("test1 test1 test1")
- *   - имя контакта целиком 1–2 символа (одна буква, "А" / "Б")
+ * Условия (2026-06-17 v2 — по ТЗ пользователя):
+ *   - UTM source = «Заявка от брокера» (field_id 618551), ИЛИ
+ *   - Имя лида / имя контакта содержит "тест" / "test"
  *
  * Запуск: workflow seed-data, task=find-test-leads
  */
@@ -19,8 +18,9 @@ const PIPELINES = {
   10787390: 'Брокеры',
 };
 
-const TEST_QUERIES = ['test', 'тест', 'asdf', 'qwer', 'broker_test'];
-const TEST_RE = /(test|тест|asdf|qwer|broker_test)/i;
+const UTM_SOURCE_FIELD_ID = 618551; // «Источник / utm_source»
+const BROKER_UTM_VALUE = 'Заявка от брокера';
+const TEST_RE = /(test|тест)/i;
 
 (async () => {
   const subdomain = process.env.AMO_SUBDOMAIN || 'stmichael';
@@ -35,15 +35,15 @@ const TEST_RE = /(test|тест|asdf|qwer|broker_test)/i;
 
   const headers = { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' };
 
-  async function searchLeads(query) {
+  async function fetchAllLeadsInPipeline(pipelineId) {
     const out = [];
     let page = 1;
     while (true) {
-      const url = `${BASE}/leads?query=${encodeURIComponent(query)}&with=contacts&limit=250&page=${page}`;
+      const url = `${BASE}/leads?filter[pipeline_id][]=${pipelineId}&with=contacts&limit=250&page=${page}`;
       const r = await fetch(url, { headers });
       if (r.status === 204 || r.status === 404) break;
       if (!r.ok) {
-        console.error(`HTTP ${r.status} on query=${query} page=${page}`);
+        console.error(`HTTP ${r.status} on pipeline ${pipelineId} page ${page}`);
         break;
       }
       const data = await r.json();
@@ -52,7 +52,7 @@ const TEST_RE = /(test|тест|asdf|qwer|broker_test)/i;
       out.push(...leads);
       if (leads.length < 250) break;
       page++;
-      if (page > 20) break;
+      if (page > 50) break;
     }
     return out;
   }
@@ -73,46 +73,55 @@ const TEST_RE = /(test|тест|asdf|qwer|broker_test)/i;
     }
   }
 
-  function looksTest(name) {
-    if (!name) return false;
-    if (TEST_RE.test(name)) return true;
-    const cleaned = name.replace(/\s+/g, '');
-    if (cleaned.length <= 2) return true;
-    const parts = name.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2 && parts.every((p) => p === parts[0])) return true;
-    return false;
+  function getUtmSource(lead) {
+    const f = (lead.custom_fields_values || []).find((x) => x.field_id === UTM_SOURCE_FIELD_ID);
+    if (!f) return '';
+    return String(f.values?.[0]?.value || '');
   }
 
-  // 1) Поисковые запросы по подстроке
-  const seen = new Map(); // leadId -> lead
-  for (const q of TEST_QUERIES) {
-    const leads = await searchLeads(q);
-    console.log(`query "${q}": найдено ${leads.length} лидов`);
-    for (const l of leads) seen.set(l.id, l);
-  }
-
-  // 2) Резолвим имя контакта для каждого и фильтруем
   const candidates = [];
-  for (const lead of seen.values()) {
-    const leadName = String(lead.name || '');
-    const contactRefs = lead._embedded?.contacts || [];
-    let cname = '';
-    for (const ref of contactRefs) {
-      if (!ref?.id) continue;
-      const n = await getContactName(ref.id);
-      if (n) { cname = n; break; }
+  for (const [pid, pname] of Object.entries(PIPELINES)) {
+    console.log(`\n--- ${pname} (${pid}) ---`);
+    const leads = await fetchAllLeadsInPipeline(Number(pid));
+    console.log(`  всего лидов: ${leads.length}`);
+    let countBrokerUtm = 0;
+    let countTestName = 0;
+    for (const lead of leads) {
+      const leadName = String(lead.name || '');
+      const utmSource = getUtmSource(lead);
+      const isBrokerUtm = utmSource === BROKER_UTM_VALUE;
+
+      // Имя контакта берём только если нужно — если уже brokerUtm, всё равно резолвим для отображения.
+      const contactRefs = lead._embedded?.contacts || [];
+      let cname = '';
+      const needsContactCheck = !isBrokerUtm; // если уже broker — контакт нужен только для отображения
+      for (const ref of contactRefs) {
+        if (!ref?.id) continue;
+        const n = await getContactName(ref.id);
+        if (n) { cname = n; break; }
+      }
+
+      const nameHasTest = TEST_RE.test(leadName) || TEST_RE.test(cname);
+
+      if (isBrokerUtm) countBrokerUtm++;
+      if (nameHasTest) countTestName++;
+
+      if (isBrokerUtm || nameHasTest) {
+        candidates.push({
+          leadId: lead.id,
+          pipelineName: pname,
+          statusId: lead.status_id,
+          createdAt: lead.created_at ? new Date(lead.created_at * 1000).toISOString().slice(0, 10) : '—',
+          leadName,
+          contactName: cname,
+          matchedBy: [
+            isBrokerUtm ? 'broker-utm' : null,
+            nameHasTest ? 'test-name' : null,
+          ].filter(Boolean).join('+'),
+        });
+      }
     }
-    if (looksTest(leadName) || looksTest(cname)) {
-      candidates.push({
-        leadId: lead.id,
-        pipelineId: lead.pipeline_id,
-        pipelineName: PIPELINES[lead.pipeline_id] || `?${lead.pipeline_id}`,
-        statusId: lead.status_id,
-        createdAt: lead.created_at ? new Date(lead.created_at * 1000).toISOString().slice(0, 10) : '—',
-        leadName,
-        contactName: cname,
-      });
-    }
+    console.log(`  broker-utm: ${countBrokerUtm}, test-name: ${countTestName}`);
   }
 
   candidates.sort((a, b) => String(a.pipelineName).localeCompare(String(b.pipelineName)) || a.leadId - b.leadId);
@@ -121,17 +130,17 @@ const TEST_RE = /(test|тест|asdf|qwer|broker_test)/i;
   console.log(`Кандидаты на удаление: ${candidates.length}`);
   console.log(`═══════════════════════════════════════════════════════════════════════════════════`);
   console.log(
-    `leadId    | pipeline       | status   | created    | leadName                       | contactName`,
+    `leadId    | pipeline       | status   | created    | match        | leadName                       | contactName`,
   );
   console.log(
-    `----------|----------------|----------|------------|--------------------------------|------------`,
+    `----------|----------------|----------|------------|--------------|--------------------------------|------------`,
   );
   for (const c of candidates) {
     console.log(
-      `${String(c.leadId).padEnd(9)} | ${c.pipelineName.padEnd(14)} | ${String(c.statusId).padEnd(8)} | ${c.createdAt.padEnd(10)} | ${c.leadName.slice(0, 30).padEnd(30)} | ${c.contactName}`,
+      `${String(c.leadId).padEnd(9)} | ${c.pipelineName.padEnd(14)} | ${String(c.statusId).padEnd(8)} | ${c.createdAt.padEnd(10)} | ${c.matchedBy.padEnd(12)} | ${c.leadName.slice(0, 30).padEnd(30)} | ${c.contactName}`,
     );
   }
-  console.log(`\nЕсли список ОК — следующим шагом запустим delete-test-leads с этими ID.`);
+  console.log(`\nЕсли список ОК — следующим шагом сделаю delete-test-leads с этими ID.`);
 })().catch((e) => {
   console.error('Error:', e?.message || e);
   if (e?.stack) console.error(e.stack);
