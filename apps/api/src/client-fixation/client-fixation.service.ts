@@ -688,14 +688,28 @@ export class ClientFixationService {
     // попытку в списке кабинета (хотя в amoCRM прилетал второй ALARM).
     //
     // 2026-06-15 fix-3: повторным Client ОБЯЗАТЕЛЬНО ставим amoLeadId =
-    // triggerLeadId — лид в amo тот же, к нему фактически прикреплены
-    // оба брокера (linkContactToLead в RULE_1). Без amoLeadId webhook
-    // на open/close лида (КЦ открепил брокера) не находил Client второго
-    // брокера и его статус оставался «Уникален» вечно. Множественные
-    // Client с одним amoLeadId — это нормально, нет unique constraint;
-    // syncBrokerAttachmentFromLead итерирует всех findMany.
+    // triggerLeadId.
+    //
+    // 2026-06-17: для RULE_2 (КЦ 62907286 «Встреча назначена») вводим
+    // маркер RULE_2_KC_PENDING — он защищает Client от лифта в webhook
+    // PR #148 (attached → CONDITIONALLY_UNIQUE). Лифт сработает только
+    // когда КЦ продвинет лид к 142 «Встреча проведена» (и брокер всё
+    // ещё прикреплён). Это даёт КЦ время разобраться: проигравшего
+    // отдетачить (тогда он → REJECTED), победителя оставить.
     const isRule1 = amoVerdict.rule === 'RULE_1';
+    const isRule2Kc =
+      amoVerdict.rule === 'RULE_2' &&
+      Array.isArray(amoVerdict.leads) &&
+      amoVerdict.leads.some(
+        (l: any) => l.id === amoVerdict.triggerLeadId && l.pipeline_id === 7600542 && l.status_id === 62907286,
+      );
     const triggerLeadIdNum = amoVerdict.triggerLeadId ? Number(amoVerdict.triggerLeadId) : null;
+    const baseReason = existingClient
+      ? `Повторная фиксация. ${amoVerdict.reason}`
+      : `АЛАРМ из amoCRM: ${amoVerdict.reason}`;
+    const reasonWithMarker = isRule2Kc
+      ? `RULE_2_KC_PENDING:${triggerLeadIdNum || ''} ${baseReason}`
+      : baseReason;
     const client = await this.prisma.client.create({
       data: {
         brokerId,
@@ -712,9 +726,7 @@ export class ClientFixationService {
           uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
         }),
         ...(triggerLeadIdNum && { amoLeadId: BigInt(triggerLeadIdNum) }),
-        uniquenessReason: existingClient
-          ? `Повторная фиксация. ${amoVerdict.reason}`
-          : `АЛАРМ из amoCRM: ${amoVerdict.reason}`,
+        uniquenessReason: reasonWithMarker,
         ...fixationFormFields,
       },
     });
@@ -761,16 +773,22 @@ export class ClientFixationService {
       // Повторная фиксация ТЕМ ЖЕ брокером — он уже на лиде, не делаем
       // повторный POST /leads/{id}/link (amo всё равно идемпотентно вернёт
       // успех, но семантически бессмысленно).
+      //
+      // 2026-06-17: для RULE_2 КЦ MEETING_SCHEDULED (62907286) тоже
+      // прикрепляем брокера B контактом — чтобы КЦ-менеджер сразу видел
+      // в карточке всех претендентов. Маркер RULE_2_KC_PENDING защищает
+      // от автолифта в webhook.
       const isSameBrokerRefix = !!(existingClient && existingClient.brokerId === brokerId);
-      if (isRule1 && broker.amoContactId && !isSameBrokerRefix) {
+      const shouldAttach = (isRule1 || isRule2Kc) && broker.amoContactId && !isSameBrokerRefix;
+      if (shouldAttach) {
         try {
           await this.amoCrmAdapter.linkContactToLead(
             targetLead.id,
             Number(broker.amoContactId),
           );
-          console.log(`[handleRule1Or2Alarm] брокер ${broker.amoContactId} прикреплён к лиду ${targetLead.id}`);
+          console.log(`[handleRule1Or2Alarm] брокер ${broker.amoContactId} прикреплён к лиду ${targetLead.id} (rule=${amoVerdict.rule})`);
         } catch (e: any) {
-          console.error('[handleRule1Or2Alarm] linkContactToLead failed:', e?.message || e);
+          console.error(`[handleRule1Or2Alarm] linkContactToLead failed для лида ${targetLead.id}:`, e?.message || e);
         }
       }
 

@@ -482,6 +482,38 @@ export class WebhooksService {
       const isExceptionClient = !!client.uniquenessReason?.startsWith('EXCEPTION_AFTER_SALES_MEETING:');
       const exceptionLiftStatuses = new Set([62907282, 62907286, 142]); // QUALIFIED, MEETING_SCHEDULED, MEETING_HELD
 
+      // 2026-06-17: маркер «RULE_2_KC_PENDING» — Client был создан при
+      // фиксации, когда у клиента уже была КЦ-карточка на 62907286
+      // «Встреча назначена». Брокер B прикреплён контактом, но статус
+      // UNDER_REVIEW. Лифт ТОЛЬКО когда лид достиг 142 «Встреча проведена»
+      // (КЦ выбрал победителя — он остался прикреплён, проигравшие
+      // отдетачены, идут в REJECTED через стандартный путь).
+      const isRule2KcPending = !!client.uniquenessReason?.startsWith('RULE_2_KC_PENDING:');
+
+      if (attached && isRule2KcPending && client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW) {
+        if (leadStatusId === 142 && leadPipelineId === 7600542) {
+          await this.prisma.client.update({
+            where: { id: client.id },
+            data: {
+              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+              uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+              uniquenessReason: `КЦ продвинул лид к «Встреча проведена», вы остались прикреплённым — уникальность подтверждена`,
+            },
+          });
+          await this.prisma.auditLog.create({
+            data: {
+              action: 'UNIQUENESS_RESOLVED',
+              entity: 'Client',
+              entityId: client.id,
+              payload: { trigger: 'RULE_2_KC_LIFTED_AT_MEETING_HELD', amoLeadId: leadId },
+            },
+          });
+          this.logger.log(`Client ${client.id}: RULE_2_KC UNDER_REVIEW → CONDITIONALLY_UNIQUE (лид ${leadId} → 142 «Встреча проведена»)`);
+        }
+        // Иначе остаёмся в UNDER_REVIEW (КЦ ещё не выбрал победителя)
+        continue;
+      }
+
       if (attached && isExceptionClient && client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW) {
         if (exceptionLiftStatuses.has(leadStatusId)) {
           await this.prisma.client.update({
