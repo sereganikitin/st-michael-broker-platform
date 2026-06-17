@@ -486,12 +486,28 @@ export class AmoCrmAdapter {
   // 2026-06-11 v2: Морикит создаёт задачу через ~30 сек после webhook'а
   // (по наблюдению на тестовом лиде 32208713). Раньше делали одну проверку
   // через 8 сек — не успевали. Теперь polling: 10 сек × 6 попыток = до 60 сек.
+  //
+  // 2026-06-17: до 5 минут (30×10с) — был кейс с лидом 32216265 (RULE_EXCEPTION
+  // _AFTER_SALES_MEETING), когда Морикит-задача появилась после 60с и polling
+  // её не дождался → ответственный на лиде остался админом. ПЛЮС: захватываем
+  // initialResponsible при старте и обновляем ТОЛЬКО если он не изменился
+  // (защита от перетирания, если КЦ-менеджер вручную взял лид во время
+  // polling).
   async syncLeadResponsibleFromLatestTask(
     leadId: number,
     opts: { intervalMs?: number; maxAttempts?: number } = {},
   ): Promise<boolean> {
     const intervalMs = opts.intervalMs ?? 10000;
-    const maxAttempts = opts.maxAttempts ?? 6;
+    const maxAttempts = opts.maxAttempts ?? 30;
+    // Фиксируем начального ответственного — если кто-то вручную возьмёт лид
+    // во время polling, не перетираем его выбор.
+    let initialResponsible: number | undefined;
+    try {
+      const initial = await this.getLead(leadId);
+      initialResponsible = (initial as any)?.responsible_user_id;
+    } catch (e: any) {
+      console.warn(`[sync-lead-responsible] lead=${leadId} initial getLead failed:`, e?.message || e);
+    }
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       if (intervalMs > 0) await sleep(intervalMs);
       try {
@@ -504,6 +520,15 @@ export class AmoCrmAdapter {
         const lead = await this.getLead(leadId);
         const currentResponsible = (lead as any)?.responsible_user_id;
         if (currentResponsible === latest.responsible_user_id) return false;
+        // Защита от перетирания ручного выбора КЦ-менеджера: если responsible
+        // на лиде УЖЕ изменился относительно начального — значит кто-то
+        // вручную взял лид → не трогаем.
+        if (initialResponsible !== undefined && currentResponsible !== initialResponsible) {
+          console.log(
+            `[sync-lead-responsible] lead=${leadId} skip — responsible изменился вручную (${initialResponsible} → ${currentResponsible}), не перетираем`,
+          );
+          return false;
+        }
         await this.updateLead(leadId, { responsible_user_id: latest.responsible_user_id });
         console.log(
           `[sync-lead-responsible] lead=${leadId} updated: ${currentResponsible} → ${latest.responsible_user_id} (task ${latest.id}, attempt ${attempt})`,
@@ -514,7 +539,7 @@ export class AmoCrmAdapter {
       }
     }
     console.warn(
-      `[sync-lead-responsible] lead=${leadId}: задачу с responsible не нашли за ${(maxAttempts * intervalMs) / 1000}с — backup cron поймает позже`,
+      `[sync-lead-responsible] lead=${leadId}: задачу с responsible не нашли за ${(maxAttempts * intervalMs) / 1000}с — Морикит залип?`,
     );
     return false;
   }
