@@ -256,9 +256,11 @@ jobs:
               echo "=== api-logs ==="
               FILTER='${{ inputs.phone }}'
               if [ -n "$FILTER" ]; then
-                $COMPOSE_CMD logs --tail 2000 api 2>&1 | grep -i -E "(handleRule|alarm|fixClient|note|task|$FILTER)" | tail -80
+                echo "--- filter: $FILTER ---"
+                $COMPOSE_CMD logs --tail 3000 api 2>&1 | grep -i "$FILTER" | tail -100
               else
-                $COMPOSE_CMD logs --tail 800 api 2>&1 | grep -i -E "handleRule|alarm|fixClient|note|task" | tail -80
+                echo "--- last 150 lines ---"
+                $COMPOSE_CMD logs --tail 200 api 2>&1 | tail -150
               fi
             fi
 
