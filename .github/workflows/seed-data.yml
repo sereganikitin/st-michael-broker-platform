@@ -293,15 +293,19 @@ jobs:
               echo "  размер dump: $(du -h "$TMP/db-$TS.sql.gz" | cut -f1)"
 
               echo "→ tar uploads (если есть)"
-              if [ -d uploads ]; then
-                tar -czf "$TMP/uploads-$TS.tar.gz" uploads
+              if tar -czf "$TMP/uploads-$TS.tar.gz" uploads 2>/dev/null; then
                 echo "  размер uploads: $(du -h "$TMP/uploads-$TS.tar.gz" | cut -f1)"
               else
-                echo "  uploads/ не найден — пропускаю"
+                rm -f "$TMP/uploads-$TS.tar.gz"
+                echo "  uploads/ не найден или пустой — пропускаю"
               fi
 
-              echo "→ копирую .env (без логов)"
-              cp .env "$TMP/.env.$TS" 2>/dev/null || echo "  .env не найден — пропускаю"
+              echo "→ копирую .env"
+              if cp .env "$TMP/.env.$TS" 2>/dev/null; then
+                echo "  .env скопирован"
+              else
+                echo "  .env не найден — пропускаю"
+              fi
 
               echo "→ собираю tarball"
               tar -czf "$BACKUP_DIR/backup-$TS.tar.gz" -C "$TMP" .
