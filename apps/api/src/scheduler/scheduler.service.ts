@@ -766,4 +766,72 @@ export class SchedulerService {
       console.error('[alertAmoDown] failed:', e?.message || e);
     }
   }
+
+  // 2026-06-18: SMTP health-check каждые 5 мин (был кейс — auth провалился,
+  // forgot-password и welcome-email тихо не уходили несколько часов).
+  // nodemailer.verify() делает connect + EHLO + AUTH без отправки —
+  // ловим и connection-fail, и auth-fail. Первый раз — лог-error + Telegram
+  // менеджерам; повтор — раз в час.
+  private smtpHealthState: { lastOk: boolean; lastErrorAt: number } = { lastOk: true, lastErrorAt: 0 };
+
+  @Cron('*/5 * * * *')
+  async handleSmtpHealthCheck() {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER) return;
+    let nodemailer: any;
+    try { nodemailer = require('nodemailer'); } catch { return; }
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 465),
+      secure: process.env.SMTP_SECURE !== 'false',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      tls: { rejectUnauthorized: false },
+    });
+    try {
+      await transporter.verify();
+      if (!this.smtpHealthState.lastOk) {
+        this.logger.log('smtp health: восстановился ✓');
+        this.smtpHealthState.lastOk = true;
+      }
+    } catch (e: any) {
+      const error = String(e?.message || e).slice(0, 200);
+      if (this.smtpHealthState.lastOk) {
+        this.logger.error(`smtp health: упал — ${error}`);
+        this.smtpHealthState.lastOk = false;
+        this.smtpHealthState.lastErrorAt = Date.now();
+        await this.alertSmtpDown(error);
+      } else if (Date.now() - this.smtpHealthState.lastErrorAt > 60 * 60 * 1000) {
+        await this.alertSmtpDown(error);
+        this.smtpHealthState.lastErrorAt = Date.now();
+      }
+    } finally {
+      try { transporter.close?.(); } catch {}
+    }
+  }
+
+  private async alertSmtpDown(error: string) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'SMTP_DOWN',
+          entity: 'System',
+          entityId: 'smtp',
+          payload: { error, at: new Date().toISOString() },
+        },
+      });
+      const managers = await this.prisma.broker.findMany({
+        where: { role: 'MANAGER', status: 'ACTIVE' },
+        select: { id: true },
+      });
+      for (const m of managers) {
+        await this.notificationQueue.add('send', {
+          brokerId: m.id,
+          channel: 'TELEGRAM',
+          subject: '⚠ SMTP недоступен',
+          body: `SMTP (mail.stmichael.ru) не отвечает: ${error}. Forgot-password и welcome-email не уходят. Проверь .env и Exchange.`,
+        }).catch(() => {});
+      }
+    } catch (e: any) {
+      console.error('[alertSmtpDown] failed:', e?.message || e);
+    }
+  }
 }
