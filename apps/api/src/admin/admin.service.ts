@@ -445,11 +445,15 @@ export class AdminService {
         // Upsert broker by phone
         const existing = await this.prisma.broker.findUnique({ where: { phone } });
         if (existing) {
+          // 2026-06-18: НЕ перетираем fullName и email брокера данными из amoCRM —
+          // внутри amo администраторы любят дописывать к имени служебные пометки
+          // («Савицкий Владимир (теперь Антон)»), которые брокеру в кабинете
+          // показывать нельзя. Заполняем эти поля ТОЛЬКО если в нашей БД пусто.
           await this.prisma.broker.update({
             where: { id: existing.id },
             data: {
-              fullName: contact.name || existing.fullName,
-              email: email || existing.email,
+              ...(existing.fullName ? {} : { fullName: contact.name || 'Без имени' }),
+              ...(existing.email ? {} : email ? { email } : {}),
               amoContactId: BigInt(contactId),
             },
           });
