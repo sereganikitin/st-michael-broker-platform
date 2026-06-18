@@ -125,15 +125,9 @@ export class AuthService {
     ip?: string | null,
     userAgent?: string | null,
   ) {
-    // 2026-06-15 (правки Ксении KB5 #5): без обоих согласий регистрация
-    // невозможна. Чекбоксы блокирующие. После регистрации логируем акцепт
-    // оферты и согласия на ПД с ip / userAgent / версией документа.
-    if (!data.offerAccepted) {
-      throw new BadRequestException('Необходимо принять условия Договора-оферты');
-    }
-    if (!data.privacyAccepted) {
-      throw new BadRequestException('Необходимо дать согласие на обработку персональных данных');
-    }
+    // 2026-06-18: согласия больше не обязательны (отдельная договорённость
+    // с юристами, ставится позже). Регистрация проходит независимо от
+    // галочек. Если галочки стоят — ниже логируем акцепт с ip/ua/версией.
     // Normalize composite fullName from parts if provided
     if (!data.fullName && (data.firstName || data.lastName)) {
       data.fullName = [data.lastName, data.firstName, data.middleName].filter(Boolean).join(' ').trim();
@@ -224,37 +218,39 @@ export class AuthService {
       });
     }
 
-    // 2026-06-15: логируем акцепт оферты и согласия на ПД. Версии берём
-    // из текущих документов через сервисы (либо из SiteContent, либо из
-    // DEFAULT_*-констант). Если документ ещё не в кеше — fallback на
-    // ISO-дату — это не критично, главное факт акцепта зафиксирован.
-    try {
-      const offerCurrent = await this.prisma.siteContent.findUnique({ where: { key: 'offer_terms' } });
-      const offerVersion = ((offerCurrent?.value as any)?.version as string) || '2026-06-15';
-      await this.prisma.offerAcceptance.create({
-        data: {
-          brokerId: broker.id,
-          offerVersion,
-          ip: ip || null,
-          userAgent: userAgent || null,
-        },
-      });
-    } catch (e: any) {
-      console.error('[register] offer acceptance log failed:', e?.message || e);
+    // 2026-06-18: акцепты логируем ТОЛЬКО если брокер сам отметил галочку
+    // при регистрации. Не отметил — не пишем (отдельный шаг позже).
+    if (data.offerAccepted) {
+      try {
+        const offerCurrent = await this.prisma.siteContent.findUnique({ where: { key: 'offer_terms' } });
+        const offerVersion = ((offerCurrent?.value as any)?.version as string) || '2026-06-15';
+        await this.prisma.offerAcceptance.create({
+          data: {
+            brokerId: broker.id,
+            offerVersion,
+            ip: ip || null,
+            userAgent: userAgent || null,
+          },
+        });
+      } catch (e: any) {
+        console.error('[register] offer acceptance log failed:', e?.message || e);
+      }
     }
-    try {
-      const privacyCurrent = await this.prisma.siteContent.findUnique({ where: { key: 'privacy_terms' } });
-      const privacyVersion = ((privacyCurrent?.value as any)?.version as string) || '2026-06-15';
-      await this.prisma.privacyAcceptance.create({
-        data: {
-          brokerId: broker.id,
-          privacyVersion,
-          ip: ip || null,
-          userAgent: userAgent || null,
-        },
-      });
-    } catch (e: any) {
-      console.error('[register] privacy acceptance log failed:', e?.message || e);
+    if (data.privacyAccepted) {
+      try {
+        const privacyCurrent = await this.prisma.siteContent.findUnique({ where: { key: 'privacy_terms' } });
+        const privacyVersion = ((privacyCurrent?.value as any)?.version as string) || '2026-06-15';
+        await this.prisma.privacyAcceptance.create({
+          data: {
+            brokerId: broker.id,
+            privacyVersion,
+            ip: ip || null,
+            userAgent: userAgent || null,
+          },
+        });
+      } catch (e: any) {
+        console.error('[register] privacy acceptance log failed:', e?.message || e);
+      }
     }
 
     // 2026-06-09: welcome-email брокеру при регистрации.
