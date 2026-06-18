@@ -287,13 +287,15 @@ jobs:
               TS=$(date -u +%Y%m%d-%H%M%S)
               TMP=$(mktemp -d)
 
-              echo "→ pg_dump postgres"
-              $COMPOSE_CMD exec -T postgres pg_dump -U "${POSTGRES_USER:-stmichael}" "${POSTGRES_DB:-stmichael}" \
+              echo "→ pg_dump (через postgres-контейнер — env \$POSTGRES_USER/DB доступны внутри)"
+              $COMPOSE_CMD exec -T postgres bash -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \
                 | gzip > "$TMP/db-$TS.sql.gz"
+              echo "  размер dump: $(du -h "$TMP/db-$TS.sql.gz" | cut -f1)"
 
               echo "→ tar uploads (если есть)"
               if [ -d uploads ]; then
                 tar -czf "$TMP/uploads-$TS.tar.gz" uploads
+                echo "  размер uploads: $(du -h "$TMP/uploads-$TS.tar.gz" | cut -f1)"
               else
                 echo "  uploads/ не найден — пропускаю"
               fi
