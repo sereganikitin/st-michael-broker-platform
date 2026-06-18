@@ -38,6 +38,7 @@ on:
           - force-sync-lead
           - api-logs
           - find-test-leads
+          - full-backup
       admin_phone:
         description: 'Телефон админа (для task=create-admin), формат +7XXXXXXXXXX'
         required: false
@@ -277,6 +278,39 @@ jobs:
               APPLY_VAL='${{ inputs.apply }}'
               : ${APPLY_VAL:=false}
               $COMPOSE_CMD exec -T -e APPLY="$APPLY_VAL" api node /app/scripts/backfill-client-amo-lead-id.js
+            fi
+
+            if [ "$TASK" = "full-backup" ]; then
+              echo "=== full-backup (БД + uploads + .env → /var/backups/stmichael) ==="
+              BACKUP_DIR=/var/backups/stmichael
+              sudo mkdir -p "$BACKUP_DIR"
+              TS=$(date -u +%Y%m%d-%H%M%S)
+              TMP=$(mktemp -d)
+
+              echo "→ pg_dump postgres"
+              $COMPOSE_CMD exec -T postgres pg_dump -U "${POSTGRES_USER:-stmichael}" "${POSTGRES_DB:-stmichael}" \
+                | gzip > "$TMP/db-$TS.sql.gz"
+
+              echo "→ tar uploads (если есть)"
+              if [ -d uploads ]; then
+                tar -czf "$TMP/uploads-$TS.tar.gz" uploads
+              else
+                echo "  uploads/ не найден — пропускаю"
+              fi
+
+              echo "→ копирую .env (без логов)"
+              cp .env "$TMP/.env.$TS" 2>/dev/null || echo "  .env не найден — пропускаю"
+
+              echo "→ собираю tarball"
+              tar -czf "$BACKUP_DIR/backup-$TS.tar.gz" -C "$TMP" .
+              rm -rf "$TMP"
+
+              # Чистим бэкапы старше 14 дней
+              find "$BACKUP_DIR" -name "backup-*.tar.gz" -mtime +14 -delete 2>/dev/null || true
+
+              ls -lh "$BACKUP_DIR/backup-$TS.tar.gz"
+              sha256sum "$BACKUP_DIR/backup-$TS.tar.gz"
+              echo "✓ Бэкап готов: $BACKUP_DIR/backup-$TS.tar.gz"
             fi
 
             if [ "$TASK" = "find-test-leads" ]; then
