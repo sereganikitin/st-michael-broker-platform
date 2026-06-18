@@ -281,6 +281,10 @@ jobs:
             fi
 
             if [ "$TASK" = "full-backup" ]; then
+              # 2026-06-18: `set -e` + script_stop:true валят весь скрипт когда
+              # `tar uploads` возвращает 2 (даже внутри if). Бэкап делает best-effort
+              # — лучше пропустить отсутствующий uploads чем потерять весь dump.
+              set +e
               echo "=== full-backup (БД + uploads + .env → /var/backups/stmichael) ==="
               BACKUP_DIR=/var/backups/stmichael
               sudo mkdir -p "$BACKUP_DIR"
@@ -317,6 +321,7 @@ jobs:
               ls -lh "$BACKUP_DIR/backup-$TS.tar.gz"
               sha256sum "$BACKUP_DIR/backup-$TS.tar.gz"
               echo "✓ Бэкап готов: $BACKUP_DIR/backup-$TS.tar.gz"
+              set -e
             fi
 
             if [ "$TASK" = "find-test-leads" ]; then
