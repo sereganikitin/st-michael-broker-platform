@@ -21,9 +21,11 @@ export const registerDtoSchema = z.object({
   inn: z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits'),
   innType: z.enum(['PERSONAL', 'AGENCY']).optional(),
   agencyName: z.string().min(2).max(200).optional(),
-  // 2026-06-15 (KB5 #5): без обоих согласий регистрация невозможна.
-  offerAccepted: z.literal(true, { errorMap: () => ({ message: 'Необходимо принять Договор-оферту' }) }),
-  privacyAccepted: z.literal(true, { errorMap: () => ({ message: 'Необходимо дать согласие на обработку ПД' }) }),
+  // 2026-06-18: согласия больше не обязательны — отдельная договорённость с
+  // юристами, ставится позже отдельным шагом. Чекбоксы на лендинге остались,
+  // но не блокируют submit. Если брокер их отметил — фиксируем акцепт.
+  offerAccepted: z.boolean().optional(),
+  privacyAccepted: z.boolean().optional(),
 }).refine((d) => d.fullName || (d.firstName && d.lastName), {
   message: 'Either fullName or firstName+lastName required',
 });
