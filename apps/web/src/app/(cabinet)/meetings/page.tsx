@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api, apiGet, apiPost } from '@/lib/api';
-import { Calendar, ChevronLeft, ChevronRight, CheckCircle2, Pencil, X, Ban, Check } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, CheckCircle2, Pencil, X, Ban, Check, Phone } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   PENDING: { label: 'Ожидает', cls: 'bg-warning/20 text-warning' },
@@ -199,6 +199,23 @@ export default function MeetingsPage() {
   useEffect(() => { fetchMeetings(); }, [page]);
   useEffect(() => { fetchClients(); }, []);
 
+  // 2026-06-18: пока форма создания встречи дорабатывается, показываем брокеру
+  // телефон менеджера по работе с брокерами (из CMS-блока «contact»). Админ
+  // правит блок через /admin/content → «Команда».
+  const [managerContact, setManagerContact] = useState<{ name?: string; role?: string; phone?: string }>({});
+  useEffect(() => {
+    apiGet('/cms/content/contact')
+      .then((d: any) => {
+        const v = d?.value || {};
+        setManagerContact({
+          name: v.manager?.name,
+          role: v.manager?.role,
+          phone: v.manager?.phone || v.phone,
+        });
+      })
+      .catch(() => {});
+  }, []);
+
   // Load slots whenever date or type changes (in slots mode)
   useEffect(() => {
     if (!useSlots || !slotDate) { setSlots([]); return; }
@@ -257,10 +274,36 @@ export default function MeetingsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-6">
-        {/* Form — always visible */}
+        {/* 2026-06-18: форма временно скрыта — показываем брокеру телефон
+            менеджера по работе с брокерами для записи. Форма вернётся когда
+            доработаем (см. project_pending_tasks). */}
         <div className="card">
-          <h2 className="text-lg font-semibold mb-4">Новая встреча</h2>
+          <h2 className="text-lg font-semibold mb-3">Записаться на встречу</h2>
+          <p className="text-text-muted text-sm mb-4">
+            Раздел временно дорабатывается. Чтобы записаться на встречу — позвоните вашему менеджеру:
+          </p>
+          <div className="rounded-lg border border-accent/30 bg-accent/5 p-4">
+            <div className="text-xs text-text-muted mb-1">
+              {managerContact.role || 'Руководитель отдела по работе с партнёрами'}
+            </div>
+            {managerContact.name && (
+              <div className="font-semibold mb-2">{managerContact.name}</div>
+            )}
+            {managerContact.phone ? (
+              <a
+                href={`tel:${managerContact.phone.replace(/[^\d+]/g, '')}`}
+                className="inline-flex items-center gap-2 text-accent font-semibold text-lg hover:underline"
+              >
+                <Phone className="w-5 h-5" /> {managerContact.phone}
+              </a>
+            ) : (
+              <div className="text-sm text-text-muted">Телефон не задан — обратитесь в админ-панель CMS</div>
+            )}
+          </div>
+        </div>
 
+        {/* Старая форма скрыта — оставляем заглушку для div'а который никогда не рендерится */}
+        <div className="hidden">
           {success && (
             <div className="mb-4 p-3 bg-success/20 text-success rounded-lg text-sm flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4" /> Встреча создана, уведомления отправлены
