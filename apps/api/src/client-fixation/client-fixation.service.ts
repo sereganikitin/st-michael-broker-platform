@@ -43,10 +43,43 @@ export class ClientFixationService {
       readinessLevel?: string;     // «Готовность к сделке» (Холодный/Тёплый/Горячий)
       // 2026-05-26: брокер подтвердил что хочет создать дубль своего клиента
       confirmDuplicate?: boolean;
+      // 2026-06-19: для координаторов — реальный брокер, ведущий клиента.
+      responsibleBrokerId?: string;
     },
   ) {
-    const broker = await this.prisma.broker.findUnique({ where: { id: brokerId } });
+    const broker = await this.prisma.broker.findUnique({
+      where: { id: brokerId },
+      include: { brokerAgencies: { select: { agencyId: true } } },
+    });
     if (!broker) throw new BadRequestException('Broker not found');
+
+    // 2026-06-19: если владелец кабинета — координатор, поле «реальный брокер»
+    // обязательно. Валидируем, что выбранный брокер существует, активен и
+    // состоит в одном из агентств координатора.
+    let responsibleBroker = broker as any;
+    if (broker.isCoordinator) {
+      if (!data.responsibleBrokerId) {
+        throw new BadRequestException('Укажите ответственного брокера, ведущего клиента');
+      }
+      const myAgencyIds = (broker as any).brokerAgencies.map((a: any) => a.agencyId);
+      const candidate = await this.prisma.broker.findFirst({
+        where: {
+          id: data.responsibleBrokerId,
+          status: 'ACTIVE',
+          brokerAgencies: { some: { agencyId: { in: myAgencyIds } } },
+        },
+      });
+      if (!candidate) {
+        throw new BadRequestException(
+          'Выбранный ответственный брокер не найден в системе или не состоит в вашем агентстве. Попросите координатора завести брокера, прежде чем фиксировать.',
+        );
+      }
+      responsibleBroker = candidate;
+    } else if (data.responsibleBrokerId && data.responsibleBrokerId !== broker.id) {
+      // Не координатор пытается передать responsibleBrokerId — игнорируем,
+      // чтобы UI-state не мог обойти роль.
+      data.responsibleBrokerId = broker.id;
+    }
 
     // 2026-06-09: блок полей формы фиксации, общий для всех 4 веток create.
     // Раньше эти данные склеивались в comment; теперь храним структурированно
@@ -130,6 +163,7 @@ export class ClientFixationService {
         amoVerdict,
         data,
         broker,
+        responsibleBroker,
         agency,
         brokerId,
         existingClient,
@@ -145,6 +179,7 @@ export class ClientFixationService {
       const client = await this.prisma.client.create({
         data: {
           brokerId,
+          responsibleBrokerId: responsibleBroker.id,
           phone: data.phone,
           fullName: data.fullName,
           email: data.email || null,
@@ -203,6 +238,7 @@ export class ClientFixationService {
         const client = await this.prisma.client.create({
           data: {
             brokerId,
+            responsibleBrokerId: responsibleBroker.id,
             phone: data.phone,
             fullName: data.fullName,
             email: data.email || null,
@@ -264,6 +300,7 @@ export class ClientFixationService {
       const client = await this.prisma.client.create({
         data: {
           brokerId,
+          responsibleBrokerId: responsibleBroker.id,
           phone: data.phone,
           fullName: data.fullName,
           email: data.email || null,
@@ -306,14 +343,16 @@ export class ClientFixationService {
       let amoSyncError: string | null = null;
       let createdAmoLeadId: number | null = null;
       try {
+        // 2026-06-19: используем responsibleBroker (для координатора — выбранный
+        // реальный брокер, для обычного брокера — он сам).
         const resultLead = await this.amoCrmAdapter.createFixationRequest({
           clientPhone: data.phone,
           clientEmail: data.email,
           clientName: data.fullName,
           clientRegion: data.clientRegion,
           presentationSent: data.presentationSent,
-          brokerPhone: broker.phone,
-          brokerAmoContactId: broker.amoContactId ? Number(broker.amoContactId) : undefined,
+          brokerPhone: responsibleBroker.phone,
+          brokerAmoContactId: responsibleBroker.amoContactId ? Number(responsibleBroker.amoContactId) : undefined,
           agencyName: agency.name,
           agencyInn: agency.inn,
           comment: fullComment,
@@ -346,10 +385,10 @@ export class ClientFixationService {
           this.morekit.notifyFixation({
             id: String(createdAmoLeadId),
             agency: agency.name,
-            broker_id: broker.amoContactId ? String(broker.amoContactId) : '',
-            agent_name: broker.fullName,
-            agent_phone: morekitPhone(broker.phone),
-            agent_mail: broker.email || '',
+            broker_id: responsibleBroker.amoContactId ? String(responsibleBroker.amoContactId) : '',
+            agent_name: responsibleBroker.fullName,
+            agent_phone: morekitPhone(responsibleBroker.phone),
+            agent_mail: responsibleBroker.email || '',
             budget: data.amount ? String(data.amount) : '0',
             clients: [{ name: data.fullName, phone: morekitPhone(data.phone) }],
             type: data.propertyType || 'Квартира',
@@ -472,6 +511,7 @@ export class ClientFixationService {
       const refixClient = await this.prisma.client.create({
         data: {
           brokerId,
+          responsibleBrokerId: responsibleBroker.id,
           phone: data.phone,
           fullName: data.fullName,
           email: data.email || null,
@@ -518,6 +558,7 @@ export class ClientFixationService {
     const newClient = await this.prisma.client.create({
       data: {
         brokerId,
+        responsibleBrokerId: responsibleBroker.id,
         phone: data.phone,
         fullName: data.fullName,
         email: data.email || null,
@@ -545,14 +586,16 @@ export class ClientFixationService {
     let amoSyncError: string | null = null;
     let createdAmoLeadId: number | null = null;
     try {
+      // 2026-06-19: responsibleBroker — для координатора выбранный реальный,
+      // для обычного брокера = он сам.
       const resultLead = await this.amoCrmAdapter.createFixationRequest({
         clientPhone: data.phone,
         clientEmail: data.email,
         clientName: data.fullName,
         clientRegion: data.clientRegion,
         presentationSent: data.presentationSent,
-        brokerPhone: broker.phone,
-        brokerAmoContactId: broker.amoContactId ? Number(broker.amoContactId) : undefined,
+        brokerPhone: responsibleBroker.phone,
+        brokerAmoContactId: responsibleBroker.amoContactId ? Number(responsibleBroker.amoContactId) : undefined,
         agencyName: agency.name,
         agencyInn: agency.inn,
         comment: refixFullComment,
@@ -595,10 +638,10 @@ export class ClientFixationService {
         this.morekit.notifyFixation({
           id: String(createdAmoLeadId),
           agency: agency.name,
-          broker_id: broker.amoContactId ? String(broker.amoContactId) : '',
-          agent_name: broker.fullName,
-          agent_phone: morekitPhone(broker.phone),
-          agent_mail: broker.email || '',
+          broker_id: responsibleBroker.amoContactId ? String(responsibleBroker.amoContactId) : '',
+          agent_name: responsibleBroker.fullName,
+          agent_phone: morekitPhone(responsibleBroker.phone),
+          agent_mail: responsibleBroker.email || '',
           budget: data.amount ? String(data.amount) : '0',
           clients: [{ name: data.fullName, phone: morekitPhone(data.phone) }],
           type: data.propertyType || 'Квартира',
@@ -669,12 +712,13 @@ export class ClientFixationService {
     };
     data: any;
     broker: any;
+    responsibleBroker: any;
     agency: any;
     brokerId: string;
     existingClient: any | null;
     fixationFormFields: any;
   }): Promise<any> {
-    const { amoVerdict, data, broker, agency, brokerId, existingClient, fixationFormFields } = params;
+    const { amoVerdict, data, broker, responsibleBroker, agency, brokerId, existingClient, fixationFormFields } = params;
 
     // 2026-06-14: для RULE_1 (старый лид в КЦ до «Встреча проведена») новый
     // брокер видит в кабинете «Уникален» — оба брокера могут параллельно
@@ -713,6 +757,7 @@ export class ClientFixationService {
     const client = await this.prisma.client.create({
       data: {
         brokerId,
+        responsibleBrokerId: responsibleBroker.id,
         phone: data.phone,
         fullName: data.fullName,
         email: data.email || null,
@@ -778,15 +823,17 @@ export class ClientFixationService {
       // прикрепляем брокера B контактом — чтобы КЦ-менеджер сразу видел
       // в карточке всех претендентов. Маркер RULE_2_KC_PENDING защищает
       // от автолифта в webhook.
+      // 2026-06-19: к лиду цепляем РЕАЛЬНОГО брокера (responsibleBroker),
+      // а не координатора. Для обычного брокера responsibleBroker = он сам.
       const isSameBrokerRefix = !!(existingClient && existingClient.brokerId === brokerId);
-      const shouldAttach = (isRule1 || isRule2Kc) && broker.amoContactId && !isSameBrokerRefix;
+      const shouldAttach = (isRule1 || isRule2Kc) && responsibleBroker.amoContactId && !isSameBrokerRefix;
       if (shouldAttach) {
         try {
           await this.amoCrmAdapter.linkContactToLead(
             targetLead.id,
-            Number(broker.amoContactId),
+            Number(responsibleBroker.amoContactId),
           );
-          console.log(`[handleRule1Or2Alarm] брокер ${broker.amoContactId} прикреплён к лиду ${targetLead.id} (rule=${amoVerdict.rule})`);
+          console.log(`[handleRule1Or2Alarm] брокер ${responsibleBroker.amoContactId} прикреплён к лиду ${targetLead.id} (rule=${amoVerdict.rule})`);
         } catch (e: any) {
           console.error(`[handleRule1Or2Alarm] linkContactToLead failed для лида ${targetLead.id}:`, e?.message || e);
         }
@@ -920,6 +967,40 @@ export class ClientFixationService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  // 2026-06-19: для координаторов — список брокеров из тех же агентств,
+  // что и текущий пользователь. Использовать в форме фиксации как
+  // выпадающий поиск для выбора «реального ответственного брокера».
+  async getAgencyColleagues(currentBrokerId: string, search: string) {
+    const me = await this.prisma.broker.findUnique({
+      where: { id: currentBrokerId },
+      select: {
+        brokerAgencies: { select: { agencyId: true } },
+      },
+    });
+    if (!me) return { brokers: [] };
+    const agencyIds = me.brokerAgencies.map((a) => a.agencyId);
+    if (agencyIds.length === 0) return { brokers: [] };
+
+    const searchTrim = (search || '').trim();
+    const where: any = {
+      status: 'ACTIVE',
+      brokerAgencies: { some: { agencyId: { in: agencyIds } } },
+    };
+    if (searchTrim.length >= 2) {
+      where.OR = [
+        { fullName: { contains: searchTrim, mode: 'insensitive' } },
+        { phone: { contains: searchTrim.replace(/\D/g, '') } },
+      ];
+    }
+    const brokers = await this.prisma.broker.findMany({
+      where,
+      select: { id: true, fullName: true, phone: true, isCoordinator: true },
+      orderBy: { fullName: 'asc' },
+      take: 50,
+    });
+    return { brokers };
   }
 
   async getClient(id: string, brokerId: string) {

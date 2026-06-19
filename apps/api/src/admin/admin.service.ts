@@ -723,6 +723,17 @@ export class AdminService {
     };
   }
 
+  // 2026-06-19: пометить/снять флаг координатора у брокера.
+  async setBrokerCoordinator(brokerId: string, isCoordinator: boolean) {
+    const exists = await this.prisma.broker.findUnique({ where: { id: brokerId } });
+    if (!exists) throw new NotFoundException('Broker not found');
+    return this.prisma.broker.update({
+      where: { id: brokerId },
+      data: { isCoordinator },
+      select: { id: true, fullName: true, isCoordinator: true },
+    });
+  }
+
   // ─── Ручная смена uniquenessStatus клиента (admin only, критические случаи) ──
   // 2026-06-17: бывает что webhook / amoCRM-логика не довела клиента до правильного
   // статуса (баг, race condition, ручная правка в amo). Админ из кабинета может

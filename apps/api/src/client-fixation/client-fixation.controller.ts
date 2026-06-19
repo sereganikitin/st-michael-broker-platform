@@ -42,6 +42,17 @@ export class ClientFixationController {
     return this.clientFixationService.fixClient(user.id, data);
   }
 
+  // 2026-06-19: список коллег по агентству — для координаторов в форме фиксации,
+  // чтобы они выбирали реального брокера, ведущего клиента.
+  @Get('agency-colleagues')
+  @ApiOperation({ summary: 'Brokers from same agencies as the current user (for coordinator workflow)' })
+  async getAgencyColleagues(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('search') search?: string,
+  ) {
+    return this.clientFixationService.getAgencyColleagues(user.id, search || '');
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get broker clients' })
   @ApiResponse({ status: 200, description: 'List of clients' })
