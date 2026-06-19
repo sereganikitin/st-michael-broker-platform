@@ -158,6 +158,20 @@ export default function AdminBrokerDetailPage() {
             {broker.isCoordinator && (
               <span className="text-xs px-2 py-1 rounded bg-warning/20 text-warning">координатор {broker.coordinatorAgency ? `· ${broker.coordinatorAgency}` : ''}</span>
             )}
+            {isAdmin && (
+              <button
+                type="button"
+                className="text-xs px-2 py-1 rounded border border-border hover:bg-surface-secondary"
+                onClick={async () => {
+                  const next = !broker.isCoordinator;
+                  await api(`/admin/brokers/${broker.id}/coordinator`, { method: 'PATCH', body: JSON.stringify({ isCoordinator: next }) });
+                  setBroker({ ...broker, isCoordinator: next });
+                  setMessage(next ? 'Помечен как координатор' : 'Флаг координатора снят');
+                }}
+              >
+                {broker.isCoordinator ? 'Снять координатора' : 'Сделать координатором'}
+              </button>
+            )}
           </h1>
           <div className="text-text-muted text-sm mt-1">
             {broker.phone} · amoCRM ID: {broker.amoContactId ? broker.amoContactId.toString() : '—'}

@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiPost } from '@/lib/api';
+import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { Plus, Trash2, CheckCircle2, X } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, X, Search } from 'lucide-react';
 
 interface Participant {
   firstName: string;
@@ -92,6 +92,29 @@ export default function FixationPage() {
 
   const brokerAgency = broker?.agencies?.[0];
 
+  // 2026-06-19: для координатора — выбор реального брокера, ведущего клиента.
+  // У обычного брокера responsibleBroker = он сам (поля readonly как раньше).
+  const isCoordinator = !!(broker as any)?.isCoordinator;
+  const [respSearch, setRespSearch] = useState('');
+  const [respOptions, setRespOptions] = useState<Array<{ id: string; fullName: string; phone: string }>>([]);
+  const [respLoading, setRespLoading] = useState(false);
+  const [respSelected, setRespSelected] = useState<{ id: string; fullName: string; phone: string } | null>(null);
+  const [respOpen, setRespOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isCoordinator) return;
+    const q = respSearch.trim();
+    if (q.length > 0 && q.length < 2) return;
+    setRespLoading(true);
+    const t = setTimeout(() => {
+      apiGet(`/clients/agency-colleagues${q ? `?search=${encodeURIComponent(q)}` : ''}`)
+        .then((d: any) => setRespOptions(d?.brokers || []))
+        .catch(() => setRespOptions([]))
+        .finally(() => setRespLoading(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [respSearch, isCoordinator]);
+
   const addParticipant = () => {
     setParticipants([...participants, { firstName: '', lastName: '', phone: '' }]);
   };
@@ -119,8 +142,10 @@ export default function FixationPage() {
     // пользователю красные поля и НЕ дёргаем сервер.
     const foreignD = foreignPhone.replace(/\D/g, '').length;
     const phoneOk = isForeign ? foreignD >= 7 : phoneDigits.length === 10;
-    if (!phoneOk || !firstName.trim() || !sqm || !amount || !brokerAgency?.inn) {
-      setError('Заполните все обязательные поля (отмечены красным)');
+    if (!phoneOk || !firstName.trim() || !sqm || !amount || !brokerAgency?.inn || (isCoordinator && !respSelected)) {
+      setError(isCoordinator && !respSelected
+        ? 'Выберите ответственного брокера, ведущего клиента'
+        : 'Заполните все обязательные поля (отмечены красным)');
       // Прокрутим к первому невалидному.
       setTimeout(() => {
         const el = document.querySelector('.field-invalid') as HTMLElement | null;
@@ -161,6 +186,7 @@ export default function FixationPage() {
           lastName: p.lastName,
           phone: p.phone ? '+7' + p.phone : '',
         })),
+      ...(isCoordinator && respSelected ? { responsibleBrokerId: respSelected.id } : {}),
     };
 
     try {
@@ -230,7 +256,7 @@ export default function FixationPage() {
   // Минимум для submit: валидный телефон + имя + метраж + сумма + ИНН агентства.
   const foreignDigitsCount = foreignPhone.replace(/\D/g, '').length;
   const phoneValid = isForeign ? foreignDigitsCount >= 7 : phoneDigits.length === 10;
-  const canSubmit = phoneValid && !!firstName && !!sqm && !!amount && !!brokerAgency?.inn;
+  const canSubmit = phoneValid && !!firstName && !!sqm && !!amount && !!brokerAgency?.inn && (!isCoordinator || !!respSelected);
 
   return (
     <div className="max-w-3xl">
@@ -510,15 +536,81 @@ export default function FixationPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-border">
-            <div>
-              <label className="label">ФИО брокера</label>
-              <input type="text" className="input bg-surface-secondary" value={brokerNameDisplay} readOnly />
-            </div>
-            <div>
-              <label className="label">Телефон брокера</label>
-              <input type="text" className="input bg-surface-secondary" value={brokerPhoneDisplay} readOnly />
-            </div>
+          <div className="pt-4 border-t border-border">
+            {isCoordinator ? (
+              <div className="relative">
+                <label className="label">
+                  Ответственный брокер <span className="text-error">*</span>
+                </label>
+                <div className="text-xs text-text-muted mb-2">
+                  Выберите брокера из вашего агентства, который реально работает с клиентом.
+                </div>
+                {respSelected ? (
+                  <div className="flex items-center justify-between bg-surface-secondary rounded-lg p-3">
+                    <div>
+                      <div className="font-medium">{respSelected.fullName}</div>
+                      <div className="text-xs text-text-muted">{respSelected.phone}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs text-accent hover:underline"
+                      onClick={() => { setRespSelected(null); setRespSearch(''); setRespOpen(true); }}
+                    >
+                      Сменить
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="relative">
+                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                      <input
+                        type="text"
+                        className={`input pl-10 ${attempted && !respSelected ? 'field-invalid' : ''}`}
+                        placeholder="Найти по ФИО или телефону…"
+                        value={respSearch}
+                        onChange={(e) => { setRespSearch(e.target.value); setRespOpen(true); }}
+                        onFocus={() => setRespOpen(true)}
+                      />
+                    </div>
+                    {respOpen && (
+                      <div className="absolute z-10 left-0 right-0 bg-surface border border-border rounded-lg mt-1 max-h-60 overflow-y-auto shadow-lg">
+                        {respLoading && <div className="p-3 text-text-muted text-sm">Поиск…</div>}
+                        {!respLoading && respOptions.length === 0 && (
+                          <div className="p-3 text-text-muted text-sm">
+                            Брокеров не найдено. Если нужный брокер ещё не в системе — попросите координатора завести его.
+                          </div>
+                        )}
+                        {!respLoading && respOptions.map((b) => (
+                          <button
+                            key={b.id}
+                            type="button"
+                            className="w-full text-left px-3 py-2 hover:bg-surface-secondary"
+                            onClick={() => { setRespSelected(b); setRespOpen(false); setRespSearch(''); }}
+                          >
+                            <div className="font-medium text-sm">{b.fullName}</div>
+                            <div className="text-xs text-text-muted">{b.phone}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {attempted && !respSelected && (
+                      <div className="text-xs text-error mt-1">Выберите ответственного брокера</div>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">ФИО брокера</label>
+                  <input type="text" className="input bg-surface-secondary" value={brokerNameDisplay} readOnly />
+                </div>
+                <div>
+                  <label className="label">Телефон брокера</label>
+                  <input type="text" className="input bg-surface-secondary" value={brokerPhoneDisplay} readOnly />
+                </div>
+              </div>
+            )}
           </div>
 
           {error && (

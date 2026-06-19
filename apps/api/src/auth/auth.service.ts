@@ -678,6 +678,7 @@ export class AuthService {
       presentationSent: broker.presentationSent,
       role: broker.role,
       status: broker.status,
+      isCoordinator: broker.isCoordinator,
       funnelStage: broker.funnelStage,
       source: broker.source,
       brokerTourVisited: broker.brokerTourVisited,

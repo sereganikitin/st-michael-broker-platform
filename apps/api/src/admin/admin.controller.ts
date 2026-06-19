@@ -332,6 +332,18 @@ export class AdminController {
     return this.adminService.reassignClient(id, body.newBrokerId, body.reason, user.id);
   }
 
+  // 2026-06-19: пометить/снять флаг «координатор» у брокера. У координатора
+  // в форме фиксации становится обязательным выбор реального брокера, ведущего
+  // клиента (из брокеров его агентства).
+  @Patch('brokers/:id/coordinator')
+  @ApiOperation({ summary: 'Пометить брокера как координатора (или снять флаг)' })
+  async setBrokerCoordinator(
+    @Param('id') id: string,
+    @Body() body: { isCoordinator: boolean },
+  ) {
+    return this.adminService.setBrokerCoordinator(id, !!body.isCoordinator);
+  }
+
   // 2026-06-17: ручная смена uniquenessStatus админом из кабинета брокера.
   // Только для критических случаев — когда автоматика не довела клиента до
   // правильного статуса.

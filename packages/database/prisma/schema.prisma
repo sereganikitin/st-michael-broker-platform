@@ -289,6 +289,7 @@ model Broker {
   phones                 BrokerPhone[]
   callLogs               CallLog[]
   clients                Client[]
+  responsibleForClients  Client[]                 @relation("ClientResponsibleBroker")
   deals                  Deal[]
   calls                  Call[]
   meetings               Meeting[]
@@ -309,8 +310,13 @@ model Broker {
 
 model Client {
   id                  String           @id @default(uuid())
-  brokerId            String           @map("broker_id")
+  brokerId            String           @map("broker_id") // владелец кабинета (для координатора — координатор)
   broker              Broker           @relation(fields: [brokerId], references: [id])
+  // 2026-06-19: для координаторов — реальный брокер, который ведёт клиента.
+  // Nullable для обратной совместимости: если поле пустое, ответственный = brokerId
+  // (как было раньше). У координаторов на новых фиксациях ОБЯЗАТЕЛЬНО.
+  responsibleBrokerId String?          @map("responsible_broker_id")
+  responsibleBroker   Broker?          @relation("ClientResponsibleBroker", fields: [responsibleBrokerId], references: [id])
   amoLeadId           BigInt?          @map("amo_lead_id")
   fullName            String           @map("full_name")
   phone               String

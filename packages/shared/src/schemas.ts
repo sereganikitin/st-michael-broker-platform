@@ -76,6 +76,11 @@ export const fixClientDtoSchema = z.object({
   readinessLevel: z.string().optional(),
   // 2026-05-26: подтверждение, что брокер хочет создать дубль уже своего клиента
   confirmDuplicate: z.boolean().optional(),
+  // 2026-06-19: для координаторов — ID реального брокера, ведущего клиента.
+  // У координатора в форме поле обязательно (валидация в сервисе по
+  // currentUser.isCoordinator). У обычного брокера может быть null —
+  // тогда ответственным считается сам владелец кабинета.
+  responsibleBrokerId: z.string().uuid().optional(),
 });
 
 // Client schemas
