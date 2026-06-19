@@ -865,7 +865,12 @@ export class ClientFixationService {
       if (data.purchaseTiming) lines.push(`Планирует покупку: ${data.purchaseTiming}`);
       if (data.readinessLevel) lines.push(`Готовность к сделке: ${data.readinessLevel}`);
       lines.push(``);
-      lines.push(`Брокер-агент: ${broker.fullName} (${broker.phone})`);
+      // 2026-06-19: для координатора пишем РЕАЛЬНОГО брокера, плюс кто
+      // фактически нажал submit (если это разные люди).
+      lines.push(`Брокер-агент: ${responsibleBroker.fullName} (${responsibleBroker.phone})`);
+      if (broker.id !== responsibleBroker.id) {
+        lines.push(`Подал координатор: ${broker.fullName} (${broker.phone})`);
+      }
       lines.push(`Агентство: ${agency.name} (ИНН ${agency.inn})`);
       if (data.comment) {
         lines.push(``);
@@ -881,10 +886,10 @@ export class ClientFixationService {
 
       const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
       const taskText = isSameBrokerRefix
-        ? `Повторная фиксация тем же брокером — ${broker.fullName} (${broker.phone}) ещё раз подал клиента ${data.fullName} (${data.phone}). Проверить, нужно ли вмешательство КЦ.`
+        ? `Повторная фиксация тем же брокером — ${responsibleBroker.fullName} (${responsibleBroker.phone}) ещё раз подал клиента ${data.fullName} (${data.phone}). Проверить, нужно ли вмешательство КЦ.`
         : isRule1
-          ? `Новый брокер на клиенте ${data.fullName} (${data.phone}). Брокер ${broker.fullName} (${broker.phone}) прикреплён к лиду контактом.`
-          : `Подтвердить уникальность — клиент ${data.fullName} (${data.phone}) уже в активной стадии, новый брокер ${broker.fullName} (${broker.phone}) пытается зафиксировать.`;
+          ? `Новый брокер на клиенте ${data.fullName} (${data.phone}). Брокер ${responsibleBroker.fullName} (${responsibleBroker.phone}) прикреплён к лиду контактом.`
+          : `Подтвердить уникальность — клиент ${data.fullName} (${data.phone}) уже в активной стадии, новый брокер ${responsibleBroker.fullName} (${responsibleBroker.phone}) пытается зафиксировать.`;
       try {
         let leadResponsibleUserId: number | undefined;
         try {

@@ -336,7 +336,8 @@ export class AdminController {
   // в форме фиксации становится обязательным выбор реального брокера, ведущего
   // клиента (из брокеров его агентства).
   @Patch('brokers/:id/coordinator')
-  @ApiOperation({ summary: 'Пометить брокера как координатора (или снять флаг)' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Пометить брокера как координатора (только ADMIN)' })
   async setBrokerCoordinator(
     @Param('id') id: string,
     @Body() body: { isCoordinator: boolean },
