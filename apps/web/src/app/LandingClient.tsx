@@ -421,14 +421,26 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                   <input type="checkbox" checked={offerAccepted} onChange={e=>setOfferAccepted(e.target.checked)} style={{marginTop:3,accentColor:'#B4936F'}} />
                   <span>
                     Я ознакомлен(а) и принимаю условия{' '}
-                    <a href="/offer" target="_blank" rel="noreferrer" style={{color:'#B4936F',textDecoration:'underline'}}>Договора-оферты</a>
+                    <a
+                      href="/offer"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{color:'#B4936F',textDecoration:'underline'}}
+                      onClick={(e)=>{e.stopPropagation(); window.open('/offer','_blank','noopener,noreferrer'); e.preventDefault();}}
+                    >Договора-оферты</a>
                   </span>
                 </label>
                 <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,color:'#1a1a1a',cursor:'pointer',lineHeight:1.5}}>
                   <input type="checkbox" checked={privacyAccepted} onChange={e=>setPrivacyAccepted(e.target.checked)} style={{marginTop:3,accentColor:'#B4936F'}} />
                   <span>
                     Я даю{' '}
-                    <a href="/privacy" target="_blank" rel="noreferrer" style={{color:'#B4936F',textDecoration:'underline'}}>согласие на обработку персональных данных</a>
+                    <a
+                      href="/privacy"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{color:'#B4936F',textDecoration:'underline'}}
+                      onClick={(e)=>{e.stopPropagation(); window.open('/privacy','_blank','noopener,noreferrer'); e.preventDefault();}}
+                    >согласие на обработку персональных данных</a>
                   </span>
                 </label>
               </>

@@ -1209,10 +1209,12 @@ export class AdminService {
 
   // 2026-05-25: ручной retry — менеджер видит FAILED-заявку и нажимает «повторить».
   // Вызывает amo createFixationRequest снова. При успехе — статус SYNCED.
+  // 2026-06-19: если клиент был зафиксирован координатором (responsibleBrokerId !=
+  // brokerId), используем для amo реального брокера, а не координатора.
   async retryAmoSync(clientId: string) {
     const client = await this.prisma.client.findUnique({
       where: { id: clientId },
-      include: { broker: true },
+      include: { broker: true, responsibleBroker: true },
     });
     if (!client) throw new BadRequestException('Client not found');
     if (client.amoSyncStatus === 'SYNCED') return { ok: true, message: 'Уже синхронизирован' };
@@ -1220,13 +1222,15 @@ export class AdminService {
     const agency = await this.prisma.agency.findUnique({ where: { id: client.fixationAgencyId } });
     if (!agency) throw new BadRequestException('Агентство не найдено');
 
+    // 2026-06-19: для координаторских фиксаций берём реального брокера.
+    const responsibleBroker = (client as any).responsibleBroker || client.broker;
     try {
       await this.amo.createFixationRequest({
         clientPhone: client.phone,
         clientEmail: client.email || undefined,
         clientName: client.fullName,
-        brokerPhone: client.broker.phone,
-        brokerAmoContactId: client.broker.amoContactId ? Number(client.broker.amoContactId) : undefined,
+        brokerPhone: responsibleBroker.phone,
+        brokerAmoContactId: responsibleBroker.amoContactId ? Number(responsibleBroker.amoContactId) : undefined,
         agencyName: agency.name,
         agencyInn: agency.inn,
         comment: client.comment || '',
