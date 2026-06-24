@@ -96,6 +96,12 @@ services:
       NEXT_PUBLIC_API_URL: /api
     ports:
       - "3000:3000"
+    # 2026-06-24: shared volume для disk-snapshot CMS-данных.
+    # page.tsx пишет /app/data/cms-snapshot.json после каждого
+    # успешного fetch к API. При падении API лендинг отдаёт его
+    # вместо захардкоженных DEFAULT_* из JS-бандла.
+    volumes:
+      - web-data:/app/data
     depends_on:
       - api
     networks:
@@ -124,6 +130,7 @@ volumes:
   pgdata:
   redisdata:
   uploads:
+  web-data:
 
 networks:
   st-michael-network:

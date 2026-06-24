@@ -41,6 +41,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/
 # Без этой строки stmichael-logo.png, sw.js и другие статики из public/
 # отдают 404. См. https://nextjs.org/docs/app/api-reference/next-config-js/output#caveats
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
+# 2026-06-24: точка монтирования для shared volume web-data (см. docker-compose.yml).
+# Создаём заранее с правами nextjs, чтобы при первом запуске named volume
+# унаследовал владельца и SSR-код смог писать cms-snapshot.json.
+RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
