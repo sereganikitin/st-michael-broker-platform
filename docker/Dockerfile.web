@@ -15,7 +15,14 @@ COPY packages/integrations/package.json packages/integrations/
 COPY packages/shared/package.json packages/shared/
 
 # 2) npm install с BuildKit cache mount.
-RUN --mount=type=cache,target=/root/.npm npm install
+# 2026-06-25: добавлена проверка наличия next-бинарника. Без неё битый
+# кеш-слой от упавшего ранее build'а (PR #178 → run 28107132638 — npm
+# install оборвался на середине, SSH сдох) попадал в CACHE → следующий
+# build пропускал установку, потом падал на `sh: next: not found`.
+# Проверка делает две вещи: (а) меняет cache-key слоя — Buildkit пересоберёт
+# с нуля; (б) если npm install снова не доустановится — упадёт здесь, а
+# не на туманном этапе позже.
+RUN --mount=type=cache,target=/root/.npm npm install && test -x node_modules/.bin/next
 
 # 3) Остальной код.
 COPY . .
