@@ -21,7 +21,14 @@ COPY packages/shared/package.json packages/shared/
 # 2) NPM INSTALL с BuildKit cache mount.
 # /root/.npm выживает между сборками внутри билдера → на втором прогоне
 # install читает почти всё из локального кеша вместо registry.
-RUN --mount=type=cache,target=/root/.npm npm install
+# 2026-06-25: добавлена проверка `test -x node_modules/.bin/prisma`. Без неё
+# битый кеш-слой от ранее упавшего build'а (run 28107132638) скрывал тот
+# факт, что в установке не появлялся локальный prisma-бинарник. Следствие:
+# `npx prisma generate` ниже не находил локальную prisma и тянул latest 7.x,
+# которая ломает наш schema.prisma (см. P1012 в run 28171122819). Проверка
+# меняет cache-key слоя → BuildKit пересоберёт слой; если prisma всё-таки
+# не появится — build упадёт здесь с понятной ошибкой.
+RUN --mount=type=cache,target=/root/.npm npm install && test -x node_modules/.bin/prisma
 
 # 3) КОПИРУЕМ ОСТАЛЬНОЙ КОД (только теперь, когда node_modules уже стоит).
 COPY . .
@@ -33,7 +40,12 @@ COPY . .
 # старым и apps/api падал с TS2304 "Cannot find name 'setMangoConfig'").
 # Плюс предварительный rm -rf dist + tsbuildinfo чтобы incremental не
 # тянул кэш предыдущей сборки.
-RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
+# 2026-06-25: явный путь вместо `npx prisma`. npx молча ставит latest
+# prisma из реестра, если не находит локальный бинарник — это сегодня
+# подтянуло Prisma 7.8.0 поверх нашей фиксированной ^5.0.0 и обвалило
+# валидацию schema. Локальный путь либо запускает 5.x из node_modules,
+# либо падает с понятным "no such file".
+RUN ./node_modules/.bin/prisma generate --schema=packages/database/prisma/schema.prisma
 RUN rm -rf packages/shared/dist packages/shared/tsconfig.tsbuildinfo \
  && npm run build --workspace=packages/shared
 RUN rm -rf packages/integrations/dist packages/integrations/tsconfig.tsbuildinfo \
