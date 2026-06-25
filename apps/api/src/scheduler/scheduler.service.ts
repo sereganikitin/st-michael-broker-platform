@@ -30,14 +30,10 @@ export class SchedulerService {
     private readonly gsheets: GoogleSheetsSyncService,
   ) {}
 
-  // 2026-06-25: cron частоту снизили с */30 до раз в 6 часов.
-  // Инцидент: при 10667 брокерах каждый синк делает 10667 UPDATE на
-  // brokers (~100 сек CPU) + 2.2 GB prisma:query логов за сутки.
-  // На 1.9 GB RAM сервер уходил в swap-thrashing → CPU 100% / SSH мёртв.
-  // Реальная база меняется максимум раз в сутки — раз в 6 часов с запасом.
+  // 2026-06-09: каждые 30 минут — синк брокерской базы из Google Sheet.
   // URL читается из SystemSetting.GSHEETS_BROKERS_URL. Если URL пуст —
   // сервис сам залогирует warning и завершится без ошибки.
-  @Cron('0 */6 * * *')
+  @Cron('*/30 * * * *')
   async handleGSheetsBrokersSync() {
     const r = await this.gsheets.sync();
     if (r.inflight) {
