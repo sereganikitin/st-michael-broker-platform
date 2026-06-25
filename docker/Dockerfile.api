@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.6
-FROM node:20-alpine AS builder
+FROM mirror.gcr.io/library/node:20-alpine AS builder
 WORKDIR /app
 
 # python3/make/g++ нужны для компиляции нативных модулей (bcrypt), когда
@@ -54,7 +54,7 @@ RUN rm -rf apps/api/dist apps/api/tsconfig.tsbuildinfo \
  && npm run build --workspace=apps/api
 
 # ─── runtime ───
-FROM node:20-alpine
+FROM mirror.gcr.io/library/node:20-alpine
 WORKDIR /app
 RUN apk add --no-cache openssl
 RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
