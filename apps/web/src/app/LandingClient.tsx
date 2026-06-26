@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { InnAutocomplete } from '@/components/InnAutocomplete';
 import {
   Headphones, PhoneCall, Wallet, TrendingUp, Users2, GraduationCap,
   Shield, Sparkles,
@@ -401,9 +402,16 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                   style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
                 <input placeholder="Название агентства" value={agencyName} onChange={e=>setAgencyName(e.target.value)}
                   style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
-                <input placeholder="ИНН (10 или 12 цифр)" inputMode="numeric" value={inn}
-                  onChange={e=>setInn(e.target.value.replace(/\D/g,'').slice(0,12))}
-                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+                {/* 2026-06-26: автодополнение ИНН через Dadata. Подсказки по
+                    юр.лицам/ИП, клик подставляет ИНН + название агентства. */}
+                <InnAutocomplete
+                  value={inn}
+                  onChange={setInn}
+                  onSelect={(s) => setAgencyName(s.name)}
+                  placeholder="ИНН (10 или 12 цифр)"
+                  inputClassName=""
+                  inputStyle={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none',width:'100%',boxSizing:'border-box'}}
+                />
                 <div style={{display:'flex',gap:16,fontSize:13,color:'#1a1a1a'}}>
                   <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
                     <input type="radio" name="innType" checked={innType==='PERSONAL'} onChange={()=>setInnType('PERSONAL')} />

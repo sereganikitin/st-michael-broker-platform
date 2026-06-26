@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Info } from 'lucide-react';
 import { parseApiError } from '@/lib/api';
 import { SupportContacts } from '@/components/SupportContacts';
+import { InnAutocomplete } from '@/components/InnAutocomplete';
 
 // 2026-06-15: подсветка обязательных полей при попытке submit (правки Ксении).
 // До первого submit ошибки не показываем — не давим на пользователя.
@@ -221,13 +222,15 @@ export default function RegisterPage() {
 
             <div>
               <label className="label">ИНН агентства (юр. лица или ИП) <span className="text-error">*</span></label>
-              <input
-                type="text"
-                inputMode="numeric"
-                className={fieldClass('inn')}
-                placeholder="10 цифр для юр. лица или 12 цифр для ИП"
+              {/* 2026-06-26: автодополнение по Dadata. При вводе 4+ цифр
+                  показывает подсказки из базы юр.лиц/ИП. Клик подставляет
+                  ИНН + название агентства (название остаётся редактируемым). */}
+              <InnAutocomplete
                 value={inn}
-                onChange={(e) => { setInn(e.target.value.replace(/\D/g, '').slice(0, 12)); if (submitted) setFieldErrors(validate()); }}
+                onChange={(v) => { setInn(v); if (submitted) setFieldErrors(validate()); }}
+                onSelect={(s) => setAgencyName(s.name)}
+                placeholder="10 цифр для юр. лица или 12 цифр для ИП"
+                inputClassName={fieldClass('inn')}
                 maxLength={12}
               />
               {errorText('inn')}

@@ -73,6 +73,8 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
       BROKER_SHEET_ID: ${BROKER_SHEET_ID:-}
+      # 2026-06-26: Dadata Suggestions API — автодополнение ИНН в форме регистрации.
+      DADATA_API_KEY: ${DADATA_API_KEY:-}
     ports:
       - "4000:4000"
     volumes:
