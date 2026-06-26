@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, Req, UseGuards, HttpCode, HttpStatus, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Req, UseGuards, HttpCode, HttpStatus, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -17,7 +17,42 @@ export class AuthController {
   @ApiOperation({ summary: 'Register broker' })
   @ApiResponse({ status: 201, description: 'Broker registered, OTP sent' })
   async register(@Body() body: unknown, @Req() req: Request) {
-    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string; offerAccepted?: boolean; privacyAccepted?: boolean };
+    // 2026-06-26: вместо .parse() (бросает ZodError → 500) используем
+    // .safeParse и преобразуем ВСЕ issues в массив { field, message } на
+    // русском. UI получит сразу полный список ошибок и подсветит все
+    // невалидные поля одновременно, а не по одной.
+    const parsed = registerDtoSchema.safeParse(body);
+    if (!parsed.success) {
+      const ruByField: Record<string, string> = {
+        phone: 'Введите корректный номер телефона',
+        email: 'Введите корректный email',
+        password: 'Пароль должен быть не менее 8 символов',
+        inn: 'ИНН должен содержать 10 или 12 цифр',
+        fullName: 'Введите ФИО (минимум 2 символа)',
+        agencyName: 'Название агентства от 2 до 200 символов',
+      };
+      const errors = parsed.error.issues.map((issue) => {
+        const field = String(issue.path[0] ?? '');
+        return {
+          field: field || undefined,
+          message: ruByField[field] || issue.message,
+        };
+      });
+      // Дедуп по field — Zod иногда даёт несколько issues на одно поле.
+      const seen = new Set<string>();
+      const unique = errors.filter((e) => {
+        const key = e.field || '__';
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      throw new BadRequestException({
+        message: unique[0]?.message || 'Ошибка валидации',
+        field: unique[0]?.field,
+        errors: unique,
+      });
+    }
+    const data = parsed.data as { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string; offerAccepted?: boolean; privacyAccepted?: boolean };
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
       || req.socket?.remoteAddress
       || null;

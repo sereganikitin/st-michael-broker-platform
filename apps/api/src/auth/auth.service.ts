@@ -132,15 +132,33 @@ export class AuthService {
     if (!data.fullName && (data.firstName || data.lastName)) {
       data.fullName = [data.lastName, data.firstName, data.middleName].filter(Boolean).join(' ').trim();
     }
-    if (!data.fullName) {
-      throw new BadRequestException('ФИО обязательно');
-    }
-    const existing = await this.prisma.broker.findUnique({
-      where: { phone: data.phone },
-    });
+    // 2026-06-26: копим ВСЕ семантические ошибки регистрации (пустое ФИО,
+    // дубль phone, дубль email) и кидаем разом массивом — UI подсветит сразу
+    // все проблемные поля, а не по одной.
+    const errors: Array<{ field?: string; message: string }> = [];
 
-    if (existing) {
-      throw new BadRequestException('Broker with this phone already exists');
+    if (!data.fullName) {
+      errors.push({ field: 'fullName', message: 'Введите ФИО' });
+    }
+
+    const [existingByPhone, existingByEmail] = await Promise.all([
+      this.prisma.broker.findUnique({ where: { phone: data.phone } }),
+      data.email ? this.prisma.broker.findFirst({ where: { email: data.email } }) : Promise.resolve(null),
+    ]);
+
+    if (existingByPhone) {
+      errors.push({ field: 'phone', message: 'Брокер с этим номером телефона уже зарегистрирован' });
+    }
+    if (existingByEmail) {
+      errors.push({ field: 'email', message: 'Брокер с этим email уже зарегистрирован' });
+    }
+
+    if (errors.length) {
+      throw new BadRequestException({
+        message: errors[0].message,
+        field: errors[0].field,
+        errors,
+      });
     }
 
     const passwordHash = await bcrypt.hash(data.password, 10);
