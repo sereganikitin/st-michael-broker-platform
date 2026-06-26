@@ -256,7 +256,9 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   const [email, setEmail] = useState('');
   const [agencyName, setAgencyName] = useState('');
   const [inn, setInn] = useState('');
-  const [innType, setInnType] = useState<'PERSONAL' | 'AGENCY'>('AGENCY');
+  // 2026-06-26: радио "Личный ИНН / ИНН агентства" убрано — все
+  // регистрации идут как AGENCY (согласовано с заказчиком).
+  const innType = 'AGENCY' as const;
   // 2026-06-17: чекбоксы оферты/ПД — без них бэк (PR #134) валит регистрацию
   // ошибкой «Поле offerAccepted: необходимо принять Договор-оферту».
   const [offerAccepted, setOfferAccepted] = useState(false);
@@ -401,19 +403,9 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                   style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
                 <input placeholder="Название агентства" value={agencyName} onChange={e=>setAgencyName(e.target.value)}
                   style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
-                <input placeholder="ИНН (10 или 12 цифр)" inputMode="numeric" value={inn}
+                <input placeholder="ИНН агентства (10 или 12 цифр)" inputMode="numeric" value={inn}
                   onChange={e=>setInn(e.target.value.replace(/\D/g,'').slice(0,12))}
                   style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
-                <div style={{display:'flex',gap:16,fontSize:13,color:'#1a1a1a'}}>
-                  <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                    <input type="radio" name="innType" checked={innType==='PERSONAL'} onChange={()=>setInnType('PERSONAL')} />
-                    Личный ИНН
-                  </label>
-                  <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                    <input type="radio" name="innType" checked={innType==='AGENCY'} onChange={()=>setInnType('AGENCY')} />
-                    ИНН агентства
-                  </label>
-                </div>
                 {/* 2026-06-18: чекбоксы оферты и ПД больше не обязательны (отдельная
                     договорённость с юристами, ставится позже). Оставляем возможность
                     отметить добровольно — тогда акцепт логируется. */}
