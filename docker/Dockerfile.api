@@ -30,22 +30,35 @@ COPY packages/shared/package.json packages/shared/
 # не появится — build упадёт здесь с понятной ошибкой.
 RUN --mount=type=cache,target=/root/.npm npm install && test -x node_modules/.bin/prisma
 
-# 3) КОПИРУЕМ ОСТАЛЬНОЙ КОД (только теперь, когда node_modules уже стоит).
-COPY . .
-
-# 4) BUILD STEPS.
-# 2026-06-08: убрали `2>/dev/null` — он глушил реальные ошибки tsc и
-# fallback ветка после || молча отрабатывала с дефектным dist (PR #86
-# проявил: setMangoConfig экспортируется в исходниках, но dist оставался
-# старым и apps/api падал с TS2304 "Cannot find name 'setMangoConfig'").
-# Плюс предварительный rm -rf dist + tsbuildinfo чтобы incremental не
-# тянул кэш предыдущей сборки.
+# 3) PRISMA GENERATE — поставлен ВЫШЕ COPY . .
+# 2026-06-26: prisma generate скачивает query-engine бинарник с
+# binaries.prisma.sh при каждом запуске. С нашего сервера этот CDN
+# отвечает нестабильно (run 28249010685, 28249646914, 28249978791 —
+# все упали тут). Раньше слой `prisma generate` стоял после COPY . . →
+# любая правка кода приложения инвалидировала его кеш → каждый деплой
+# заново лез на CDN.
+# Теперь слой зависит ТОЛЬКО от package*.json (выше) и schema.prisma
+# (копируется здесь). Schema.prisma меняется редко → слой почти всегда
+# CACHED → CDN не дёргается на каждый деплой. Один раз скачаем engine
+# при удачном моменте — дальше всё пройдёт без обращения к CDN.
+COPY packages/database/prisma packages/database/prisma
 # 2026-06-25: явный путь вместо `npx prisma`. npx молча ставит latest
 # prisma из реестра, если не находит локальный бинарник — это сегодня
 # подтянуло Prisma 7.8.0 поверх нашей фиксированной ^5.0.0 и обвалило
 # валидацию schema. Локальный путь либо запускает 5.x из node_modules,
 # либо падает с понятным "no such file".
 RUN ./node_modules/.bin/prisma generate --schema=packages/database/prisma/schema.prisma
+
+# 4) КОПИРУЕМ ОСТАЛЬНОЙ КОД (теперь, когда engine уже в node_modules/.prisma/).
+COPY . .
+
+# 5) BUILD STEPS.
+# 2026-06-08: убрали `2>/dev/null` — он глушил реальные ошибки tsc и
+# fallback ветка после || молча отрабатывала с дефектным dist (PR #86
+# проявил: setMangoConfig экспортируется в исходниках, но dist оставался
+# старым и apps/api падал с TS2304 "Cannot find name 'setMangoConfig'").
+# Плюс предварительный rm -rf dist + tsbuildinfo чтобы incremental не
+# тянул кэш предыдущей сборки.
 RUN rm -rf packages/shared/dist packages/shared/tsconfig.tsbuildinfo \
  && npm run build --workspace=packages/shared
 RUN rm -rf packages/integrations/dist packages/integrations/tsconfig.tsbuildinfo \
