@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Info } from 'lucide-react';
 import { parseApiError } from '@/lib/api';
 import { SupportContacts } from '@/components/SupportContacts';
 
@@ -177,13 +178,33 @@ export default function RegisterPage() {
 
             <div>
               <label className="label">Email <span className="text-error">*</span></label>
-              <input
-                type="email"
-                className={fieldClass('email')}
-                placeholder="example@mail.ru"
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); if (submitted) setFieldErrors(validate()); }}
-              />
+              {/* 2026-06-26: значок-уведомление с подсказкой о ФЗ №406-ФЗ.
+                  Не блокирует submit — это инфо для пользователя, чтобы он
+                  понимал почему регистрация через российский email
+                  предпочтительнее. */}
+              <div className="relative">
+                <input
+                  type="email"
+                  className={fieldClass('email') + ' pr-10'}
+                  placeholder="example@mail.ru"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); if (submitted) setFieldErrors(validate()); }}
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 group">
+                  <Info className="w-4 h-4 text-text-muted cursor-help" aria-label="Информация о требованиях к email" />
+                  <div
+                    role="tooltip"
+                    className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity absolute right-0 top-full mt-1 z-20 w-72 p-3 text-xs text-text bg-surface border border-border rounded-lg shadow-lg leading-relaxed"
+                  >
+                    <p className="mb-2">
+                      Согласно <strong>ФЗ №406-ФЗ</strong> авторизация на российских сайтах должна осуществляться через российский почтовый сервис.
+                    </p>
+                    <p>
+                      Рекомендуем: <span className="text-accent">yandex.ru, mail.ru, rambler.ru, bk.ru</span> и подобные.
+                    </p>
+                  </div>
+                </div>
+              </div>
               {errorText('email')}
             </div>
 
