@@ -132,33 +132,33 @@ export class AuthService {
     if (!data.fullName && (data.firstName || data.lastName)) {
       data.fullName = [data.lastName, data.firstName, data.middleName].filter(Boolean).join(' ').trim();
     }
+    // 2026-06-26: копим ВСЕ семантические ошибки регистрации (пустое ФИО,
+    // дубль phone, дубль email) и кидаем разом массивом — UI подсветит сразу
+    // все проблемные поля, а не по одной.
+    const errors: Array<{ field?: string; message: string }> = [];
+
     if (!data.fullName) {
-      throw new BadRequestException({ message: 'Введите ФИО', field: 'fullName' });
+      errors.push({ field: 'fullName', message: 'Введите ФИО' });
     }
-    const existing = await this.prisma.broker.findUnique({
-      where: { phone: data.phone },
-    });
 
-    if (existing) {
+    const [existingByPhone, existingByEmail] = await Promise.all([
+      this.prisma.broker.findUnique({ where: { phone: data.phone } }),
+      data.email ? this.prisma.broker.findFirst({ where: { email: data.email } }) : Promise.resolve(null),
+    ]);
+
+    if (existingByPhone) {
+      errors.push({ field: 'phone', message: 'Брокер с этим номером телефона уже зарегистрирован' });
+    }
+    if (existingByEmail) {
+      errors.push({ field: 'email', message: 'Брокер с этим email уже зарегистрирован' });
+    }
+
+    if (errors.length) {
       throw new BadRequestException({
-        message: 'Брокер с этим номером телефона уже зарегистрирован',
-        field: 'phone',
+        message: errors[0].message,
+        field: errors[0].field,
+        errors,
       });
-    }
-
-    // 2026-06-26: уникальность email — раньше не проверялось, пользователь
-    // получал 500 от Prisma при коллизии. Теперь — внятная ошибка с указанием
-    // поля.
-    if (data.email) {
-      const existingEmail = await this.prisma.broker.findFirst({
-        where: { email: data.email },
-      });
-      if (existingEmail) {
-        throw new BadRequestException({
-          message: 'Брокер с этим email уже зарегистрирован',
-          field: 'email',
-        });
-      }
     }
 
     const passwordHash = await bcrypt.hash(data.password, 10);

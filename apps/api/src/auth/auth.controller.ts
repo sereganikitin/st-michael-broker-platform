@@ -18,12 +18,11 @@ export class AuthController {
   @ApiResponse({ status: 201, description: 'Broker registered, OTP sent' })
   async register(@Body() body: unknown, @Req() req: Request) {
     // 2026-06-26: вместо .parse() (бросает ZodError → 500) используем
-    // .safeParse и преобразуем первый issue в BadRequest c полем + русским
-    // сообщением. UI подсветит конкретное поле и покажет понятную причину.
+    // .safeParse и преобразуем ВСЕ issues в массив { field, message } на
+    // русском. UI получит сразу полный список ошибок и подсветит все
+    // невалидные поля одновременно, а не по одной.
     const parsed = registerDtoSchema.safeParse(body);
     if (!parsed.success) {
-      const issue = parsed.error.issues[0];
-      const field = String(issue.path[0] ?? '');
       const ruByField: Record<string, string> = {
         phone: 'Введите корректный номер телефона',
         email: 'Введите корректный email',
@@ -32,9 +31,25 @@ export class AuthController {
         fullName: 'Введите ФИО (минимум 2 символа)',
         agencyName: 'Название агентства от 2 до 200 символов',
       };
+      const errors = parsed.error.issues.map((issue) => {
+        const field = String(issue.path[0] ?? '');
+        return {
+          field: field || undefined,
+          message: ruByField[field] || issue.message,
+        };
+      });
+      // Дедуп по field — Zod иногда даёт несколько issues на одно поле.
+      const seen = new Set<string>();
+      const unique = errors.filter((e) => {
+        const key = e.field || '__';
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
       throw new BadRequestException({
-        message: ruByField[field] || issue.message,
-        field: field || undefined,
+        message: unique[0]?.message || 'Ошибка валидации',
+        field: unique[0]?.field,
+        errors: unique,
       });
     }
     const data = parsed.data as { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string; offerAccepted?: boolean; privacyAccepted?: boolean };

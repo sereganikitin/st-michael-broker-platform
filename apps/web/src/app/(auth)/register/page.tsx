@@ -77,18 +77,34 @@ export default function RegisterPage() {
         setSuccess(true);
         setTimeout(() => router.push('/'), 2000);
       } else {
-        // 2026-06-26: бэкенд теперь шлёт { message, field } для понятных
-        // ошибок (дубль телефона/email, невалидный формат). Если поле
-        // указано — подсвечиваем его + кладём сообщение в errorText.
-        // Иначе fallback на общую плашку наверху страницы.
+        // 2026-06-26: бэкенд шлёт { message, field, errors: [{field, message}, ...] }.
+        // Раскидываем ВСЕ ошибки по полям сразу — пользователь видит каждое
+        // невалидное поле подсвеченным с пояснением, не по одной.
         const raw = await res.json().catch(() => null);
-        const field = raw?.field as keyof FieldErrors | undefined;
-        const message = (raw?.message as string) || 'Ошибка регистрации';
-        if (field && ['fullName','phone','email','inn','password','passwordConfirm','offer','privacy'].includes(field)) {
-          setFieldErrors((prev) => ({ ...prev, [field]: message }));
-          setError('');
+        const valid: Array<keyof FieldErrors> = ['fullName','phone','email','inn','password','passwordConfirm','offer','privacy'];
+        const list: Array<{ field?: string; message: string }> = Array.isArray(raw?.errors)
+          ? raw.errors
+          : (raw?.field || raw?.message)
+            ? [{ field: raw?.field, message: raw?.message }]
+            : [];
+
+        const next: FieldErrors = {};
+        let leftover = '';
+        for (const item of list) {
+          const f = item.field as keyof FieldErrors | undefined;
+          const msg = item.message || 'Проверьте поле';
+          if (f && (valid as string[]).includes(f)) {
+            next[f] = msg;
+          } else if (!leftover) {
+            leftover = msg;
+          }
+        }
+
+        if (Object.keys(next).length > 0) {
+          setFieldErrors((prev) => ({ ...prev, ...next }));
+          setError(leftover);
         } else {
-          setError(message);
+          setError(leftover || 'Ошибка регистрации');
         }
       }
     } catch {
