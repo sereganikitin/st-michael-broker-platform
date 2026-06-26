@@ -45,12 +45,6 @@ COPY . .
 # подтянуло Prisma 7.8.0 поверх нашей фиксированной ^5.0.0 и обвалило
 # валидацию schema. Локальный путь либо запускает 5.x из node_modules,
 # либо падает с понятным "no such file".
-# 2026-06-26: PRISMA_ENGINES_MIRROR — зеркало Prisma engine на
-# huaweicloud.com. Дефолтный CDN binaries.prisma.sh с нашего сервера
-# неустойчиво отвечает (run 28184102497, 28249010685 — "request to
-# binaries.prisma.sh failed"). Зеркало Huawei отдаёт те же бинарники,
-# стабильно из РФ. То же решение, что mirror.gcr.io для node-образа.
-ENV PRISMA_ENGINES_MIRROR=https://repo.huaweicloud.com/prisma
 RUN ./node_modules/.bin/prisma generate --schema=packages/database/prisma/schema.prisma
 RUN rm -rf packages/shared/dist packages/shared/tsconfig.tsbuildinfo \
  && npm run build --workspace=packages/shared
