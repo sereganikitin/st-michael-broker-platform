@@ -77,7 +77,19 @@ export default function RegisterPage() {
         setSuccess(true);
         setTimeout(() => router.push('/'), 2000);
       } else {
-        setError(await parseApiError(res, 'Ошибка регистрации'));
+        // 2026-06-26: бэкенд теперь шлёт { message, field } для понятных
+        // ошибок (дубль телефона/email, невалидный формат). Если поле
+        // указано — подсвечиваем его + кладём сообщение в errorText.
+        // Иначе fallback на общую плашку наверху страницы.
+        const raw = await res.json().catch(() => null);
+        const field = raw?.field as keyof FieldErrors | undefined;
+        const message = (raw?.message as string) || 'Ошибка регистрации';
+        if (field && ['fullName','phone','email','inn','password','passwordConfirm','offer','privacy'].includes(field)) {
+          setFieldErrors((prev) => ({ ...prev, [field]: message }));
+          setError('');
+        } else {
+          setError(message);
+        }
       }
     } catch {
       setError('Ошибка соединения с сервером');

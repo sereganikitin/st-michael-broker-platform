@@ -133,14 +133,32 @@ export class AuthService {
       data.fullName = [data.lastName, data.firstName, data.middleName].filter(Boolean).join(' ').trim();
     }
     if (!data.fullName) {
-      throw new BadRequestException('ФИО обязательно');
+      throw new BadRequestException({ message: 'Введите ФИО', field: 'fullName' });
     }
     const existing = await this.prisma.broker.findUnique({
       where: { phone: data.phone },
     });
 
     if (existing) {
-      throw new BadRequestException('Broker with this phone already exists');
+      throw new BadRequestException({
+        message: 'Брокер с этим номером телефона уже зарегистрирован',
+        field: 'phone',
+      });
+    }
+
+    // 2026-06-26: уникальность email — раньше не проверялось, пользователь
+    // получал 500 от Prisma при коллизии. Теперь — внятная ошибка с указанием
+    // поля.
+    if (data.email) {
+      const existingEmail = await this.prisma.broker.findFirst({
+        where: { email: data.email },
+      });
+      if (existingEmail) {
+        throw new BadRequestException({
+          message: 'Брокер с этим email уже зарегистрирован',
+          field: 'email',
+        });
+      }
     }
 
     const passwordHash = await bcrypt.hash(data.password, 10);

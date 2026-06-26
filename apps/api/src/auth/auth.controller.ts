@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, Req, UseGuards, HttpCode, HttpStatus, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Req, UseGuards, HttpCode, HttpStatus, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -17,7 +17,27 @@ export class AuthController {
   @ApiOperation({ summary: 'Register broker' })
   @ApiResponse({ status: 201, description: 'Broker registered, OTP sent' })
   async register(@Body() body: unknown, @Req() req: Request) {
-    const data = registerDtoSchema.parse(body) as { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string; offerAccepted?: boolean; privacyAccepted?: boolean };
+    // 2026-06-26: вместо .parse() (бросает ZodError → 500) используем
+    // .safeParse и преобразуем первый issue в BadRequest c полем + русским
+    // сообщением. UI подсветит конкретное поле и покажет понятную причину.
+    const parsed = registerDtoSchema.safeParse(body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const field = String(issue.path[0] ?? '');
+      const ruByField: Record<string, string> = {
+        phone: 'Введите корректный номер телефона',
+        email: 'Введите корректный email',
+        password: 'Пароль должен быть не менее 8 символов',
+        inn: 'ИНН должен содержать 10 или 12 цифр',
+        fullName: 'Введите ФИО (минимум 2 символа)',
+        agencyName: 'Название агентства от 2 до 200 символов',
+      };
+      throw new BadRequestException({
+        message: ruByField[field] || issue.message,
+        field: field || undefined,
+      });
+    }
+    const data = parsed.data as { phone: string; fullName: string; email?: string; password: string; inn?: string; innType?: 'PERSONAL' | 'AGENCY'; agencyName?: string; offerAccepted?: boolean; privacyAccepted?: boolean };
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
       || req.socket?.remoteAddress
       || null;
