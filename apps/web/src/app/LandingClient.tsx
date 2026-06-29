@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { InnAutocomplete } from '@/components/InnAutocomplete';
 import {
   Headphones, PhoneCall, Wallet, TrendingUp, Users2, GraduationCap,
-  Shield, Sparkles,
+  Shield, Sparkles, Info,
   FileText, Download as DownloadIcon, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 
@@ -266,6 +266,13 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
   const [forgotSent, setForgotSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // 2026-06-29: подсветка полей при ошибке регистрации (симметрично
+  // странице /register). Сначала валидация на клиенте при submit,
+  // потом ошибки с бэка раскидываем по полям.
+  type FieldKey = 'fullName' | 'phone' | 'email' | 'password' | 'passwordConfirm' | 'inn' | 'agencyName';
+  type FieldErrors = Partial<Record<FieldKey, string>>;
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [submitted, setSubmitted] = useState(false);
   const { login } = useAuth();
 
   const fullPhone = '+7' + phoneDigits;
@@ -325,13 +332,24 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
     setLoading(false);
   };
 
+  // 2026-06-29: клиентская валидация для подсветки полей до submit.
+  const validateRegister = (): FieldErrors => {
+    const e: FieldErrors = {};
+    if (!firstName.trim() || !lastName.trim()) e.fullName = 'Введите ФИО (фамилия и имя)';
+    if (phoneDigits.length !== 10) e.phone = 'Введите 10 цифр номера';
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = 'Неверный формат email';
+    if (password.length < 8) e.password = 'Минимум 8 символов';
+    if (passwordConfirm !== password) e.passwordConfirm = 'Пароли не совпадают';
+    if (inn && inn.length !== 10 && inn.length !== 12) e.inn = 'ИНН должен быть 10 или 12 цифр';
+    return e;
+  };
+
   const handleRegister = async () => {
-    if (password.length < 8) {
-      setError('Пароль должен быть не менее 8 символов');
-      return;
-    }
-    if (password !== passwordConfirm) {
-      setError('Пароли не совпадают');
+    setSubmitted(true);
+    const errs = validateRegister();
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      setError('');
       return;
     }
     setLoading(true); setError('');
@@ -353,11 +371,44 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
       if (res.ok) {
         await doLogin(fullPhone, password);
       } else {
-        setError(await parseApiError(res, 'Ошибка регистрации'));
+        // 2026-06-29: бэк шлёт { message, field, errors: [{field, message}, ...] }.
+        // Раскидываем по полям, остаток — в общую плашку.
+        const raw = await res.json().catch(() => null);
+        const valid: FieldKey[] = ['fullName','phone','email','password','passwordConfirm','inn','agencyName'];
+        const list: Array<{ field?: string; message: string }> = Array.isArray(raw?.errors)
+          ? raw.errors
+          : (raw?.field || raw?.message)
+            ? [{ field: raw?.field, message: raw?.message }]
+            : [];
+        const next: FieldErrors = {};
+        let leftover = '';
+        for (const item of list) {
+          const f = item.field as FieldKey | undefined;
+          const msg = item.message || 'Проверьте поле';
+          if (f && (valid as string[]).includes(f)) next[f] = msg;
+          else if (!leftover) leftover = msg;
+        }
+        if (Object.keys(next).length > 0) {
+          setFieldErrors((prev) => ({ ...prev, ...next }));
+          setError(leftover);
+        } else {
+          setError(leftover || await parseApiError(res, 'Ошибка регистрации'));
+        }
       }
     } catch (e: any) { setError(e.message || 'Ошибка соединения с сервером'); }
     setLoading(false);
   };
+
+  // Перевалидация на лету после submit, чтобы подсветка снималась
+  // когда пользователь ввёл недостающее.
+  const revalidate = () => { if (submitted) setFieldErrors(validateRegister()); };
+  // Стиль рамки с красной подсветкой при ошибке поля.
+  const eb = (k: FieldKey) => ({
+    borderColor: fieldErrors[k] ? '#c0392b' : 'rgba(0,0,0,0.12)',
+  });
+  const errLine = (k: FieldKey) => fieldErrors[k] ? (
+    <div style={{fontSize:11,color:'#c0392b',marginTop:-8}}>{fieldErrors[k]}</div>
+  ) : null;
 
   return (
     <div className="lp-overlay" style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
@@ -391,32 +442,54 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             {mode === 'register' && (
               <>
-                <input placeholder="Фамилия *" value={lastName} onChange={e=>setLastName(e.target.value)}
-                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
-                <input placeholder="Имя *" value={firstName} onChange={e=>setFirstName(e.target.value)}
-                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+                <input placeholder="Фамилия *" value={lastName} onChange={e=>{setLastName(e.target.value); revalidate();}}
+                  style={{padding:'12px 16px',border:`1px solid ${eb('fullName').borderColor}`,borderRadius:4,fontSize:14,outline:'none'}} />
+                <input placeholder="Имя *" value={firstName} onChange={e=>{setFirstName(e.target.value); revalidate();}}
+                  style={{padding:'12px 16px',border:`1px solid ${eb('fullName').borderColor}`,borderRadius:4,fontSize:14,outline:'none'}} />
+                {errLine('fullName')}
                 <input placeholder="Отчество (необязательно)" value={middleName} onChange={e=>setMiddleName(e.target.value)}
                   style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
-                <PhoneInput value={phoneDigits} onChange={setPhoneDigits} />
-                <input placeholder="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)}
-                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
-                <input placeholder="Название агентства" value={agencyName} onChange={e=>setAgencyName(e.target.value)}
-                  style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+                <PhoneInput value={phoneDigits} onChange={(v)=>{setPhoneDigits(v); revalidate();}} />
+                {errLine('phone')}
+                {/* 2026-06-29: добавлен значок i-уведомление с подсказкой
+                    о ФЗ №406-ФЗ. Симметрично странице /register. Поле не
+                    блокирует регистрацию иностранной почтой — это только
+                    информирование. */}
+                <div style={{position:'relative'}}>
+                  <input placeholder="Email" type="email" value={email} onChange={e=>{setEmail(e.target.value); revalidate();}}
+                    style={{padding:'12px 40px 12px 16px',border:`1px solid ${eb('email').borderColor}`,borderRadius:4,fontSize:14,outline:'none',width:'100%',boxSizing:'border-box'}} />
+                  <div className="group" style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)'}}>
+                    <Info style={{width:16,height:16,color:'#888',cursor:'help'}} aria-label="Информация о требованиях к email" />
+                    <div role="tooltip" className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity"
+                      style={{position:'absolute',right:0,top:'calc(100% + 4px)',zIndex:30,width:280,padding:12,fontSize:12,lineHeight:1.45,color:'#1a1a1a',background:'#fff',border:'1px solid rgba(0,0,0,0.12)',borderRadius:6,boxShadow:'0 4px 16px rgba(0,0,0,0.1)'}}>
+                      <p style={{marginBottom:8}}>
+                        Согласно <strong>ФЗ №406-ФЗ</strong> авторизация на российских сайтах должна осуществляться через российский почтовый сервис.
+                      </p>
+                      <p>
+                        Рекомендуем: <span style={{color:'#B4936F'}}>yandex.ru, mail.ru, rambler.ru, bk.ru</span> и подобные.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {errLine('email')}
+                <input placeholder="Название агентства" value={agencyName} onChange={e=>{setAgencyName(e.target.value); revalidate();}}
+                  style={{padding:'12px 16px',border:`1px solid ${eb('agencyName').borderColor}`,borderRadius:4,fontSize:14,outline:'none'}} />
+                {errLine('agencyName')}
                 {/* 2026-06-26: автодополнение ИНН через Dadata. Подсказки по
                     юр.лицам/ИП, клик подставляет ИНН + название агентства. */}
                 <InnAutocomplete
                   value={inn}
-                  onChange={setInn}
+                  onChange={(v)=>{setInn(v); revalidate();}}
                   onSelect={(s) => setAgencyName(s.name)}
                   placeholder="ИНН (10 или 12 цифр)"
                   inputClassName=""
-                  inputStyle={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none',width:'100%',boxSizing:'border-box'}}
+                  inputStyle={{padding:'12px 16px',border:`1px solid ${eb('inn').borderColor}`,borderRadius:4,fontSize:14,outline:'none',width:'100%',boxSizing:'border-box'}}
                 />
+                {errLine('inn')}
+                {/* 2026-06-29: опцию "Личный ИНН" убрали (заказчик: только
+                    юр.лица/ИП). Остался один radio "ИНН агентства" с дефолтом
+                    AGENCY — это и текущее значение state. */}
                 <div style={{display:'flex',gap:16,fontSize:13,color:'#1a1a1a'}}>
-                  <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                    <input type="radio" name="innType" checked={innType==='PERSONAL'} onChange={()=>setInnType('PERSONAL')} />
-                    Личный ИНН
-                  </label>
                   <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
                     <input type="radio" name="innType" checked={innType==='AGENCY'} onChange={()=>setInnType('AGENCY')} />
                     ИНН агентства
@@ -456,17 +529,21 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
             {mode === 'login' && (
               <PhoneInput value={phoneDigits} onChange={setPhoneDigits} />
             )}
-            <input placeholder={mode === 'register' ? 'Пароль (минимум 8 символов)' : 'Пароль'} type="password" value={password} onChange={e=>setPassword(e.target.value)}
+            <input placeholder={mode === 'register' ? 'Пароль (минимум 8 символов)' : 'Пароль'} type="password" value={password} onChange={e=>{setPassword(e.target.value); if (mode === 'register') revalidate();}}
               onKeyDown={e=>e.key==='Enter' && (mode==='login' ? handleLogin() : handleRegister())}
-              style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
+              style={{padding:'12px 16px',border:`1px solid ${mode === 'register' ? eb('password').borderColor : 'rgba(0,0,0,0.12)'}`,borderRadius:4,fontSize:14,outline:'none'}} />
+            {mode === 'register' && errLine('password')}
             {mode === 'register' && (
-              <input placeholder="Подтвердите пароль" type="password" value={passwordConfirm} onChange={e=>setPasswordConfirm(e.target.value)}
-                onKeyDown={e=>e.key==='Enter' && handleRegister()}
-                style={{
-                  padding:'12px 16px',
-                  border: `1px solid ${passwordConfirm && password !== passwordConfirm ? '#c33' : 'rgba(0,0,0,0.12)'}`,
-                  borderRadius:4,fontSize:14,outline:'none',
-                }} />
+              <>
+                <input placeholder="Подтвердите пароль" type="password" value={passwordConfirm} onChange={e=>{setPasswordConfirm(e.target.value); revalidate();}}
+                  onKeyDown={e=>e.key==='Enter' && handleRegister()}
+                  style={{
+                    padding:'12px 16px',
+                    border: `1px solid ${eb('passwordConfirm').borderColor}`,
+                    borderRadius:4,fontSize:14,outline:'none',
+                  }} />
+                {errLine('passwordConfirm')}
+              </>
             )}
             <button onClick={mode==='login' ? handleLogin : handleRegister}
               disabled={
