@@ -96,6 +96,15 @@ export function buildPhoneSearchConditions(search: string): Array<{ phone: strin
   const digitsOnly = trimmed.replace(/\D/g, '');
   if (digitsOnly.length >= 4) {
     conditions.push({ phone: { contains: digitsOnly } });
+    // 2026-06-29 patch: частичный ввод с префиксом 8 (например «8912»).
+    // normalizePhone не нормализует короткие строки (<10 цифр), а в БД
+    // номер хранится как +79XXX — `contains "8912"` не найдёт `+79124557274`.
+    // Поэтому если ввод начинается с 8 и длина < 11 — добавляем поиск с
+    // префиксом 7 (заменив первую цифру). Это покрывает кейс «начал
+    // вводить с привычной восьмёрки».
+    if (digitsOnly[0] === '8' && digitsOnly.length < 11) {
+      conditions.push({ phone: { contains: '7' + digitsOnly.slice(1) } });
+    }
   }
   return conditions;
 }
