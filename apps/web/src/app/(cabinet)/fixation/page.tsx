@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Plus, Trash2, CheckCircle2, X, Search } from 'lucide-react';
@@ -36,6 +36,7 @@ function formatMoney(raw: string): string {
 
 export default function FixationPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { broker } = useAuth();
 
   const [isForeign, setIsForeign] = useState(false); // правка 2026-05-14: иностранные номера
@@ -124,6 +125,30 @@ export default function FixationPage() {
     }, 250);
     return () => clearTimeout(t);
   }, [respSearch, isCoordinator]);
+
+  // 2026-06-29: если в URL есть ?responsibleBrokerId=... (например после
+  // клика «зафиксировать на брокера» в /my-brokers) — подтягиваем брокера
+  // и предзаполняем выбор.
+  useEffect(() => {
+    if (!isCoordinator) return;
+    const prefilledId = searchParams.get('responsibleBrokerId');
+    if (!prefilledId || respSelected) return;
+    apiGet<{ brokers: Array<{ id: string; fullName: string; phone: string }> }>(
+      `/clients/agency-colleagues?search=${encodeURIComponent(prefilledId)}`
+    )
+      .then((d) => {
+        // search не ищет по id — поэтому делаем второй запрос без search
+        // и ищем по id среди всех. Дёшево: запрос лимитирован 50.
+        return apiGet<{ brokers: Array<{ id: string; fullName: string; phone: string }> }>(
+          `/clients/agency-colleagues`
+        );
+      })
+      .then((d) => {
+        const found = d.brokers?.find((b) => b.id === prefilledId);
+        if (found) setRespSelected(found);
+      })
+      .catch(() => {});
+  }, [isCoordinator, searchParams]);
 
   // 2026-06-29: загрузить список агентств координатора при открытии модалки.
   useEffect(() => {
