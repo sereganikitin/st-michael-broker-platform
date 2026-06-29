@@ -53,50 +53,20 @@ export class ClientFixationController {
     return this.clientFixationService.getAgencyColleagues(user.id, search || '');
   }
 
-  // 2026-06-29: список агентств текущего координатора — для модалки
-  // «создать нового брокера», чтобы выбрать в какое его добавить.
-  @Get('coordinator/agencies')
-  @ApiOperation({ summary: 'Agencies of the current coordinator (for new-broker form)' })
-  async getCoordinatorAgencies(@CurrentUser() user: CurrentUserPayload) {
+  // 2026-06-29 (refactor): список агентств брокера — для формы создания
+  // нового брокера в разделе «Брокер» формы фиксации.
+  @Get('my-agencies')
+  @ApiOperation({ summary: 'Agencies of the current broker (for new-broker form)' })
+  async getMyAgencies(@CurrentUser() user: CurrentUserPayload) {
     return this.clientFixationService.getMyAgencies(user.id);
   }
 
-  // 2026-06-29: список брокеров которых завёл текущий координатор.
-  // Отображается в отдельной странице /my-brokers (пункт сайдбара).
-  @Get('coordinator/my-brokers')
-  @ApiOperation({ summary: 'List brokers created by current coordinator' })
-  async getMyCreatedBrokers(@CurrentUser() user: CurrentUserPayload) {
-    return this.clientFixationService.getMyCreatedBrokers(user.id);
-  }
-
-  // 2026-06-29: повторно отправить welcome-email брокеру (если он так и
-  // не зашёл в кабинет / не получил первое письмо).
-  @Post('coordinator/resend-welcome/:brokerId')
-  @ApiOperation({ summary: 'Resend welcome email to a broker created by current coordinator' })
-  async resendCoordinatorWelcome(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('brokerId') brokerId: string,
-  ) {
-    return this.clientFixationService.resendCoordinatorWelcomeEmail(user.id, brokerId);
-  }
-
-  // 2026-06-29: удалить брокера, которого завёл координатор (только если
-  // у брокера нет клиентов/сделок и он ещё не зашёл в кабинет).
-  @Post('coordinator/delete-broker/:brokerId')
-  @ApiOperation({ summary: 'Delete a broker created by current coordinator (safe-delete)' })
-  async deleteCreatedBroker(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('brokerId') brokerId: string,
-  ) {
-    return this.clientFixationService.deleteCreatedBroker(user.id, brokerId);
-  }
-
-  // 2026-06-29: координатор создаёт нового брокера прямо из формы фиксации,
-  // когда поиск не дал результата. Новый брокер привязывается к выбранному
-  // агентству координатора. См. createBrokerByCoordinator в сервисе.
-  @Post('coordinator/create-broker')
-  @ApiOperation({ summary: 'Coordinator creates a new broker (auto-assigned to selected agency)' })
-  async coordinatorCreateBroker(
+  // 2026-06-29 (refactor): любой брокер может создать нового брокера
+  // прямо из формы фиксации, выбрав «Фиксирую на другого». Новый
+  // привязывается к выбранному агентству создателя.
+  @Post('create-new-broker')
+  @ApiOperation({ summary: 'Create a new broker (auto-assigned to selected agency)' })
+  async createNewBroker(
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: { fullName?: string; phone?: string; email?: string; agencyId?: string },
   ) {
@@ -116,7 +86,7 @@ export class ClientFixationController {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new BadRequestException({ message: 'Неверный формат email', field: 'email' });
     }
-    return this.clientFixationService.createBrokerByCoordinator(user.id, { fullName, phone, email, agencyId });
+    return this.clientFixationService.createBrokerByCreator(user.id, { fullName, phone, email, agencyId });
   }
 
   @Get()
