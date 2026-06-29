@@ -579,7 +579,21 @@ export default function ClientsPage() {
                       className="border-b border-border last:border-0 hover:bg-surface-secondary cursor-pointer transition"
                       onClick={() => setSelectedClient(c)}
                     >
-                      <td className="py-3 font-medium">{c.fullName}</td>
+                      <td className="py-3 font-medium">
+                        {c.fullName}
+                        {/* 2026-06-29: подпись «кто завёл» / «кому назначен» —
+                            показываем только когда broker != responsibleBroker. */}
+                        {c.broker && c.responsibleBroker && c.broker.id !== c.responsibleBroker.id && (
+                          <div className="text-[11px] text-text-muted mt-0.5">
+                            {broker?.id === c.responsibleBroker.id && (
+                              <>Завёл координатор: {c.broker.fullName}</>
+                            )}
+                            {broker?.id === c.broker.id && (
+                              <>Назначен на: {c.responsibleBroker.fullName}</>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-3 text-text-muted">{formatPhone(c.phone)}</td>
                       <td className="py-3">{projectLabels[c.project] || c.project}</td>
                       <td className="py-3">
