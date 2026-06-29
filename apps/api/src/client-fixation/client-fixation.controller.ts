@@ -53,6 +53,42 @@ export class ClientFixationController {
     return this.clientFixationService.getAgencyColleagues(user.id, search || '');
   }
 
+  // 2026-06-29: список агентств текущего координатора — для модалки
+  // «создать нового брокера», чтобы выбрать в какое его добавить.
+  @Get('coordinator/agencies')
+  @ApiOperation({ summary: 'Agencies of the current coordinator (for new-broker form)' })
+  async getCoordinatorAgencies(@CurrentUser() user: CurrentUserPayload) {
+    return this.clientFixationService.getMyAgencies(user.id);
+  }
+
+  // 2026-06-29: координатор создаёт нового брокера прямо из формы фиксации,
+  // когда поиск не дал результата. Новый брокер привязывается к выбранному
+  // агентству координатора. См. createBrokerByCoordinator в сервисе.
+  @Post('coordinator/create-broker')
+  @ApiOperation({ summary: 'Coordinator creates a new broker (auto-assigned to selected agency)' })
+  async coordinatorCreateBroker(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { fullName?: string; phone?: string; email?: string; agencyId?: string },
+  ) {
+    const fullName = String(body?.fullName || '').trim();
+    const phone = String(body?.phone || '').trim();
+    const agencyId = String(body?.agencyId || '').trim();
+    const email = body?.email ? String(body.email).trim() : undefined;
+    if (!fullName || fullName.length < 2) {
+      throw new BadRequestException({ message: 'Введите ФИО', field: 'fullName' });
+    }
+    if (!/^\+7\d{10}$/.test(phone)) {
+      throw new BadRequestException({ message: 'Телефон должен быть в формате +7XXXXXXXXXX', field: 'phone' });
+    }
+    if (!agencyId) {
+      throw new BadRequestException({ message: 'Выберите агентство', field: 'agencyId' });
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException({ message: 'Неверный формат email', field: 'email' });
+    }
+    return this.clientFixationService.createBrokerByCoordinator(user.id, { fullName, phone, email, agencyId });
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get broker clients' })
   @ApiResponse({ status: 200, description: 'List of clients' })

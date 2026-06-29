@@ -1,7 +1,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { Project } from '@st-michael/shared';
-import { AmoCrmAdapter, MorekitAdapter, morekitPhone, morekitProjectName, morekitLeadDate } from '@st-michael/integrations';
+import { AmoCrmAdapter, MorekitAdapter, morekitPhone, morekitProjectName, morekitLeadDate, AMO_CONTACT_FIELDS } from '@st-michael/integrations';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
@@ -1010,6 +1010,195 @@ export class ClientFixationService {
       take: 50,
     });
     return { brokers };
+  }
+
+  // 2026-06-29: список агентств текущего координатора — для формы
+  // «создать нового брокера». Координатор может состоять в нескольких
+  // агентствах, новый брокер привязывается к выбранному из них.
+  async getMyAgencies(currentBrokerId: string) {
+    const me = await this.prisma.broker.findUnique({
+      where: { id: currentBrokerId },
+      select: {
+        isCoordinator: true,
+        brokerAgencies: {
+          select: {
+            isPrimary: true,
+            agency: { select: { id: true, name: true, inn: true } },
+          },
+        },
+      },
+    });
+    if (!me) return { agencies: [] };
+    if (!me.isCoordinator) return { agencies: [] };
+    const agencies = me.brokerAgencies.map((ba) => ({
+      id: ba.agency.id,
+      name: ba.agency.name,
+      inn: ba.agency.inn,
+      isPrimary: ba.isPrimary,
+    }));
+    return { agencies };
+  }
+
+  // 2026-06-29: координатор создаёт нового брокера прямо из формы
+  // фиксации (когда поиска не дал результата). Новый брокер привязывается
+  // к выбранному агентству координатора. Если брокер с этим номером
+  // уже существует — молча возвращаем его как ответственного.
+  async createBrokerByCoordinator(
+    coordinatorId: string,
+    data: { fullName: string; phone: string; email?: string; agencyId: string },
+  ) {
+    const coord = await this.prisma.broker.findUnique({
+      where: { id: coordinatorId },
+      select: {
+        id: true,
+        fullName: true,
+        isCoordinator: true,
+        brokerAgencies: { select: { agencyId: true } },
+      },
+    });
+    if (!coord) throw new NotFoundException('Coordinator not found');
+    if (!coord.isCoordinator) {
+      throw new BadRequestException({
+        message: 'Создавать брокеров может только координатор',
+        field: undefined,
+      });
+    }
+    // Агентство должно быть из числа агентств координатора.
+    const allowedAgencyIds = new Set(coord.brokerAgencies.map((ba) => ba.agencyId));
+    if (!allowedAgencyIds.has(data.agencyId)) {
+      throw new BadRequestException({
+        message: 'Это агентство не привязано к вашему профилю координатора',
+        field: 'agencyId',
+      });
+    }
+
+    // Q5: дубль по телефону → молча возвращаем existing.
+    const existingByPhone = await this.prisma.broker.findUnique({
+      where: { phone: data.phone },
+      select: { id: true, fullName: true, phone: true, email: true, isCoordinator: true },
+    });
+    if (existingByPhone) {
+      return { broker: existingByPhone, created: false };
+    }
+
+    // Email — опционально. Если введён и уже занят — ошибка с указанием поля.
+    if (data.email) {
+      const existingByEmail = await this.prisma.broker.findFirst({
+        where: { email: data.email },
+        select: { id: true },
+      });
+      if (existingByEmail) {
+        throw new BadRequestException({
+          message: 'Брокер с этим email уже зарегистрирован',
+          field: 'email',
+        });
+      }
+    }
+
+    const agency = await this.prisma.agency.findUnique({
+      where: { id: data.agencyId },
+      select: { id: true, name: true, inn: true },
+    });
+    if (!agency) throw new NotFoundException('Agency not found');
+
+    // Создаём брокера в amoCRM (как при обычной регистрации).
+    let amoContactId: bigint | undefined;
+    try {
+      const brokerFields: any[] = [
+        { field_id: AMO_CONTACT_FIELDS.PHONE, values: [{ value: data.phone, enum_code: 'WORK' }] },
+        { field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] },
+      ];
+      if (data.email) {
+        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.EMAIL, values: [{ value: data.email, enum_code: 'WORK' }] });
+      }
+      if (agency.inn) {
+        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.INN, values: [{ value: agency.inn }] });
+      }
+      if (agency.name) {
+        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: agency.name }] });
+      }
+      const existingAmo = await this.amoCrmAdapter.findBrokerContactByPhone(data.phone);
+      if (existingAmo) {
+        amoContactId = BigInt(existingAmo.id);
+        try {
+          await this.amoCrmAdapter.updateContact(existingAmo.id, { custom_fields_values: brokerFields } as any);
+        } catch (e) {
+          console.error('[createBrokerByCoordinator] amo updateContact failed:', e);
+        }
+      } else {
+        const newContact = await this.amoCrmAdapter.createContact({
+          name: data.fullName,
+          custom_fields_values: brokerFields,
+        });
+        if (newContact?.id) amoContactId = BigInt(newContact.id);
+      }
+    } catch (e: any) {
+      console.error('[createBrokerByCoordinator] amoCRM sync failed:', e?.message || e);
+    }
+
+    // Создаём брокера БЕЗ пароля — он зайдёт через /forgot-password
+    // (придёт email со ссылкой на сброс).
+    const broker = await this.prisma.broker.create({
+      data: {
+        phone: data.phone,
+        fullName: data.fullName,
+        email: data.email || null,
+        status: 'PENDING' as any,
+        source: 'BROKER_CABINET',
+        ...(amoContactId && { amoContactId }),
+      },
+    });
+
+    // Привязка к выбранному агентству координатора (primary, т.к. первое).
+    await this.prisma.brokerAgency.create({
+      data: { brokerId: broker.id, agencyId: agency.id, isPrimary: true },
+    });
+
+    // Аудит: координатор завёл нового брокера.
+    try {
+      await this.logAudit(coordinatorId, 'COORDINATOR_CREATE_BROKER', 'Broker', broker.id, {
+        coordinatorName: coord.fullName,
+        agencyId: agency.id,
+        agencyName: agency.name,
+        phone: data.phone,
+      });
+    } catch (e: any) {
+      console.error('[createBrokerByCoordinator] audit failed:', e?.message || e);
+    }
+
+    // Welcome-email с приглашением через очередь нотификаций (если email есть).
+    // Текст: «Вас зарегистрировал координатор X. Для входа сбросьте пароль
+    // через broker.stmichael.ru/forgot-password».
+    if (data.email) {
+      try {
+        await this.notificationQueue.add('email', {
+          to: data.email,
+          subject: 'Вас зарегистрировали в St Michael',
+          body: `Здравствуйте, ${data.fullName}!\n\n`
+            + `Вас зарегистрировал координатор агентства "${agency.name}" — ${coord.fullName}.\n\n`
+            + `Чтобы войти в личный кабинет:\n`
+            + `1. Перейдите на https://broker.stmichael.ru/forgot-password\n`
+            + `2. Введите ваш телефон ${data.phone}\n`
+            + `3. На этот email придёт ссылка для установки пароля\n`
+            + `4. После установки пароля войдите на https://broker.stmichael.ru/login\n\n`
+            + `Если возникнут вопросы — горячая линия отдела партнёров: +7 (499) 226-22-49 (ежедневно с 9:00 до 21:00).\n\n`
+            + `С уважением,\nкоманда St Michael`,
+        });
+      } catch (e: any) {
+        console.error('[createBrokerByCoordinator] welcome email enqueue failed:', e?.message || e);
+      }
+    }
+
+    return {
+      broker: {
+        id: broker.id,
+        fullName: broker.fullName,
+        phone: broker.phone,
+        email: broker.email,
+        isCoordinator: false,
+      },
+      created: true,
+    };
   }
 
   async getClient(id: string, brokerId: string) {
