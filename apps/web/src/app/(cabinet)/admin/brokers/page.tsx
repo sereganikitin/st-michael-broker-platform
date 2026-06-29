@@ -22,6 +22,8 @@ export default function AdminBrokersPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // 2026-06-29: фильтр по координаторам — отдельная колонка с галочкой.
+  const [coordinatorFilter, setCoordinatorFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string>('');
@@ -39,6 +41,7 @@ export default function AdminBrokersPage() {
     if (search) params.set('search', search);
     if (roleFilter) params.set('role', roleFilter);
     if (statusFilter) params.set('status', statusFilter);
+    if (coordinatorFilter) params.set('isCoordinator', coordinatorFilter);
     apiGet(`/admin/brokers?${params}`)
       .then((data) => {
         setBrokers(data.brokers || []);
@@ -49,7 +52,7 @@ export default function AdminBrokersPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchBrokers(); }, [page, roleFilter, statusFilter]);
+  useEffect(() => { fetchBrokers(); }, [page, roleFilter, statusFilter, coordinatorFilter]);
 
   const handleSearch = (e: React.FormEvent) => { e.preventDefault(); setPage(1); fetchBrokers(); };
 
@@ -151,6 +154,11 @@ export default function AdminBrokersPage() {
             <option value="PENDING">Ожидает</option>
             <option value="BLOCKED">Заблокирован</option>
           </select>
+          <select className="input w-auto" value={coordinatorFilter} onChange={(e) => { setCoordinatorFilter(e.target.value); setPage(1); }} title="Фильтр по координаторам">
+            <option value="">Все</option>
+            <option value="true">Координаторы</option>
+            <option value="false">Не координаторы</option>
+          </select>
         </div>
       </div>
 
@@ -169,6 +177,7 @@ export default function AdminBrokersPage() {
                     <th className="pb-3 font-medium">Телефон</th>
                     <th className="pb-3 font-medium">Email</th>
                     <th className="pb-3 font-medium">Роль</th>
+                    <th className="pb-3 font-medium" title="Координатор агентства">Координатор</th>
                     <th className="pb-3 font-medium">Статус</th>
                     <th className="pb-3 font-medium" title="Договор-оферта о сотрудничестве">Оферта</th>
                     <th className="pb-3 font-medium text-right">Клиенты</th>
@@ -209,6 +218,30 @@ export default function AdminBrokersPage() {
                           <span className={`text-xs px-2 py-1 rounded ${b.role === 'ADMIN' ? 'bg-accent/20 text-accent' : b.role === 'MANAGER' ? 'bg-info/20 text-info' : 'bg-text-muted/20 text-text-muted'}`}>
                             {roleLabels[b.role] || b.role}
                           </span>
+                        )}
+                      </td>
+                      {/* 2026-06-29: колонка-чекбокс «Координатор». ADMIN —
+                          может toggle прямо отсюда, остальные видят галочку
+                          read-only. */}
+                      <td className="py-3" onClick={(e) => e.stopPropagation()}>
+                        {broker?.role === 'ADMIN' ? (
+                          <input
+                            type="checkbox"
+                            checked={!!b.isCoordinator}
+                            onChange={async (e) => {
+                              const next = e.target.checked;
+                              try {
+                                await api(`/admin/brokers/${b.id}/coordinator`, { method: 'PATCH', body: JSON.stringify({ isCoordinator: next }) });
+                                setBrokers((prev) => prev.map((x) => x.id === b.id ? { ...x, isCoordinator: next } : x));
+                              } catch (err: any) {
+                                alert(`Ошибка: ${err?.message || err}`);
+                              }
+                            }}
+                            className="w-4 h-4 cursor-pointer accent-accent"
+                            title={b.isCoordinator ? 'Снять флаг координатора' : 'Сделать координатором'}
+                          />
+                        ) : (
+                          b.isCoordinator ? <span className="text-success" title="Координатор">✓</span> : <span className="text-text-muted">—</span>
                         )}
                       </td>
                       <td className="py-3">

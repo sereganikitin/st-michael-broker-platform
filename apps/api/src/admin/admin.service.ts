@@ -212,7 +212,7 @@ export class AdminService {
     return updated;
   }
 
-  async listBrokers(query: { page?: number; limit?: number; search?: string; role?: string; status?: string }) {
+  async listBrokers(query: { page?: number; limit?: number; search?: string; role?: string; status?: string; isCoordinator?: string }) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -227,6 +227,9 @@ export class AdminService {
     }
     if (query.role) where.role = query.role;
     if (query.status) where.status = query.status;
+    // 2026-06-29: фильтр по координаторам — string 'true'/'false' из query.
+    if (query.isCoordinator === 'true') where.isCoordinator = true;
+    if (query.isCoordinator === 'false') where.isCoordinator = false;
 
     const [brokers, total] = await Promise.all([
       this.prisma.broker.findMany({
@@ -241,6 +244,8 @@ export class AdminService {
           funnelStage: true,
           source: true,
           amoContactId: true,
+          // 2026-06-29: возвращаем isCoordinator для отображения в списке.
+          isCoordinator: true,
           createdAt: true,
           _count: { select: { clients: true, deals: true, meetings: true, offerAcceptances: true } },
         },
