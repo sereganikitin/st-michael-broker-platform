@@ -100,6 +100,16 @@ export default function FixationPage() {
   const [respLoading, setRespLoading] = useState(false);
   const [respSelected, setRespSelected] = useState<{ id: string; fullName: string; phone: string } | null>(null);
   const [respOpen, setRespOpen] = useState(false);
+  // 2026-06-29: модалка «создать нового брокера» (доступна координатору
+  // когда поиск не дал результата).
+  const [createBrokerOpen, setCreateBrokerOpen] = useState(false);
+  const [createBrokerLoading, setCreateBrokerLoading] = useState(false);
+  const [createBrokerError, setCreateBrokerError] = useState<{ field?: string; message: string } | null>(null);
+  const [newBrokerName, setNewBrokerName] = useState('');
+  const [newBrokerPhone, setNewBrokerPhone] = useState(''); // 10 цифр без +7
+  const [newBrokerEmail, setNewBrokerEmail] = useState('');
+  const [coordAgencies, setCoordAgencies] = useState<Array<{ id: string; name: string; inn: string; isPrimary: boolean }>>([]);
+  const [newBrokerAgencyId, setNewBrokerAgencyId] = useState('');
 
   useEffect(() => {
     if (!isCoordinator) return;
@@ -114,6 +124,80 @@ export default function FixationPage() {
     }, 250);
     return () => clearTimeout(t);
   }, [respSearch, isCoordinator]);
+
+  // 2026-06-29: загрузить список агентств координатора при открытии модалки.
+  useEffect(() => {
+    if (!createBrokerOpen || !isCoordinator) return;
+    apiGet(`/clients/coordinator/agencies`)
+      .then((d: any) => {
+        const list = d?.agencies || [];
+        setCoordAgencies(list);
+        // Авто-выбор primary если он один.
+        const primary = list.find((a: any) => a.isPrimary) || list[0];
+        if (primary && !newBrokerAgencyId) setNewBrokerAgencyId(primary.id);
+      })
+      .catch(() => setCoordAgencies([]));
+  }, [createBrokerOpen, isCoordinator]);
+
+  // Открыть модалку — предзаполнить телефон из поиска (если был ввод цифр).
+  const openCreateBrokerModal = () => {
+    const digitsFromSearch = respSearch.replace(/\D/g, '');
+    if (digitsFromSearch.length === 10) {
+      setNewBrokerPhone(digitsFromSearch);
+    } else if (digitsFromSearch.length === 11 && (digitsFromSearch[0] === '7' || digitsFromSearch[0] === '8')) {
+      setNewBrokerPhone(digitsFromSearch.slice(1));
+    }
+    setCreateBrokerError(null);
+    setCreateBrokerOpen(true);
+  };
+
+  // Submit создания нового брокера.
+  const handleCreateBroker = async () => {
+    setCreateBrokerError(null);
+    if (!newBrokerName.trim()) {
+      setCreateBrokerError({ field: 'fullName', message: 'Введите ФИО' });
+      return;
+    }
+    if (newBrokerPhone.length !== 10) {
+      setCreateBrokerError({ field: 'phone', message: 'Введите 10 цифр номера' });
+      return;
+    }
+    if (newBrokerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newBrokerEmail)) {
+      setCreateBrokerError({ field: 'email', message: 'Неверный формат email' });
+      return;
+    }
+    if (!newBrokerAgencyId) {
+      setCreateBrokerError({ field: 'agencyId', message: 'Выберите агентство' });
+      return;
+    }
+    setCreateBrokerLoading(true);
+    try {
+      const r: any = await apiPost('/clients/coordinator/create-broker', {
+        fullName: newBrokerName.trim(),
+        phone: '+7' + newBrokerPhone,
+        email: newBrokerEmail.trim() || undefined,
+        agencyId: newBrokerAgencyId,
+      });
+      // Успех. Выбираем нового (или найденного) брокера как ответственного.
+      if (r?.broker) {
+        setRespSelected({ id: r.broker.id, fullName: r.broker.fullName, phone: r.broker.phone });
+        setRespOpen(false);
+        setCreateBrokerOpen(false);
+        // Очищаем форму
+        setNewBrokerName('');
+        setNewBrokerPhone('');
+        setNewBrokerEmail('');
+      }
+    } catch (e: any) {
+      const raw = e?.response?.data || e;
+      setCreateBrokerError({
+        field: raw?.field,
+        message: raw?.message || e?.message || 'Не удалось создать брокера',
+      });
+    } finally {
+      setCreateBrokerLoading(false);
+    }
+  };
 
   const addParticipant = () => {
     setParticipants([...participants, { firstName: '', lastName: '', phone: '' }]);
@@ -576,8 +660,17 @@ export default function FixationPage() {
                       <div className="absolute z-10 left-0 right-0 bg-surface border border-border rounded-lg mt-1 max-h-60 overflow-y-auto shadow-lg">
                         {respLoading && <div className="p-3 text-text-muted text-sm">Поиск…</div>}
                         {!respLoading && respOptions.length === 0 && (
-                          <div className="p-3 text-text-muted text-sm">
-                            Брокеров не найдено. Проверьте формат телефона (можно вводить +7, 8 или просто цифры — система сама нормализует). Если брокер ещё не зарегистрирован — обратитесь к менеджеру.
+                          <div className="p-3 text-text-muted text-sm space-y-2">
+                            <div>
+                              Брокеров не найдено. Проверьте формат телефона (можно вводить +7, 8 или просто цифры — система сама нормализует).
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={openCreateBrokerModal}
+                            >
+                              + Создать нового брокера
+                            </button>
                           </div>
                         )}
                         {!respLoading && respOptions.map((b) => (
@@ -632,6 +725,129 @@ export default function FixationPage() {
           )}
         </form>
       </div>
+
+      {/* 2026-06-29: модалка «Создать нового брокера» (доступна координатору). */}
+      {createBrokerOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          onClick={() => !createBrokerLoading && setCreateBrokerOpen(false)}
+        >
+          <div
+            className="bg-surface rounded-xl max-w-md w-full p-6 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="absolute top-4 right-4 text-text-muted hover:text-text"
+              onClick={() => !createBrokerLoading && setCreateBrokerOpen(false)}
+              disabled={createBrokerLoading}
+            >
+              ×
+            </button>
+            <h2 className="text-lg font-bold mb-1">Создать нового брокера</h2>
+            <p className="text-xs text-text-muted mb-4">
+              Будет создан аккаунт. Брокер получит email с приглашением и сможет войти, сбросив пароль через «Забыли пароль».
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="label">ФИО <span className="text-error">*</span></label>
+                <input
+                  type="text"
+                  className={`input ${createBrokerError?.field === 'fullName' ? 'border-error' : ''}`}
+                  placeholder="Иванов Иван Иванович"
+                  value={newBrokerName}
+                  onChange={(e) => setNewBrokerName(e.target.value)}
+                  disabled={createBrokerLoading}
+                />
+                {createBrokerError?.field === 'fullName' && (
+                  <div className="text-xs text-error mt-1">{createBrokerError.message}</div>
+                )}
+              </div>
+
+              <div>
+                <label className="label">Телефон <span className="text-error">*</span></label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 bg-surface-secondary border border-r-0 border-border rounded-l text-text-muted text-sm">+7</span>
+                  <input
+                    type="tel"
+                    className={`input rounded-l-none ${createBrokerError?.field === 'phone' ? 'border-error' : ''}`}
+                    placeholder="9991234567"
+                    value={newBrokerPhone}
+                    onChange={(e) => setNewBrokerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    maxLength={10}
+                    disabled={createBrokerLoading}
+                  />
+                </div>
+                {createBrokerError?.field === 'phone' && (
+                  <div className="text-xs text-error mt-1">{createBrokerError.message}</div>
+                )}
+              </div>
+
+              <div>
+                <label className="label">Email <span className="text-text-muted">(необязательно)</span></label>
+                <input
+                  type="email"
+                  className={`input ${createBrokerError?.field === 'email' ? 'border-error' : ''}`}
+                  placeholder="broker@example.ru"
+                  value={newBrokerEmail}
+                  onChange={(e) => setNewBrokerEmail(e.target.value)}
+                  disabled={createBrokerLoading}
+                />
+                <div className="text-xs text-text-muted mt-1">
+                  Без email брокер не сможет получить ссылку для входа.
+                </div>
+                {createBrokerError?.field === 'email' && (
+                  <div className="text-xs text-error mt-1">{createBrokerError.message}</div>
+                )}
+              </div>
+
+              <div>
+                <label className="label">Агентство <span className="text-error">*</span></label>
+                <select
+                  className={`input ${createBrokerError?.field === 'agencyId' ? 'border-error' : ''}`}
+                  value={newBrokerAgencyId}
+                  onChange={(e) => setNewBrokerAgencyId(e.target.value)}
+                  disabled={createBrokerLoading || coordAgencies.length === 0}
+                >
+                  {coordAgencies.length === 0 && <option value="">— загрузка —</option>}
+                  {coordAgencies.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} (ИНН {a.inn}){a.isPrimary ? ' • основное' : ''}
+                    </option>
+                  ))}
+                </select>
+                {createBrokerError?.field === 'agencyId' && (
+                  <div className="text-xs text-error mt-1">{createBrokerError.message}</div>
+                )}
+              </div>
+
+              {createBrokerError && !createBrokerError.field && (
+                <div className="p-2 bg-error/20 text-error rounded text-sm">{createBrokerError.message}</div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  className="btn btn-secondary flex-1"
+                  onClick={() => setCreateBrokerOpen(false)}
+                  disabled={createBrokerLoading}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary flex-1"
+                  onClick={handleCreateBroker}
+                  disabled={createBrokerLoading}
+                >
+                  {createBrokerLoading ? 'Создание…' : 'Создать'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSuccess && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowSuccess(false)}>
