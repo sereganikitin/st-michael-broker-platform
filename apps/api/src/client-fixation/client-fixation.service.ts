@@ -6,6 +6,7 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
 import { getSystemSetting } from '../common/system-setting';
+import { normalizePhone } from '../admin/brokers-import.helper';
 
 const UNIQUENESS_DAYS = 30;
 const msInDays = (days: number) => days * 24 * 60 * 60 * 1000;
@@ -974,30 +975,46 @@ export class ClientFixationService {
     };
   }
 
-  // 2026-06-19: для координаторов — список брокеров из тех же агентств,
-  // что и текущий пользователь. Использовать в форме фиксации как
-  // выпадающий поиск для выбора «реального ответственного брокера».
+  // 2026-06-19: список брокеров для выбора «реального ответственного» в
+  // форме фиксации у координатора.
+  // 2026-06-29 (правка): координатор может выбирать брокера из ЛЮБОГО
+  // агентства, не только своего. Плюс поиск по телефону теперь работает
+  // через нормализацию: «8925…», «+7925…», «79255724188» — все одинаково
+  // находят брокера с phone='+79255724188' в БД.
   async getAgencyColleagues(currentBrokerId: string, search: string) {
     const me = await this.prisma.broker.findUnique({
       where: { id: currentBrokerId },
-      select: {
-        brokerAgencies: { select: { agencyId: true } },
-      },
+      select: { id: true },
     });
     if (!me) return { brokers: [] };
-    const agencyIds = me.brokerAgencies.map((a) => a.agencyId);
-    if (agencyIds.length === 0) return { brokers: [] };
 
     const searchTrim = (search || '').trim();
     const where: any = {
       status: 'ACTIVE',
-      brokerAgencies: { some: { agencyId: { in: agencyIds } } },
+      // Сам себя в списке тоже показываем — координатор может зафиксировать
+      // и на себя через тот же интерфейс. Фронт сам помечает «это вы».
     };
     if (searchTrim.length >= 2) {
-      where.OR = [
+      const hasDigit = /\d/.test(searchTrim);
+      const orConditions: any[] = [
         { fullName: { contains: searchTrim, mode: 'insensitive' } },
-        { phone: { contains: searchTrim.replace(/\D/g, '') } },
       ];
+      if (hasDigit) {
+        const norm = normalizePhone(searchTrim);
+        if (norm.ok && norm.phone) {
+          // Точное совпадение после нормализации (например ввели "8925..." →
+          // ищем "+7925...").
+          orConditions.push({ phone: norm.phone });
+        }
+        // Частичный поиск по цифрам — на случай если пользователь ввёл
+        // только часть номера (например "5724188"). Сравниваем с цифровой
+        // частью phone в БД через contains.
+        const digitsOnly = searchTrim.replace(/\D/g, '');
+        if (digitsOnly.length >= 4) {
+          orConditions.push({ phone: { contains: digitsOnly } });
+        }
+      }
+      where.OR = orConditions;
     }
     const brokers = await this.prisma.broker.findMany({
       where,

@@ -543,7 +543,7 @@ export default function FixationPage() {
                   Ответственный брокер <span className="text-error">*</span>
                 </label>
                 <div className="text-xs text-text-muted mb-2">
-                  Выберите брокера из вашего агентства, который реально работает с клиентом.
+                  Найдите брокера, который реально работает с клиентом. Поиск по ФИО или телефону по всей базе.
                 </div>
                 {respSelected ? (
                   <div className="flex items-center justify-between bg-surface-secondary rounded-lg p-3">
@@ -577,7 +577,7 @@ export default function FixationPage() {
                         {respLoading && <div className="p-3 text-text-muted text-sm">Поиск…</div>}
                         {!respLoading && respOptions.length === 0 && (
                           <div className="p-3 text-text-muted text-sm">
-                            Брокеров не найдено. Если нужный брокер ещё не в системе — попросите координатора завести его.
+                            Брокеров не найдено. Проверьте формат телефона (можно вводить +7, 8 или просто цифры — система сама нормализует). Если брокер ещё не зарегистрирован — обратитесь к менеджеру.
                           </div>
                         )}
                         {!respLoading && respOptions.map((b) => (
