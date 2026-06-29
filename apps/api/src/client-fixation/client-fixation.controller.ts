@@ -61,6 +61,36 @@ export class ClientFixationController {
     return this.clientFixationService.getMyAgencies(user.id);
   }
 
+  // 2026-06-29: список брокеров которых завёл текущий координатор.
+  // Отображается в отдельной странице /my-brokers (пункт сайдбара).
+  @Get('coordinator/my-brokers')
+  @ApiOperation({ summary: 'List brokers created by current coordinator' })
+  async getMyCreatedBrokers(@CurrentUser() user: CurrentUserPayload) {
+    return this.clientFixationService.getMyCreatedBrokers(user.id);
+  }
+
+  // 2026-06-29: повторно отправить welcome-email брокеру (если он так и
+  // не зашёл в кабинет / не получил первое письмо).
+  @Post('coordinator/resend-welcome/:brokerId')
+  @ApiOperation({ summary: 'Resend welcome email to a broker created by current coordinator' })
+  async resendCoordinatorWelcome(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('brokerId') brokerId: string,
+  ) {
+    return this.clientFixationService.resendCoordinatorWelcomeEmail(user.id, brokerId);
+  }
+
+  // 2026-06-29: удалить брокера, которого завёл координатор (только если
+  // у брокера нет клиентов/сделок и он ещё не зашёл в кабинет).
+  @Post('coordinator/delete-broker/:brokerId')
+  @ApiOperation({ summary: 'Delete a broker created by current coordinator (safe-delete)' })
+  async deleteCreatedBroker(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('brokerId') brokerId: string,
+  ) {
+    return this.clientFixationService.deleteCreatedBroker(user.id, brokerId);
+  }
+
   // 2026-06-29: координатор создаёт нового брокера прямо из формы фиксации,
   // когда поиск не дал результата. Новый брокер привязывается к выбранному
   // агентству координатора. См. createBrokerByCoordinator в сервисе.

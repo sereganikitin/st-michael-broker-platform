@@ -1201,6 +1201,157 @@ export class ClientFixationService {
     };
   }
 
+  // 2026-06-29: список брокеров которых завёл данный координатор.
+  // Источник истины — audit_logs (action='COORDINATOR_CREATE_BROKER',
+  // entity='Broker', userId=координатор). Берём entityId (broker.id)
+  // и подтягиваем актуальные данные брокеров через одну выборку.
+  async getMyCreatedBrokers(coordinatorId: string) {
+    const audits = await this.prisma.auditLog.findMany({
+      where: {
+        userId: coordinatorId,
+        action: 'COORDINATOR_CREATE_BROKER',
+        entity: 'Broker',
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { entityId: true, createdAt: true, payload: true },
+    });
+    const brokerIds = audits.map((a) => a.entityId).filter((id): id is string => !!id);
+    if (brokerIds.length === 0) return { brokers: [] };
+
+    const brokers = await this.prisma.broker.findMany({
+      where: { id: { in: brokerIds } },
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        email: true,
+        status: true,
+        createdAt: true,
+        passwordHash: true,
+        brokerAgencies: {
+          select: { isPrimary: true, agency: { select: { id: true, name: true, inn: true } } },
+        },
+        _count: { select: { clients: true, deals: true } },
+      },
+    });
+
+    // Восстанавливаем порядок «новее → старее» из audit и обогащаем.
+    const byId = new Map(brokers.map((b) => [b.id, b]));
+    const result = audits
+      .map((a) => {
+        const b = a.entityId ? byId.get(a.entityId) : null;
+        if (!b) return null;
+        const agency = b.brokerAgencies.find((ba) => ba.isPrimary) || b.brokerAgencies[0];
+        return {
+          id: b.id,
+          fullName: b.fullName,
+          phone: b.phone,
+          email: b.email,
+          status: b.status,
+          createdAt: b.createdAt,
+          createdByCoordAt: a.createdAt,
+          // Брокер «активирован» когда он сам поставил пароль (зашёл в кабинет).
+          activated: !!b.passwordHash,
+          agency: agency ? { id: agency.agency.id, name: agency.agency.name, inn: agency.agency.inn } : null,
+          clientsCount: b._count.clients,
+          dealsCount: b._count.deals,
+        };
+      })
+      .filter(Boolean);
+
+    return { brokers: result };
+  }
+
+  // 2026-06-29: повторная отправка welcome-email брокеру, которого создал
+  // координатор (если брокер потерял первое письмо / так и не зашёл).
+  async resendCoordinatorWelcomeEmail(coordinatorId: string, brokerId: string) {
+    // Проверяем что именно этот координатор создавал этого брокера.
+    const auditExists = await this.prisma.auditLog.findFirst({
+      where: {
+        userId: coordinatorId,
+        action: 'COORDINATOR_CREATE_BROKER',
+        entity: 'Broker',
+        entityId: brokerId,
+      },
+      select: { id: true },
+    });
+    if (!auditExists) {
+      throw new BadRequestException({ message: 'Этого брокера завёл не вы' });
+    }
+    const broker = await this.prisma.broker.findUnique({
+      where: { id: brokerId },
+      select: { id: true, fullName: true, email: true, phone: true, passwordHash: true },
+    });
+    if (!broker) throw new NotFoundException('Broker not found');
+    if (!broker.email) {
+      throw new BadRequestException({ message: 'У брокера не указан email' });
+    }
+    if (broker.passwordHash) {
+      // Уже зашёл — нет смысла слать welcome.
+      throw new BadRequestException({ message: 'Брокер уже активировал аккаунт' });
+    }
+    const coord = await this.prisma.broker.findUnique({
+      where: { id: coordinatorId },
+      select: { fullName: true },
+    });
+    await this.notificationQueue.add('email', {
+      to: broker.email,
+      subject: 'Вас зарегистрировали в St Michael (повторное приглашение)',
+      body: `Здравствуйте, ${broker.fullName}!\n\n`
+        + `Координатор ${coord?.fullName || 'агентства'} повторно приглашает вас в кабинет St Michael.\n\n`
+        + `Чтобы войти:\n`
+        + `1. https://broker.stmichael.ru/forgot-password\n`
+        + `2. Введите телефон ${broker.phone}\n`
+        + `3. На этот email придёт ссылка для установки пароля\n\n`
+        + `Если возникнут вопросы — горячая линия +7 (499) 226-22-49 (9:00–21:00).\n`,
+    });
+    return { ok: true };
+  }
+
+  // 2026-06-29: координатор может удалить брокера, которого сам завёл,
+  // если у него нет клиентов и сделок (безопасное удаление).
+  async deleteCreatedBroker(coordinatorId: string, brokerId: string) {
+    const auditExists = await this.prisma.auditLog.findFirst({
+      where: {
+        userId: coordinatorId,
+        action: 'COORDINATOR_CREATE_BROKER',
+        entity: 'Broker',
+        entityId: brokerId,
+      },
+      select: { id: true },
+    });
+    if (!auditExists) {
+      throw new BadRequestException({ message: 'Этого брокера завёл не вы' });
+    }
+    const broker = await this.prisma.broker.findUnique({
+      where: { id: brokerId },
+      select: {
+        id: true,
+        fullName: true,
+        passwordHash: true,
+        _count: { select: { clients: true, deals: true } },
+      },
+    });
+    if (!broker) throw new NotFoundException('Broker not found');
+    if (broker.passwordHash) {
+      throw new BadRequestException({ message: 'Брокер уже зашёл в кабинет — удаление через админа' });
+    }
+    if (broker._count.clients > 0 || broker._count.deals > 0) {
+      throw new BadRequestException({
+        message: `Нельзя удалить — у брокера есть клиенты (${broker._count.clients}) или сделки (${broker._count.deals})`,
+      });
+    }
+    // Удаляем привязки к агентствам, потом брокера.
+    await this.prisma.brokerAgency.deleteMany({ where: { brokerId } });
+    await this.prisma.broker.delete({ where: { id: brokerId } });
+    try {
+      await this.logAudit(coordinatorId, 'COORDINATOR_DELETE_BROKER', 'Broker', brokerId, {
+        brokerName: broker.fullName,
+      });
+    } catch {}
+    return { ok: true };
+  }
+
   async getClient(id: string, brokerId: string) {
     const client = await this.prisma.client.findUnique({
       where: { id },

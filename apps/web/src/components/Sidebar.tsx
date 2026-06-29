@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   UserCheck,
   Users,
+  UserPlus,
   CalendarPlus,
   Building,
   Heart,
@@ -56,11 +57,22 @@ const adminNavigation = [
   { name: 'Интеграции', href: '/admin/integrations', icon: Plug },
 ];
 
+// 2026-06-29: пункт сайдбара для координаторов — список брокеров,
+// которых он завёл. Виден только если у брокера флаг isCoordinator.
+const coordinatorNavigation = [
+  { name: 'Мои брокеры', href: '/my-brokers', icon: UserPlus },
+];
+
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
   const { broker } = useAuth();
   const isAdmin = broker?.role === 'ADMIN' || broker?.role === 'MANAGER';
-  const items = isAdmin ? [...navigation, ...adminNavigation] : navigation;
+  const isCoordinator = !!(broker as any)?.isCoordinator;
+  const items = [
+    ...navigation,
+    ...(isCoordinator ? coordinatorNavigation : []),
+    ...(isAdmin ? adminNavigation : []),
+  ];
 
   return (
     <>
