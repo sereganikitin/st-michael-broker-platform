@@ -109,7 +109,7 @@ export default function MyBrokersPage() {
             Брокеры, которых вы завели в систему как координатор. Всего: {brokers.length}
           </span>
         </div>
-        <Link href="/fixation" className="btn btn-secondary text-sm">
+        <Link href="/my-brokers/new" className="btn btn-primary text-sm">
           + Завести нового
         </Link>
       </div>
@@ -129,10 +129,13 @@ export default function MyBrokersPage() {
           <div className="text-center py-12 text-text-muted">
             <UserPlus className="w-12 h-12 mx-auto mb-3 opacity-40" />
             <div className="mb-2">Вы ещё никого не завели.</div>
-            <div className="text-sm">
-              При фиксации клиента, если нужный брокер не найден в системе — вы можете создать его прямо там.
-              <Link href="/fixation" className="text-accent hover:underline ml-1">
-                Перейти к фиксации →
+            <div className="text-sm space-x-3">
+              <Link href="/my-brokers/new" className="text-accent hover:underline">
+                + Завести нового брокера
+              </Link>
+              <span className="text-text-muted">или</span>
+              <Link href="/fixation" className="text-accent hover:underline">
+                сразу при фиксации клиента →
               </Link>
             </div>
           </div>
