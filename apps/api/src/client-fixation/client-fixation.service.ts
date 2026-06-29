@@ -1358,7 +1358,12 @@ export class ClientFixationService {
       include: {
         deals: { include: { lot: true, agency: true } },
         meetings: true,
-        broker: { select: { id: true, fullName: true, phone: true } },
+        // 2026-06-29: broker — это тот кто создал заявку (как правило
+        // координатор), а responsibleBroker — фактический ответственный
+        // (тот, на кого фиксируем). Нужны оба чтобы показать «Завёл я» /
+        // «Завёл координатор X» в карточке клиента.
+        broker: { select: { id: true, fullName: true, phone: true, isCoordinator: true } },
+        responsibleBroker: { select: { id: true, fullName: true, phone: true } },
       },
     });
 

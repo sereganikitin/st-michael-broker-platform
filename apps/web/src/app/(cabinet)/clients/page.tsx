@@ -234,11 +234,34 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
               </div>
             )}
           </div>
+          {/* 2026-06-29: Этап 5 — история «кто завёл лид».
+              client.broker — это тот кто завёл (если фиксацию делал координатор —
+              это координатор, а responsibleBroker — ответственный).
+              Если broker == responsibleBroker → обычная фиксация на себя.
+              Если разные → показываем «Завёл координатор X» под ответственным. */}
           {client.broker && (
             <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
-              <span className="text-text-muted block text-xs">Брокер</span>
-              <span className="font-medium">{client.broker.fullName}</span>
-              <span className="text-xs text-text-muted ml-2">{formatPhone(client.broker.phone)}</span>
+              <span className="text-text-muted block text-xs">Ответственный брокер</span>
+              {client.responsibleBroker && client.responsibleBroker.id !== client.broker.id ? (
+                <>
+                  <span className="font-medium">{client.responsibleBroker.fullName}</span>
+                  <span className="text-xs text-text-muted ml-2">{formatPhone(client.responsibleBroker.phone)}</span>
+                  {/* Подпись кто завёл — только если ответственный смотрит свой клиент. */}
+                  {broker?.id === client.responsibleBroker.id && (
+                    <div className="text-xs text-accent mt-1">
+                      Завёл координатор {client.broker.fullName}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="font-medium">{client.broker.fullName}</span>
+                  <span className="text-xs text-text-muted ml-2">{formatPhone(client.broker.phone)}</span>
+                  {broker?.id === client.broker.id && (
+                    <div className="text-xs text-text-muted mt-1">Завёл я</div>
+                  )}
+                </>
+              )}
             </div>
           )}
           <div className="bg-surface-secondary rounded-lg p-3">
