@@ -6,9 +6,10 @@ import { useAuth } from '@/lib/auth';
 import { InnAutocomplete } from '@/components/InnAutocomplete';
 import {
   Headphones, PhoneCall, Wallet, TrendingUp, Users2, GraduationCap,
-  Shield, Sparkles, Info,
+  Shield, Sparkles,
   FileText, Download as DownloadIcon, ChevronLeft, ChevronRight,
 } from 'lucide-react';
+import { HintIcon } from '@/components/HintIcon';
 
 // ─── мини-компоненты для оживления лендинга ──────────────────
 
@@ -451,24 +452,21 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                   style={{padding:'12px 16px',border:'1px solid rgba(0,0,0,0.12)',borderRadius:4,fontSize:14,outline:'none'}} />
                 <PhoneInput value={phoneDigits} onChange={(v)=>{setPhoneDigits(v); revalidate();}} />
                 {errLine('phone')}
-                {/* 2026-06-29: добавлен значок i-уведомление с подсказкой
-                    о ФЗ №406-ФЗ. Симметрично странице /register. Поле не
-                    блокирует регистрацию иностранной почтой — это только
-                    информирование. */}
+                {/* 2026-06-29: значок i возле email с подсказкой о ФЗ №406-ФЗ.
+                    Реализация через переиспользуемый HintIcon — работает и
+                    на desktop (hover), и на мобильных (tap), c outside-click. */}
                 <div style={{position:'relative'}}>
                   <input placeholder="Email" type="email" value={email} onChange={e=>{setEmail(e.target.value); revalidate();}}
                     style={{padding:'12px 40px 12px 16px',border:`1px solid ${eb('email').borderColor}`,borderRadius:4,fontSize:14,outline:'none',width:'100%',boxSizing:'border-box'}} />
-                  <div className="group" style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)'}}>
-                    <Info style={{width:16,height:16,color:'#888',cursor:'help'}} aria-label="Информация о требованиях к email" />
-                    <div role="tooltip" className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity"
-                      style={{position:'absolute',right:0,top:'calc(100% + 4px)',zIndex:30,width:280,padding:12,fontSize:12,lineHeight:1.45,color:'#1a1a1a',background:'#fff',border:'1px solid rgba(0,0,0,0.12)',borderRadius:6,boxShadow:'0 4px 16px rgba(0,0,0,0.1)'}}>
+                  <div style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)'}}>
+                    <HintIcon ariaLabel="Информация о требованиях к email">
                       <p style={{marginBottom:8}}>
                         Согласно <strong>ФЗ №406-ФЗ</strong> авторизация на российских сайтах должна осуществляться через российский почтовый сервис.
                       </p>
                       <p>
                         Рекомендуем: <span style={{color:'#B4936F'}}>yandex.ru, mail.ru, rambler.ru, bk.ru</span> и подобные.
                       </p>
-                    </div>
+                    </HintIcon>
                   </div>
                 </div>
                 {errLine('email')}
@@ -545,13 +543,15 @@ function AuthModal({ mode, onClose, onSwitch, onSuccess }: { mode: 'login' | 're
                 {errLine('passwordConfirm')}
               </>
             )}
+            {/* 2026-06-29: для register оставляем кнопку всегда кликабельной —
+                иначе validateRegister() не запускается, пользователь видит
+                "неактивную" кнопку (визуально она НЕ серая, opacity не меняется),
+                не понимает что не так. Для login оставляем старое поведение —
+                там нет подсветки полей, проще не дать нажать кнопку. */}
             <button onClick={mode==='login' ? handleLogin : handleRegister}
               disabled={
                 loading ||
-                !password ||
-                (mode === 'login'
-                  ? phoneDigits.length !== 10
-                  : (!firstName || !lastName || !email || phoneDigits.length !== 10 || (inn.length !== 10 && inn.length !== 12) || password.length < 8 || password !== passwordConfirm))
+                (mode === 'login' && (phoneDigits.length !== 10 || !password))
               }
               style={{padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:50,fontSize:13,fontWeight:700,letterSpacing:1,cursor:'pointer',opacity:loading?0.6:1}}>
               {loading ? <><span className="lp-spinner" />{mode==='login' ? 'Вход' : 'Регистрация'}</> : mode==='login' ? 'ВОЙТИ' : 'ЗАРЕГИСТРИРОВАТЬСЯ'}
