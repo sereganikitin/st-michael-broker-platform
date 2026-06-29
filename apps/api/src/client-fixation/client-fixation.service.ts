@@ -6,7 +6,7 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
 import { getSystemSetting } from '../common/system-setting';
-import { normalizePhone } from '../admin/brokers-import.helper';
+import { buildPhoneSearchConditions } from '../admin/brokers-import.helper';
 
 const UNIQUENESS_DAYS = 30;
 const msInDays = (days: number) => days * 24 * 60 * 60 * 1000;
@@ -946,9 +946,11 @@ export class ClientFixationService {
     if (query.status) where.uniquenessStatus = query.status;
     if (query.project) where.project = query.project;
     if (query.search) {
+      // 2026-06-29: phone-поиск через нормализацию (см. brokers-import.helper).
+      // "8925" и "+7925" дают одинаковый результат.
       where.OR = [
         { fullName: { contains: query.search, mode: 'insensitive' } },
-        { phone: { contains: query.search } },
+        ...buildPhoneSearchConditions(query.search),
       ];
     }
 
@@ -995,26 +997,11 @@ export class ClientFixationService {
       // и на себя через тот же интерфейс. Фронт сам помечает «это вы».
     };
     if (searchTrim.length >= 2) {
-      const hasDigit = /\d/.test(searchTrim);
-      const orConditions: any[] = [
+      where.OR = [
         { fullName: { contains: searchTrim, mode: 'insensitive' } },
+        // 2026-06-29: используем единый helper (см. brokers-import.helper).
+        ...buildPhoneSearchConditions(searchTrim),
       ];
-      if (hasDigit) {
-        const norm = normalizePhone(searchTrim);
-        if (norm.ok && norm.phone) {
-          // Точное совпадение после нормализации (например ввели "8925..." →
-          // ищем "+7925...").
-          orConditions.push({ phone: norm.phone });
-        }
-        // Частичный поиск по цифрам — на случай если пользователь ввёл
-        // только часть номера (например "5724188"). Сравниваем с цифровой
-        // частью phone в БД через contains.
-        const digitsOnly = searchTrim.replace(/\D/g, '');
-        if (digitsOnly.length >= 4) {
-          orConditions.push({ phone: { contains: digitsOnly } });
-        }
-      }
-      where.OR = orConditions;
     }
     const brokers = await this.prisma.broker.findMany({
       where,
