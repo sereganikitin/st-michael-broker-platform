@@ -942,16 +942,32 @@ export class ClientFixationService {
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = { brokerId };
+    // 2026-06-29: брокер видит свои клиенты (brokerId == свой) И клиенты,
+    // которых ему назначили координатором (responsibleBrokerId == свой,
+    // brokerId != свой). До этой правки responsibleBroker не видел клиентов
+    // которые ему назначил координатор — это был баг.
+    const ownershipFilter: any = {
+      OR: [
+        { brokerId },
+        { responsibleBrokerId: brokerId },
+      ],
+    };
+    const where: any = { ...ownershipFilter };
     if (query.status) where.uniquenessStatus = query.status;
     if (query.project) where.project = query.project;
     if (query.search) {
       // 2026-06-29: phone-поиск через нормализацию (см. brokers-import.helper).
       // "8925" и "+7925" дают одинаковый результат.
-      where.OR = [
-        { fullName: { contains: query.search, mode: 'insensitive' } },
-        ...buildPhoneSearchConditions(query.search),
+      // Search OR должен идти ВНУТРИ AND с ownership-фильтром, иначе нарушим
+      // ownership (брокер увидит чужих клиентов с похожим телефоном).
+      where.AND = [
+        ownershipFilter,
+        { OR: [
+          { fullName: { contains: query.search, mode: 'insensitive' } },
+          ...buildPhoneSearchConditions(query.search),
+        ]},
       ];
+      delete where.OR;
     }
 
     const orderBy: any = {};
@@ -960,7 +976,13 @@ export class ClientFixationService {
     const [clients, total] = await Promise.all([
       this.prisma.client.findMany({
         where,
-        include: { deals: { select: { id: true, status: true, amount: true } } },
+        include: {
+          deals: { select: { id: true, status: true, amount: true } },
+          // 2026-06-29: тянем broker и responsibleBroker — нужны для
+          // подписи «Завёл координатор X» / «Зафиксировано на Y» в UI.
+          broker: { select: { id: true, fullName: true, phone: true, isCoordinator: true } },
+          responsibleBroker: { select: { id: true, fullName: true, phone: true } },
+        },
         skip,
         take: limit,
         orderBy,
@@ -1371,8 +1393,12 @@ export class ClientFixationService {
       throw new NotFoundException('Client not found');
     }
 
-    // Brokers can only see their own clients; managers/admins can see all
-    if (client.brokerId !== brokerId) {
+    // Brokers can only see their own clients; managers/admins can see all.
+    // 2026-06-29: also allow access if I am responsibleBroker (case when
+    // a coordinator created this client and assigned me as responsible).
+    const iAmOwner = client.brokerId === brokerId;
+    const iAmResponsible = client.responsibleBrokerId === brokerId;
+    if (!iAmOwner && !iAmResponsible) {
       const requester = await this.prisma.broker.findUnique({ where: { id: brokerId } });
       if (requester?.role === 'BROKER') {
         throw new NotFoundException('Client not found');
