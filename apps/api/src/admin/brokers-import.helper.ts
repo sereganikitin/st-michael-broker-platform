@@ -73,6 +73,33 @@ export function normalizePhone(input: unknown): NormalizedPhone {
   return { ok: true, phone: '+' + digits, foreign: true };
 }
 
+// 2026-06-29: helper для поиска по телефону в Prisma where-OR.
+// Принимает search-строку, возвращает массив условий для добавления в OR.
+// Логика:
+//   - Если в search есть цифры → нормализуем до +7XXX и добавляем точное
+//     совпадение. Это покрывает кейсы "8925...", "+7925...", "7 925..."
+//     — все находят брокера с phone "+79255724188".
+//   - Дополнительно — частичный поиск по цифровой части (на случай если
+//     ввели только последние 7+ цифр номера без префикса, например
+//     "5724188" — должен найти "+79255724188").
+// Если в search цифр нет (или их меньше 4) — возвращает пустой массив.
+export function buildPhoneSearchConditions(search: string): Array<{ phone: string | { contains: string } }> {
+  const trimmed = String(search || '').trim();
+  if (!trimmed) return [];
+  const hasDigit = /\d/.test(trimmed);
+  if (!hasDigit) return [];
+  const conditions: Array<{ phone: string | { contains: string } }> = [];
+  const norm = normalizePhone(trimmed);
+  if (norm.ok && norm.phone) {
+    conditions.push({ phone: norm.phone });
+  }
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  if (digitsOnly.length >= 4) {
+    conditions.push({ phone: { contains: digitsOnly } });
+  }
+  return conditions;
+}
+
 export const RESULT_MAP: Record<string, { category: BrokerCategoryCode; result: CallResultCode | null }> = {
   'НДЗ': { category: 'COLD', result: 'NDZ' },
   '2 НДЗ': { category: 'ON_BOT_REVIEW', result: 'DOUBLE_NDZ' },

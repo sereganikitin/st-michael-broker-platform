@@ -11,6 +11,7 @@ import {
   parseAndFilter,
   mapCoordRow,
   normalizePhone,
+  buildPhoneSearchConditions,
   type BrokerCategoryCode,
   type Candidate,
 } from './brokers-import.helper';
@@ -219,10 +220,13 @@ export class AdminService {
 
     const where: any = {};
     if (query.search) {
+      // 2026-06-29: phone-поиск теперь нормализует входной формат.
+      // "8925..." и "+7925..." и "79255724188" — все находят брокера
+      // с phone="+79255724188" в БД.
       where.OR = [
         { fullName: { contains: query.search, mode: 'insensitive' } },
-        { phone: { contains: query.search } },
         { email: { contains: query.search, mode: 'insensitive' } },
+        ...buildPhoneSearchConditions(query.search),
       ];
     }
     if (query.role) where.role = query.role;
@@ -954,8 +958,9 @@ export class AdminService {
         nextCallFilter,
         { OR: [
           { fullName: { contains: s, mode: 'insensitive' } },
-          { phone: { contains: s } },
           { coordinatorAgency: { contains: s, mode: 'insensitive' } },
+          // 2026-06-29: нормализация при поиске по телефону (как в /admin/brokers).
+          ...buildPhoneSearchConditions(s),
         ] },
       ];
     } else {
