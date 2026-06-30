@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { parseApiError } from '@/lib/api';
 import { SupportContacts } from '@/components/SupportContacts';
@@ -17,7 +17,11 @@ type FieldErrors = Partial<Record<
 >>;
 
 export default function RegisterPage() {
-  const [phoneDigits, setPhoneDigits] = useState('');
+  const searchParams = useSearchParams();
+  // 2026-06-30: если /login сделал редирект сюда из-за неактивированного
+  // аккаунта или отсутствующего — телефон передаётся через ?phone=XXX.
+  const prefilledPhone = (searchParams.get('phone') || '').replace(/\D/g, '').slice(0, 10);
+  const [phoneDigits, setPhoneDigits] = useState(prefilledPhone);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [agencyName, setAgencyName] = useState('');

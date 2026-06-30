@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { parseApiError } from '@/lib/api';
 import { SupportContacts } from '@/components/SupportContacts';
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
+  const router = useRouter();
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10));
@@ -30,7 +32,18 @@ export default function LoginPage() {
         const data = await res.json();
         login(data.accessToken, data.refreshToken);
       } else {
-        setError(await parseApiError(res, 'Неверный телефон или пароль'));
+        // 2026-06-30: бэк может вернуть код NEEDS_REGISTRATION (телефона нет
+        // в БД) или NEEDS_ACTIVATION (есть, но пароля нет — импортированный
+        // брокер). В обоих случаях редиректим на /register с предзаполненным
+        // телефоном — пользователь там введёт ФИО, email, пароль и завершит
+        // регистрацию/активацию.
+        const body = await res.json().catch(() => null);
+        const code = body?.code;
+        if (code === 'NEEDS_REGISTRATION' || code === 'NEEDS_ACTIVATION') {
+          router.push(`/register?phone=${phoneDigits}`);
+          return;
+        }
+        setError(body?.message || await parseApiError(res, 'Неверный телефон или пароль'));
       }
     } catch {
       setError('Ошибка соединения с сервером');

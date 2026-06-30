@@ -146,11 +146,18 @@ export class AuthService {
       data.email ? this.prisma.broker.findFirst({ where: { email: data.email } }) : Promise.resolve(null),
     ]);
 
-    if (existingByPhone) {
+    // 2026-06-30: если телефон существует БЕЗ пароля — это «активация»
+    // импортированного брокера, а не дубль. Идём дальше и в конце обновляем
+    // существующего вместо создания нового. Если пароль есть — дубль.
+    const isActivation = !!existingByPhone && !existingByPhone.passwordHash;
+
+    if (existingByPhone && existingByPhone.passwordHash) {
       errors.push({ field: 'phone', message: 'Брокер с этим номером телефона уже зарегистрирован' });
     }
-    if (existingByEmail) {
-      errors.push({ field: 'email', message: 'Брокер с этим email уже зарегистрирован' });
+    // Email-конфликт смотрим только если это НЕ тот же брокер (т.е. активация
+    // своего же аккаунта с тем же email — норм; коллизия с ЧУЖИМ email — ошибка).
+    if (existingByEmail && existingByEmail.id !== existingByPhone?.id) {
+      errors.push({ field: 'email', message: 'Этот email уже используется другим аккаунтом' });
     }
 
     if (errors.length) {
@@ -208,19 +215,39 @@ export class AuthService {
       console.error('amoCRM sync failed during register:', e);
     }
 
-    const broker = await this.prisma.broker.create({
-      data: {
-        phone: data.phone,
-        fullName: data.fullName,
-        email: data.email,
-        passwordHash,
-        status: UserStatus.ACTIVE,
-        source: 'BROKER_CABINET',
-        ...(amoContactId && { amoContactId }),
-      },
-    });
+    // 2026-06-30: либо создаём нового, либо обновляем существующего
+    // (импортированный брокер ставит пароль и завершает регистрацию).
+    let broker: { id: string };
+    if (isActivation && existingByPhone) {
+      // Активация: ФИО, email — ПЕРЕЗАПИСЫВАЕМ (введённое в форме могут
+      // отличаться от того что было при импорте). password устанавливаем.
+      // status → ACTIVE.
+      broker = await this.prisma.broker.update({
+        where: { id: existingByPhone.id },
+        data: {
+          fullName: data.fullName,
+          email: data.email,
+          passwordHash,
+          status: UserStatus.ACTIVE,
+          ...(amoContactId && !existingByPhone.amoContactId && { amoContactId }),
+        },
+        select: { id: true },
+      });
+    } else {
+      broker = await this.prisma.broker.create({
+        data: {
+          phone: data.phone,
+          fullName: data.fullName,
+          email: data.email,
+          passwordHash,
+          status: UserStatus.ACTIVE,
+          source: 'BROKER_CABINET',
+          ...(amoContactId && { amoContactId }),
+        },
+      });
+    }
 
-    // Create or link agency by INN
+    // Create or link agency by INN.
     if (data.inn) {
       const agencyName = data.agencyName || (data.innType === 'PERSONAL' ? `ИП ${data.fullName}` : `Агентство ${data.inn}`);
       let agency = await this.prisma.agency.findUnique({ where: { inn: data.inn } });
@@ -231,9 +258,17 @@ export class AuthService {
       } else if (data.agencyName && agency.name !== data.agencyName) {
         agency = await this.prisma.agency.update({ where: { id: agency.id }, data: { name: data.agencyName } });
       }
-      await this.prisma.brokerAgency.create({
-        data: { brokerId: broker.id, agencyId: agency.id, isPrimary: true },
+      // 2026-06-30: при активации привязка может уже существовать — не
+      // создаём дубль через unique constraint (brokerId + agencyId).
+      const existingLink = await this.prisma.brokerAgency.findFirst({
+        where: { brokerId: broker.id, agencyId: agency.id },
+        select: { id: true },
       });
+      if (!existingLink) {
+        await this.prisma.brokerAgency.create({
+          data: { brokerId: broker.id, agencyId: agency.id, isPrimary: true },
+        });
+      }
     }
 
     // 2026-06-18: акцепты логируем ТОЛЬКО если брокер сам отметил галочку
@@ -476,9 +511,22 @@ export class AuthService {
       },
     });
 
-    // 2026-06-09: понятные русские сообщения в UI вместо 'Invalid credentials'.
-    if (!broker || !broker.passwordHash) {
-      throw new UnauthorizedException('Неверный логин или пароль');
+    // 2026-06-30: разделили 3 разных кейса для понятного UX.
+    //   1) телефона нет в БД      → needsRegistration (фронт редиректит на /register)
+    //   2) есть, но passwordHash    → needsActivation (фронт тоже на /register —
+    //      импортированный брокер ещё не установил пароль)
+    //   3) есть, пароль не совпал → обычная ошибка
+    if (!broker) {
+      throw new UnauthorizedException({
+        message: 'Аккаунт не найден. Зарегистрируйтесь.',
+        code: 'NEEDS_REGISTRATION',
+      });
+    }
+    if (!broker.passwordHash) {
+      throw new UnauthorizedException({
+        message: 'Аккаунт ещё не активирован. Завершите регистрацию.',
+        code: 'NEEDS_ACTIVATION',
+      });
     }
 
     if (broker.status === 'BLOCKED') {
