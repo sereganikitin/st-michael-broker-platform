@@ -199,26 +199,7 @@ export class MeetingsService {
         const managerId = Number(process.env.AMO_BROKER_MEETINGS_MANAGER_ID || 0);
         if (managerId) {
           const meetingTaskTypeId = Number(process.env.AMO_MEETING_TASK_TYPE_ID || 2);
-          // 2026-06-30: формат чеклист-задачи для встречи.
-          const taskText = [
-            `ЗАДАЧА: провести встречу ${typeLabel} с клиентом.`,
-            ``,
-            `ДАННЫЕ:`,
-            `• Клиент: ${meeting.client.fullName}`,
-            `• Телефон клиента: ${meeting.client.phone}`,
-            `• Брокер: ${broker?.fullName || '—'}${broker?.phone ? ` (${broker.phone})` : ''}`,
-            ...(meeting.comment ? [`• Комментарий брокера: ${meeting.comment}`] : []),
-            ``,
-            `ЧТО НУЖНО СДЕЛАТЬ:`,
-            `1. Подтвердить встречу с брокером за 1 час до начала (звонок/мессенджер)`,
-            `2. Подготовить материалы по проекту`,
-            `3. Провести встречу — показать квартиры/апартаменты, ответить на вопросы`,
-            `4. Если клиент готов — оформить бронь / следующий шаг сделки`,
-            ``,
-            `ПОСЛЕ ВСТРЕЧИ:`,
-            `— в комментарии к задаче: как прошла встреча, договорённости, следующий шаг`,
-            `— переведите лид в нужный статус (встреча проведена / бронь / отказ)`,
-          ].join('\n');
+          const taskText = `Встреча ${typeLabel} с клиентом ${meeting.client.fullName} (${meeting.client.phone}). Брокер: ${broker?.fullName || '—'}.${meeting.comment ? ` Коммент: ${meeting.comment}` : ''}`;
           this.amo.createTask({
             text: taskText,
             entityType: 'leads',
