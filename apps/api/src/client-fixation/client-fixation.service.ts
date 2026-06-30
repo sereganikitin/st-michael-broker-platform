@@ -1145,36 +1145,51 @@ export class ClientFixationService {
     }
     if (!agency) throw new NotFoundException('Agency not found');
 
-    // Создаём брокера в amoCRM (как при обычной регистрации).
+    // 2026-06-30: создаём брокера в amoCRM ВМЕСТЕ С ЛИДОМ в воронке
+    // брокеров (10787390) — через тот же helper что используется для
+    // заявок с лендинга. Это даёт:
+    //   1. Контакт с IS_BROKER=true
+    //   2. Лид в воронке брокеров (responsible = Ксения / AMO_BROKER_MEETINGS_MANAGER_ID)
+    //   3. Note с информацией о заявке
+    //   4. Задачу «Связаться с новым брокером ...» (4 часа)
+    // То есть КЦ-менеджер получит звонок-таск как обычно.
+    // Если в amoCRM уже есть контакт с таким телефоном — обновим его
+    // поля + всё равно создадим лид в воронке (потенциальный дубль —
+    // это явная новая инициатива от заводящего брокера).
     let amoContactId: bigint | undefined;
     try {
-      const brokerFields: any[] = [
-        { field_id: AMO_CONTACT_FIELDS.PHONE, values: [{ value: data.phone, enum_code: 'WORK' }] },
-        { field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] },
-      ];
-      if (data.email) {
-        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.EMAIL, values: [{ value: data.email, enum_code: 'WORK' }] });
-      }
-      if (agency.inn) {
-        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.INN, values: [{ value: agency.inn }] });
-      }
-      if (agency.name) {
-        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: agency.name }] });
-      }
+      // Сначала обогащаем/находим контакт нашими полями (ИНН агентства,
+      // имя агентства), потом создаём лид через универсальный helper.
       const existingAmo = await this.amoCrmAdapter.findBrokerContactByPhone(data.phone);
       if (existingAmo) {
         amoContactId = BigInt(existingAmo.id);
         try {
-          await this.amoCrmAdapter.updateContact(existingAmo.id, { custom_fields_values: brokerFields } as any);
+          const updateFields: any[] = [
+            { field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] },
+          ];
+          if (agency.inn) {
+            updateFields.push({ field_id: AMO_CONTACT_FIELDS.INN, values: [{ value: agency.inn }] });
+          }
+          if (agency.name) {
+            updateFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: agency.name }] });
+          }
+          await this.amoCrmAdapter.updateContact(existingAmo.id, { custom_fields_values: updateFields } as any);
         } catch (e) {
           console.error('[createBrokerByCreator] amo updateContact failed:', e);
         }
-      } else {
-        const newContact = await this.amoCrmAdapter.createContact({
-          name: data.fullName,
-          custom_fields_values: brokerFields,
-        });
-        if (newContact?.id) amoContactId = BigInt(newContact.id);
+      }
+      // Создаём лид в воронке брокеров (если контакт уже есть — helper
+      // привяжет его через createContact с тем же phone, amoCRM сам
+      // дедуплицирует контакт по PHONE-маркеру).
+      const amo = await this.amoCrmAdapter.createBrokerLeadFromLanding({
+        brokerName: data.fullName,
+        brokerPhone: data.phone,
+        brokerEmail: data.email || null,
+        source: 'LANDING_FORM',
+        note: `Брокера зарегистрировал партнёр ${creator.fullName}. Агентство: ${agency.name} (ИНН ${agency.inn}).`,
+      });
+      if (amo?.contactId && !amoContactId) {
+        amoContactId = BigInt(amo.contactId);
       }
     } catch (e: any) {
       console.error('[createBrokerByCreator] amoCRM sync failed:', e?.message || e);
