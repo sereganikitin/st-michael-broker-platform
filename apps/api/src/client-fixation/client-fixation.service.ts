@@ -1066,7 +1066,7 @@ export class ClientFixationService {
   // согласованный с заказчиком).
   async createBrokerByCreator(
     creatorId: string,
-    data: { fullName: string; phone: string; email?: string; agencyId: string },
+    data: { fullName: string; phone: string; email?: string; agencyId: string; customInn?: string },
   ) {
     const creator = await this.prisma.broker.findUnique({
       where: { id: creatorId },
@@ -1077,14 +1077,6 @@ export class ClientFixationService {
       },
     });
     if (!creator) throw new NotFoundException('Creator not found');
-    // Агентство должно быть из числа агентств самого брокера.
-    const allowedAgencyIds = new Set(creator.brokerAgencies.map((ba) => ba.agencyId));
-    if (!allowedAgencyIds.has(data.agencyId)) {
-      throw new BadRequestException({
-        message: 'Это агентство не привязано к вашему профилю',
-        field: 'agencyId',
-      });
-    }
 
     // Q5: дубль по телефону → молча возвращаем existing.
     const existingByPhone = await this.prisma.broker.findUnique({
@@ -1109,10 +1101,48 @@ export class ClientFixationService {
       }
     }
 
-    const agency = await this.prisma.agency.findUnique({
-      where: { id: data.agencyId },
-      select: { id: true, name: true, inn: true },
-    });
+    // 2026-06-30: ИНН — опциональное поле.
+    // - если customInn введён — ищем агентство по этому ИНН; если нашлось,
+    //   используем его; если нет — создаём новое агентство с этим ИНН.
+    // - если customInn пустой — берём agencyId из dropdown'а (привязка брокера).
+    let agency: { id: string; name: string; inn: string } | null = null;
+    const customInn = (data.customInn || '').replace(/\D/g, '');
+    if (customInn) {
+      if (customInn.length !== 10 && customInn.length !== 12) {
+        throw new BadRequestException({ message: 'ИНН должен содержать 10 или 12 цифр', field: 'customInn' });
+      }
+      const existingAgency = await this.prisma.agency.findUnique({
+        where: { inn: customInn },
+        select: { id: true, name: true, inn: true },
+      });
+      if (existingAgency) {
+        agency = existingAgency;
+      } else {
+        // Создаём новое агентство с этим ИНН. Имя по умолчанию — «Агентство <ИНН>»,
+        // позже можно переименовать в админке.
+        const created = await this.prisma.agency.create({
+          data: {
+            name: `Агентство ${customInn}`,
+            inn: customInn,
+          },
+          select: { id: true, name: true, inn: true },
+        });
+        agency = created;
+      }
+    } else {
+      // Без customInn — обязательно agencyId из числа агентств самого брокера.
+      const allowedAgencyIds = new Set(creator.brokerAgencies.map((ba) => ba.agencyId));
+      if (!allowedAgencyIds.has(data.agencyId)) {
+        throw new BadRequestException({
+          message: 'Это агентство не привязано к вашему профилю',
+          field: 'agencyId',
+        });
+      }
+      agency = await this.prisma.agency.findUnique({
+        where: { id: data.agencyId },
+        select: { id: true, name: true, inn: true },
+      });
+    }
     if (!agency) throw new NotFoundException('Agency not found');
 
     // Создаём брокера в amoCRM (как при обычной регистрации).
