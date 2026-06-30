@@ -68,25 +68,29 @@ export class ClientFixationController {
   @ApiOperation({ summary: 'Create a new broker (auto-assigned to selected agency)' })
   async createNewBroker(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { fullName?: string; phone?: string; email?: string; agencyId?: string },
+    @Body() body: { fullName?: string; phone?: string; email?: string; agencyId?: string; customInn?: string },
   ) {
     const fullName = String(body?.fullName || '').trim();
     const phone = String(body?.phone || '').trim();
     const agencyId = String(body?.agencyId || '').trim();
     const email = body?.email ? String(body.email).trim() : undefined;
+    const customInn = body?.customInn ? String(body.customInn).trim() : undefined;
     if (!fullName || fullName.length < 2) {
       throw new BadRequestException({ message: 'Введите ФИО', field: 'fullName' });
     }
     if (!/^\+7\d{10}$/.test(phone)) {
       throw new BadRequestException({ message: 'Телефон должен быть в формате +7XXXXXXXXXX', field: 'phone' });
     }
-    if (!agencyId) {
-      throw new BadRequestException({ message: 'Выберите агентство', field: 'agencyId' });
-    }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new BadRequestException({ message: 'Неверный формат email', field: 'email' });
     }
-    return this.clientFixationService.createBrokerByCreator(user.id, { fullName, phone, email, agencyId });
+    // Если введён customInn — agencyId не обязателен (создастся новое
+    // агентство по ИНН). Если customInn нет — agencyId обязателен (берём
+    // из dropdown'а с моими агентствами).
+    if (!customInn && !agencyId) {
+      throw new BadRequestException({ message: 'Выберите агентство или укажите ИНН', field: 'agencyId' });
+    }
+    return this.clientFixationService.createBrokerByCreator(user.id, { fullName, phone, email, agencyId, customInn });
   }
 
   @Get()
