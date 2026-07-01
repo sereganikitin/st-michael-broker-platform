@@ -54,6 +54,31 @@ export class SchedulerService {
       this.logger.error(`[meetings-status-sync] cleanup «Тип из amoCRM» error: ${e?.message || e}`);
     }
 
+    // 2026-07-01: одноразовая очистка старых записей «[timestamp] amoCRM
+    // статус: XXX» в client.comment. Webhook перестал писать это в PR #218,
+    // но старые записи остались и брокер видит их в карточке клиента.
+    // Regexp удаляет все такие строки (с необязательным \n). Потом NULLим
+    // пустые comment. Идемпотентно.
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE "Client"
+        SET "comment" = regexp_replace(
+          "comment",
+          E'\\n?\\[\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\] amoCRM статус: \\d+',
+          '',
+          'g'
+        )
+        WHERE "comment" ~ 'amoCRM статус: \\d+'
+      `;
+      await this.prisma.$executeRaw`
+        UPDATE "Client"
+        SET "comment" = NULL
+        WHERE "comment" IS NOT NULL AND TRIM("comment") = ''
+      `;
+    } catch (e: any) {
+      this.logger.error(`[meetings-status-sync] cleanup «amoCRM статус» error: ${e?.message || e}`);
+    }
+
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     try {
