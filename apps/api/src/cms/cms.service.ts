@@ -128,7 +128,9 @@ const DEFAULT_CONTENT: Record<string, any> = {
     manager: {
       name: 'Ксения Цепляева',
       role: 'Руководитель отдела по работе с партнёрами',
-      phone: '+7 (906) 061-78-00',
+      // 2026-07-01: телефон отдела по работе с брокерами (был личный
+      // мобильный Ксении +7 906 061-78-00).
+      phone: '+7 (499) 226-22-49',
     },
   },
 };
@@ -636,6 +638,30 @@ export class CmsService {
           data: { key, value: DEFAULT_CONTENT[key] },
         });
       }
+    }
+
+    // 2026-07-01: миграция телефона менеджера с личного мобильного Ксении
+    // (+7 906 061-78-00) на общий телефон отдела (+7 499 226-22-49).
+    // Идемпотентно: срабатывает только если старый номер до сих пор в БД.
+    try {
+      const contactRow = await this.prisma.siteContent.findUnique({ where: { key: 'contact' } });
+      const contactValue = contactRow?.value as any;
+      const currentPhone = contactValue?.manager?.phone;
+      const OLD_PHONE = '+7 (906) 061-78-00';
+      const NEW_PHONE = '+7 (499) 226-22-49';
+      if (contactValue && currentPhone === OLD_PHONE) {
+        const nextValue = {
+          ...contactValue,
+          manager: { ...(contactValue.manager || {}), phone: NEW_PHONE },
+        };
+        await this.prisma.siteContent.update({
+          where: { key: 'contact' },
+          data: { value: nextValue },
+        });
+        console.log('[CMS migration] contact.manager.phone обновлён на', NEW_PHONE);
+      }
+    } catch (e: any) {
+      console.warn('[CMS migration] manager.phone migration failed:', e?.message || e);
     }
 
     const projectsCount = await this.prisma.landingProject.count();
