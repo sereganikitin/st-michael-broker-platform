@@ -1,7 +1,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
 import { Project } from '@st-michael/shared';
-import { AmoCrmAdapter, MorekitAdapter, morekitPhone, morekitProjectName, morekitLeadDate, AMO_CONTACT_FIELDS } from '@st-michael/integrations';
+import { AmoCrmAdapter, MorekitAdapter, morekitPhone, morekitProjectName, morekitLeadDate, AMO_CONTACT_FIELDS, brokerToAmoContactFields } from '@st-michael/integrations';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as XLSX from 'xlsx';
@@ -1145,58 +1145,9 @@ export class ClientFixationService {
     }
     if (!agency) throw new NotFoundException('Agency not found');
 
-    // 2026-06-30: создаём брокера в amoCRM ВМЕСТЕ С ЛИДОМ в воронке
-    // брокеров (10787390) — через тот же helper что используется для
-    // заявок с лендинга. Это даёт:
-    //   1. Контакт с IS_BROKER=true
-    //   2. Лид в воронке брокеров (responsible = Ксения / AMO_BROKER_MEETINGS_MANAGER_ID)
-    //   3. Note с информацией о заявке
-    //   4. Задачу «Связаться с новым брокером ...» (4 часа)
-    // То есть КЦ-менеджер получит звонок-таск как обычно.
-    // Если в amoCRM уже есть контакт с таким телефоном — обновим его
-    // поля + всё равно создадим лид в воронке (потенциальный дубль —
-    // это явная новая инициатива от заводящего брокера).
-    let amoContactId: bigint | undefined;
-    try {
-      // Сначала обогащаем/находим контакт нашими полями (ИНН агентства,
-      // имя агентства), потом создаём лид через универсальный helper.
-      const existingAmo = await this.amoCrmAdapter.findBrokerContactByPhone(data.phone);
-      if (existingAmo) {
-        amoContactId = BigInt(existingAmo.id);
-        try {
-          const updateFields: any[] = [
-            { field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] },
-          ];
-          if (agency.inn) {
-            updateFields.push({ field_id: AMO_CONTACT_FIELDS.INN, values: [{ value: agency.inn }] });
-          }
-          if (agency.name) {
-            updateFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: agency.name }] });
-          }
-          await this.amoCrmAdapter.updateContact(existingAmo.id, { custom_fields_values: updateFields } as any);
-        } catch (e) {
-          console.error('[createBrokerByCreator] amo updateContact failed:', e);
-        }
-      }
-      // Создаём лид в воронке брокеров (если контакт уже есть — helper
-      // привяжет его через createContact с тем же phone, amoCRM сам
-      // дедуплицирует контакт по PHONE-маркеру).
-      const amo = await this.amoCrmAdapter.createBrokerLeadFromLanding({
-        brokerName: data.fullName,
-        brokerPhone: data.phone,
-        brokerEmail: data.email || null,
-        source: 'LANDING_FORM',
-        note: `Брокера зарегистрировал партнёр ${creator.fullName}. Агентство: ${agency.name} (ИНН ${agency.inn}).`,
-      });
-      if (amo?.contactId && !amoContactId) {
-        amoContactId = BigInt(amo.contactId);
-      }
-    } catch (e: any) {
-      console.error('[createBrokerByCreator] amoCRM sync failed:', e?.message || e);
-    }
-
-    // Создаём брокера БЕЗ пароля — он зайдёт через /forgot-password
-    // (придёт email со ссылкой на сброс).
+    // 2026-07-01: сначала создаём Broker в БД + BrokerAgency, потом
+    // единый amo-синк через brokerToAmoContactFields (все 13 полей,
+    // без дублей контакта по phone), потом отдельно лид в воронке.
     const broker = await this.prisma.broker.create({
       data: {
         phone: data.phone,
@@ -1204,14 +1155,65 @@ export class ClientFixationService {
         email: data.email || null,
         status: 'PENDING' as any,
         source: 'BROKER_CABINET',
-        ...(amoContactId && { amoContactId }),
       },
     });
-
-    // Привязка к выбранному агентству (primary для нового брокера).
     await this.prisma.brokerAgency.create({
       data: { brokerId: broker.id, agencyId: agency.id, isPrimary: true },
     });
+
+    // Синк контакта в amoCRM. Ищем по phone → если есть, обновляем; если
+    // нет, создаём. Дубля контакта не будет. Все 13 полей передаются
+    // через brokerToAmoContactFields.
+    let amoContactId: number | undefined;
+    try {
+      const brokerWithAgency = await this.prisma.broker.findUnique({
+        where: { id: broker.id },
+        include: {
+          brokerAgencies: { where: { isPrimary: true }, include: { agency: true }, take: 1 },
+        },
+      });
+      if (brokerWithAgency) {
+        const primaryAgency = brokerWithAgency.brokerAgencies[0]?.agency || null;
+        const customFields = brokerToAmoContactFields(brokerWithAgency, primaryAgency);
+        const payload = { name: brokerWithAgency.fullName, custom_fields_values: customFields } as any;
+
+        const existingAmo = await this.amoCrmAdapter.findBrokerContactByPhone(data.phone);
+        if (existingAmo) {
+          amoContactId = existingAmo.id;
+          await this.amoCrmAdapter.updateContact(existingAmo.id, payload);
+        } else {
+          const created = await this.amoCrmAdapter.createContact(payload);
+          if (created?.id) amoContactId = created.id;
+        }
+
+        if (amoContactId) {
+          await this.prisma.broker.update({
+            where: { id: broker.id },
+            data: { amoContactId: BigInt(amoContactId) },
+          });
+        }
+      }
+    } catch (e: any) {
+      console.error('[createBrokerByCreator] amo contact sync failed:', e?.message || e);
+    }
+
+    // Отдельно: лид в воронке брокеров + note + задача КЦ.
+    // Название лида — «{новый брокер} (завёл {creator})» — чтобы КЦ
+    // сразу видел откуда лид. Задача КЦ создаётся ВСЕГДА, даже если
+    // контакт уже был в amoCRM.
+    try {
+      await this.amoCrmAdapter.createBrokerLeadFromLanding({
+        brokerName: data.fullName,
+        brokerPhone: data.phone,
+        brokerEmail: data.email || null,
+        source: 'FIXATION_BY_OTHER_BROKER',
+        note: `Брокера зарегистрировал партнёр ${creator.fullName}. Агентство: ${agency.name} (ИНН ${agency.inn}).`,
+        existingContactId: amoContactId,
+        leadName: `${data.fullName} (завёл ${creator.fullName})`,
+      });
+    } catch (e: any) {
+      console.error('[createBrokerByCreator] amo lead+task failed:', e?.message || e);
+    }
 
     // Аудит: брокер завёл другого брокера.
     try {

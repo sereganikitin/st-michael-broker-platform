@@ -170,58 +170,14 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(data.password, 10);
 
-    // Check amoCRM for existing contact by phone
-    let amoContactId: bigint | undefined;
+    // 2026-07-01: убрали ручной 5-полевой маппинг в amoCRM. Теперь сначала
+    // делаем Broker в БД (create или update при активации), потом единый
+    // syncBrokerProfileToAmo который передаёт все 13 полей и сам ищет/
+    // создаёт/обновляет контакт по phone без дублей.
     let amoLeadsCount = 0;
-    try {
-      const brokerFields: any[] = [
-        { field_id: AMO_CONTACT_FIELDS.PHONE, values: [{ value: data.phone, enum_code: 'WORK' }] },
-        { field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] },
-      ];
-      if (data.email) {
-        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.EMAIL, values: [{ value: data.email, enum_code: 'WORK' }] });
-      }
-      if (data.inn) {
-        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.INN, values: [{ value: data.inn }] });
-      }
-      if (data.agencyName) {
-        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: data.agencyName }] });
-      } else if (data.inn && data.innType === 'AGENCY') {
-        brokerFields.push({ field_id: AMO_CONTACT_FIELDS.AGENCY_NAME, values: [{ value: `Агентство ${data.inn}` }] });
-      }
-
-      const amoContact = await this.amo.findBrokerContactByPhone(data.phone);
-      if (amoContact) {
-        amoContactId = BigInt(amoContact.id);
-        // Update contact: set broker flag, INN, agency
-        try {
-          await this.amo.updateContact(amoContact.id, {
-            custom_fields_values: brokerFields,
-          } as any);
-        } catch (e) {
-          console.error('amoCRM updateContact failed:', e);
-        }
-        const fullContact = await this.amo.getContact(amoContact.id);
-        amoLeadsCount = fullContact?._embedded?.leads?.length || 0;
-      } else {
-        // Create new contact as broker
-        const newContact = await this.amo.createContact({
-          name: data.fullName,
-          custom_fields_values: brokerFields,
-        });
-        if (newContact?.id) amoContactId = BigInt(newContact.id);
-      }
-    } catch (e) {
-      console.error('amoCRM sync failed during register:', e);
-    }
-
-    // 2026-06-30: либо создаём нового, либо обновляем существующего
-    // (импортированный брокер ставит пароль и завершает регистрацию).
     let broker: { id: string };
     if (isActivation && existingByPhone) {
-      // Активация: ФИО, email — ПЕРЕЗАПИСЫВАЕМ (введённое в форме могут
-      // отличаться от того что было при импорте). password устанавливаем.
-      // status → ACTIVE.
+      // Активация: ФИО, email перезаписываем, password устанавливаем.
       broker = await this.prisma.broker.update({
         where: { id: existingByPhone.id },
         data: {
@@ -229,7 +185,6 @@ export class AuthService {
           email: data.email,
           passwordHash,
           status: UserStatus.ACTIVE,
-          ...(amoContactId && !existingByPhone.amoContactId && { amoContactId }),
         },
         select: { id: true },
       });
@@ -242,7 +197,6 @@ export class AuthService {
           passwordHash,
           status: UserStatus.ACTIVE,
           source: 'BROKER_CABINET',
-          ...(amoContactId && { amoContactId }),
         },
       });
     }
@@ -315,12 +269,22 @@ export class AuthService {
       });
     }
 
+    // 2026-07-01: единая точка синка в amoCRM. Все 13 полей контакта.
+    // syncBrokerProfileToAmo сам: если amoContactId уже есть → update,
+    // иначе ищет по phone → update / create. Дублей контактов не будет.
+    await this.syncBrokerProfileToAmo(broker.id).catch((e) => {
+      console.error('[register] syncBrokerProfileToAmo failed:', e?.message || e);
+    });
+    const finalBroker = await this.prisma.broker.findUnique({
+      where: { id: broker.id },
+      select: { amoContactId: true },
+    });
+
     return {
       message: 'Registration successful',
       brokerId: broker.id,
-      amoLinked: !!amoContactId,
+      amoLinked: !!finalBroker?.amoContactId,
       amoLeadsCount,
-      autoSyncTip: amoContactId ? 'Use POST /api/amocrm/sync-my-deals to pull deals/clients' : undefined,
     };
   }
 
