@@ -202,9 +202,11 @@ export default function MeetingsPage() {
   // 2026-06-18: пока форма создания встречи дорабатывается, показываем брокеру
   // телефон менеджера по работе с брокерами (из CMS-блока «contact»). Админ
   // правит блок через /admin/content → «Команда».
+  // 2026-07-01: путь был `/cms/content/contact` — не существует. Реальные
+  // endpoints — /public/cms/content/:key. Из-за 404 телефон не подтягивался.
   const [managerContact, setManagerContact] = useState<{ name?: string; role?: string; phone?: string }>({});
   useEffect(() => {
-    apiGet('/cms/content/contact')
+    apiGet('/public/cms/content/contact')
       .then((d: any) => {
         const v = d?.value || {};
         setManagerContact({

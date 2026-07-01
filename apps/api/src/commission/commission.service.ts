@@ -261,6 +261,10 @@ export class CommissionService {
     const cmsValue = (commissionCms?.value || {}) as any;
     const installmentDiscount = Number(cmsValue?.installmentDiscount ?? INSTALLMENT_DISCOUNT);
     const subsidizedMortgageRate = Number(cmsValue?.subsidizedMortgageRate ?? 4);
+    // 2026-07-01: чекбоксы «Активно» из CMS. Если админ выключил вариант —
+    // серверный расчёт не применяет модификатор (fallback на FULL).
+    const installmentEnabled = cmsValue?.installmentEnabled !== false;
+    const subsidizedMortgageEnabled = cmsValue?.subsidizedMortgageEnabled !== false;
 
     // Учитываем активную политику (FLAT / PROGRESSIVE) из /admin/commission-policies.
     const r = await rateForWithPolicy(this.prisma, data.project, totalSqm);
@@ -269,10 +273,15 @@ export class CommissionService {
     const mode = r.mode; // 'FLAT' | 'PROGRESSIVE' | 'FALLBACK'
 
     // Применяем модификатор по типу оплаты (после ставки из политики).
-    if (data.paymentMode === 'INSTALLMENT') {
+    // Если админ выключил вариант в CMS — модификатор не применяем
+    // (клиент выберет вариант, а на бэке отработает как FULL).
+    let effectivePaymentMode: typeof data.paymentMode = data.paymentMode;
+    if (data.paymentMode === 'INSTALLMENT' && installmentEnabled) {
       rate = Math.max(0, rate - installmentDiscount);
-    } else if (data.paymentMode === 'SUBSIDIZED_MORTGAGE') {
+    } else if (data.paymentMode === 'SUBSIDIZED_MORTGAGE' && subsidizedMortgageEnabled) {
       rate = subsidizedMortgageRate;
+    } else {
+      effectivePaymentMode = 'FULL';
     }
 
     const commission = (data.amount * rate) / 100;
@@ -283,9 +292,11 @@ export class CommissionService {
       mode,
       rate,
       commission,
-      paymentMode: data.paymentMode,
+      paymentMode: effectivePaymentMode,
       installmentDiscount,
+      installmentEnabled,
       subsidizedMortgageRate,
+      subsidizedMortgageEnabled,
       agencyName: agency?.name || null,
     };
   }
