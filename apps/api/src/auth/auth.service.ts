@@ -9,7 +9,7 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { AmoCrmAdapter, AMO_CONTACT_FIELDS, brokerToAmoContactFields, mapMeetingStatus, leadToProject, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
-import { levelForSqm, rateFor } from '../commission/commission.service';
+import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
 
 const UPLOADS_ROOT = process.env.UPLOADS_DIR || '/app/uploads';
 const AVATAR_PUBLIC_PREFIX = '/files';
@@ -602,15 +602,19 @@ export class AuthService {
           });
         }
 
-        // Calculate commission — use new project-specific scales (ТЗ §"Объединённая шкала")
+        // Calculate commission — учитываем активную политику из админки
+        // (правка 2026-07-01). Раньше был хардкод rateFor(project, level),
+        // из-за чего bootstrap sync после активации создавал сделки со старой
+        // ставкой, даже если админ настроил FLAT/новую PROGRESSIVE политику.
         const amount = Number(lead.price || 0);
         const brokerAgency = await this.prisma.brokerAgency.findFirst({
           where: { brokerId, isPrimary: true },
           include: { agency: true },
         });
         const totalSqm = Number(brokerAgency?.agency?.totalSqmSold || 0);
-        const level = levelForSqm(project, totalSqm);
-        const rate = rateFor(project, level);
+        const dealDate = lead.created_at ? new Date(lead.created_at * 1000) : new Date();
+        const policyResult = await rateForWithPolicy(this.prisma, project, totalSqm, dealDate);
+        const rate = policyResult.rate;
         const commissionAmount = Math.round(amount * rate / 100);
 
         const existingDeal = await this.prisma.deal.findFirst({ where: { amoDealId: BigInt(lead.id) } });
