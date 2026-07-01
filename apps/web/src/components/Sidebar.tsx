@@ -60,7 +60,13 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
   const pathname = usePathname();
   const { broker } = useAuth();
   const isAdmin = broker?.role === 'ADMIN' || broker?.role === 'MANAGER';
-  const items = isAdmin ? [...navigation, ...adminNavigation] : navigation;
+  // 2026-07-01: временно скрываем «Мои сделки» для роли BROKER — раздел
+  // дорабатывается. Для ADMIN/MANAGER оставляем видимым, чтобы можно было
+  // смотреть сделки других брокеров.
+  const baseNav = broker?.role === 'BROKER'
+    ? navigation.filter((n) => n.href !== '/deals')
+    : navigation;
+  const items = isAdmin ? [...baseNav, ...adminNavigation] : baseNav;
 
   return (
     <>
