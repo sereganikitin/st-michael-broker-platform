@@ -67,6 +67,22 @@ export class AmocrmService {
         data: { type: meetingType as any, status: meetingStatus as any },
       });
     } else {
+      // 2026-07-01: убрал техническую строку «Тип из amoCRM». Вместо неё
+      // мини-детали клиента, чтобы менеджеру было понятно про кого встреча.
+      const client = await this.prisma.client.findUnique({
+        where: { id: clientId },
+        select: { fullName: true, phone: true, project: true },
+      });
+      const projectLabel = client?.project === 'ZORGE9' ? 'Зорге 9'
+        : client?.project === 'SILVER_BOR' ? 'Серебряный Бор'
+        : (client?.project || '');
+      const commentLines = client
+        ? [
+            `Клиент: ${client.fullName}`,
+            `Телефон: ${client.phone}`,
+            ...(projectLabel ? [`Проект: ${projectLabel}`] : []),
+          ]
+        : [];
       await this.prisma.meeting.create({
         data: {
           brokerId,
@@ -74,7 +90,7 @@ export class AmocrmService {
           type: meetingType as any,
           status: meetingStatus as any,
           date: meetingDate,
-          comment: rawType ? `Тип из amoCRM: ${rawType}` : null,
+          comment: commentLines.length ? commentLines.join('\n') : null,
         },
       });
     }

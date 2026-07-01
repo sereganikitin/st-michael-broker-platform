@@ -30,6 +30,67 @@ export class SchedulerService {
     private readonly gsheets: GoogleSheetsSyncService,
   ) {}
 
+  // 2026-07-01: каждые 10 минут — синк СТАТУСОВ активных встреч из amoCRM.
+  // Логика:
+  //   - берём Meeting.status ∈ (PENDING, CONFIRMED) и date за последние 7
+  //     дней или в будущем (не имеет смысла обновлять старые);
+  //   - вытягиваем client.amoLeadId → getLead(id) → mapMeetingStatus(lead.status_id);
+  //   - если статус изменился, обновляем Meeting.status.
+  //   - оптимизация: если несколько встреч у одного клиента (amoLeadId) —
+  //     один запрос к amoCRM.
+  @Cron('*/10 * * * *')
+  async handleMeetingsStatusSync() {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    try {
+      const meetings = await this.prisma.meeting.findMany({
+        where: {
+          status: { in: ['PENDING' as any, 'CONFIRMED' as any] },
+          date: { gte: sevenDaysAgo },
+        },
+        include: { client: { select: { amoLeadId: true } } },
+      });
+      // Группируем по amoLeadId, чтобы 1 запрос — 1 лид.
+      const byLeadId = new Map<number, typeof meetings>();
+      for (const m of meetings) {
+        const leadId = m.client?.amoLeadId ? Number(m.client.amoLeadId) : null;
+        if (!leadId) continue;
+        if (!byLeadId.has(leadId)) byLeadId.set(leadId, []);
+        byLeadId.get(leadId)!.push(m);
+      }
+      if (byLeadId.size === 0) {
+        this.logger.log('[meetings-status-sync] нечего синкать');
+        return;
+      }
+      let updated = 0;
+      let checked = 0;
+      let errors = 0;
+      for (const [leadId, group] of byLeadId.entries()) {
+        try {
+          const lead = await this.amo.getLead(leadId);
+          checked++;
+          if (!lead) continue;
+          const newStatus = mapMeetingStatus((lead as any).status_id);
+          for (const m of group) {
+            if (m.status !== newStatus) {
+              await this.prisma.meeting.update({
+                where: { id: m.id },
+                data: { status: newStatus as any },
+              });
+              updated++;
+            }
+          }
+        } catch (e: any) {
+          errors++;
+          if (errors <= 3) this.logger.warn(`[meetings-status-sync] lead ${leadId} failed: ${e?.message || e}`);
+        }
+      }
+      this.logger.log(`[meetings-status-sync] leads=${byLeadId.size} checked=${checked} updated=${updated} errors=${errors}`);
+    } catch (e: any) {
+      this.logger.error(`[meetings-status-sync] fatal: ${e?.message || e}`);
+    }
+  }
+
   // 2026-06-09: каждые 30 минут — синк брокерской базы из Google Sheet.
   // URL читается из SystemSetting.GSHEETS_BROKERS_URL. Если URL пуст —
   // сервис сам залогирует warning и завершится без ошибки.
@@ -523,12 +584,21 @@ export class SchedulerService {
                       data: { type: mType as any, status: mStatus as any },
                     });
                   } else {
+                    // 2026-07-01: мини-детали клиента в комментарии.
+                    const projectLabel = (client as any)?.project === 'ZORGE9' ? 'Зорге 9'
+                      : (client as any)?.project === 'SILVER_BOR' ? 'Серебряный Бор'
+                      : ((client as any)?.project || '');
+                    const commentLines = [
+                      `Клиент: ${client.fullName}`,
+                      `Телефон: ${client.phone}`,
+                      ...(projectLabel ? [`Проект: ${projectLabel}`] : []),
+                    ];
                     await this.prisma.meeting.create({
                       data: {
                         brokerId: broker.id, clientId: client.id,
                         type: mType as any, status: mStatus as any,
                         date: mDate,
-                        comment: rawType ? `Тип из amoCRM: ${rawType}` : null,
+                        comment: commentLines.join('\n'),
                       },
                     });
                   }
