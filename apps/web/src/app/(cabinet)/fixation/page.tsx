@@ -118,22 +118,10 @@ export default function FixationPage() {
   const [otherMiddleName, setOtherMiddleName] = useState('');
   const [otherPhone, setOtherPhone] = useState(''); // 10 цифр без +7
   const [otherEmail, setOtherEmail] = useState('');
-  const [otherAgencyId, setOtherAgencyId] = useState('');
-  // 2026-06-30: если у нового брокера другое агентство (которого ещё нет
-  // в системе) — можно указать его ИНН. Если введён, dropdown агентств
-  // игнорируется, ищем/создаём агентство по этому ИНН.
-  const [otherCustomInn, setOtherCustomInn] = useState('');
+  // 2026-07-01: ИНН и dropdown агентства убраны из формы. Новый брокер
+  // автоматически привязывается к primary агентству того кто фиксирует.
   const [otherError, setOtherError] = useState<{ field?: string; message: string } | null>(null);
   const [otherCreating, setOtherCreating] = useState(false);
-
-  // Список агентств для dropdown «куда заведём нового брокера».
-  // Используем те же агентства что и в основной форме (привязанные к моему профилю).
-  useEffect(() => {
-    if (respMode === 'other' && !otherAgencyId && myAgencies.length > 0) {
-      const primary = myAgencies.find((a) => a.isPrimary) || myAgencies[0];
-      setOtherAgencyId(primary.id);
-    }
-  }, [respMode, otherAgencyId, myAgencies]);
 
   // Сбросить выбранного брокера при переключении на «на себя».
   useEffect(() => {
@@ -162,24 +150,14 @@ export default function FixationPage() {
       setOtherError({ field: 'email', message: 'Неверный формат email' });
       return null;
     }
-    const innClean = otherCustomInn.replace(/\D/g, '');
-    if (innClean && innClean.length !== 10 && innClean.length !== 12) {
-      setOtherError({ field: 'customInn', message: 'ИНН должен содержать 10 или 12 цифр' });
-      return null;
-    }
-    // Если ИНН не введён — нужно выбрать агентство из dropdown'а.
-    if (!innClean && !otherAgencyId) {
-      setOtherError({ field: 'agencyId', message: 'Выберите агентство или укажите ИНН' });
-      return null;
-    }
     setOtherCreating(true);
     try {
+      // 2026-07-01: agencyId/customInn больше не отправляем — бэк сам
+      // подставит primary агентство того кто фиксирует.
       const r: any = await apiPost('/clients/create-new-broker', {
         fullName,
         phone: '+7' + otherPhone,
         email: otherEmail.trim() || undefined,
-        agencyId: otherAgencyId,
-        customInn: innClean || undefined,
       });
       if (r?.broker) {
         const created = { id: r.broker.id, fullName: r.broker.fullName, phone: r.broker.phone };
@@ -765,43 +743,10 @@ export default function FixationPage() {
                     На email придёт приглашение для входа в кабинет.
                   </div>
                 </div>
-                {/* 2026-06-30: ИНН — опциональное поле. Если введён —
-                    игнорирует dropdown ниже, ищет/создаёт агентство по этому
-                    ИНН. Если пустой — берёт agencyId из dropdown'а. */}
-                <div>
-                  <label className="label">ИНН агентства брокера</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    className={`input ${otherError?.field === 'customInn' ? 'field-invalid' : ''}`}
-                    placeholder="10 или 12 цифр"
-                    value={otherCustomInn}
-                    onChange={(e) => setOtherCustomInn(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                    maxLength={12}
-                    disabled={otherCreating}
-                  />
-                  <div className="text-xs text-text-muted mt-1">
-                    Если у нового брокера своё агентство — укажите его ИНН. Если уже есть в системе — будет использовано существующее, иначе создастся новое. Можно оставить пустым — тогда выберите агентство из списка ниже.
-                  </div>
-                </div>
-                <div>
-                  <label className="label">
-                    Агентство {otherCustomInn ? <span className="text-text-muted">(будет проигнорировано — введён ИНН)</span> : <span className="text-error">*</span>}
-                  </label>
-                  <select
-                    className={`input ${otherError?.field === 'agencyId' ? 'field-invalid' : ''}`}
-                    value={otherAgencyId}
-                    onChange={(e) => setOtherAgencyId(e.target.value)}
-                    disabled={otherCreating || !!otherCustomInn || myAgencies.length === 0}
-                  >
-                    {myAgencies.length === 0 && <option value="">— нет агентств —</option>}
-                    {myAgencies.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name} (ИНН {a.inn}){a.isPrimary && myAgencies.length > 1 ? ' • основное' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* 2026-07-01: поля «ИНН агентства брокера» и «Агентство»
+                    убраны. Новый брокер автоматически привязывается к primary
+                    агентству того кто фиксирует (бэк сам возьмёт primary
+                    из creator.brokerAgencies). */}
                 {otherError && (
                   <div className="p-2 bg-error/20 text-error rounded text-xs">{otherError.message}</div>
                 )}
