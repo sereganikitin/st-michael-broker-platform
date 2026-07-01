@@ -30,6 +30,95 @@ export class SchedulerService {
     private readonly gsheets: GoogleSheetsSyncService,
   ) {}
 
+  // 2026-07-01: каждые 10 минут — автосинк задач-встреч из amoCRM в наши
+  // Meeting. Менеджер ставит в amoCRM задачу типа «Встреча» (task_type_id=2)
+  // с датой на лиде клиента брокера — в кабинете брокера сразу появляется
+  // соответствующая Meeting запись. Раньше синк шёл только раз в 30 мин
+  // через handleAmoCrmSync и только из custom_field «Дата и время встречи»
+  // лида — задачи-встречи не подхватывались, брокер не видел новые встречи.
+  @Cron('*/10 * * * *')
+  async handleAmoMeetingTasksSync() {
+    if (!process.env.AMO_ACCESS_TOKEN) return;
+    const MEETING_TASK_TYPE = 2;
+
+    // Берём только клиентов с amoLeadId, чей лид был обновлён за 60 дней
+    // (иначе тянем весь исторический список — тяжело).
+    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    const clients = await this.prisma.client.findMany({
+      where: {
+        amoLeadId: { not: null },
+        OR: [
+          { amoUpdatedAt: { gte: sixtyDaysAgo } },
+          { amoUpdatedAt: null }, // старые записи без даты — проверим
+        ],
+      },
+      select: { id: true, brokerId: true, amoLeadId: true },
+      take: 500, // лимит на прогон
+    });
+    if (clients.length === 0) return;
+
+    let created = 0;
+    let skipped = 0;
+    let errors = 0;
+    for (const c of clients) {
+      const leadId = Number(c.amoLeadId);
+      if (!leadId) continue;
+      try {
+        const tasks = await this.amo.getTasksByEntity('leads', leadId);
+        for (const t of tasks) {
+          if (t.task_type_id !== MEETING_TASK_TYPE) continue;
+          if (!t.complete_till) continue;
+          const meetingDate = new Date(t.complete_till * 1000);
+          if (isNaN(meetingDate.getTime())) continue;
+
+          // Уже есть Meeting с этой датой у этого брокера/клиента? Skip.
+          const existing = await this.prisma.meeting.findFirst({
+            where: {
+              brokerId: c.brokerId,
+              clientId: c.id,
+              date: meetingDate,
+            },
+          });
+          if (existing) {
+            // Синк статуса: если task завершена → COMPLETED.
+            if (t.is_completed && existing.status !== 'COMPLETED') {
+              await this.prisma.meeting.update({
+                where: { id: existing.id },
+                data: { status: 'COMPLETED' as any },
+              });
+            }
+            skipped++;
+            continue;
+          }
+
+          // Определяем тип встречи по тексту задачи.
+          const textLower = (t.text || '').toLowerCase();
+          const type = textLower.includes('онлайн') ? 'ONLINE'
+            : textLower.includes('тур') ? 'BROKER_TOUR'
+            : 'OFFICE_VISIT';
+
+          await this.prisma.meeting.create({
+            data: {
+              brokerId: c.brokerId,
+              clientId: c.id,
+              type: type as any,
+              status: (t.is_completed ? 'COMPLETED' : 'PENDING') as any,
+              date: meetingDate,
+              comment: null,
+            },
+          });
+          created++;
+        }
+      } catch (e: any) {
+        errors++;
+        if (errors <= 3) this.logger.warn(`[amo-meeting-tasks] lead ${leadId} failed: ${e?.message || e}`);
+      }
+    }
+    if (created > 0 || errors > 0) {
+      this.logger.log(`[amo-meeting-tasks] clients=${clients.length} created=${created} skipped=${skipped} errors=${errors}`);
+    }
+  }
+
   // 2026-07-01: каждые 10 минут — синк СТАТУСОВ активных встреч из amoCRM.
   // Логика:
   //   - берём Meeting.status ∈ (PENDING, CONFIRMED) и date за последние 7
