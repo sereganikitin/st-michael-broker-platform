@@ -65,16 +65,14 @@ export class ClientFixationController {
   // прямо из формы фиксации, выбрав «Фиксирую на другого». Новый
   // привязывается к выбранному агентству создателя.
   @Post('create-new-broker')
-  @ApiOperation({ summary: 'Create a new broker (auto-assigned to selected agency)' })
+  @ApiOperation({ summary: 'Create a new broker (auto-assigned to creator primary agency)' })
   async createNewBroker(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { fullName?: string; phone?: string; email?: string; agencyId?: string; customInn?: string },
+    @Body() body: { fullName?: string; phone?: string; email?: string },
   ) {
     const fullName = String(body?.fullName || '').trim();
     const phone = String(body?.phone || '').trim();
-    const agencyId = String(body?.agencyId || '').trim();
     const email = body?.email ? String(body.email).trim() : undefined;
-    const customInn = body?.customInn ? String(body.customInn).trim() : undefined;
     if (!fullName || fullName.length < 2) {
       throw new BadRequestException({ message: 'Введите ФИО', field: 'fullName' });
     }
@@ -84,13 +82,9 @@ export class ClientFixationController {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new BadRequestException({ message: 'Неверный формат email', field: 'email' });
     }
-    // Если введён customInn — agencyId не обязателен (создастся новое
-    // агентство по ИНН). Если customInn нет — agencyId обязателен (берём
-    // из dropdown'а с моими агентствами).
-    if (!customInn && !agencyId) {
-      throw new BadRequestException({ message: 'Выберите агентство или укажите ИНН', field: 'agencyId' });
-    }
-    return this.clientFixationService.createBrokerByCreator(user.id, { fullName, phone, email, agencyId, customInn });
+    // 2026-07-01: agencyId и customInn убраны — бэк сам подставит primary
+    // агентство того кто фиксирует.
+    return this.clientFixationService.createBrokerByCreator(user.id, { fullName, phone, email });
   }
 
   @Get()
