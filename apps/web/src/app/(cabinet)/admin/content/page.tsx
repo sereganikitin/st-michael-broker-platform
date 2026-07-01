@@ -528,29 +528,53 @@ function CommissionEditor({ content, updateField, updateArrayItem, addArrayItem,
           <span className="text-xs text-text-muted font-normal">используется калькулятором в кабинете брокера</span>
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
+          <div className="border border-border rounded-lg p-3">
+            <label className="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                type="checkbox"
+                checked={content.installmentEnabled !== false}
+                onChange={(e) => updateField('commission', 'installmentEnabled', e.target.checked)}
+              />
+              <span className="text-sm font-medium">«Рассрочка» активна</span>
+            </label>
             <label className="text-sm text-text-muted block mb-1">Скидка при рассрочке, %</label>
             <input
               className="input"
               type="number"
               step="0.05"
               placeholder="0.5"
+              disabled={content.installmentEnabled === false}
               value={content.installmentDiscount ?? ''}
               onChange={(e) => updateField('commission', 'installmentDiscount', e.target.value === '' ? null : Number(e.target.value))}
             />
-            <p className="text-xs text-text-muted mt-1">На сколько % уменьшается ставка при выборе «Рассрочка»</p>
+            <p className="text-xs text-text-muted mt-1">
+              На сколько % уменьшается ставка при выборе «Рассрочка».
+              {content.installmentEnabled === false && ' Вариант скрыт на калькуляторе.'}
+            </p>
           </div>
-          <div>
+          <div className="border border-border rounded-lg p-3">
+            <label className="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                type="checkbox"
+                checked={content.subsidizedMortgageEnabled !== false}
+                onChange={(e) => updateField('commission', 'subsidizedMortgageEnabled', e.target.checked)}
+              />
+              <span className="text-sm font-medium">«Субсидированная ипотека» активна</span>
+            </label>
             <label className="text-sm text-text-muted block mb-1">Ставка при субс. ипотеке, %</label>
             <input
               className="input"
               type="number"
               step="0.05"
               placeholder="4"
+              disabled={content.subsidizedMortgageEnabled === false}
               value={content.subsidizedMortgageRate ?? ''}
               onChange={(e) => updateField('commission', 'subsidizedMortgageRate', e.target.value === '' ? null : Number(e.target.value))}
             />
-            <p className="text-xs text-text-muted mt-1">Фиксированная ставка при выборе «Субсидированная ипотека»</p>
+            <p className="text-xs text-text-muted mt-1">
+              Фиксированная ставка при выборе «Субсидированная ипотека».
+              {content.subsidizedMortgageEnabled === false && ' Вариант скрыт на калькуляторе.'}
+            </p>
           </div>
         </div>
       </div>

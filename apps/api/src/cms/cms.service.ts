@@ -71,8 +71,11 @@ const DEFAULT_CONTENT: Record<string, any> = {
     titleAccent: 'шкала',
     subtitle: 'Метраж суммируется по обоим проектам в рамках одного агентства. Действует с 1 января по 30 июня 2026 года.',
     // 2026-07-01: параметры калькулятора комиссии /commission/calculate.
+    // *Enabled=false → вариант оплаты скрыт на форме калькулятора.
     installmentDiscount: 0.5,
+    installmentEnabled: true,
     subsidizedMortgageRate: 4,
+    subsidizedMortgageEnabled: true,
     levelsByProject: {
       ZORGE9: [
         { name: 'Start', range: '0–59 м²', rate: '5,0%', active: false },

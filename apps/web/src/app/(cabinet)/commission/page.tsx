@@ -74,17 +74,25 @@ export default function CommissionPage() {
   });
   const [calcError, setCalcError] = useState('');
   const [termsCards, setTermsCards] = useState<Array<{ title: string; text: string }>>(FALLBACK_COMMISSION_CARDS);
+  // 2026-07-01: чекбоксы «Активно» из CMS. Если админ выключил — вариант оплаты
+  // не показывается на калькуляторе. По умолчанию оба активны (true).
+  const [installmentEnabled, setInstallmentEnabled] = useState(true);
+  const [subsidizedMortgageEnabled, setSubsidizedMortgageEnabled] = useState(true);
 
   useEffect(() => {
     apiGet('/commission/my').then(setCommission).catch(() => {});
     apiGet('/commission/deals').then(setDeals).catch(() => {});
-    // 2026-07-01: карточки условий из CMS. Раньше — хардкод в JSX.
+    // 2026-07-01: карточки условий + флаги активности вариантов оплаты из CMS.
     apiGet('/public/cms/content/commission')
       .then((res: any) => {
-        const cards = res?.value?.cards;
+        const v = res?.value || {};
+        const cards = v?.cards;
         if (Array.isArray(cards) && cards.length > 0) {
           setTermsCards(cards.filter((c: any) => c && (c.title || c.text)));
         }
+        // Явно false → выключено. undefined/true → включено.
+        setInstallmentEnabled(v?.installmentEnabled !== false);
+        setSubsidizedMortgageEnabled(v?.subsidizedMortgageEnabled !== false);
       })
       .catch(() => {});
   }, []);
@@ -315,10 +323,10 @@ export default function CommissionPage() {
               <label className="label">Тип оплаты</label>
               <div className="grid grid-cols-1 gap-2">
                 {([
-                  { value: 'FULL',                 label: 'Полная оплата' },
-                  { value: 'INSTALLMENT',          label: 'Рассрочка' },
-                  { value: 'SUBSIDIZED_MORTGAGE',  label: 'Субсидированная ипотека' },
-                ] as const).map((opt) => (
+                  { value: 'FULL',                 label: 'Полная оплата',           enabled: true },
+                  { value: 'INSTALLMENT',          label: 'Рассрочка',                enabled: installmentEnabled },
+                  { value: 'SUBSIDIZED_MORTGAGE',  label: 'Субсидированная ипотека',  enabled: subsidizedMortgageEnabled },
+                ] as const).filter((opt) => opt.enabled).map((opt) => (
                   <label
                     key={opt.value}
                     className={`cursor-pointer text-sm py-2 px-3 rounded-lg border transition ${
