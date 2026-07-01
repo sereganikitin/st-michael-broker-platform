@@ -117,23 +117,12 @@ export class WebhooksService {
     });
 
     if (!deal) {
-      // Try to find client by amo lead ID — для записи статуса в comment.
-      const client = await this.prisma.client.findFirst({
-        where: { amoLeadId: BigInt(ev.id) },
-      });
-      // 2026-05-26: НЕ перезаписываем comment — там может быть текст
-      // с фиксации. Дописываем строкой через \n.
-      if (client && ev.status_id) {
-        const nowIso = new Date().toISOString().slice(0, 16).replace('T', ' ');
-        const append = `[${nowIso}] amoCRM статус: ${ev.status_id}`;
-        const newComment = client.comment
-          ? `${client.comment}\n${append}`.slice(-2000)
-          : append;
-        await this.prisma.client.update({
-          where: { id: client.id },
-          data: { comment: newComment },
-        });
-      }
+      // 2026-07-01: раньше здесь записывали в client.comment строку
+      // «[timestamp] amoCRM статус: XXX» — как отладочный маркер того,
+      // что webhook пришёл, но Deal ещё не создан. Брокер видел эту
+      // техническую метку в поле «Комментарий брокера» карточки клиента
+      // → отражение и запутывание. Больше не пишем — webhook просто
+      // фиксирует что Deal не найден и выходит.
       return { leadId: ev.id, matched: false };
     }
 
