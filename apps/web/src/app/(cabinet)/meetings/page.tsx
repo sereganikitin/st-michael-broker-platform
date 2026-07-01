@@ -200,19 +200,20 @@ export default function MeetingsPage() {
   useEffect(() => { fetchClients(); }, []);
 
   // 2026-06-18: пока форма создания встречи дорабатывается, показываем брокеру
-  // телефон менеджера по работе с брокерами (из CMS-блока «contact»). Админ
-  // правит блок через /admin/content → «Команда».
-  // 2026-07-01: путь был `/cms/content/contact` — не существует. Реальные
-  // endpoints — /public/cms/content/:key. Из-за 404 телефон не подтягивался.
-  const [managerContact, setManagerContact] = useState<{ name?: string; role?: string; phone?: string }>({});
+  // телефон горячей линии для брокеров (из CMS-блока «contact»). Админ правит
+  // блок через /admin/content → «Команда».
+  // 2026-07-01: тут именно горячая линия отдела (contact.phone + blockTitle),
+  // а не персональный номер менеджера — чтобы брокер понимал, что звонит на
+  // общий телефон.
+  const [hotline, setHotline] = useState<{ blockTitle?: string; phone?: string; phoneHours?: string }>({});
   useEffect(() => {
     apiGet('/public/cms/content/contact')
       .then((d: any) => {
         const v = d?.value || {};
-        setManagerContact({
-          name: v.manager?.name,
-          role: v.manager?.role,
-          phone: v.manager?.phone || v.phone,
+        setHotline({
+          blockTitle: v.blockTitle,
+          phone: v.phone,
+          phoneHours: v.phoneHours,
         });
       })
       .catch(() => {});
@@ -309,24 +310,24 @@ export default function MeetingsPage() {
           <div className="card">
             <h2 className="text-lg font-semibold mb-3">Записаться на встречу</h2>
             <p className="text-text-muted text-sm mb-4">
-              Раздел временно дорабатывается. Чтобы записаться на встречу — позвоните вашему менеджеру:
+              Раздел временно дорабатывается. Чтобы записаться на встречу — позвоните на горячую линию для брокеров:
             </p>
             <div className="rounded-lg border border-accent/30 bg-accent/5 p-4">
-              <div className="text-xs text-text-muted mb-1">
-                {managerContact.role || 'Руководитель отдела по работе с партнёрами'}
+              <div className="text-xs text-text-muted mb-2">
+                {hotline.blockTitle || 'Горячая линия по работе с партнёрами'}
               </div>
-              {managerContact.name && (
-                <div className="font-semibold mb-2">{managerContact.name}</div>
-              )}
-              {managerContact.phone ? (
+              {hotline.phone ? (
                 <a
-                  href={`tel:${managerContact.phone.replace(/[^\d+]/g, '')}`}
+                  href={`tel:${hotline.phone.replace(/[^\d+]/g, '')}`}
                   className="inline-flex items-center gap-2 text-accent font-semibold text-lg hover:underline"
                 >
-                  <Phone className="w-5 h-5" /> {managerContact.phone}
+                  <Phone className="w-5 h-5" /> {hotline.phone}
                 </a>
               ) : (
                 <div className="text-sm text-text-muted">Телефон не задан — обратитесь в админ-панель CMS</div>
+              )}
+              {hotline.phoneHours && (
+                <div className="text-xs text-text-muted mt-1">{hotline.phoneHours}</div>
               )}
             </div>
           </div>
