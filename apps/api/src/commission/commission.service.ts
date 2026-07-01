@@ -235,27 +235,44 @@ export class CommissionService {
   async calculateCommission(data: {
     amount: number;
     project: string;
-    agencyInn: string;
-    isInstallment?: boolean;
+    paymentMode: 'FULL' | 'INSTALLMENT' | 'SUBSIDIZED_MORTGAGE';
+    brokerId: string;
   }) {
-    // Look up the agency's commission level
-    const agency = await this.prisma.agency.findUnique({
-      where: { inn: data.agencyInn },
+    // 2026-07-01: раньше калькулятор требовал agencyInn в форме. Теперь
+    // берём primary-агентство брокера напрямую из БД — брокер и так знает
+    // от какого агентства работает.
+    const broker = await this.prisma.broker.findUnique({
+      where: { id: data.brokerId },
+      include: {
+        brokerAgencies: {
+          include: { agency: true },
+          where: { isPrimary: true },
+          take: 1,
+        },
+      },
     });
-
+    const agency = broker?.brokerAgencies[0]?.agency;
     const totalSqm = agency ? Number(agency.totalSqmSold) : 0;
 
-    // Правка 2026-07-01: калькулятор теперь тоже уважает активную политику
-    // (FLAT / PROGRESSIVE) из /admin/commission-policies. Раньше он всегда
-    // считал по хардкод-шкале — админ мог поменять политику в админке, а
-    // в кабинете брокера калькулятор всё равно возвращал старое значение.
+    // 2026-07-01: параметры «Рассрочка» и «Субсидированная ипотека» теперь
+    // тянутся из CMS-блока commission (админ правит в /admin/content →
+    // «Комиссия»). Если в CMS не задано — fallback на константы (0.5% и 4%).
+    const commissionCms = await this.prisma.siteContent.findUnique({ where: { key: 'commission' } });
+    const cmsValue = (commissionCms?.value || {}) as any;
+    const installmentDiscount = Number(cmsValue?.installmentDiscount ?? INSTALLMENT_DISCOUNT);
+    const subsidizedMortgageRate = Number(cmsValue?.subsidizedMortgageRate ?? 4);
+
+    // Учитываем активную политику (FLAT / PROGRESSIVE) из /admin/commission-policies.
     const r = await rateForWithPolicy(this.prisma, data.project, totalSqm);
     let rate = r.rate;
     const level = r.level; // Для FLAT — null (в UI показываем «Фиксированная»).
     const mode = r.mode; // 'FLAT' | 'PROGRESSIVE' | 'FALLBACK'
 
-    if (data.isInstallment) {
-      rate -= INSTALLMENT_DISCOUNT;
+    // Применяем модификатор по типу оплаты (после ставки из политики).
+    if (data.paymentMode === 'INSTALLMENT') {
+      rate = Math.max(0, rate - installmentDiscount);
+    } else if (data.paymentMode === 'SUBSIDIZED_MORTGAGE') {
+      rate = subsidizedMortgageRate;
     }
 
     const commission = (data.amount * rate) / 100;
@@ -266,7 +283,9 @@ export class CommissionService {
       mode,
       rate,
       commission,
-      isInstallment: data.isInstallment || false,
+      paymentMode: data.paymentMode,
+      installmentDiscount,
+      subsidizedMortgageRate,
       agencyName: agency?.name || null,
     };
   }

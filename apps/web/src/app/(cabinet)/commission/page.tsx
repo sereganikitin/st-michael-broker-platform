@@ -67,7 +67,12 @@ export default function CommissionPage() {
   const [deals, setDeals] = useState<any[]>([]);
   const [selectedProject, setSelectedProject] = useState<'ZORGE9' | 'SILVER_BOR'>('ZORGE9');
   const [calcResult, setCalcResult] = useState<any>(null);
-  const [calcForm, setCalcForm] = useState({ amount: '', project: 'ZORGE9', agencyInn: '', isInstallment: false });
+  const [calcForm, setCalcForm] = useState<{ amount: string; project: string; paymentMode: 'FULL' | 'INSTALLMENT' | 'SUBSIDIZED_MORTGAGE' }>({
+    amount: '',
+    project: 'ZORGE9',
+    paymentMode: 'FULL',
+  });
+  const [calcError, setCalcError] = useState('');
   const [termsCards, setTermsCards] = useState<Array<{ title: string; text: string }>>(FALLBACK_COMMISSION_CARDS);
 
   useEffect(() => {
@@ -118,13 +123,22 @@ export default function CommissionPage() {
 
   const handleCalculate = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCalcError('');
+    const amountNum = Number(calcForm.amount);
+    if (!amountNum || amountNum <= 0) {
+      setCalcError('Введите сумму сделки');
+      return;
+    }
     try {
       const result = await apiPost('/commission/calculate', {
-        ...calcForm,
-        amount: Number(calcForm.amount),
+        amount: amountNum,
+        project: calcForm.project,
+        paymentMode: calcForm.paymentMode,
       });
       setCalcResult(result);
-    } catch {}
+    } catch (err: any) {
+      setCalcError(err?.message || 'Ошибка расчёта');
+    }
   };
 
   return (
@@ -298,25 +312,35 @@ export default function CommissionPage() {
               </select>
             </div>
             <div>
-              <label className="label">ИНН агентства</label>
-              <input
-                type="text"
-                className="input"
-                placeholder="ЮЛ 10 цифр или ИП 12 цифр"
-                value={calcForm.agencyInn}
-                onChange={(e) => setCalcForm({ ...calcForm, agencyInn: e.target.value.replace(/\D/g, '').slice(0, 12) })}
-                maxLength={12}
-                required
-              />
+              <label className="label">Тип оплаты</label>
+              <div className="grid grid-cols-1 gap-2">
+                {([
+                  { value: 'FULL',                 label: 'Полная оплата' },
+                  { value: 'INSTALLMENT',          label: 'Рассрочка' },
+                  { value: 'SUBSIDIZED_MORTGAGE',  label: 'Субсидированная ипотека' },
+                ] as const).map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`cursor-pointer text-sm py-2 px-3 rounded-lg border transition ${
+                      calcForm.paymentMode === opt.value ? 'border-accent bg-accent/10 text-accent' : 'border-border hover:bg-surface-secondary'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentMode"
+                      value={opt.value}
+                      checked={calcForm.paymentMode === opt.value}
+                      onChange={() => setCalcForm({ ...calcForm, paymentMode: opt.value })}
+                      className="hidden"
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={calcForm.isInstallment}
-                onChange={(e) => setCalcForm({ ...calcForm, isInstallment: e.target.checked })}
-              />
-              Рассрочка (-0.5%)
-            </label>
+            {calcError && (
+              <div className="p-2 bg-error/10 text-error rounded text-sm">{calcError}</div>
+            )}
             <button type="submit" className="btn btn-primary w-full">Рассчитать</button>
           </form>
 
@@ -326,14 +350,28 @@ export default function CommissionPage() {
                 <span className="text-text-muted">Сумма:</span>
                 <span>{Math.round(Number(calcResult.amount)).toLocaleString('ru-RU')} ₽</span>
               </div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-text-muted">Уровень:</span>
-                <span>{levelNames[calcResult.level] || calcResult.level}</span>
-              </div>
+              {calcResult.level && calcResult.mode !== 'FLAT' && calcResult.paymentMode !== 'SUBSIDIZED_MORTGAGE' && (
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-text-muted">Уровень:</span>
+                  <span>{levelNames[calcResult.level] || calcResult.level}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-text-muted">Ставка:</span>
                 <span>{calcResult.rate}%</span>
               </div>
+              {calcResult.paymentMode === 'INSTALLMENT' && (
+                <div className="flex justify-between text-xs mb-2 text-text-muted">
+                  <span>Рассрочка:</span>
+                  <span>−{calcResult.installmentDiscount}%</span>
+                </div>
+              )}
+              {calcResult.paymentMode === 'SUBSIDIZED_MORTGAGE' && (
+                <div className="flex justify-between text-xs mb-2 text-text-muted">
+                  <span>Субс. ипотека:</span>
+                  <span>фиксированные {calcResult.subsidizedMortgageRate}%</span>
+                </div>
+              )}
               <div className="flex justify-between text-lg font-bold border-t border-border pt-2 mt-2">
                 <span>Комиссия:</span>
                 <span className="text-accent">{Math.round(Number(calcResult.commission)).toLocaleString('ru-RU')} ₽</span>

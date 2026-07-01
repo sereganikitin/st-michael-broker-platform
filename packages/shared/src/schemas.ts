@@ -182,11 +182,13 @@ export const paginationQuerySchema = z.object({
 });
 
 // Commission calculation schema
+// 2026-07-01: agencyInn убран (агентство берётся по brokerId из JWT).
+// Добавлен paymentMode: FULL — полная оплата, INSTALLMENT — рассрочка (-0.5%
+// или из CMS), SUBSIDIZED_MORTGAGE — субсидированная ипотека (фикс 4% или из CMS).
 export const commissionCalculationDtoSchema = z.object({
   amount: z.number().positive(),
   project: z.nativeEnum(Project),
-  agencyInn: z.string().regex(/^\d{10}$/),
-  isInstallment: z.boolean().default(false),
+  paymentMode: z.enum(['FULL', 'INSTALLMENT', 'SUBSIDIZED_MORTGAGE']).default('FULL'),
 });
 
 // Analytics schemas

@@ -520,6 +520,41 @@ function CommissionEditor({ content, updateField, updateArrayItem, addArrayItem,
         )}
       </div>
 
+      {/* 2026-07-01: параметры калькулятора комиссии — использует их
+          POST /commission/calculate. Раньше были захардкожены в API. */}
+      <div className="border-t border-border pt-4 mt-2">
+        <label className="label flex items-center justify-between">
+          <span>Параметры калькулятора</span>
+          <span className="text-xs text-text-muted font-normal">используется калькулятором в кабинете брокера</span>
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm text-text-muted block mb-1">Скидка при рассрочке, %</label>
+            <input
+              className="input"
+              type="number"
+              step="0.05"
+              placeholder="0.5"
+              value={content.installmentDiscount ?? ''}
+              onChange={(e) => updateField('commission', 'installmentDiscount', e.target.value === '' ? null : Number(e.target.value))}
+            />
+            <p className="text-xs text-text-muted mt-1">На сколько % уменьшается ставка при выборе «Рассрочка»</p>
+          </div>
+          <div>
+            <label className="text-sm text-text-muted block mb-1">Ставка при субс. ипотеке, %</label>
+            <input
+              className="input"
+              type="number"
+              step="0.05"
+              placeholder="4"
+              value={content.subsidizedMortgageRate ?? ''}
+              onChange={(e) => updateField('commission', 'subsidizedMortgageRate', e.target.value === '' ? null : Number(e.target.value))}
+            />
+            <p className="text-xs text-text-muted mt-1">Фиксированная ставка при выборе «Субсидированная ипотека»</p>
+          </div>
+        </div>
+      </div>
+
       <div>
         <label className="label">Карточки условий (рядом со шкалой)</label>
         <div className="space-y-3">
