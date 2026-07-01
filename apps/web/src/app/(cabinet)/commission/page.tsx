@@ -41,16 +41,47 @@ const LEVEL_ORDER_BY_PROJECT: Record<string, string[]> = {
 
 const LEVEL_ORDER = LEVEL_ORDER_BY_PROJECT.ZORGE9;
 
+// 2026-07-01: карточки условий комиссии теперь тянутся из CMS
+// (commission.cards в /admin/content → «Комиссия»). Если админ не наполнил CMS
+// или запрос упал — используется этот fallback. Иконки/цвета выбираются по
+// индексу карточки из палитры ниже.
+const FALLBACK_COMMISSION_CARDS = [
+  { title: 'Условия выплаты', text: 'Выплата в течение 5 рабочих дней с момента оплаты клиентом не менее 50% (Зорге 9) или 30% (Серебряный Бор) от суммы договора.' },
+  { title: 'Квартальный бонус', text: 'При уровне Strong и выше несколько кварталов подряд: +0,1% — +0,15% — +0,2% — +0,25% (максимум). Обнуляется при отсутствии продаж в квартале.' },
+  { title: 'Рассрочка и ипотека', text: 'При рассрочке ставка уменьшается на 0,5%. При субсидированной ипотеке — фиксированные 4%.' },
+  { title: 'Коммерческие помещения', text: 'Продажа — 3%. Фитнес — 3%. Отдельные здания — 2%. Аренда ритейл — 100% месячного платежа. Аренда фитнес — 50%.' },
+];
+
+// Tailwind не поддерживает динамические классы вида `bg-${color}/10` — все
+// строки должны быть статическими, иначе JIT их не подхватит и стиль пропадёт.
+const CARD_PALETTE = [
+  { Icon: Wallet,     bg: 'bg-success/10', text: 'text-success', title: 'text-success' },
+  { Icon: Award,      bg: 'bg-accent/10',  text: 'text-accent',  title: 'text-accent' },
+  { Icon: CreditCard, bg: 'bg-info/10',    text: 'text-info',    title: 'text-info' },
+  { Icon: Building2,  bg: 'bg-warning/10', text: 'text-warning', title: 'text-warning' },
+  { Icon: TrendingUp, bg: 'bg-accent/10',  text: 'text-accent',  title: 'text-accent' },
+];
+
 export default function CommissionPage() {
   const [commission, setCommission] = useState<any>(null);
   const [deals, setDeals] = useState<any[]>([]);
   const [selectedProject, setSelectedProject] = useState<'ZORGE9' | 'SILVER_BOR'>('ZORGE9');
   const [calcResult, setCalcResult] = useState<any>(null);
   const [calcForm, setCalcForm] = useState({ amount: '', project: 'ZORGE9', agencyInn: '', isInstallment: false });
+  const [termsCards, setTermsCards] = useState<Array<{ title: string; text: string }>>(FALLBACK_COMMISSION_CARDS);
 
   useEffect(() => {
     apiGet('/commission/my').then(setCommission).catch(() => {});
     apiGet('/commission/deals').then(setDeals).catch(() => {});
+    // 2026-07-01: карточки условий из CMS. Раньше — хардкод в JSX.
+    apiGet('/public/cms/content/commission')
+      .then((res: any) => {
+        const cards = res?.value?.cards;
+        if (Array.isArray(cards) && cards.length > 0) {
+          setTermsCards(cards.filter((c: any) => c && (c.title || c.text)));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const projectDeals = useMemo(
@@ -211,61 +242,28 @@ export default function CommissionPage() {
         </div>
       )}
 
-      {/* Условия комиссии (ТЗ §6 — карточки условий) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-        <div className="card">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center flex-shrink-0">
-              <Wallet className="w-5 h-5 text-success" />
-            </div>
-            <div className="flex-1">
-              <div className="text-xs font-bold uppercase tracking-wider text-success mb-1">Условия выплаты</div>
-              <p className="text-sm text-text-muted leading-relaxed">
-                Выплата в течение 5 рабочих дней с момента оплаты клиентом не менее 50% (Зорге 9) или 30% (Серебряный Бор) от суммы договора.
-              </p>
-            </div>
-          </div>
+      {/* Условия комиссии — тянутся из CMS (см. useEffect выше). Админ правит в /admin/content → «Комиссия» → Карточки условий. */}
+      {termsCards.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          {termsCards.map((card, i) => {
+            const palette = CARD_PALETTE[i % CARD_PALETTE.length];
+            const { Icon } = palette;
+            return (
+              <div key={i} className="card">
+                <div className="flex items-start gap-3">
+                  <div className={`w-10 h-10 rounded-lg ${palette.bg} flex items-center justify-center flex-shrink-0`}>
+                    <Icon className={`w-5 h-5 ${palette.text}`} />
+                  </div>
+                  <div className="flex-1">
+                    <div className={`text-xs font-bold uppercase tracking-wider ${palette.title} mb-1`}>{card.title}</div>
+                    <p className="text-sm text-text-muted leading-relaxed whitespace-pre-line">{card.text}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <div className="card">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
-              <Award className="w-5 h-5 text-accent" />
-            </div>
-            <div className="flex-1">
-              <div className="text-xs font-bold uppercase tracking-wider text-accent mb-1">Квартальный бонус</div>
-              <p className="text-sm text-text-muted leading-relaxed">
-                При уровне Strong и выше несколько кварталов подряд: +0,1% — +0,15% — +0,2% — +0,25% (максимум). Обнуляется при отсутствии продаж в квартале.
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-lg bg-info/10 flex items-center justify-center flex-shrink-0">
-              <CreditCard className="w-5 h-5 text-info" />
-            </div>
-            <div className="flex-1">
-              <div className="text-xs font-bold uppercase tracking-wider text-info mb-1">Рассрочка и ипотека</div>
-              <p className="text-sm text-text-muted leading-relaxed">
-                При рассрочке ставка уменьшается на 0,5%. При субсидированной ипотеке — фиксированные 4%.
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-lg bg-warning/10 flex items-center justify-center flex-shrink-0">
-              <Building2 className="w-5 h-5 text-warning" />
-            </div>
-            <div className="flex-1">
-              <div className="text-xs font-bold uppercase tracking-wider text-warning mb-1">Коммерческие помещения</div>
-              <p className="text-sm text-text-muted leading-relaxed">
-                Продажа — 3%. Фитнес — 3%. Отдельные здания — 2%. Аренда ритейл — 100% месячного платежа. Аренда фитнес — 50%.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card">
