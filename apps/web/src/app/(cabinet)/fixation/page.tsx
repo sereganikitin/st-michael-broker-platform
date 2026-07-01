@@ -90,18 +90,10 @@ export default function FixationPage() {
     managers: { fullName: string; phone: string; telegram: string | null }[];
   } | null>(null);
 
-  // 2026-06-29: Этап 6 — брокер сам выбирает агентство, от лица которого
-  // фиксирует клиента. ИНН выбранного агентства попадает в договор-оферту
-  // и уникальность. По умолчанию — primary (или первое если primary нет).
+  // 2026-07-01: dropdown «Я фиксирую от агентства» убран. brokerAgency
+  // всегда = primary агентство брокера (или первое если primary нет).
   const myAgencies = (broker?.agencies || []) as Array<{ id: string; name: string; inn: string; isPrimary?: boolean }>;
-  const [selectedAgencyId, setSelectedAgencyId] = useState<string>('');
-  useEffect(() => {
-    if (!selectedAgencyId && myAgencies.length > 0) {
-      const primary = myAgencies.find((a) => a.isPrimary) || myAgencies[0];
-      setSelectedAgencyId(primary.id);
-    }
-  }, [myAgencies, selectedAgencyId]);
-  const brokerAgency = myAgencies.find((a) => a.id === selectedAgencyId) || myAgencies[0];
+  const brokerAgency = myAgencies.find((a) => a.isPrimary) || myAgencies[0];
 
   // 2026-06-29 (refactor): убрали флаг координатора. Теперь любой брокер
   // может фиксировать клиента на другого брокера (новый создаётся прямо
@@ -502,30 +494,8 @@ export default function FixationPage() {
             <Plus className="w-4 h-4" /> Добавить участника (супруг и т.д.)
           </button>
 
-          {/* 2026-06-29: Этап 6 — выбор агентства, от лица которого фиксируется
-              клиент. ИНН выбранного агентства попадает в договор-оферту /
-              уникальность. Dropdown показывается всегда, даже если агентство
-              одно (для единообразия и наглядности — пользователь видит от чьего
-              имени фиксирует). */}
-          {myAgencies.length > 0 && (
-            <div>
-              <label className="label">Я фиксирую от агентства *</label>
-              <select
-                className="input"
-                value={selectedAgencyId}
-                onChange={(e) => setSelectedAgencyId(e.target.value)}
-              >
-                {myAgencies.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} — ИНН {a.inn}{a.isPrimary && myAgencies.length > 1 ? ' • основное' : ''}
-                  </option>
-                ))}
-              </select>
-              <div className="text-xs text-text-muted mt-1">
-                ИНН этого агентства будет указан в договоре и в записи об уникальности клиента.
-              </div>
-            </div>
-          )}
+          {/* 2026-07-01: dropdown «Я фиксирую от агентства» убран.
+              brokerAgency автоматически = primary агентство (или первое). */}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
