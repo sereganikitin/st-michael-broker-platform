@@ -142,28 +142,67 @@ export class CommissionService {
     const primaryAgency = broker.brokerAgencies[0]?.agency;
     const totalSqmSold = primaryAgency ? Number(primaryAgency.totalSqmSold) : 0;
 
-    // Per-project rates через активные политики на сегодня (правка 2026-05-13).
-    // Если политики нет — fallback на хардкод-шкалу.
+    // Правка 2026-07-01: возвращаем не только текущую ставку и режим, но и
+    // scales — актуальную шкалу для проекта из активной политики (или
+    // хардкод-fallback). Раньше UI кабинета рендерил шкалу из своего
+    // хардкода — правки админа в /admin/commission-policies не долетали.
     const rates: Record<string, number> = {};
     const modes: Record<string, string> = {};
+    const scales: Record<string, Array<{ level: string; minSqm: number; rate: number }> | null> = {};
+    const flatRates: Record<string, number | null> = {};
     for (const project of ['ZORGE9', 'SILVER_BOR']) {
       const r = await rateForWithPolicy(this.prisma, project, totalSqmSold);
       rates[project] = r.rate;
       modes[project] = r.mode;
+
+      const policy = await findActivePolicy(this.prisma, project);
+      if (policy?.mode === 'FLAT') {
+        scales[project] = null;
+        flatRates[project] = Number(policy.flatRate || 0);
+      } else if (policy?.mode === 'PROGRESSIVE' && Array.isArray(policy.levels)) {
+        scales[project] = (policy.levels as any[]).map((l: any) => ({
+          level: String(l.level),
+          minSqm: Number(l.minSqm),
+          rate: Number(l.rate),
+        }));
+        flatRates[project] = null;
+      } else {
+        // Fallback на хардкод.
+        const thresholds = LEVEL_THRESHOLDS_BY_PROJECT[project] || [];
+        const asc = [...thresholds].sort((a, b) => a.minSqm - b.minSqm);
+        scales[project] = asc.map((t) => ({
+          level: t.level,
+          minSqm: t.minSqm,
+          rate: rateFor(project, t.level),
+        }));
+        flatRates[project] = null;
+      }
     }
 
-    // Прогресс к следующему уровню — только если у Зорге активна PROGRESSIVE-политика
-    // (или fallback на хардкод). Для FLAT прогресс скрываем — будет null.
+    // Правка 2026-07-01: прогресс к следующему уровню считаем по порогам
+    // активной политики, а не по хардкоду. Для FLAT прогресс скрываем.
     let level: any = null;
     let nextLevel: any = null;
+    let nextLevelSqm: number | null = null;
     let progress = 0;
     if (modes.ZORGE9 !== 'FLAT') {
-      level = levelForSqm('ZORGE9', totalSqmSold);
-      const zorgeScale = LEVEL_THRESHOLDS_BY_PROJECT.ZORGE9;
+      const zorgeScale = scales.ZORGE9 || [];
       const ascending = [...zorgeScale].sort((a, b) => a.minSqm - b.minSqm);
-      const currentIdx = ascending.findIndex((t) => t.level === level);
-      nextLevel = ascending[currentIdx + 1];
-      progress = nextLevel ? Math.min(100, Math.round((totalSqmSold / nextLevel.minSqm) * 100)) : 100;
+      // Текущий уровень = самый высокий, для которого totalSqmSold >= minSqm.
+      let current = ascending[0] || null;
+      for (const s of ascending) {
+        if (totalSqmSold >= s.minSqm) current = s;
+      }
+      level = current?.level || 'START';
+      const currentIdx = ascending.findIndex((s) => s.level === level);
+      const next = ascending[currentIdx + 1];
+      if (next) {
+        nextLevel = next.level;
+        nextLevelSqm = next.minSqm;
+        progress = Math.min(100, Math.round((totalSqmSold / next.minSqm) * 100));
+      } else {
+        progress = 100;
+      }
     }
 
     // Get commission stats
@@ -178,11 +217,13 @@ export class CommissionService {
     return {
       level,
       rates,
-      modes, // ← добавлено 2026-05-13: { ZORGE9: 'FLAT' | 'PROGRESSIVE' | 'FALLBACK', SILVER_BOR: ... }
+      modes, // { ZORGE9: 'FLAT' | 'PROGRESSIVE' | 'FALLBACK', SILVER_BOR: ... }
+      scales, // 2026-07-01: шкала уровней из активной политики (null для FLAT).
+      flatRates, // 2026-07-01: фикс-ставка из FLAT политики (null для PROGRESSIVE).
       totalSqmSold,
       progress,
-      nextLevel: nextLevel?.level || null,
-      nextLevelSqm: nextLevel?.minSqm || null,
+      nextLevel,
+      nextLevelSqm,
       totalEarned,
       quarterlyBonusStreak: quarterlyBonus,
       agency: primaryAgency
@@ -203,8 +244,15 @@ export class CommissionService {
     });
 
     const totalSqm = agency ? Number(agency.totalSqmSold) : 0;
-    const level = levelForSqm(data.project, totalSqm);
-    let rate = rateFor(data.project, level);
+
+    // Правка 2026-07-01: калькулятор теперь тоже уважает активную политику
+    // (FLAT / PROGRESSIVE) из /admin/commission-policies. Раньше он всегда
+    // считал по хардкод-шкале — админ мог поменять политику в админке, а
+    // в кабинете брокера калькулятор всё равно возвращал старое значение.
+    const r = await rateForWithPolicy(this.prisma, data.project, totalSqm);
+    let rate = r.rate;
+    const level = r.level; // Для FLAT — null (в UI показываем «Фиксированная»).
+    const mode = r.mode; // 'FLAT' | 'PROGRESSIVE' | 'FALLBACK'
 
     if (data.isInstallment) {
       rate -= INSTALLMENT_DISCOUNT;
@@ -215,6 +263,7 @@ export class CommissionService {
     return {
       amount: data.amount,
       level,
+      mode,
       rate,
       commission,
       isInstallment: data.isInstallment || false,
