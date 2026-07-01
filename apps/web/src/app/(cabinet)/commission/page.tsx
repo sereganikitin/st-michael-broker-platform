@@ -74,6 +74,17 @@ export default function CommissionPage() {
   const currentMode = commission?.modes?.[selectedProject];
   const isFlat = currentMode === 'FLAT';
 
+  // 2026-07-01: шкала уровней теперь идёт из API (commission.scales[project])
+  // — это то что админ настроил в /admin/commission-policies. Хардкод RATE_TABLE
+  // остаётся только как fallback (если API не вернул scales — старый клиент /
+  // ошибка запроса). Так UI кабинета всегда синхронен с админкой.
+  const currentScale: Array<{ level: string; minSqm: number; rate: number }> = commission?.scales?.[selectedProject]
+    ?? LEVEL_ORDER_BY_PROJECT[selectedProject].map((lvl) => ({
+      level: lvl,
+      minSqm: 0,
+      rate: RATE_TABLE[selectedProject][lvl] ?? 0,
+    }));
+
   const handleCalculate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -171,12 +182,14 @@ export default function CommissionPage() {
             <div className="card">
               <h3 className="text-sm text-text-muted mb-2">Шкала ставок — {projectLabels[selectedProject]}</h3>
               <div className="space-y-1">
-                {/* КБ6 (2026-05-25): подсветка усилена — bg + бордер слева + стрелка «вы здесь». */}
-                {LEVEL_ORDER_BY_PROJECT[selectedProject].map((lvl) => {
-                  const active = lvl === commission.level;
+                {/* 2026-07-01: шкала теперь из commission.scales[project] — тянется
+                    из активной политики в /admin/commission-policies. Хардкод
+                    остался только как fallback (см. currentScale выше). */}
+                {currentScale.map((s) => {
+                  const active = s.level === commission.level;
                   return (
                     <div
-                      key={lvl}
+                      key={s.level}
                       className={`flex items-center justify-between text-sm py-2 px-3 rounded transition-all ${
                         active
                           ? 'bg-accent/20 text-accent font-bold border-l-4 border-accent ring-1 ring-accent/30'
@@ -185,10 +198,10 @@ export default function CommissionPage() {
                     >
                       <span className="flex items-center gap-2">
                         {active && <span aria-hidden>▶</span>}
-                        {levelNames[lvl]}
+                        {levelNames[s.level] || s.level}
                         {active && <span className="text-[10px] uppercase tracking-wide opacity-80">← вы здесь</span>}
                       </span>
-                      <span>{RATE_TABLE[selectedProject][lvl]}%</span>
+                      <span>{s.rate}%</span>
                     </div>
                   );
                 })}

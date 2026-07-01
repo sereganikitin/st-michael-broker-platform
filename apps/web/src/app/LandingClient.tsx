@@ -55,10 +55,52 @@ function CommissionScale({
   cmsFlatRateByProject?: Record<string, number>;
   cmsFlatNoteByProject?: Record<string, string>;
 }) {
-  // 2026-06-16: новый приоритет CMS — modeByProject[project].
-  // Если 'FLAT' → одна карточка «единая ставка X%».
-  // Если 'PROGRESSIVE' (или не задано) → шкала из cmsLevelsByProject.
-  // Только если ни того ни другого нет в CMS — fallback на БД commission-policies.
+  // 2026-07-01: единый источник истины по процентам — БД commission-policies
+  // (что видит админ в /admin/commission-policies и брокер в кабинете).
+  // CMS оставлен только для необязательной подписи под FLAT-ставкой
+  // (cmsFlatNoteByProject). Раньше приоритет был у CMS → админ правил
+  // политику, а лендинг показывал старую цифру из CMS.
+  const policy = activePolicies.find((p) => p.project === project);
+
+  // 1) Активная FLAT-политика в БД.
+  if (policy && policy.mode === 'FLAT' && policy.flatRate != null) {
+    const note = cmsFlatNoteByProject?.[project] || 'при 100% оплате или ипотеке';
+    return (
+      <div className="comm-table">
+        <div className="ct-head"><span>Условие</span><span></span><span>Ставка</span></div>
+        <div className="ct-row active">
+          <span className="ct-level">Все сделки проекта</span>
+          <span className="ct-range">{note}</span>
+          <span className="ct-rate">{String(policy.flatRate).replace('.', ',')}%</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 2) Активная PROGRESSIVE-политика в БД.
+  if (policy && policy.mode === 'PROGRESSIVE' && Array.isArray(policy.levels) && policy.levels.length > 0) {
+    const sorted = [...policy.levels].sort((a, b) => Number(a.minSqm) - Number(b.minSqm));
+    const rows = sorted.map((lv, i) => {
+      const next = sorted[i + 1];
+      const minSqm = Number(lv.minSqm);
+      const range = next ? `${minSqm}–${Number(next.minSqm) - 1} м²` : `${minSqm}+ м²`;
+      return { name: lv.level, range, rate: String(lv.rate).replace('.', ',') + '%' };
+    });
+    return (
+      <div className="comm-table">
+        <div className="ct-head"><span>Уровень</span><span>Объём м2/кв.</span><span>Ставка</span></div>
+        {rows.map((lv: any, i: number) => (
+          <div key={i} className="ct-row">
+            <span className="ct-level">{lv.name}</span>
+            <span className="ct-range">{lv.range}</span>
+            <span className="ct-rate">{lv.rate}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // 3) Политики в БД нет — fallback на CMS. Сначала CMS-режим FLAT.
   const cmsMode = cmsModeByProject?.[project];
   if (cmsMode === 'FLAT') {
     const rate = cmsFlatRateByProject?.[project];
@@ -75,12 +117,7 @@ function CommissionScale({
     );
   }
 
-  // 2026-05-28: приоритет CMS-content над commission-policies для отображения.
-  // Раньше БД-политика (FLAT/PROGRESSIVE) перебивала шкалу из /admin/content
-  // → админ редактировал 7 уровней в CMS, а лендинг показывал FLAT 5% из БД.
-  // Теперь: если CMS содержит уровни — показываем их. Если CMS пуст —
-  // fallback на БД (FLAT/PROGRESSIVE из commission-policies).
-  // БД остаётся источником истины для калькулятора в /commission.
+  // 4) Потом CMS-шкала (если админ настроил в /admin/content).
   const cmsRows = cmsLevelsByProject?.[project] || cmsLevels || [];
   if (Array.isArray(cmsRows) && cmsRows.length > 0) {
     return (
@@ -97,42 +134,10 @@ function CommissionScale({
     );
   }
 
-  // Fallback на БД commission-policies (если CMS пустой)
-  const policy = activePolicies.find((p) => p.project === project);
-  if (policy && policy.mode === 'FLAT' && policy.flatRate != null) {
-    return (
-      <div className="comm-table">
-        <div className="ct-head"><span>Условие</span><span></span><span>Ставка</span></div>
-        <div className="ct-row active">
-          <span className="ct-level">Все сделки проекта</span>
-          <span className="ct-range">при 100% оплате или ипотеке</span>
-          <span className="ct-rate">{String(policy.flatRate).replace('.', ',')}%</span>
-        </div>
-      </div>
-    );
-  }
-
-  let rows: any[] = [];
-  if (policy && policy.mode === 'PROGRESSIVE' && Array.isArray(policy.levels) && policy.levels.length > 0) {
-    const sorted = [...policy.levels].sort((a, b) => Number(a.minSqm) - Number(b.minSqm));
-    rows = sorted.map((lv, i) => {
-      const next = sorted[i + 1];
-      const minSqm = Number(lv.minSqm);
-      const range = next ? `${minSqm}–${Number(next.minSqm) - 1} м²` : `${minSqm}+ м²`;
-      return { name: lv.level, range, rate: String(lv.rate).replace('.', ',') + '%' };
-    });
-  }
-
+  // Ничего не настроено — пустая таблица.
   return (
     <div className="comm-table">
       <div className="ct-head"><span>Уровень</span><span>Объём м2/кв.</span><span>Ставка</span></div>
-      {rows.map((lv: any, i: number) => (
-        <div key={i} className={`ct-row${lv.active ? ' active' : ''}`}>
-          <span className="ct-level">{lv.name}</span>
-          <span className="ct-range">{lv.range}</span>
-          <span className="ct-rate">{lv.rate}</span>
-        </div>
-      ))}
     </div>
   );
 }
