@@ -67,6 +67,87 @@ export class MeetingsService {
     };
   }
 
+  // 2026-07-01: календарь встреч из amoCRM (read-only) для кабинета брокера.
+  // Тянем задачи task_type_id=2 (Встреча) по всем клиентам брокера (по их
+  // amoLeadId), плюс задачи-встречи назначенные на amoContactId брокера
+  // (если он есть). Возвращаем плоский список с датами — UI сортирует.
+  async getAmoCrmCalendar(brokerId: string): Promise<Array<{
+    id: number;
+    text: string;
+    date: string;
+    isCompleted: boolean;
+    source: 'lead' | 'contact';
+    clientName?: string | null;
+    leadId?: number | null;
+  }>> {
+    const clients = await this.prisma.client.findMany({
+      where: { brokerId, amoLeadId: { not: null } },
+      select: { fullName: true, amoLeadId: true },
+    });
+    const broker = await this.prisma.broker.findUnique({
+      where: { id: brokerId },
+      select: { amoContactId: true },
+    });
+
+    const MEETING_TASK_TYPE = 2;
+    const result: Array<{
+      id: number; text: string; date: string; isCompleted: boolean;
+      source: 'lead' | 'contact'; clientName?: string | null; leadId?: number | null;
+    }> = [];
+    const seenTaskIds = new Set<number>();
+
+    // По каждому клиенту — задачи-встречи из лида.
+    for (const c of clients) {
+      const leadId = Number(c.amoLeadId);
+      if (!leadId) continue;
+      try {
+        const tasks = await this.amo.getTasksByEntity('leads', leadId);
+        for (const t of tasks) {
+          if (t.task_type_id !== MEETING_TASK_TYPE) continue;
+          if (seenTaskIds.has(t.id)) continue;
+          seenTaskIds.add(t.id);
+          result.push({
+            id: t.id,
+            text: t.text,
+            date: new Date(t.complete_till * 1000).toISOString(),
+            isCompleted: !!t.is_completed,
+            source: 'lead',
+            clientName: c.fullName,
+            leadId,
+          });
+        }
+      } catch (e: any) {
+        console.warn(`[getAmoCrmCalendar] lead ${leadId} failed:`, e?.message || e);
+      }
+    }
+
+    // Задачи-встречи на contact брокера — если он менеджер / у него закреплены.
+    if (broker?.amoContactId) {
+      try {
+        const contactTasks = await this.amo.getTasksByEntity('contacts', Number(broker.amoContactId));
+        for (const t of contactTasks) {
+          if (t.task_type_id !== MEETING_TASK_TYPE) continue;
+          if (seenTaskIds.has(t.id)) continue;
+          seenTaskIds.add(t.id);
+          result.push({
+            id: t.id,
+            text: t.text,
+            date: new Date(t.complete_till * 1000).toISOString(),
+            isCompleted: !!t.is_completed,
+            source: 'contact',
+            clientName: null,
+            leadId: null,
+          });
+        }
+      } catch (e: any) {
+        console.warn('[getAmoCrmCalendar] broker contact tasks failed:', e?.message || e);
+      }
+    }
+
+    result.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return result;
+  }
+
   async getMeeting(id: string, brokerId: string) {
     const meeting = await this.prisma.meeting.findUnique({
       where: { id },
