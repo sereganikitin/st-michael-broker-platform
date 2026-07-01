@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, apiGet, apiPost } from '@/lib/api';
-import { Calendar, ChevronLeft, ChevronRight, CheckCircle2, Pencil, X, Ban, Check, Phone } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, CheckCircle2, Pencil, X, Ban, Check, Phone, CalendarDays } from 'lucide-react';
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
   PENDING: { label: 'Ожидает', cls: 'bg-warning/20 text-warning' },
@@ -218,6 +218,32 @@ export default function MeetingsPage() {
       .catch(() => {});
   }, []);
 
+  // 2026-07-01: календарь встреч из amoCRM (read-only). Тянем задачи
+  // task_type=Meeting по лидам брокера + по его контакту в amoCRM.
+  const [amoCalendar, setAmoCalendar] = useState<Array<{
+    id: number;
+    text: string;
+    date: string;
+    isCompleted: boolean;
+    clientName?: string | null;
+  }>>([]);
+  const [amoCalendarLoading, setAmoCalendarLoading] = useState(true);
+  useEffect(() => {
+    apiGet('/meetings/amocrm-calendar')
+      .then((d: any) => setAmoCalendar(Array.isArray(d) ? d : []))
+      .catch(() => setAmoCalendar([]))
+      .finally(() => setAmoCalendarLoading(false));
+  }, []);
+  const amoCalendarByDay = useMemo(() => {
+    const map = new Map<string, typeof amoCalendar>();
+    for (const t of amoCalendar) {
+      const day = new Date(t.date).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', timeZone: 'Europe/Moscow' });
+      if (!map.has(day)) map.set(day, []);
+      map.get(day)!.push(t);
+    }
+    return Array.from(map.entries());
+  }, [amoCalendar]);
+
   // Load slots whenever date or type changes (in slots mode)
   useEffect(() => {
     if (!useSlots || !slotDate) { setSlots([]); return; }
@@ -279,27 +305,65 @@ export default function MeetingsPage() {
         {/* 2026-06-18: форма временно скрыта — показываем брокеру телефон
             менеджера по работе с брокерами для записи. Форма вернётся когда
             доработаем (см. project_pending_tasks). */}
-        <div className="card">
-          <h2 className="text-lg font-semibold mb-3">Записаться на встречу</h2>
-          <p className="text-text-muted text-sm mb-4">
-            Раздел временно дорабатывается. Чтобы записаться на встречу — позвоните вашему менеджеру:
-          </p>
-          <div className="rounded-lg border border-accent/30 bg-accent/5 p-4">
-            <div className="text-xs text-text-muted mb-1">
-              {managerContact.role || 'Руководитель отдела по работе с партнёрами'}
+        <div className="space-y-4">
+          <div className="card">
+            <h2 className="text-lg font-semibold mb-3">Записаться на встречу</h2>
+            <p className="text-text-muted text-sm mb-4">
+              Раздел временно дорабатывается. Чтобы записаться на встречу — позвоните вашему менеджеру:
+            </p>
+            <div className="rounded-lg border border-accent/30 bg-accent/5 p-4">
+              <div className="text-xs text-text-muted mb-1">
+                {managerContact.role || 'Руководитель отдела по работе с партнёрами'}
+              </div>
+              {managerContact.name && (
+                <div className="font-semibold mb-2">{managerContact.name}</div>
+              )}
+              {managerContact.phone ? (
+                <a
+                  href={`tel:${managerContact.phone.replace(/[^\d+]/g, '')}`}
+                  className="inline-flex items-center gap-2 text-accent font-semibold text-lg hover:underline"
+                >
+                  <Phone className="w-5 h-5" /> {managerContact.phone}
+                </a>
+              ) : (
+                <div className="text-sm text-text-muted">Телефон не задан — обратитесь в админ-панель CMS</div>
+              )}
             </div>
-            {managerContact.name && (
-              <div className="font-semibold mb-2">{managerContact.name}</div>
-            )}
-            {managerContact.phone ? (
-              <a
-                href={`tel:${managerContact.phone.replace(/[^\d+]/g, '')}`}
-                className="inline-flex items-center gap-2 text-accent font-semibold text-lg hover:underline"
-              >
-                <Phone className="w-5 h-5" /> {managerContact.phone}
-              </a>
+          </div>
+
+          {/* 2026-07-01: календарь встреч из amoCRM. Read-only — задачи типа
+              «Встреча» по лидам брокера + по его контакту в amoCRM. Планированием
+              занимается менеджер, брокер только видит своё расписание. */}
+          <div className="card">
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarDays className="w-5 h-5 text-accent" />
+              <h2 className="text-lg font-semibold">Календарь из amoCRM</h2>
+            </div>
+            {amoCalendarLoading ? (
+              <div className="text-sm text-text-muted">Загрузка календаря...</div>
+            ) : amoCalendarByDay.length === 0 ? (
+              <div className="text-sm text-text-muted">
+                В amoCRM нет активных задач-встреч по вашим клиентам.
+              </div>
             ) : (
-              <div className="text-sm text-text-muted">Телефон не задан — обратитесь в админ-панель CMS</div>
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {amoCalendarByDay.map(([day, items]) => (
+                  <div key={day}>
+                    <div className="text-xs font-bold uppercase tracking-wider text-text-muted mb-1">{day}</div>
+                    <div className="space-y-1">
+                      {items.map((t) => (
+                        <div key={t.id} className={`text-sm py-1.5 px-2 rounded ${t.isCompleted ? 'opacity-60 line-through' : 'bg-surface-secondary/60'}`}>
+                          <span className="font-medium mr-2">
+                            {new Date(t.date).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })}
+                          </span>
+                          {t.clientName && <span className="text-text-muted mr-2">· {t.clientName}</span>}
+                          <span className="text-text-muted">{t.text || 'Встреча'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
