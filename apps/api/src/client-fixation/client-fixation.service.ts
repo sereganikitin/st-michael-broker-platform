@@ -54,32 +54,21 @@ export class ClientFixationService {
     });
     if (!broker) throw new BadRequestException('Broker not found');
 
-    // 2026-06-19: если владелец кабинета — координатор, поле «реальный брокер»
-    // обязательно. Валидируем, что выбранный брокер существует, активен и
-    // состоит в одном из агентств координатора.
+    // 2026-07-01 (refactor): роль координатора убрана. Любой брокер может
+    // фиксировать клиента на другого — новый брокер создаётся через
+    // /create-new-broker перед fixClient, его id прилетает как
+    // responsibleBrokerId. Если responsibleBrokerId прислан — проверяем что
+    // этот брокер существует и активен. Если не прислан — responsibleBroker =
+    // сам вызывающий (фиксация на себя).
     let responsibleBroker = broker as any;
-    if (broker.isCoordinator) {
-      if (!data.responsibleBrokerId) {
-        throw new BadRequestException('Укажите ответственного брокера, ведущего клиента');
-      }
-      const myAgencyIds = (broker as any).brokerAgencies.map((a: any) => a.agencyId);
-      const candidate = await this.prisma.broker.findFirst({
-        where: {
-          id: data.responsibleBrokerId,
-          status: 'ACTIVE',
-          brokerAgencies: { some: { agencyId: { in: myAgencyIds } } },
-        },
+    if (data.responsibleBrokerId && data.responsibleBrokerId !== broker.id) {
+      const candidate = await this.prisma.broker.findUnique({
+        where: { id: data.responsibleBrokerId },
       });
       if (!candidate) {
-        throw new BadRequestException(
-          'Выбранный ответственный брокер не найден в системе или не состоит в вашем агентстве. Попросите координатора завести брокера, прежде чем фиксировать.',
-        );
+        throw new BadRequestException('Указанный ответственный брокер не найден');
       }
       responsibleBroker = candidate;
-    } else if (data.responsibleBrokerId && data.responsibleBrokerId !== broker.id) {
-      // Не координатор пытается передать responsibleBrokerId — игнорируем,
-      // чтобы UI-state не мог обойти роль.
-      data.responsibleBrokerId = broker.id;
     }
 
     // 2026-06-09: блок полей формы фиксации, общий для всех 4 веток create.
