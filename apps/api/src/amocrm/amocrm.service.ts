@@ -67,6 +67,10 @@ export class AmocrmService {
         data: { type: meetingType as any, status: meetingStatus as any },
       });
     } else {
+      // 2026-07-01: раньше писали `Тип из amoCRM: ${rawType}` в comment —
+      // это дублировало поле type (уже отображается как «В офисе» / «Онлайн»),
+      // засоряло UI. Оставляем comment пустым — брокер увидит только тип
+      // из справочника.
       await this.prisma.meeting.create({
         data: {
           brokerId,
@@ -74,7 +78,7 @@ export class AmocrmService {
           type: meetingType as any,
           status: meetingStatus as any,
           date: meetingDate,
-          comment: rawType ? `Тип из amoCRM: ${rawType}` : null,
+          comment: null,
         },
       });
     }

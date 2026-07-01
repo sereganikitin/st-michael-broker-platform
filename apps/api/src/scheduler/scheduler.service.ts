@@ -264,6 +264,74 @@ export class SchedulerService {
       });
     }
   }
+  // 2026-07-01: каждые 10 минут — синк статусов встреч из amoCRM.
+  // Берём meetings со статусом PENDING/CONFIRMED, у которых у клиента есть
+  // amoLeadId, и обновляем status по лиду в amoCRM. Раньше синк статусов
+  // был только на моменте создания — если менеджер провёл встречу в amoCRM,
+  // у брокера в кабинете висело «Ожидает» до бесконечности.
+  @Cron('*/10 * * * *')
+  async handleMeetingsStatusSync() {
+    if (!process.env.AMO_ACCESS_TOKEN) return;
+
+    // 2026-07-01: одноразовая очистка старых comment «Тип из amoCRM: X».
+    // Раньше синк писал этот бесполезный текст в comment, засоряя UI.
+    // Идёт в каждом запуске крона, но условие LIKE отработает мгновенно
+    // как только все старые записи почищены (UPDATE 0).
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE "Meeting"
+        SET "comment" = NULL
+        WHERE "comment" LIKE 'Тип из amoCRM:%'
+      `;
+    } catch (e: any) {
+      this.logger.error(`[meetings-sync] cleanup «Тип из amoCRM» error: ${e?.message || e}`);
+    }
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const meetings = await this.prisma.meeting.findMany({
+      where: {
+        status: { in: ['PENDING' as any, 'CONFIRMED' as any] },
+        date: { gte: sevenDaysAgo },
+      },
+      include: { client: { select: { amoLeadId: true } } },
+    });
+    if (meetings.length === 0) return;
+
+    // Группируем по amoLeadId — один запрос на лид, а не по встрече.
+    const byLeadId = new Map<string, typeof meetings>();
+    for (const m of meetings) {
+      const leadId = m.client?.amoLeadId ? String(m.client.amoLeadId) : null;
+      if (!leadId) continue;
+      const arr = byLeadId.get(leadId) || [];
+      arr.push(m);
+      byLeadId.set(leadId, arr);
+    }
+    if (byLeadId.size === 0) return;
+
+    let updated = 0;
+    for (const [leadIdStr, ms] of byLeadId.entries()) {
+      try {
+        const lead: any = await this.amo.getLead(Number(leadIdStr));
+        if (!lead) continue;
+        const newStatus = mapMeetingStatus(lead.status_id);
+        for (const m of ms) {
+          if (m.status !== newStatus) {
+            await this.prisma.meeting.update({
+              where: { id: m.id },
+              data: { status: newStatus as any },
+            });
+            updated++;
+          }
+        }
+      } catch (e: any) {
+        this.logger.error(`[meetings-sync] leadId=${leadIdStr} error: ${e?.message || e}`);
+      }
+    }
+    if (updated > 0) {
+      this.logger.log(`[meetings-sync] обновлено статусов: ${updated}/${meetings.length}`);
+    }
+  }
+
   // Run daily at 02:00 — cleanup and stats
   @Cron('0 2 * * *')
   async handleDailyMaintenance() {
@@ -523,12 +591,14 @@ export class SchedulerService {
                       data: { type: mType as any, status: mStatus as any },
                     });
                   } else {
+                    // 2026-07-01: раньше писали `Тип из amoCRM: ${rawType}` в comment —
+                    // засоряло UI. Оставляем comment пустым — тип виден в поле type.
                     await this.prisma.meeting.create({
                       data: {
                         brokerId: broker.id, clientId: client.id,
                         type: mType as any, status: mStatus as any,
                         date: mDate,
-                        comment: rawType ? `Тип из amoCRM: ${rawType}` : null,
+                        comment: null,
                       },
                     });
                   }

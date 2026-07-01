@@ -613,12 +613,14 @@ export class AuthService {
               if (existing) {
                 await this.prisma.meeting.update({ where: { id: existing.id }, data: { type: meetingType as any, status: meetingStatus as any } });
               } else {
+                // 2026-07-01: раньше писали `Тип из amoCRM: ${rawType}` в comment —
+                // засоряло UI. Оставляем comment пустым — тип виден в поле type.
                 await this.prisma.meeting.create({
                   data: {
                     brokerId, clientId: client.id,
                     type: meetingType as any, status: meetingStatus as any,
                     date: meetingDate,
-                    comment: rawType ? `Тип из amoCRM: ${rawType}` : null,
+                    comment: null,
                   },
                 });
               }
