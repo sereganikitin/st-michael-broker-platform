@@ -70,6 +70,9 @@ const DEFAULT_CONTENT: Record<string, any> = {
     title: 'Прогрессивная шкала вознаграждения',
     titleAccent: 'шкала',
     subtitle: 'Метраж суммируется по обоим проектам в рамках одного агентства. Действует с 1 января по 30 июня 2026 года.',
+    // 2026-07-01: параметры калькулятора комиссии /commission/calculate.
+    installmentDiscount: 0.5,
+    subsidizedMortgageRate: 4,
     levelsByProject: {
       ZORGE9: [
         { name: 'Start', range: '0–59 м²', rate: '5,0%', active: false },
