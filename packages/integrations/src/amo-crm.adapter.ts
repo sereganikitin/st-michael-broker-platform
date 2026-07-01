@@ -1136,21 +1136,33 @@ export class AmoCrmAdapter {
     brokerName: string;
     brokerPhone: string;
     brokerEmail?: string | null;
-    source: string; // 'LANDING_BROKER_TOUR' | 'LANDING_FORM'
+    source: string; // 'LANDING_BROKER_TOUR' | 'LANDING_FORM' | 'FIXATION_BY_OTHER_BROKER'
     note?: string | null;
+    // 2026-07-01: если передан contactId — используем существующий контакт
+    // (без дублирования). Иначе создаём новый как раньше.
+    existingContactId?: number;
+    // 2026-07-01: кастомное название лида. Если не передано — используется
+    // старое «Заявка с лендинга — X» для обратной совместимости.
+    leadName?: string;
   }): Promise<{ contactId?: number; leadId?: number } | null> {
     try {
-      // 1) Контакт с IS_BROKER=true
-      const contact = await this.createContact({
-        name: data.brokerName,
-        custom_fields_values: [
-          { field_code: 'PHONE', values: [{ value: data.brokerPhone, enum_code: 'WORK' }] },
-          ...(data.brokerEmail
-            ? [{ field_code: 'EMAIL' as const, values: [{ value: data.brokerEmail, enum_code: 'WORK' }] }]
-            : []),
-          { field_id: 835415, values: [{ value: true }] }, // IS_BROKER
-        ],
-      });
+      // 1) Контакт с IS_BROKER=true. Если передан existingContactId — не
+      // создаём новый (контакт уже настроен через syncBrokerProfileToAmo).
+      let contact: { id: number } | null | undefined = data.existingContactId
+        ? { id: data.existingContactId }
+        : null;
+      if (!contact) {
+        contact = await this.createContact({
+          name: data.brokerName,
+          custom_fields_values: [
+            { field_code: 'PHONE', values: [{ value: data.brokerPhone, enum_code: 'WORK' }] },
+            ...(data.brokerEmail
+              ? [{ field_code: 'EMAIL' as const, values: [{ value: data.brokerEmail, enum_code: 'WORK' }] }]
+              : []),
+            { field_id: 835415, values: [{ value: true }] }, // IS_BROKER
+          ],
+        });
+      }
 
       // 2026-06-17: ответственный — менеджер брокеров (Ксения). Раньше lead
       // и task создавались без responsible_user_id → попадали на тех.админа,
@@ -1163,7 +1175,7 @@ export class AmoCrmAdapter {
 
       // 2) Лид в пайплайне брокеров
       const lead = await this.createLead({
-        name: `Заявка с лендинга — ${data.brokerName}`,
+        name: data.leadName || `Заявка с лендинга — ${data.brokerName}`,
         pipeline_id: 10787390, // BROKERS
         contacts: contact?.id ? [{ id: contact.id }] : undefined,
         ...(responsibleUserId ? { responsible_user_id: responsibleUserId } : {}),
