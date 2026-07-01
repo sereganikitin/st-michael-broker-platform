@@ -40,6 +40,20 @@ export class SchedulerService {
   //     один запрос к amoCRM.
   @Cron('*/10 * * * *')
   async handleMeetingsStatusSync() {
+    // 2026-07-01: одноразовая очистка старых comment «Тип из amoCRM: X».
+    // До PR #207 синк писал этот бесполезный текст в comment. После PR #207
+    // новые встречи такое уже не пишут, но старые записи в БД остались —
+    // засоряли UI в /meetings. Один UPDATE, потом всегда UPDATE 0.
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE "Meeting"
+        SET "comment" = NULL
+        WHERE "comment" LIKE 'Тип из amoCRM:%'
+      `;
+    } catch (e: any) {
+      this.logger.error(`[meetings-status-sync] cleanup «Тип из amoCRM» error: ${e?.message || e}`);
+    }
+
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     try {
