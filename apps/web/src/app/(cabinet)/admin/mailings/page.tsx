@@ -5,9 +5,9 @@ import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Send, Megaphone, History } from 'lucide-react';
 
-// 2026-07-02: Telegram убран — бот не подключён.
+// 2026-07-02: работают только Email + Push. SMS/Telegram убраны.
 const channelLabels: Record<string, string> = {
-  EMAIL: 'Email', PUSH: 'Push', SMS: 'SMS',
+  EMAIL: 'Email', PUSH: 'Push',
 };
 
 const projectLabels: Record<string, string> = { ZORGE9: 'Зорге 9', SILVER_BOR: 'Серебряный Бор' };
