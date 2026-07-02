@@ -234,24 +234,54 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
               </div>
             )}
           </div>
-          {/* 2026-06-29 (refactor): подписи «кто завёл / координатор» убраны.
-              Показываем брокера-владельца (или ответственного, если они разные). */}
-          {client.broker && (
-            <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
-              <span className="text-text-muted block text-xs">Брокер</span>
-              {client.responsibleBroker && client.responsibleBroker.id !== client.broker.id ? (
-                <>
+          {/* 2026-07-02: фиксация А → на Б.
+              - У А (creator): «Зафиксирован мной на: {Б}» — уникальность у меня.
+              - У Б (designated): «Зафиксирован на меня брокером: {А}» — вижу что мне отдали клиента.
+              - Иначе (self-fix / staff): обычный «Брокер: {broker}». */}
+          {client.broker && (() => {
+            const iAmCreator = broker?.id && client.broker.id === broker.id;
+            const iAmDesignated = broker?.id && client.responsibleBroker?.id === broker.id;
+            const hasDelegation = client.responsibleBroker && client.responsibleBroker.id !== client.broker.id;
+            if (hasDelegation && iAmCreator) {
+              return (
+                <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+                  <span className="text-text-muted block text-xs">Зафиксирован мной на</span>
                   <span className="font-medium">{client.responsibleBroker.fullName}</span>
                   <span className="text-xs text-text-muted ml-2">{formatPhone(client.responsibleBroker.phone)}</span>
-                </>
-              ) : (
-                <>
+                </div>
+              );
+            }
+            if (hasDelegation && iAmDesignated) {
+              return (
+                <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+                  <span className="text-text-muted block text-xs">Зафиксирован на меня брокером</span>
                   <span className="font-medium">{client.broker.fullName}</span>
                   <span className="text-xs text-text-muted ml-2">{formatPhone(client.broker.phone)}</span>
-                </>
-              )}
-            </div>
-          )}
+                </div>
+              );
+            }
+            // Staff (admin/manager) или обычная фиксация на себя — показываем обоих если они разные.
+            if (hasDelegation) {
+              return (
+                <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+                  <span className="text-text-muted block text-xs">Зафиксировал → на</span>
+                  <div className="font-medium">
+                    {client.broker.fullName} <span className="text-text-muted">→</span> {client.responsibleBroker.fullName}
+                  </div>
+                  <div className="text-xs text-text-muted">
+                    {formatPhone(client.broker.phone)} <span className="mx-1">·</span> {formatPhone(client.responsibleBroker.phone)}
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
+                <span className="text-text-muted block text-xs">Брокер</span>
+                <span className="font-medium">{client.broker.fullName}</span>
+                <span className="text-xs text-text-muted ml-2">{formatPhone(client.broker.phone)}</span>
+              </div>
+            );
+          })()}
           <div className="bg-surface-secondary rounded-lg p-3">
             <span className="text-text-muted block text-xs">Создано</span>
             <span className="font-medium">{new Date(client.createdAt).toLocaleDateString('ru-RU')}</span>
