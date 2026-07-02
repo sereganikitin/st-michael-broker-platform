@@ -464,6 +464,19 @@ export class WebhooksService {
 
       const attached = leadContactIds.includes(brokerAmoId);
 
+      // 2026-07-03: исключение для делегированных клиентов («Фиксирую на другого
+      // брокера»). Если у клиента creator (client.brokerId) != executor
+      // (client.responsibleBrokerId) — то creator по бизнесу и НЕ должен быть
+      // в контактах amoCRM-лида: там executor, он ведёт клиента с КЦ. Значит
+      // attach/detach логика (attached==false → REJECTED) для такого Client
+      // ошибочна: она сбивает уникальность creator'а на пустом месте.
+      // Пропускаем обе attach/detach ветки для делегированных клиентов.
+      // Что осталось активным для делегированных: 143-закрытие КЦ-лида
+      // (см. выше), закрытие sales-карточки, сброс через `resolveUniqueness`.
+      const isDelegated = !!client.responsibleBrokerId
+        && client.responsibleBrokerId !== client.brokerId;
+      if (isDelegated) continue;
+
       // 2026-06-16: маркер «исключения» — Client был создан как RULE_EXCEPTION_AFTER_SALES_MEETING.
       // Лифт UNDER_REVIEW → CONDITIONALLY_UNIQUE ТОЛЬКО когда L2 (текущий лид)
       // дойдёт до 62907282 «Квалифицировали и выводим на встречу» в КЦ
@@ -679,12 +692,22 @@ export class WebhooksService {
               phone: { in: phones },
               uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
             },
-            include: { broker: { select: { amoContactId: true } } },
+            // 2026-07-03: включаем responsibleBroker — для делегированных
+            // клиентов «Фиксирую на другого» amo-контакт стоит у executor'а (Б),
+            // а не у creator'а (А). Проверка «брокер на лиде» должна засчитывать
+            // ЛЮБОГО из двух.
+            include: {
+              broker: { select: { amoContactId: true } },
+              responsibleBroker: { select: { amoContactId: true } },
+            },
           });
           for (const c of candidates) {
             const brokerAmoId = c.broker?.amoContactId ? Number(c.broker.amoContactId) : null;
-            const brokerOnLead = brokerAmoId && leadContactIds.includes(brokerAmoId);
-            if (brokerOnLead) continue; // это брокер A на этом лиде, пропускаем
+            const respAmoId = c.responsibleBroker?.amoContactId ? Number(c.responsibleBroker.amoContactId) : null;
+            const brokerOnLead =
+              (brokerAmoId && leadContactIds.includes(brokerAmoId)) ||
+              (respAmoId && leadContactIds.includes(respAmoId));
+            if (brokerOnLead) continue; // это брокер A (creator) или B (executor) на этом лиде, пропускаем
             await this.prisma.client.update({
               where: { id: c.id },
               data: {
@@ -710,11 +733,18 @@ export class WebhooksService {
               phone: { in: phones },
               uniquenessStatus: { in: [UniquenessStatus.CONDITIONALLY_UNIQUE, UniquenessStatus.UNDER_REVIEW] },
             },
-            include: { broker: { select: { amoContactId: true } } },
+            // 2026-07-03: учитываем executor'а — см. комментарий выше.
+            include: {
+              broker: { select: { amoContactId: true } },
+              responsibleBroker: { select: { amoContactId: true } },
+            },
           });
           for (const c of candidates) {
             const brokerAmoId = c.broker?.amoContactId ? Number(c.broker.amoContactId) : null;
-            const brokerOnLead = brokerAmoId && leadContactIds.includes(brokerAmoId);
+            const respAmoId = c.responsibleBroker?.amoContactId ? Number(c.responsibleBroker.amoContactId) : null;
+            const brokerOnLead =
+              (brokerAmoId && leadContactIds.includes(brokerAmoId)) ||
+              (respAmoId && leadContactIds.includes(respAmoId));
             if (brokerOnLead) continue;
             await this.prisma.client.update({
               where: { id: c.id },
