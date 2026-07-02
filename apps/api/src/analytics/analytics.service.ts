@@ -6,6 +6,13 @@ export class AnalyticsService {
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
 
   async getDashboard(brokerId: string) {
+    // 2026-07-02: клиенты считаются по OR — я creator ИЛИ я designated
+    // (Ксения: при фиксации А → на Б оба видят клиента как своего).
+    // Раньше был только brokerId=свой → Б делегированный клиент не считался,
+    // а в списке /clients он был → расхождение цифр.
+    const clientOwnership = {
+      OR: [{ brokerId }, { responsibleBrokerId: brokerId }],
+    } as any;
     const [
       totalClients,
       activeFixations,
@@ -16,17 +23,17 @@ export class AnalyticsService {
       commissionStats,
       upcomingMeetings,
     ] = await Promise.all([
-      this.prisma.client.count({ where: { brokerId } }),
+      this.prisma.client.count({ where: clientOwnership }),
       this.prisma.client.count({
         where: {
-          brokerId,
+          ...clientOwnership,
           uniquenessStatus: 'CONDITIONALLY_UNIQUE',
           uniquenessExpiresAt: { gt: new Date() },
         },
       }),
       this.prisma.client.count({
         where: {
-          brokerId,
+          ...clientOwnership,
           uniquenessStatus: 'EXPIRED',
         },
       }),
@@ -49,7 +56,7 @@ export class AnalyticsService {
     // Fixations expiring in next 7 days
     const expiringFixations = await this.prisma.client.count({
       where: {
-        brokerId,
+        ...clientOwnership,
         uniquenessStatus: 'CONDITIONALLY_UNIQUE',
         uniquenessExpiresAt: {
           gt: new Date(),

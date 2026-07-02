@@ -1072,7 +1072,11 @@ export class ClientFixationService {
     });
     if (!creator) throw new NotFoundException('Creator not found');
 
-    // Q5: дубль по телефону → молча возвращаем existing.
+    // 2026-07-02: дубль по телефону ИЛИ по email → молча возвращаем existing.
+    // Раньше email давал 400 → блокировало фиксацию. Теперь одинаково с телефоном:
+    // если брокер уже есть в системе, просто используем его как ответственного
+    // (как и написано в подсказке под формой — «Если брокер с этим номером уже
+    // зарегистрирован — заявка автоматически уйдёт на него»).
     const existingByPhone = await this.prisma.broker.findUnique({
       where: { phone: data.phone },
       select: { id: true, fullName: true, phone: true, email: true, isCoordinator: true },
@@ -1080,18 +1084,13 @@ export class ClientFixationService {
     if (existingByPhone) {
       return { broker: existingByPhone, created: false };
     }
-
-    // Email — опционально. Если введён и уже занят — ошибка с указанием поля.
     if (data.email) {
       const existingByEmail = await this.prisma.broker.findFirst({
         where: { email: data.email },
-        select: { id: true },
+        select: { id: true, fullName: true, phone: true, email: true, isCoordinator: true },
       });
       if (existingByEmail) {
-        throw new BadRequestException({
-          message: 'Брокер с этим email уже зарегистрирован',
-          field: 'email',
-        });
+        return { broker: existingByEmail, created: false };
       }
     }
 
