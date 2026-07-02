@@ -6,13 +6,13 @@ export class AnalyticsService {
   constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
 
   async getDashboard(brokerId: string) {
-    // 2026-07-02: клиенты считаются по OR — я creator ИЛИ я designated
-    // (Ксения: при фиксации А → на Б оба видят клиента как своего).
-    // Раньше был только brokerId=свой → Б делегированный клиент не считался,
-    // а в списке /clients он был → расхождение цифр.
-    const clientOwnership = {
-      OR: [{ brokerId }, { responsibleBrokerId: brokerId }],
-    } as any;
+    // 2026-07-03: на дашборде показываем ТОЛЬКО клиентов-владельцев (creator).
+    // Делегированные (когда А фиксирует на Б) в дашборд Б не входят: комиссия,
+    // м² в уровень, статистика — всё это идёт создателю (А). У Б они видны
+    // только в списке /clients как «Исполнитель по фиксации».
+    // Раньше был OR по responsibleBrokerId — из-за этого у Б в дашборде
+    // считались клиенты, за которых он не получает ни денег, ни зачёта.
+    const clientOwnership = { brokerId } as any;
     const [
       totalClients,
       activeFixations,
