@@ -74,15 +74,13 @@ export default function CommissionPage() {
   });
   const [calcError, setCalcError] = useState('');
   const [termsCards, setTermsCards] = useState<Array<{ title: string; text: string }>>(FALLBACK_COMMISSION_CARDS);
-  // 2026-07-01: чекбоксы «Активно» из CMS. Если админ выключил — вариант оплаты
-  // не показывается на калькуляторе. По умолчанию оба активны (true).
-  const [installmentEnabled, setInstallmentEnabled] = useState(true);
-  const [subsidizedMortgageEnabled, setSubsidizedMortgageEnabled] = useState(true);
+  // 2026-07-02: параметры калькулятора теперь свои для каждого проекта.
+  // Держим сырой CMS-value, а вычисляем флаги по selectedProject ниже.
+  const [cmsCommission, setCmsCommission] = useState<any>({});
 
   useEffect(() => {
     apiGet('/commission/my').then(setCommission).catch(() => {});
     apiGet('/commission/deals').then(setDeals).catch(() => {});
-    // 2026-07-01: карточки условий + флаги активности вариантов оплаты из CMS.
     apiGet('/public/cms/content/commission')
       .then((res: any) => {
         const v = res?.value || {};
@@ -90,12 +88,23 @@ export default function CommissionPage() {
         if (Array.isArray(cards) && cards.length > 0) {
           setTermsCards(cards.filter((c: any) => c && (c.title || c.text)));
         }
-        // Явно false → выключено. undefined/true → включено.
-        setInstallmentEnabled(v?.installmentEnabled !== false);
-        setSubsidizedMortgageEnabled(v?.subsidizedMortgageEnabled !== false);
+        setCmsCommission(v);
       })
       .catch(() => {});
   }, []);
+
+  // Явно false → выключено. undefined/true → включено. Читаем сначала по
+  // проекту, затем fallback на старое общее поле.
+  const installmentEnabled = (() => {
+    const byProject = cmsCommission?.installmentEnabledByProject?.[selectedProject];
+    if (byProject !== undefined) return byProject !== false;
+    return cmsCommission?.installmentEnabled !== false;
+  })();
+  const subsidizedMortgageEnabled = (() => {
+    const byProject = cmsCommission?.subsidizedMortgageEnabledByProject?.[selectedProject];
+    if (byProject !== undefined) return byProject !== false;
+    return cmsCommission?.subsidizedMortgageEnabled !== false;
+  })();
 
   const projectDeals = useMemo(
     () => deals.filter((d) => d.project === selectedProject),

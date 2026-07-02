@@ -254,17 +254,19 @@ export class CommissionService {
     const agency = broker?.brokerAgencies[0]?.agency;
     const totalSqm = agency ? Number(agency.totalSqmSold) : 0;
 
-    // 2026-07-01: параметры «Рассрочка» и «Субсидированная ипотека» теперь
-    // тянутся из CMS-блока commission (админ правит в /admin/content →
-    // «Комиссия»). Если в CMS не задано — fallback на константы (0.5% и 4%).
+    // 2026-07-02: параметры «Рассрочка» и «Субсидированная ипотека» теперь
+    // свои для каждого проекта — читаем *ByProject[project], fallback на
+    // старое общее поле, затем на константу (0.5% и 4%).
     const commissionCms = await this.prisma.siteContent.findUnique({ where: { key: 'commission' } });
     const cmsValue = (commissionCms?.value || {}) as any;
-    const installmentDiscount = Number(cmsValue?.installmentDiscount ?? INSTALLMENT_DISCOUNT);
-    const subsidizedMortgageRate = Number(cmsValue?.subsidizedMortgageRate ?? 4);
-    // 2026-07-01: чекбоксы «Активно» из CMS. Если админ выключил вариант —
-    // серверный расчёт не применяет модификатор (fallback на FULL).
-    const installmentEnabled = cmsValue?.installmentEnabled !== false;
-    const subsidizedMortgageEnabled = cmsValue?.subsidizedMortgageEnabled !== false;
+    const iep = cmsValue?.installmentEnabledByProject || {};
+    const idp = cmsValue?.installmentDiscountByProject || {};
+    const sep = cmsValue?.subsidizedMortgageEnabledByProject || {};
+    const srp = cmsValue?.subsidizedMortgageRateByProject || {};
+    const installmentDiscount = Number(idp?.[data.project] ?? cmsValue?.installmentDiscount ?? INSTALLMENT_DISCOUNT);
+    const subsidizedMortgageRate = Number(srp?.[data.project] ?? cmsValue?.subsidizedMortgageRate ?? 4);
+    const installmentEnabled = (iep?.[data.project] !== undefined ? iep[data.project] : cmsValue?.installmentEnabled) !== false;
+    const subsidizedMortgageEnabled = (sep?.[data.project] !== undefined ? sep[data.project] : cmsValue?.subsidizedMortgageEnabled) !== false;
 
     // Учитываем активную политику (FLAT / PROGRESSIVE) из /admin/commission-policies.
     const r = await rateForWithPolicy(this.prisma, data.project, totalSqm);

@@ -520,63 +520,86 @@ function CommissionEditor({ content, updateField, updateArrayItem, addArrayItem,
         )}
       </div>
 
-      {/* 2026-07-01: параметры калькулятора комиссии — использует их
-          POST /commission/calculate. Раньше были захардкожены в API. */}
+      {/* 2026-07-02: параметры калькулятора теперь свои для каждого проекта.
+          Общие поля installmentEnabled / installmentDiscount /
+          subsidizedMortgageEnabled / subsidizedMortgageRate остаются как
+          fallback для старых значений — при первой правке переезжают в
+          *ByProject[activeProject]. */}
       <div className="border-t border-border pt-4 mt-2">
         <label className="label flex items-center justify-between">
-          <span>Параметры калькулятора</span>
-          <span className="text-xs text-text-muted font-normal">используется калькулятором в кабинете брокера</span>
+          <span>Параметры калькулятора — {activeProject === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}</span>
+          <span className="text-xs text-text-muted font-normal">используется калькулятором в кабинете брокера · переключается кнопками выше</span>
         </label>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="border border-border rounded-lg p-3">
-            <label className="flex items-center gap-2 cursor-pointer mb-2">
-              <input
-                type="checkbox"
-                checked={content.installmentEnabled !== false}
-                onChange={(e) => updateField('commission', 'installmentEnabled', e.target.checked)}
-              />
-              <span className="text-sm font-medium">«Рассрочка» активна</span>
-            </label>
-            <label className="text-sm text-text-muted block mb-1">Скидка при рассрочке, %</label>
-            <input
-              className="input"
-              type="number"
-              step="0.05"
-              placeholder="0.5"
-              disabled={content.installmentEnabled === false}
-              value={content.installmentDiscount ?? ''}
-              onChange={(e) => updateField('commission', 'installmentDiscount', e.target.value === '' ? null : Number(e.target.value))}
-            />
-            <p className="text-xs text-text-muted mt-1">
-              На сколько % уменьшается ставка при выборе «Рассрочка».
-              {content.installmentEnabled === false && ' Вариант скрыт на калькуляторе.'}
-            </p>
-          </div>
-          <div className="border border-border rounded-lg p-3">
-            <label className="flex items-center gap-2 cursor-pointer mb-2">
-              <input
-                type="checkbox"
-                checked={content.subsidizedMortgageEnabled !== false}
-                onChange={(e) => updateField('commission', 'subsidizedMortgageEnabled', e.target.checked)}
-              />
-              <span className="text-sm font-medium">«Субсидированная ипотека» активна</span>
-            </label>
-            <label className="text-sm text-text-muted block mb-1">Ставка при субс. ипотеке, %</label>
-            <input
-              className="input"
-              type="number"
-              step="0.05"
-              placeholder="4"
-              disabled={content.subsidizedMortgageEnabled === false}
-              value={content.subsidizedMortgageRate ?? ''}
-              onChange={(e) => updateField('commission', 'subsidizedMortgageRate', e.target.value === '' ? null : Number(e.target.value))}
-            />
-            <p className="text-xs text-text-muted mt-1">
-              Фиксированная ставка при выборе «Субсидированная ипотека».
-              {content.subsidizedMortgageEnabled === false && ' Вариант скрыт на калькуляторе.'}
-            </p>
-          </div>
-        </div>
+        {(() => {
+          const iep = content.installmentEnabledByProject || {};
+          const idp = content.installmentDiscountByProject || {};
+          const sep = content.subsidizedMortgageEnabledByProject || {};
+          const srp = content.subsidizedMortgageRateByProject || {};
+          const legacyIe = content.installmentEnabled;
+          const legacyId = content.installmentDiscount;
+          const legacySe = content.subsidizedMortgageEnabled;
+          const legacySr = content.subsidizedMortgageRate;
+          const instEnabled = iep[activeProject] !== undefined ? iep[activeProject] !== false : legacyIe !== false;
+          const instDiscount = idp[activeProject] ?? legacyId ?? '';
+          const subEnabled = sep[activeProject] !== undefined ? sep[activeProject] !== false : legacySe !== false;
+          const subRate = srp[activeProject] ?? legacySr ?? '';
+          const setInstEnabled = (v: boolean) => updateField('commission', 'installmentEnabledByProject', { ...iep, [activeProject]: v });
+          const setInstDiscount = (v: any) => updateField('commission', 'installmentDiscountByProject', { ...idp, [activeProject]: v });
+          const setSubEnabled = (v: boolean) => updateField('commission', 'subsidizedMortgageEnabledByProject', { ...sep, [activeProject]: v });
+          const setSubRate = (v: any) => updateField('commission', 'subsidizedMortgageRateByProject', { ...srp, [activeProject]: v });
+          return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="border border-border rounded-lg p-3">
+                <label className="flex items-center gap-2 cursor-pointer mb-2">
+                  <input
+                    type="checkbox"
+                    checked={instEnabled}
+                    onChange={(e) => setInstEnabled(e.target.checked)}
+                  />
+                  <span className="text-sm font-medium">«Рассрочка» активна</span>
+                </label>
+                <label className="text-sm text-text-muted block mb-1">Скидка при рассрочке, %</label>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.05"
+                  placeholder="0.5"
+                  disabled={!instEnabled}
+                  value={instDiscount}
+                  onChange={(e) => setInstDiscount(e.target.value === '' ? null : Number(e.target.value))}
+                />
+                <p className="text-xs text-text-muted mt-1">
+                  На сколько % уменьшается ставка при выборе «Рассрочка» для этого проекта.
+                  {!instEnabled && ' Вариант скрыт на калькуляторе.'}
+                </p>
+              </div>
+              <div className="border border-border rounded-lg p-3">
+                <label className="flex items-center gap-2 cursor-pointer mb-2">
+                  <input
+                    type="checkbox"
+                    checked={subEnabled}
+                    onChange={(e) => setSubEnabled(e.target.checked)}
+                  />
+                  <span className="text-sm font-medium">«Субсидированная ипотека» активна</span>
+                </label>
+                <label className="text-sm text-text-muted block mb-1">Ставка при субс. ипотеке, %</label>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.05"
+                  placeholder="4"
+                  disabled={!subEnabled}
+                  value={subRate}
+                  onChange={(e) => setSubRate(e.target.value === '' ? null : Number(e.target.value))}
+                />
+                <p className="text-xs text-text-muted mt-1">
+                  Фиксированная ставка при выборе «Субсидированная ипотека» для этого проекта.
+                  {!subEnabled && ' Вариант скрыт на калькуляторе.'}
+                </p>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       <div>
