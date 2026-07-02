@@ -141,10 +141,7 @@ export class AuthService {
       errors.push({ field: 'fullName', message: 'Введите ФИО' });
     }
 
-    const [existingByPhone, existingByEmail] = await Promise.all([
-      this.prisma.broker.findUnique({ where: { phone: data.phone } }),
-      data.email ? this.prisma.broker.findFirst({ where: { email: data.email } }) : Promise.resolve(null),
-    ]);
+    const existingByPhone = await this.prisma.broker.findUnique({ where: { phone: data.phone } });
 
     // 2026-06-30: если телефон существует БЕЗ пароля — это «активация»
     // импортированного брокера, а не дубль. Идём дальше и в конце обновляем
@@ -154,11 +151,11 @@ export class AuthService {
     if (existingByPhone && existingByPhone.passwordHash) {
       errors.push({ field: 'phone', message: 'Брокер с этим номером телефона уже зарегистрирован' });
     }
-    // Email-конфликт смотрим только если это НЕ тот же брокер (т.е. активация
-    // своего же аккаунта с тем же email — норм; коллизия с ЧУЖИМ email — ошибка).
-    if (existingByEmail && existingByEmail.id !== existingByPhone?.id) {
-      errors.push({ field: 'email', message: 'Этот email уже используется другим аккаунтом' });
-    }
+    // 2026-07-02: email-конфликт больше не блокирует регистрацию.
+    // Ксения: у некоторых агентств (например СДМ) один общий email на всё
+    // агентство — несколько брокеров могут регистрироваться с mail@sdm.moscow.
+    // Уникальность идентифицируется только по телефону. Email хранится
+    // информативно (для рассылки уведомлений), дубли допустимы.
 
     if (errors.length) {
       throw new BadRequestException({
