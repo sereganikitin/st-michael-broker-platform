@@ -36,9 +36,9 @@ export const NOTIFICATION_EVENTS = [
   { type: 'ANNOUNCEMENTS', label: 'Объявления застройщика', icon: '📢' },
 ] as const;
 
-// 2026-07-02: Telegram-канал убран — бот не подключён, брокеры не пользуются.
-// SMS оставлен в списке даже если пока не отправляется — есть план подключить SMS.RU.
-const NOTIFICATION_CHANNELS: NotificationChannel[] = ['EMAIL', 'PUSH', 'SMS'];
+// 2026-07-02: работают только EMAIL (через SendGrid) и PUSH (VAPID).
+// TELEGRAM/SMS/WHATSAPP убраны из UI т.к. не подключены.
+const NOTIFICATION_CHANNELS: NotificationChannel[] = ['EMAIL', 'PUSH'];
 
 @Controller('notifications')
 export class NotificationController {

@@ -19,11 +19,10 @@ const stageNames: Record<string, string> = {
   FIXATION: 'Фиксация', MEETING: 'Встреча', DEAL: 'Сделка',
 };
 
-// 2026-07-02: TELEGRAM убран — бот не подключён, брокеры не пользуются.
+// 2026-07-02: работают только Email (SendGrid) и Push (VAPID). SMS/Telegram убраны.
 const channelLabels: Record<string, string> = {
   EMAIL: 'Email',
   PUSH: 'Push',
-  SMS: 'SMS',
 };
 
 interface FullProfile {
