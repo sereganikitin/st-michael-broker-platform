@@ -19,10 +19,10 @@ const stageNames: Record<string, string> = {
   FIXATION: 'Фиксация', MEETING: 'Встреча', DEAL: 'Сделка',
 };
 
+// 2026-07-02: TELEGRAM убран — бот не подключён, брокеры не пользуются.
 const channelLabels: Record<string, string> = {
   EMAIL: 'Email',
   PUSH: 'Push',
-  TELEGRAM: 'Telegram',
   SMS: 'SMS',
 };
 

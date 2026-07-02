@@ -91,7 +91,8 @@ export class AdminService {
       throw new BadRequestException('channels required');
     }
 
-    const validChannels = new Set(['EMAIL', 'PUSH', 'TELEGRAM', 'SMS']);
+    // 2026-07-02: TELEGRAM убран — бот не подключён.
+    const validChannels = new Set(['EMAIL', 'PUSH', 'SMS']);
     const channels = data.channels.filter((c) => validChannels.has(c));
     if (channels.length === 0) throw new BadRequestException('No valid channels');
 
