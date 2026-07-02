@@ -1778,12 +1778,20 @@ body{background:var(--white);color:var(--black);font-family:'Inter',sans-serif;f
               />
             </div>
             <div className="comm-info">
-              {(commission.cards || []).map((c: any, i: number) => (
-                <div key={i} className="comm-card">
-                  <div className="comm-card-title">{c.title}</div>
-                  <p>{c.text}</p>
-                </div>
-              ))}
+              {/* 2026-07-03: карточки условий тоже переключаются по проекту.
+                  Fallback на старый общий commission.cards для совместимости. */}
+              {(() => {
+                const byProject = commission?.cardsByProject?.[commissionProject];
+                const list = Array.isArray(byProject) && byProject.length > 0
+                  ? byProject
+                  : (commission?.cards || []);
+                return list.map((c: any, i: number) => (
+                  <div key={i} className="comm-card">
+                    <div className="comm-card-title">{c.title}</div>
+                    <p>{c.text}</p>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
         </section>
