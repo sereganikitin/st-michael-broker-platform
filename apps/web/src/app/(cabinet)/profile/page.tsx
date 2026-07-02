@@ -500,9 +500,11 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
                   <span className="text-xs bg-accent/20 text-accent px-2 py-1 rounded">Основное</span>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2 text-sm mb-2">
-                <div><span className="text-text-muted">ИНН: </span><span>{agency.inn}</span></div>
-                <div><span className="text-text-muted">Уровень: </span><span className="text-accent">{levelNames[agency.commissionLevel] || agency.commissionLevel}</span></div>
+              {/* 2026-07-02: «Уровень: Старт» убран — комиссия управляется через
+                  политики в /admin/commission-policies, agency.commissionLevel
+                  устарело и путает брокера. */}
+              <div className="text-sm mb-2">
+                <span className="text-text-muted">ИНН: </span><span>{agency.inn}</span>
               </div>
               {agency.isPrimary && (
                 <div className="text-xs text-text-muted space-y-1 mt-2 pt-2 border-t border-border">
@@ -801,14 +803,20 @@ export default function ProfilePage() {
     return <div className="text-text-muted">Загрузка профиля…</div>;
   }
 
+  // 2026-07-02: кнопка «Синхр. amoCRM» видна только админам/менеджерам.
+  // Брокеру она не нужна — синк идёт автоматически при любом сохранении полей.
+  const isStaff = broker?.role === 'ADMIN' || broker?.role === 'MANAGER';
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl md:text-3xl font-bold">Профиль</h1>
-        <button className="btn btn-secondary flex items-center gap-2" onClick={handleAmoSync} disabled={syncing}>
-          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Синхронизация...' : 'Синхр. amoCRM'}
-        </button>
+        {isStaff && (
+          <button className="btn btn-secondary flex items-center gap-2" onClick={handleAmoSync} disabled={syncing}>
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Синхронизация...' : 'Синхр. amoCRM'}
+          </button>
+        )}
       </div>
 
       {syncMsg && <div className="mb-4 p-3 bg-info/20 text-info rounded text-sm">{syncMsg}</div>}
