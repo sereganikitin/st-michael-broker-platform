@@ -343,6 +343,28 @@ export class AmocrmService {
         const leadCreatedAt = lead.created_at ? new Date(lead.created_at * 1000) : null;
         const leadUpdatedAt = lead.updated_at ? new Date(lead.updated_at * 1000) : null;
         let client = await this.prisma.client.findFirst({ where: { phone, brokerId } });
+        // 2026-07-02: если клиент уже есть у ДРУГОГО брокера (напр. фиксация
+        // А → на Б создала Client с brokerId=А), синк Б переиспользует
+        // существующего вместо создания дубля. Плюс назначаем Б как
+        // responsibleBrokerId, если поле пустое.
+        if (!client) {
+          const existingAnyBroker = await this.prisma.client.findFirst({
+            where: { phone },
+            orderBy: { createdAt: 'asc' },
+          });
+          if (existingAnyBroker) {
+            client = existingAnyBroker;
+            if (!client.responsibleBrokerId || client.responsibleBrokerId === client.brokerId) {
+              if (client.brokerId !== brokerId) {
+                await this.prisma.client.update({
+                  where: { id: client.id },
+                  data: { responsibleBrokerId: brokerId },
+                });
+                client = { ...client, responsibleBrokerId: brokerId } as any;
+              }
+            }
+          }
+        }
         if (!client) {
           client = await this.prisma.client.create({
             data: {
@@ -350,7 +372,6 @@ export class AmocrmService {
               project: project as any,
               amoLeadId: BigInt(lead.id),
               uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
-              // Уникальность = 40 дней от даты создания лида в amoCRM (правка 2026-05-14).
               // Уникальность = 30 дней от даты создания лида в amoCRM (правка 2026-05-14, ранее 40).
               uniquenessExpiresAt: new Date((leadCreatedAt ? leadCreatedAt.getTime() : Date.now()) + 30 * 24 * 60 * 60 * 1000),
               amoCreatedAt: leadCreatedAt,
