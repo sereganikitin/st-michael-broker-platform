@@ -602,23 +602,54 @@ function CommissionEditor({ content, updateField, updateArrayItem, addArrayItem,
         })()}
       </div>
 
+      {/* 2026-07-03: карточки условий тоже по проекту. Раньше был общий
+          массив content.cards на оба проекта — теперь cardsByProject[project].
+          Fallback: если в новом cardsByProject[project] пусто, показываем
+          старый общий cards (совместимость с уже сохранённым контентом). */}
       <div>
-        <label className="label">Карточки условий (рядом со шкалой)</label>
-        <div className="space-y-3">
-          {cards.map((c: any, i: number) => (
-            <div key={i} className="border border-border rounded p-3">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-xs text-text-muted">Карточка #{i + 1}</span>
-                <button onClick={() => removeArrayItem('commission', 'cards', i)} className="text-error hover:text-error/80"><Trash2 className="w-4 h-4" /></button>
+        <label className="label flex items-center justify-between">
+          <span>Карточки условий (рядом со шкалой) — {activeProject === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}</span>
+          <span className="text-xs text-text-muted font-normal">переключается кнопками выше</span>
+        </label>
+        {(() => {
+          const cardsByProject = content.cardsByProject || {};
+          const projectCards: any[] = Array.isArray(cardsByProject[activeProject])
+            ? cardsByProject[activeProject]
+            : (Array.isArray(cards) ? cards : []); // fallback на старый общий cards
+          const setProjectCards = (next: any[]) => {
+            updateField('commission', 'cardsByProject', { ...cardsByProject, [activeProject]: next });
+          };
+          const updateCard = (idx: number, patch: any) => {
+            const next = [...projectCards];
+            next[idx] = { ...next[idx], ...patch };
+            setProjectCards(next);
+          };
+          const addCard = () => setProjectCards([...projectCards, { title: '', text: '' }]);
+          const removeCard = (idx: number) => {
+            const next = [...projectCards];
+            next.splice(idx, 1);
+            setProjectCards(next);
+          };
+          return (
+            <>
+              <div className="space-y-3">
+                {projectCards.map((c: any, i: number) => (
+                  <div key={i} className="border border-border rounded p-3">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-xs text-text-muted">Карточка #{i + 1}</span>
+                      <button onClick={() => removeCard(i)} className="text-error hover:text-error/80"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                    <input className="input mb-2" placeholder="Заголовок" value={c.title || ''} onChange={(e) => updateCard(i, { title: e.target.value })} />
+                    <textarea className="input" placeholder="Текст" rows={2} value={c.text || ''} onChange={(e) => updateCard(i, { text: e.target.value })} />
+                  </div>
+                ))}
               </div>
-              <input className="input mb-2" placeholder="Заголовок" value={c.title || ''} onChange={(e) => updateArrayItem('commission', 'cards', i, { title: e.target.value })} />
-              <textarea className="input" placeholder="Текст" rows={2} value={c.text || ''} onChange={(e) => updateArrayItem('commission', 'cards', i, { text: e.target.value })} />
-            </div>
-          ))}
-        </div>
-        <button className="btn btn-secondary mt-2 flex items-center gap-2 text-sm" onClick={() => addArrayItem('commission', 'cards', { title: '', text: '' })}>
-          <Plus className="w-4 h-4" /> Добавить карточку
-        </button>
+              <button className="btn btn-secondary mt-2 flex items-center gap-2 text-sm" onClick={addCard}>
+                <Plus className="w-4 h-4" /> Добавить карточку в {activeProject === 'ZORGE9' ? 'Зорге 9' : 'Серебряный Бор'}
+              </button>
+            </>
+          );
+        })()}
       </div>
     </div>
   );

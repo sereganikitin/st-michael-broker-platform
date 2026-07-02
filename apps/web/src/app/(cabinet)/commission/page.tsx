@@ -73,25 +73,29 @@ export default function CommissionPage() {
     paymentMode: 'FULL',
   });
   const [calcError, setCalcError] = useState('');
-  const [termsCards, setTermsCards] = useState<Array<{ title: string; text: string }>>(FALLBACK_COMMISSION_CARDS);
-  // 2026-07-02: параметры калькулятора теперь свои для каждого проекта.
-  // Держим сырой CMS-value, а вычисляем флаги по selectedProject ниже.
+  // 2026-07-02/03: держим сырой CMS-value; параметры калькулятора и
+  // карточки условий вычисляются ниже по selectedProject.
   const [cmsCommission, setCmsCommission] = useState<any>({});
 
   useEffect(() => {
     apiGet('/commission/my').then(setCommission).catch(() => {});
     apiGet('/commission/deals').then(setDeals).catch(() => {});
     apiGet('/public/cms/content/commission')
-      .then((res: any) => {
-        const v = res?.value || {};
-        const cards = v?.cards;
-        if (Array.isArray(cards) && cards.length > 0) {
-          setTermsCards(cards.filter((c: any) => c && (c.title || c.text)));
-        }
-        setCmsCommission(v);
-      })
+      .then((res: any) => setCmsCommission(res?.value || {}))
       .catch(() => {});
   }, []);
+
+  // 2026-07-03: карточки условий теперь по проекту.
+  // Приоритет: cardsByProject[selectedProject] → общий cards (совместимость) → FALLBACK.
+  const termsCards = useMemo<Array<{ title: string; text: string }>>(() => {
+    const byProject = cmsCommission?.cardsByProject?.[selectedProject];
+    const source = Array.isArray(byProject) && byProject.length > 0
+      ? byProject
+      : (Array.isArray(cmsCommission?.cards) && cmsCommission.cards.length > 0
+          ? cmsCommission.cards
+          : FALLBACK_COMMISSION_CARDS);
+    return source.filter((c: any) => c && (c.title || c.text));
+  }, [cmsCommission, selectedProject]);
 
   // Явно false → выключено. undefined/true → включено. Читаем сначала по
   // проекту, затем fallback на старое общее поле.
