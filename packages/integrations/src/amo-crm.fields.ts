@@ -587,7 +587,82 @@ export const AMO_CONTACT_FIELDS = {
   REGION: 589265,
   PRESENTATION_SENT: 835955,
   ADDITIONAL_COMPANIES: 842329,
+  CORRESPONDENCE_ADDRESS: 558637,   // 2026-07-03: адрес корреспонденции агентства
 } as const;
+
+/**
+ * 2026-07-03: реквизиты юр.лица агентства.
+ * Обнаружены через inspect-amo-fields.js --entity companies.
+ * Используются в agencyToAmoCompanyFields для синка Agency → amoCRM Company.
+ */
+export const AMO_COMPANY_FIELDS = {
+  PHONE: 557903,               // multitext "Телефон"
+  EMAIL: 557905,               // multitext "Email"
+  ADDRESS: 557909,             // textarea "Адрес" (корреспонденции)
+  LEGAL_NAME: 663905,          // text "Юр. лицо"
+  LEGAL_ADDRESS: 663907,       // text "Юр. адрес"
+  OGRN: 663909,                // text "ОГРН"
+  INN: 663911,                 // text "ИНН"
+  KPP: 663913,                 // text "КПП"
+  BANK_BIK: 663915,            // text "БИК"
+  BANK_NAME: 663917,           // text "Название банка"
+  CORRESPONDENT_ACCOUNT: 663919, // text "Кор.счет"
+  BANK_ACCOUNT: 663929,        // text "Рас.счет"
+} as const;
+
+/**
+ * Маппинг Agency (Prisma) → массив custom_fields_values для amoCRM company
+ * (POST /companies или PATCH /companies/{id}). Мапим только заполненные поля,
+ * пустые пропускаем — amoCRM не любит пустые значения, они очищают поле.
+ */
+export function agencyToAmoCompanyFields(
+  agency: {
+    legalName?: string | null;
+    legalAddress?: string | null;
+    address?: string | null;
+    inn?: string | null;
+    ogrn?: string | null;
+    kpp?: string | null;
+    bankName?: string | null;
+    bankBik?: string | null;
+    bankAccount?: string | null;
+    correspondentAccount?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  },
+): any[] {
+  const fields: any[] = [];
+  const pushText = (field_id: number, value: string | null | undefined) => {
+    if (value != null && String(value).trim().length > 0) {
+      fields.push({ field_id, values: [{ value: String(value).trim() }] });
+    }
+  };
+  pushText(AMO_COMPANY_FIELDS.LEGAL_NAME, agency.legalName);
+  pushText(AMO_COMPANY_FIELDS.LEGAL_ADDRESS, agency.legalAddress);
+  pushText(AMO_COMPANY_FIELDS.ADDRESS, agency.address);
+  pushText(AMO_COMPANY_FIELDS.INN, agency.inn);
+  pushText(AMO_COMPANY_FIELDS.OGRN, agency.ogrn);
+  pushText(AMO_COMPANY_FIELDS.KPP, agency.kpp);
+  pushText(AMO_COMPANY_FIELDS.BANK_NAME, agency.bankName);
+  pushText(AMO_COMPANY_FIELDS.BANK_BIK, agency.bankBik);
+  pushText(AMO_COMPANY_FIELDS.BANK_ACCOUNT, agency.bankAccount);
+  pushText(AMO_COMPANY_FIELDS.CORRESPONDENT_ACCOUNT, agency.correspondentAccount);
+  // Телефон/email — multitext, требуют enum_code (WORK) чтобы попасть в амо
+  // в правильную «строчку» (WORK/HOME/OTHER).
+  if (agency.phone && agency.phone.trim()) {
+    fields.push({
+      field_id: AMO_COMPANY_FIELDS.PHONE,
+      values: [{ value: agency.phone.trim(), enum_code: 'WORK' }],
+    });
+  }
+  if (agency.email && agency.email.trim()) {
+    fields.push({
+      field_id: AMO_COMPANY_FIELDS.EMAIL,
+      values: [{ value: agency.email.trim(), enum_code: 'WORK' }],
+    });
+  }
+  return fields;
+}
 
 /**
  * Маппинг Broker (Prisma модель) в массив custom_fields_values для amoCRM
@@ -620,13 +695,23 @@ export function brokerToAmoContactFields(
     brokerTourDate?: Date | string | null;
     doNotCall?: boolean | null;
   },
-  agency?: { name?: string | null; inn?: string | null } | null,
+  agency?: { name?: string | null; inn?: string | null; address?: string | null } | null,
 ): any[] {
   const fields: any[] = [];
 
   // Контакт всегда помечается флагом "Брокер" — это критерий поиска
   // в /admin/brokers/import-from-amo.
   fields.push({ field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] });
+
+  // 2026-07-03: адрес корреспонденции агентства → поле "Адрес корреспонденции"
+  // в карточке контакта (id=558637). Остальные реквизиты юр.лица идут в
+  // связанную компанию (см. agencyToAmoCompanyFields).
+  if (agency?.address) {
+    fields.push({
+      field_id: AMO_CONTACT_FIELDS.CORRESPONDENCE_ADDRESS,
+      values: [{ value: String(agency.address) }],
+    });
+  }
 
   if (broker.phone) {
     fields.push({

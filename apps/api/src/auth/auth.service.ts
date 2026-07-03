@@ -7,7 +7,7 @@ import * as bcrypt from 'bcrypt';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { AmoCrmAdapter, AMO_CONTACT_FIELDS, brokerToAmoContactFields, mapMeetingStatus, leadToProject, BROKER_PIPELINE_ID } from '@st-michael/integrations';
+import { AmoCrmAdapter, AMO_CONTACT_FIELDS, brokerToAmoContactFields, agencyToAmoCompanyFields, mapMeetingStatus, leadToProject, BROKER_PIPELINE_ID } from '@st-michael/integrations';
 import { CatalogService } from '../catalog/catalog.service';
 import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
 
@@ -730,7 +730,13 @@ export class AuthService {
         inn: ba.agency.inn,
         isPrimary: ba.isPrimary,
         commissionLevel: ba.agency.commissionLevel,
+        // 2026-07-02: полный набор реквизитов агентства.
         legalAddress: ba.agency.legalAddress,
+        address: ba.agency.address, // адрес для корреспонденции
+        ogrn: ba.agency.ogrn,
+        kpp: ba.agency.kpp,
+        phone: ba.agency.phone,
+        email: ba.agency.email,
         bankName: ba.agency.bankName,
         bankBik: ba.agency.bankBik,
         bankAccount: ba.agency.bankAccount,
@@ -755,7 +761,13 @@ export class AuthService {
       region?: string | null;
       agency?: {
         id?: string;
+        // 2026-07-02: полный набор реквизитов агентства.
         legalAddress?: string | null;
+        address?: string | null; // адрес для корреспонденции
+        ogrn?: string | null;
+        kpp?: string | null;
+        phone?: string | null;
+        email?: string | null;
         bankName?: string | null;
         bankBik?: string | null;
         bankAccount?: string | null;
@@ -817,6 +829,11 @@ export class AuthService {
           where: { id: agencyId },
           data: {
             ...(a.legalAddress !== undefined && { legalAddress: a.legalAddress || null }),
+            ...(a.address !== undefined && { address: a.address || null }),
+            ...(a.ogrn !== undefined && { ogrn: a.ogrn || null }),
+            ...(a.kpp !== undefined && { kpp: a.kpp || null }),
+            ...(a.phone !== undefined && { phone: a.phone || null }),
+            ...(a.email !== undefined && { email: a.email || null }),
             ...(a.bankName !== undefined && { bankName: a.bankName || null }),
             ...(a.bankBik !== undefined && { bankBik: a.bankBik || null }),
             ...(a.bankAccount !== undefined && { bankAccount: a.bankAccount || null }),
@@ -878,11 +895,8 @@ export class AuthService {
 
     if (amoContactId) {
       await this.amo.updateContact(Number(amoContactId), payload);
-      return;
-    }
-
-    // Нет линка — пробуем найти контакт по телефону среди БРОКЕРОВ (IS_BROKER=true)
-    if (broker.phone) {
+    } else if (broker.phone) {
+      // Нет линка — пробуем найти контакт по телефону среди БРОКЕРОВ (IS_BROKER=true)
       const existing = await this.amo.findBrokerContactByPhone(broker.phone);
       if (existing) {
         amoContactId = BigInt(existing.id);
@@ -897,6 +911,38 @@ export class AuthService {
           where: { id: brokerId },
           data: { amoContactId },
         });
+      }
+    }
+
+    // 2026-07-03: синк реквизитов primary-агентства в amoCRM Company.
+    // Поля юр.лица (Юр. лицо, Юр. адрес, ОГРН, КПП, БИК, Название банка,
+    // Рас.счет, Кор.счет, Телефон, Email) хранятся в связанной company,
+    // а не в контакте. Ищем по ИНН → update / create → linkContactToCompany.
+    // isolated от синка контакта: если контакт не создался, амо-компанию всё
+    // равно можно обновить, никого не сломает.
+    if (primaryAgency && primaryAgency.inn) {
+      try {
+        const companyFields = agencyToAmoCompanyFields(primaryAgency);
+        const companyPayload = {
+          name: primaryAgency.name,
+          custom_fields_values: companyFields,
+        };
+        let amoCompanyId: number | null = null;
+        const found = await this.amo.findCompanyByInn(primaryAgency.inn);
+        if (found?.id) {
+          amoCompanyId = Number(found.id);
+          await this.amo.updateCompany(amoCompanyId, companyPayload);
+        } else {
+          const created = await this.amo.createCompany(companyPayload);
+          if (created?.id) amoCompanyId = Number(created.id);
+        }
+        if (amoCompanyId && amoContactId) {
+          await this.amo
+            .linkContactToCompany(Number(amoContactId), amoCompanyId)
+            .catch(() => { /* уже связаны — не критично */ });
+        }
+      } catch (e: any) {
+        console.error('[syncBrokerProfileToAmo] agency company sync failed:', e?.message || e);
       }
     }
   }
