@@ -833,8 +833,16 @@ export class ClientFixationService {
       // ДРУГОЙ брокер пришёл на чужого клиента (новый контакт на лиде)
       // ИЛИ тот же брокер заново подал заявку (нужно КЦ уведомление,
       // но это не «новый брокер» — текст другой).
+      // 2026-07-03: отдельная ветка для «Фиксирую на другого брокера» —
+      // creator (А, broker) и executor (Б, responsibleBroker) разные, но
+      // с точки зрения brokerId у клиента это тот же А. Раньше это
+      // попадало в isSameBrokerRefix и в ноте писалось «повторная
+      // фиксация тем же брокером», что вводило КЦ в заблуждение.
+      const isDelegatedRefix = isSameBrokerRefix && responsibleBroker.id !== broker.id;
       const lines: string[] = [];
-      if (isSameBrokerRefix) {
+      if (isDelegatedRefix) {
+        lines.push(`⚠️ АЛАРМ — брокер ${broker.fullName} фиксирует уникальность на клиента через брокера ${responsibleBroker.fullName} (делегирование).`);
+      } else if (isSameBrokerRefix) {
         lines.push(`⚠️ АЛАРМ — повторная фиксация ТЕМ ЖЕ брокером на этого клиента.`);
       } else if (isRule1) {
         lines.push(`⚠️ АЛАРМ — новый брокер на этом клиенте. Прикреплён к лиду контактом.`);
@@ -875,11 +883,13 @@ export class ClientFixationService {
       }
 
       const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
-      const taskText = isSameBrokerRefix
-        ? `Повторная фиксация тем же брокером — ${responsibleBroker.fullName} (${responsibleBroker.phone}) ещё раз подал клиента ${data.fullName} (${data.phone}). Проверить, нужно ли вмешательство КЦ.`
-        : isRule1
-          ? `Новый брокер на клиенте ${data.fullName} (${data.phone}). Брокер ${responsibleBroker.fullName} (${responsibleBroker.phone}) прикреплён к лиду контактом.`
-          : `Подтвердить уникальность — клиент ${data.fullName} (${data.phone}) уже в активной стадии, новый брокер ${responsibleBroker.fullName} (${responsibleBroker.phone}) пытается зафиксировать.`;
+      const taskText = isDelegatedRefix
+        ? `Делегированная фиксация: ${broker.fullName} (${broker.phone}) оформил уникальность на клиента ${data.fullName} (${data.phone}) на брокера ${responsibleBroker.fullName} (${responsibleBroker.phone}). Проверить, нужно ли вмешательство КЦ.`
+        : isSameBrokerRefix
+          ? `Повторная фиксация тем же брокером — ${responsibleBroker.fullName} (${responsibleBroker.phone}) ещё раз подал клиента ${data.fullName} (${data.phone}). Проверить, нужно ли вмешательство КЦ.`
+          : isRule1
+            ? `Новый брокер на клиенте ${data.fullName} (${data.phone}). Брокер ${responsibleBroker.fullName} (${responsibleBroker.phone}) прикреплён к лиду контактом.`
+            : `Подтвердить уникальность — клиент ${data.fullName} (${data.phone}) уже в активной стадии, новый брокер ${responsibleBroker.fullName} (${responsibleBroker.phone}) пытается зафиксировать.`;
       try {
         let leadResponsibleUserId: number | undefined;
         try {
