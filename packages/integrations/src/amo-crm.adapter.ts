@@ -570,6 +570,25 @@ export class AmoCrmAdapter {
     return result?._embedded?.companies?.[0];
   }
 
+  /**
+   * 2026-07-03: PATCH одной компании — используется для синка реквизитов
+   * агентства (Юр. лицо, ОГРН, КПП, банк, БИК, р/с, к/с и т.д.). amoCRM v4
+   * принимает объект напрямую (не массив как в create).
+   */
+  async updateCompany(
+    id: number,
+    data: { name?: string; custom_fields_values?: any[] },
+  ): Promise<AmoCompany | null> {
+    try {
+      return await this.request<AmoCompany>(`/companies/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
   async linkContactToCompany(contactId: number, companyId: number): Promise<void> {
     await this.request(`/contacts/${contactId}/link`, {
       method: 'POST',
