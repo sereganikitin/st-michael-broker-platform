@@ -733,8 +733,6 @@ export class AuthService {
         // 2026-07-02: полный набор реквизитов агентства.
         legalAddress: ba.agency.legalAddress,
         address: ba.agency.address, // адрес для корреспонденции
-        ogrn: ba.agency.ogrn,
-        kpp: ba.agency.kpp,
         phone: ba.agency.phone,
         email: ba.agency.email,
         bankName: ba.agency.bankName,
@@ -764,8 +762,6 @@ export class AuthService {
         // 2026-07-02: полный набор реквизитов агентства.
         legalAddress?: string | null;
         address?: string | null; // адрес для корреспонденции
-        ogrn?: string | null;
-        kpp?: string | null;
         phone?: string | null;
         email?: string | null;
         bankName?: string | null;
@@ -830,8 +826,6 @@ export class AuthService {
           data: {
             ...(a.legalAddress !== undefined && { legalAddress: a.legalAddress || null }),
             ...(a.address !== undefined && { address: a.address || null }),
-            ...(a.ogrn !== undefined && { ogrn: a.ogrn || null }),
-            ...(a.kpp !== undefined && { kpp: a.kpp || null }),
             ...(a.phone !== undefined && { phone: a.phone || null }),
             ...(a.email !== undefined && { email: a.email || null }),
             ...(a.bankName !== undefined && { bankName: a.bankName || null }),
