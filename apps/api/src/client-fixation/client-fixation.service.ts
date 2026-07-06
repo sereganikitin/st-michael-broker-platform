@@ -882,7 +882,11 @@ export class ClientFixationService {
         console.error(`[handleRule1Or2Alarm] note failed для лида ${targetLead.id}:`, e?.message || e);
       }
 
-      const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 2393839);
+      // 2026-07-06: КЦ попросил обычную зелёную задачу «Звонок» (taskTypeId=1)
+      // вместо кастомного розового «Аларм» (2393839) — читается легче,
+      // не пугает. Env AMO_ALARM_TASK_TYPE_ID оставлен как override, если
+      // понадобится вернуть красный вид.
+      const ALARM_TASK_TYPE_ID = Number(process.env.AMO_ALARM_TASK_TYPE_ID || 1);
       const taskText = isDelegatedRefix
         ? `Делегированная фиксация: ${broker.fullName} (${broker.phone}) оформил уникальность на клиента ${data.fullName} (${data.phone}) на брокера ${responsibleBroker.fullName} (${responsibleBroker.phone}). Проверить, нужно ли вмешательство КЦ.`
         : isSameBrokerRefix
