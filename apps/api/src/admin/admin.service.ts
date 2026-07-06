@@ -214,7 +214,7 @@ export class AdminService {
     return updated;
   }
 
-  async listBrokers(query: { page?: number; limit?: number; search?: string; role?: string; status?: string; isCoordinator?: string }) {
+  async listBrokers(query: { page?: number; limit?: number; search?: string; role?: string; status?: string; isCoordinator?: string; specialization?: string; category?: string }) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -235,6 +235,17 @@ export class AdminService {
     // 2026-06-29: фильтр по координаторам — string 'true'/'false' из query.
     if (query.isCoordinator === 'true') where.isCoordinator = true;
     if (query.isCoordinator === 'false') where.isCoordinator = false;
+    // 2026-07-06: фильтр по специализации (COMM/RESIDENTIAL/BOTH).
+    // 'UNSET' — брокеры без указанной специализации (null).
+    if (query.specialization === 'UNSET') where.specialization = null;
+    else if (query.specialization && ['COMM', 'RESIDENTIAL', 'BOTH'].includes(query.specialization)) {
+      where.specialization = query.specialization;
+    }
+    // 2026-07-06: фильтр по BrokerCategory (COLD/WARM/HOT/…) — используется
+    // на странице колл-центра.
+    if (query.category && ['COLD', 'WARM', 'HOT', 'CONVERTED', 'ON_BOT_REVIEW', 'BLACKLIST'].includes(query.category)) {
+      where.category = query.category;
+    }
 
     const [brokers, total] = await Promise.all([
       this.prisma.broker.findMany({
@@ -251,6 +262,9 @@ export class AdminService {
           amoContactId: true,
           // 2026-06-29: возвращаем isCoordinator для отображения в списке.
           isCoordinator: true,
+          // 2026-07-06: возвращаем specialization и category — колонка в UI.
+          specialization: true,
+          category: true,
           createdAt: true,
           _count: { select: { clients: true, deals: true, meetings: true, offerAcceptances: true } },
         },
@@ -943,6 +957,9 @@ export class AdminService {
     // currentUserId (передаётся через параметр).
     assignment?: 'mine' | 'unassigned' | 'all' | string;
     currentUserId?: string;
+    // 2026-07-06: фильтр по специализации — чтобы КЦ мог собрать очередь
+    // только коммерческих брокеров (или наоборот только жилой сегмент).
+    specialization?: 'COMM' | 'RESIDENTIAL' | 'BOTH' | 'UNSET' | string;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Number(query.limit) || 30);
@@ -973,6 +990,11 @@ export class AdminService {
       where.assignedManagerId = null;
     }
     // 'all' / пусто — никакого фильтра по assignedManagerId не накладываем.
+    // 2026-07-06: специализация. UNSET — брокеры без указанной специализации.
+    if (query.specialization === 'UNSET') where.specialization = null;
+    else if (query.specialization && ['COMM', 'RESIDENTIAL', 'BOTH'].includes(String(query.specialization))) {
+      where.specialization = query.specialization;
+    }
     // Bug fix 2026-05-22 (#3): не показывать оператору брокеров с
     // запланированным звонком в будущем (например +7 дней).
     // Условие OR: либо никогда не звонили (nextCallAt = null), либо

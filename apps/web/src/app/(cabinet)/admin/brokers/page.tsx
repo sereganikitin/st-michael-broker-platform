@@ -22,6 +22,8 @@ export default function AdminBrokersPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // 2026-07-06: фильтр по специализации (COMM/RESIDENTIAL/BOTH/UNSET).
+  const [specializationFilter, setSpecializationFilter] = useState('');
   // 2026-06-29 (refactor): фильтр по координаторам удалён — флаг убран.
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -40,6 +42,7 @@ export default function AdminBrokersPage() {
     if (search) params.set('search', search);
     if (roleFilter) params.set('role', roleFilter);
     if (statusFilter) params.set('status', statusFilter);
+    if (specializationFilter) params.set('specialization', specializationFilter);
     apiGet(`/admin/brokers?${params}`)
       .then((data) => {
         setBrokers(data.brokers || []);
@@ -50,7 +53,7 @@ export default function AdminBrokersPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchBrokers(); }, [page, roleFilter, statusFilter]);
+  useEffect(() => { fetchBrokers(); }, [page, roleFilter, statusFilter, specializationFilter]);
 
   const handleSearch = (e: React.FormEvent) => { e.preventDefault(); setPage(1); fetchBrokers(); };
 
@@ -151,6 +154,17 @@ export default function AdminBrokersPage() {
             <option value="ACTIVE">Активен</option>
             <option value="PENDING">Ожидает</option>
             <option value="BLOCKED">Заблокирован</option>
+          </select>
+          {/* 2026-07-06: фильтр «Специализация». COMM ставится автоматически
+              при импорте из Google по ключевым словам в комментарии
+              (комм/офис/склад/торговый/нежилой/ритейл и т.п.). UNSET — брокер
+              без указанной специализации. */}
+          <select className="input w-auto" value={specializationFilter} onChange={(e) => { setSpecializationFilter(e.target.value); setPage(1); }}>
+            <option value="">Все специализации</option>
+            <option value="COMM">Коммерция</option>
+            <option value="RESIDENTIAL">Жилая</option>
+            <option value="BOTH">Обе</option>
+            <option value="UNSET">Не указана</option>
           </select>
         </div>
       </div>

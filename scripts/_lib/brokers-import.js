@@ -95,7 +95,16 @@ function mapRow(row) {
     resultStr === 'Отказ от коммуникации' ||
     zorgeStr === 'Просил не звонить';
 
-  return { name, phoneRaw, callFlag, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr };
+  // 2026-07-06: специализация — ищем коммерческие маркеры в комментарии,
+  // имени, поле «Результат». Одного совпадения достаточно, чтобы пометить
+  // брокера как COMM. Иначе null (не трогаем то, что уже стоит в БД).
+  const COMM_KEYWORDS = /(комм(?:ерц|\.|ерческ)|komm|commercial|офис|склад|торгов|нежил|ритейл|retail)/i;
+  const specialization = [comment, name, resultStr, zorgeStr]
+    .some((s) => s && COMM_KEYWORDS.test(String(s)))
+    ? 'COMM'
+    : null;
+
+  return { name, phoneRaw, callFlag, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr, specialization };
 }
 
 function mapCoordRow(row) {
@@ -230,6 +239,12 @@ async function runImport(opts) {
             baseSource,
             doNotCall: existing.doNotCall || c.doNotCall,
             fullName: existing.fullName || c.name || '(без имени)',
+            // 2026-07-06: специализация — если Google говорит COMM, а у нас
+            // ещё не задана, ставим. Не затираем существующее (например
+            // RESIDENTIAL или BOTH — брокер сам мог указать).
+            ...(c.specialization && !existing.specialization
+              ? { specialization: c.specialization }
+              : {}),
           },
         });
         brokerId = existing.id;
@@ -245,6 +260,7 @@ async function runImport(opts) {
             isInBase: true,
             baseSource,
             doNotCall: c.doNotCall,
+            ...(c.specialization ? { specialization: c.specialization } : {}),
           },
         });
         brokerId = created.id;
