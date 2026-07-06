@@ -18,6 +18,7 @@ function cleanClientName(raw: string | null | undefined): string {
 import { CatalogService } from '../catalog/catalog.service';
 import { levelForSqm, rateFor, rateForWithPolicy } from '../commission/commission.service';
 import { GoogleSheetsSyncService } from '../admin/google-sheets-sync.service';
+import { AdminService } from '../admin/admin.service';
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
@@ -28,6 +29,7 @@ export class SchedulerService {
     @InjectQueue('notifications') private notificationQueue: Queue,
     private readonly catalogService: CatalogService,
     private readonly gsheets: GoogleSheetsSyncService,
+    private readonly adminService: AdminService,
   ) {}
 
   // 2026-07-01: каждые 10 минут — автосинк задач-встреч из amoCRM в наши
@@ -287,6 +289,32 @@ export class SchedulerService {
       this.logger.log(`[meetings-status-sync] leads=${byLeadId.size} checked=${checked} updated=${updated} errors=${errors}`);
     } catch (e: any) {
       this.logger.error(`[meetings-status-sync] fatal: ${e?.message || e}`);
+    }
+  }
+
+  // 2026-07-06: раз в сутки — синк брокеров из amoCRM (воронка «БРОКЕРЫ»
+  // pipeline 10787390). Существующие в БД брокеры обновляются в consistent
+  // manner (fullName/email заполняем только если у нас пусто — не перетираем
+  // то, что брокер сам ввёл в кабинете). Новые — создаются со статусом
+  // PENDING. Плюс: у каждого брокера контакт линкуется с amoCRM Company
+  // по ИНН — «Компания» на карточке заполняется автоматически.
+  // Время: 03:00 UTC = 06:00 МСК. Google-синк идёт раньше (02:00 UTC).
+  @Cron('0 3 * * *')
+  async handleAmoBrokersSync() {
+    if (!process.env.AMO_ACCESS_TOKEN) {
+      this.logger.warn('[amo-brokers] AMO_ACCESS_TOKEN не задан — skip');
+      return;
+    }
+    this.logger.log('[amo-brokers] запускаю importBrokersFromAmo...');
+    try {
+      const r = await this.adminService.importBrokersFromAmo();
+      this.logger.log(
+        `[amo-brokers] OK: leads=${r.foundLeads} contacts=${r.uniqueContacts} `
+          + `created=${r.created} updated=${r.updated} skipped=${r.skipped}`
+          + (r.errors?.length ? ` errors=${r.errors.length}` : ''),
+      );
+    } catch (e: any) {
+      this.logger.error(`[amo-brokers] FAILED: ${e?.message || e}`);
     }
   }
 
