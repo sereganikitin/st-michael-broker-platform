@@ -147,6 +147,23 @@ export interface MappedRow {
   doNotCall: boolean;
   resultStr: string;
   zorgeStr: string;
+  // 2026-07-06: специализация из комментария. Если в комментарии
+  // (или в поле «Результат», или в имени) встречается коммерческий
+  // маркер — ставим 'COMM'. Иначе null (residential/both уточним позже).
+  specialization: 'COMM' | 'RESIDENTIAL' | 'BOTH' | null;
+}
+
+// 2026-07-06: паттерн для распознавания «коммерческого» брокера в тексте.
+// Проверяется на комментарии, имени, поле «Результат». Одного вхождения
+// достаточно чтобы пометить брокера как COMM. Слова в нижнем регистре
+// (мы приводим текст к lower перед проверкой).
+const COMM_KEYWORDS = /(комм(?:ерц|\.|ерческ)|komm|commercial|офис|склад|торгов|нежил|ритейл|retail)/i;
+
+export function detectSpecialization(...sources: (string | null | undefined)[]): 'COMM' | null {
+  for (const s of sources) {
+    if (s && COMM_KEYWORDS.test(String(s))) return 'COMM';
+  }
+  return null;
 }
 
 export function mapRow(row: Record<string, unknown>): MappedRow {
@@ -170,7 +187,9 @@ export function mapRow(row: Record<string, unknown>): MappedRow {
     resultStr === 'Отказ от коммуникации' ||
     zorgeStr === 'Просил не звонить';
 
-  return { name, phoneRaw, callFlag, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr };
+  const specialization = detectSpecialization(comment, name, resultStr, zorgeStr);
+
+  return { name, phoneRaw, callFlag, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr, specialization };
 }
 
 export interface Candidate extends MappedRow {
