@@ -252,6 +252,8 @@ function mergeCandidates(a: Candidate, b: Candidate): Candidate {
     doNotCall: a.doNotCall || b.doNotCall,
     resultStr: merge(a.resultStr, b.resultStr),
     zorgeStr: merge(a.zorgeStr, b.zorgeStr),
+    // 2026-07-06: специализация — если хотя бы одна из строк дубля COMM, ставим COMM.
+    specialization: a.specialization || b.specialization,
   };
 }
 
