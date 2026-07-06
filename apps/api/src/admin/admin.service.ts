@@ -495,6 +495,32 @@ export class AdminService {
             });
           }
         }
+
+        // 2026-07-06: если у брокера в amo есть ИНН — привязываем его
+        // контакт к Компании в amoCRM (поле «Компания» в карточке контакта).
+        // Ищем/создаём Company по ИНН, потом linkContactToCompany.
+        // amo не любит повторный link, но кидает 400 — заворачиваем в catch.
+        if (inn) {
+          try {
+            let amoCompanyId: number | null = null;
+            const existingCompany = await this.amo.findCompanyByInn(inn);
+            if (existingCompany?.id) {
+              amoCompanyId = Number(existingCompany.id);
+            } else {
+              const createdCompany = await this.amo.createCompany({
+                name: agencyName || `Агентство ${inn}`,
+              });
+              if (createdCompany?.id) amoCompanyId = Number(createdCompany.id);
+            }
+            if (amoCompanyId) {
+              await this.amo
+                .linkContactToCompany(Number(contactId), amoCompanyId)
+                .catch(() => { /* уже связаны — не критично */ });
+            }
+          } catch (e: any) {
+            errors.push(`Contact ${contactId} company link: ${e?.message || e}`);
+          }
+        }
       } catch (e: any) {
         errors.push(`Contact ${contactId}: ${e.message || e}`);
         skipped++;
