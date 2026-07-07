@@ -87,41 +87,10 @@ export class AnalyticsService {
     };
   }
 
-  async getFunnel(filters: {
-    startDate?: string;
-    endDate?: string;
-    project?: string;
-  }) {
-    const where: any = {};
-    if (filters.startDate) where.createdAt = { ...(where.createdAt || {}), gte: new Date(filters.startDate) };
-    if (filters.endDate) where.createdAt = { ...(where.createdAt || {}), lte: new Date(filters.endDate) };
-
-    const [newBrokers, brokerTour, fixation, meeting, deal] = await Promise.all([
-      this.prisma.broker.count({ where: { ...where, funnelStage: 'NEW_BROKER' } }),
-      this.prisma.broker.count({ where: { ...where, funnelStage: 'BROKER_TOUR' } }),
-      this.prisma.broker.count({ where: { ...where, funnelStage: 'FIXATION' } }),
-      this.prisma.broker.count({ where: { ...where, funnelStage: 'MEETING' } }),
-      this.prisma.broker.count({ where: { ...where, funnelStage: 'DEAL' } }),
-    ]);
-
-    const stages = [
-      { name: 'Новый брокер', stage: 'NEW_BROKER', count: newBrokers },
-      { name: 'Брокер-тур', stage: 'BROKER_TOUR', count: brokerTour },
-      { name: 'Фиксация', stage: 'FIXATION', count: fixation },
-      { name: 'Встреча', stage: 'MEETING', count: meeting },
-      { name: 'Сделка', stage: 'DEAL', count: deal },
-    ];
-
-    const total = stages.reduce((sum, s) => sum + s.count, 0);
-
-    return {
-      stages: stages.map((s) => ({
-        ...s,
-        percentage: total > 0 ? Math.round((s.count / total) * 100) : 0,
-      })),
-      total,
-    };
-  }
+  // 2026-07-07: удалён неиспользуемый метод getFunnel() — эндпоинт
+  // GET /analytics/funnel был мёртвым кодом (фронтенд его не дёргал),
+  // распределение по стадиям воронки живёт внутри getAdminOverview
+  // (funnelByStage).
 
   // Admin overview — implements ТЗ §15.6
   async getAdminOverview(filters: { startDate?: string; endDate?: string }) {
@@ -244,8 +213,14 @@ export class AnalyticsService {
     }
 
     // ─── Funnel stage distribution ───────────────────────
+    // 2026-07-07 (багфикс): раньше воронка считалась за всё время, не
+    // учитывая выбранный период — пользователь выбирал «Месяц», а видел
+    // распределение всех брокеров за всю историю. Теперь фильтруем
+    // группировку по createdAt in [from, to] — цифры совпадают с
+    // «Новых в периоде» и графиком регистраций.
     const funnelGroups = await this.prisma.broker.groupBy({
       by: ['funnelStage'],
+      where: { createdAt: { gte: from, lte: to } },
       _count: true,
     });
     const funnelByStage = funnelGroups.map((f) => ({ stage: f.funnelStage, count: f._count }));
@@ -282,6 +257,7 @@ export class AnalyticsService {
 
     const [
       clientsCreated,
+      uniqueFixations,
       meetingsHeld,
       dealsClosed,
       callsMade,
@@ -289,6 +265,17 @@ export class AnalyticsService {
       this.prisma.client.count({
         where: {
           brokerId,
+          ...(hasDateFilter ? { createdAt: dateFilter } : {}),
+        },
+      }),
+      // 2026-07-07: раньше конверсия считалась как dealsClosed / clientsCreated —
+      // это неправильно: в знаменателе учитывались клиенты в UNDER_REVIEW и
+      // REJECTED, у которых сделки быть не могло в принципе. Теперь считаем
+      // «Фиксация → Сделка»: сколько % уникальных фиксаций дошли до PAID.
+      this.prisma.client.count({
+        where: {
+          brokerId,
+          uniquenessStatus: 'CONDITIONALLY_UNIQUE',
           ...(hasDateFilter ? { createdAt: dateFilter } : {}),
         },
       }),
@@ -321,11 +308,13 @@ export class AnalyticsService {
       },
       metrics: {
         clientsCreated,
+        uniqueFixations,
         meetingsHeld,
         dealsClosed,
         callsMade,
-        conversionRate: clientsCreated > 0
-          ? Math.round((dealsClosed / clientsCreated) * 100)
+        // «% фиксаций, которые дошли до сделки» — правильная воронка брокера.
+        conversionRate: uniqueFixations > 0
+          ? Math.round((dealsClosed / uniqueFixations) * 100)
           : 0,
       },
     };
