@@ -51,5 +51,13 @@ jobs:
             fi
             echo "=== Args: $ARGS ==="
             cd ${{ secrets.DEPLOY_PATH }}
-            eval "docker compose exec -T api node /app/scripts/classify-brokers-specialization.js $ARGS"
+            # 2026-07-07: ANTHROPIC_API_KEY контейнер api сам не подтягивает
+            # из .env (для этого нужен рестарт). Читаем ключ прямо из .env
+            # хоста и пробрасываем в exec через -e — работает без рестарта.
+            ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' .env | cut -d= -f2- | tr -d '\r\n\t "')
+            if [ -z "$ANTHROPIC_API_KEY" ]; then
+              echo "ERR: ANTHROPIC_API_KEY отсутствует в .env — проверь GitHub Secret + deploy.yml"
+              exit 1
+            fi
+            eval "docker compose exec -T -e ANTHROPIC_API_KEY=\"$ANTHROPIC_API_KEY\" api node /app/scripts/classify-brokers-specialization.js $ARGS"
             echo "=== Готово ==="
