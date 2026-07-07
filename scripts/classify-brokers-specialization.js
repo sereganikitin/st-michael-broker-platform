@@ -118,14 +118,17 @@ async function processOne(broker) {
   console.log(`[classify] найдено ${brokers.length} брокеров без specialization`);
 
   const stats = { COMM: 0, RESIDENTIAL: 0, BOTH: 0, UNKNOWN: 0, errors: 0 };
+  const firstErrors = [];
   let done = 0;
 
   for (let i = 0; i < brokers.length; i += CONCURRENCY) {
     const batch = brokers.slice(i, i + CONCURRENCY);
     const results = await Promise.all(batch.map(processOne));
     for (const r of results) {
-      if (r.error) stats.errors++;
-      else if (r.label) stats[r.label] = (stats[r.label] || 0) + 1;
+      if (r.error) {
+        stats.errors++;
+        if (firstErrors.length < 3) firstErrors.push({ id: r.id, error: r.error });
+      } else if (r.label) stats[r.label] = (stats[r.label] || 0) + 1;
     }
     done += batch.length;
     if (done % 100 === 0 || done === brokers.length) {
@@ -135,6 +138,11 @@ async function processOne(broker) {
           + `UNKNOWN=${stats.UNKNOWN} err=${stats.errors}`,
       );
     }
+  }
+
+  if (firstErrors.length > 0) {
+    console.error('[classify] ПЕРВЫЕ ОШИБКИ:');
+    for (const e of firstErrors) console.error(`  ${e.id}: ${e.error}`);
   }
 
   console.log(
