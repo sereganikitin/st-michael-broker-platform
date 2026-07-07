@@ -225,6 +225,81 @@ export class AnalyticsService {
     });
     const funnelByStage = funnelGroups.map((f) => ({ stage: f.funnelStage, count: f._count }));
 
+    // ─── Broker-tour → Fixation → Deal funnel (в периоде) ─
+    // 2026-07-07: сквозная воронка брокер-туров. Показывает, сколько
+    // брокеров, посетивших тур в выбранном периоде, потом сделали
+    // уникальную фиксацию и довели её до сделки. Ключевая метрика для
+    // управления — раньше в аналитике не было вообще.
+    const brokersOnTour = await this.prisma.broker.findMany({
+      where: {
+        brokerTourVisited: true,
+        brokerTourDate: { gte: from, lte: to },
+      },
+      select: { id: true },
+    });
+    const tourBrokerIds = brokersOnTour.map((b) => b.id);
+    let tourWithFixation = 0;
+    let tourWithDeal = 0;
+    if (tourBrokerIds.length > 0) {
+      const [fixationGroups, dealGroups] = await Promise.all([
+        this.prisma.client.groupBy({
+          by: ['brokerId'],
+          where: {
+            brokerId: { in: tourBrokerIds },
+            uniquenessStatus: 'CONDITIONALLY_UNIQUE',
+          },
+        }),
+        this.prisma.deal.groupBy({
+          by: ['brokerId'],
+          where: {
+            brokerId: { in: tourBrokerIds },
+            status: { in: ['PAID', 'COMMISSION_PAID'] },
+          },
+        }),
+      ]);
+      tourWithFixation = fixationGroups.length;
+      tourWithDeal = dealGroups.length;
+    }
+    const brokerTourFunnel = {
+      tourVisited: tourBrokerIds.length,
+      withFixation: tourWithFixation,
+      withDeal: tourWithDeal,
+      toFixationPct: tourBrokerIds.length > 0
+        ? Math.round((tourWithFixation / tourBrokerIds.length) * 100)
+        : 0,
+      toDealPct: tourBrokerIds.length > 0
+        ? Math.round((tourWithDeal / tourBrokerIds.length) * 100)
+        : 0,
+    };
+
+    // ─── Топ-10 брокеров по уникальным фиксациям (в периоде) ─
+    // 2026-07-07: раньше был только топ по комиссии — а нужно видеть кто
+    // приносит фиксации, даже если сделка ещё не закрыта.
+    const topFixationRows = await this.prisma.client.groupBy({
+      by: ['brokerId'],
+      where: {
+        uniquenessStatus: 'CONDITIONALLY_UNIQUE',
+        ...periodFilter,
+      },
+      _count: true,
+      orderBy: { _count: { brokerId: 'desc' } },
+      take: 10,
+    });
+    const fixationBrokerIds = topFixationRows.map((r) => r.brokerId);
+    const fixationBrokerMeta = fixationBrokerIds.length
+      ? await this.prisma.broker.findMany({
+          where: { id: { in: fixationBrokerIds } },
+          select: { id: true, fullName: true, phone: true },
+        })
+      : [];
+    const fixationBrokerMap = new Map(fixationBrokerMeta.map((b) => [b.id, b]));
+    const topFixationBrokers = topFixationRows.map((r) => ({
+      brokerId: r.brokerId,
+      fullName: fixationBrokerMap.get(r.brokerId)?.fullName || '—',
+      phone: fixationBrokerMap.get(r.brokerId)?.phone || '',
+      uniqueFixations: r._count,
+    }));
+
     return {
       period: { from: from.toISOString(), to: to.toISOString() },
       brokers: {
@@ -245,6 +320,10 @@ export class AnalyticsService {
       },
       deals: { funnel: dealsFunnel },
       topBrokers,
+      // 2026-07-07: новые блоки — сквозная воронка брокер-туров и топ по
+      // уникальным фиксациям. UI должен добавить их в /admin/analytics.
+      brokerTourFunnel,
+      topFixationBrokers,
       projects: Object.values(projectStats),
     };
   }
