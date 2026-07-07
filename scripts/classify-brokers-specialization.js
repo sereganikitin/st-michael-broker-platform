@@ -29,7 +29,7 @@ if (!API_KEY) {
   process.exit(2);
 }
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-4-5';
 const CONCURRENCY = 20;
 
 const args = process.argv.slice(2);
