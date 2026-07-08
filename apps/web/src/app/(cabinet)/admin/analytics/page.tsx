@@ -54,8 +54,19 @@ interface Overview {
     toDealPct: number;
   };
   topFixationBrokers: Array<{ brokerId: string; fullName: string; phone: string; uniqueFixations: number }>;
+  bySource: Array<{ source: string; count: number }>;
   projects: Array<{ project: string; totalDeals: number; paidDeals: number; totalAmount: number; totalCommission: number; totalSqm: number }>;
 }
+
+// 2026-07-08: подписи источников для нового блока «Аналитика по источникам».
+const sourceLabels: Record<string, string> = {
+  CRM_MANUAL: 'Внесён вручную',
+  BROKER_CABINET: 'Регистрация через кабинет',
+  PHONE_CALL: 'Позвонил на линию',
+  LANDING_BROKER_TOUR: 'Лендинг: брокер-тур',
+  LANDING_FORM: 'Лендинг: форма',
+  CLOSED_AS_BROKER: 'Закрыт как брокер',
+};
 
 function fmtRub(n: number) {
   return Math.round(n).toLocaleString('ru-RU') + ' ₽';
@@ -223,6 +234,39 @@ export default function AdminAnalyticsPage() {
                 );
               })}
             </div>
+          </div>
+
+          {/* 2026-07-08: Аналитика по источникам брокеров.
+              Broker.source в БД был, но в UI не показывался. Показывает
+              эффективность каналов привлечения — лендинг vs холодный
+              обзвон vs брокер-туры. */}
+          <div className="card mb-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Users className="w-5 h-5 text-accent" /> Новые брокеры по источникам
+            </h2>
+            {(!data.bySource || data.bySource.length === 0) ? (
+              <div className="text-text-muted text-sm">В выбранном периоде нет новых брокеров с указанным источником</div>
+            ) : (
+              <div className="space-y-2">
+                {(() => {
+                  const maxCount = Math.max(...data.bySource.map((s) => s.count), 1);
+                  return data.bySource.map((s) => (
+                    <div key={s.source}>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span>{sourceLabels[s.source] || s.source}</span>
+                        <span className="font-bold text-accent">{s.count}</span>
+                      </div>
+                      <div className="w-full bg-surface-secondary rounded-full h-2">
+                        <div
+                          className="bg-accent rounded-full h-2"
+                          style={{ width: `${Math.round((s.count / maxCount) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
           </div>
 
           {/* 2026-07-07: Сквозная воронка брокер-туров.
