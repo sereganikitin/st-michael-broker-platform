@@ -16,7 +16,9 @@ export class AnalyticsService {
     const [
       totalClients,
       activeFixations,
+      rejectedFixations,
       expiredFixations,
+      delegatedToMe,
       totalDeals,
       pendingDeals,
       paidDeals,
@@ -31,10 +33,23 @@ export class AnalyticsService {
           uniquenessExpiresAt: { gt: new Date() },
         },
       }),
+      // 2026-07-08: считаем «Не уникален» — нужно для % успеха уникальности.
+      this.prisma.client.count({
+        where: { ...clientOwnership, uniquenessStatus: 'REJECTED' },
+      }),
       this.prisma.client.count({
         where: {
           ...clientOwnership,
           uniquenessStatus: 'EXPIRED',
+        },
+      }),
+      // Делегированные КО МНЕ (я responsibleBroker, не создатель). Нужны
+      // отдельным числом, чтобы брокер видел клиентов, которых ведёт от А,
+      // но за которых не получит комиссию.
+      this.prisma.client.count({
+        where: {
+          responsibleBrokerId: brokerId,
+          NOT: { brokerId },
         },
       }),
       this.prisma.deal.count({ where: { brokerId } }),
@@ -65,12 +80,30 @@ export class AnalyticsService {
       },
     });
 
+    // 2026-07-08: % успеха уникальности. Считаем среди «завершённых»
+    // фиксаций (все статусы кроме UNDER_REVIEW) — сколько из них дошли
+    // до CONDITIONALLY_UNIQUE. Показывает, насколько успешно брокер
+    // проходит правила уникальности КЦ.
+    const uniqueFixationsForRatio = await this.prisma.client.count({
+      where: {
+        ...clientOwnership,
+        uniquenessStatus: 'CONDITIONALLY_UNIQUE',
+      },
+    });
+    const finalizedFixations = uniqueFixationsForRatio + rejectedFixations + expiredFixations;
+    const uniquenessSuccessRate = finalizedFixations > 0
+      ? Math.round((uniqueFixationsForRatio / finalizedFixations) * 100)
+      : 0;
+
     return {
       clients: {
         total: totalClients,
         activeFixations,
         expiredFixations,
         expiringFixations,
+        // 2026-07-08: новые метрики
+        uniquenessSuccessRate,   // % «Уникален» среди завершённых фиксаций
+        delegatedToMe,           // клиенты, которых я веду за другого брокера
       },
       deals: {
         total: totalDeals,
@@ -272,6 +305,20 @@ export class AnalyticsService {
         : 0,
     };
 
+    // ─── Аналитика по источникам брокеров (в периоде) ─────
+    // 2026-07-07: Broker.source в БД был, но в аналитике не показывался.
+    // Позволяет оценить эффективность каналов привлечения: лендинг vs
+    // холодный обзвон vs брокер-туры.
+    const sourceGroups = await this.prisma.broker.groupBy({
+      by: ['source'],
+      where: { createdAt: { gte: from, lte: to } },
+      _count: true,
+    });
+    const bySource = sourceGroups
+      .filter((s) => s.source)
+      .map((s) => ({ source: s.source as string, count: s._count }))
+      .sort((a, b) => b.count - a.count);
+
     // ─── Топ-10 брокеров по уникальным фиксациям (в периоде) ─
     // 2026-07-07: раньше был только топ по комиссии — а нужно видеть кто
     // приносит фиксации, даже если сделка ещё не закрыта.
@@ -324,6 +371,7 @@ export class AnalyticsService {
       // уникальным фиксациям. UI должен добавить их в /admin/analytics.
       brokerTourFunnel,
       topFixationBrokers,
+      bySource,
       projects: Object.values(projectStats),
     };
   }
