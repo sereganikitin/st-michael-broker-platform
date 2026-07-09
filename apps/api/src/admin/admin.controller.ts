@@ -197,11 +197,24 @@ export class AdminController {
     return this.adminService.checkAmoHealth();
   }
 
-  // 2026-05-25: заявки без передачи в amo (для менеджеров/координаторов).
-  @Get('amo-failed-clients')
-  @ApiOperation({ summary: 'Клиенты с amoSyncStatus=FAILED — заявки, не переданные в amoCRM' })
-  async amoFailedClients() {
-    return this.adminService.getAmoFailedClients();
+  // 2026-07-09: заменяет старый /admin/amo-failed-clients. Показывает
+  // все заявки от брокеров (Client + Meeting + Call + OfferAcceptance)
+  // с фильтрами по типу, статусу amo, периоду и поиску.
+  // Доступ: MANAGER + ADMIN.
+  @Get('broker-applications')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Все заявки от брокеров: фиксации, встречи, звонки, акцепты' })
+  async brokerApplications(@Query() query: any) {
+    return this.adminService.getBrokerApplications({
+      page: Number(query.page) || 1,
+      limit: Number(query.limit) || 50,
+      type: query.type,
+      amoStatus: query.amoStatus,
+      search: query.search,
+      startDate: query.startDate,
+      endDate: query.endDate,
+    });
   }
 
   @Post('clients/:id/retry-amo-sync')

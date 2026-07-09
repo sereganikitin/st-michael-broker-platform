@@ -41,7 +41,10 @@ const adminNavigation = [
   { name: 'Аналитика платформы', href: '/admin/analytics', icon: BarChart3 },
   { name: 'Колл-центр', href: '/admin/call-center', icon: PhoneCall },
   { name: 'Конфликты уникальности', href: '/admin/uniqueness-conflicts', icon: AlertTriangle },
-  { name: 'Заявки без amoCRM', href: '/admin/amo-failed', icon: AlertTriangle },
+  // 2026-07-09: заменяет «Заявки без amoCRM» — теперь тут все типы
+  // заявок брокеров (фиксации + встречи + звонки + акцепты) с фильтром
+  // по статусу amo. См. /admin/broker-applications.
+  { name: 'Все заявки от брокеров', href: '/admin/broker-applications', icon: AlertTriangle },
   { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
   { name: 'Комиссия — политики', href: '/admin/commission-policies', icon: Calculator },
   { name: 'Управление встречами', href: '/admin/meetings', icon: CalendarPlus },
