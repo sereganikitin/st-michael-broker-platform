@@ -1239,38 +1239,212 @@ export class AdminService {
     return { callLog, broker: updated };
   }
 
-  // 2026-05-25: список заявок не переданных в amoCRM (amoSyncStatus=FAILED).
-  // fixationAgency не имеет prisma-relation на Client (только FK-поле
-  // fixationAgencyId), поэтому Agency грузим отдельным запросом.
-  async getAmoFailedClients() {
-    const clients = await this.prisma.client.findMany({
-      where: { amoSyncStatus: 'FAILED' as any },
-      include: {
-        broker: { select: { id: true, fullName: true, phone: true } },
+  // 2026-07-09: единая страница «Все заявки от брокеров».
+  // Заменяет /admin/amo-failed (там был только Client с FAILED).
+  // Показывает: Client (фиксации) + Meeting (встречи) + Call (звонки клиенту)
+  // + OfferAcceptance (акцепты договоров) — по всем брокерам.
+  // Доступ: MANAGER + ADMIN.
+  //
+  // Стратегия: 4 отдельных запроса (top-500 каждый), мержим в JS,
+  // сортируем по дате, пагинируем в памяти. При росте числа заявок
+  // (>10K в периоде) можно перейти на UNION в raw SQL или отдельный
+  // индекс/view — сейчас достаточно.
+  async getBrokerApplications(query: {
+    page?: number;
+    limit?: number;
+    type?: 'CLIENT' | 'MEETING' | 'CALL' | 'OFFER' | 'ALL' | string;
+    amoStatus?: 'SYNCED' | 'FAILED' | 'PENDING' | 'ALL' | string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+  }) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(200, Number(query.limit) || 50);
+    const type = String(query.type || 'ALL').toUpperCase();
+    const amoStatus = String(query.amoStatus || 'ALL').toUpperCase();
+    const search = (query.search || '').trim();
+    const dateFilter: any = {};
+    if (query.startDate) dateFilter.gte = new Date(query.startDate);
+    if (query.endDate) dateFilter.lte = new Date(query.endDate);
+    const hasDate = Object.keys(dateFilter).length > 0;
+
+    const TOP_PER_TYPE = 500; // top-N по каждому типу до мержа
+
+    // 1) Client (фиксации) — только тут есть amoSync
+    const clientWhere: any = {};
+    if (hasDate) clientWhere.createdAt = dateFilter;
+    if (amoStatus !== 'ALL') clientWhere.amoSyncStatus = amoStatus;
+    if (search) {
+      clientWhere.OR = [
+        { fullName: { contains: search, mode: 'insensitive' } },
+        ...buildPhoneSearchConditions(search),
+      ];
+    }
+    const wantClient = type === 'ALL' || type === 'CLIENT';
+
+    // 2) Meeting (встречи) — amoSync-статуса нет
+    const meetingWhere: any = {};
+    if (hasDate) meetingWhere.createdAt = dateFilter;
+    if (search) {
+      meetingWhere.client = { fullName: { contains: search, mode: 'insensitive' } };
+    }
+    const wantMeeting = type === 'ALL' || type === 'MEETING';
+    // Если фильтр по amoStatus не ALL — встречи не показываем (у них статуса нет).
+    const showMeeting = wantMeeting && (amoStatus === 'ALL');
+
+    // 3) Call (звонки через Mango брокер→клиент) — amoSync-статуса нет
+    const callWhere: any = { clientId: { not: null } }; // только звонки с клиентом
+    if (hasDate) callWhere.createdAt = dateFilter;
+    if (search) {
+      callWhere.client = { fullName: { contains: search, mode: 'insensitive' } };
+    }
+    const wantCall = type === 'ALL' || type === 'CALL';
+    const showCall = wantCall && (amoStatus === 'ALL');
+
+    // 4) OfferAcceptance — акцепты договоров брокером (не клиентом)
+    const offerWhere: any = {};
+    if (hasDate) offerWhere.acceptedAt = dateFilter;
+    if (search) {
+      offerWhere.broker = { fullName: { contains: search, mode: 'insensitive' } };
+    }
+    const wantOffer = type === 'ALL' || type === 'OFFER';
+    const showOffer = wantOffer && (amoStatus === 'ALL');
+
+    const [clients, meetings, calls, offers] = await Promise.all([
+      wantClient
+        ? this.prisma.client.findMany({
+            where: clientWhere,
+            include: {
+              broker: { select: { id: true, fullName: true, phone: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: TOP_PER_TYPE,
+          })
+        : Promise.resolve([]),
+      showMeeting
+        ? this.prisma.meeting.findMany({
+            where: meetingWhere,
+            include: {
+              client: { select: { fullName: true, phone: true } },
+              broker: { select: { id: true, fullName: true, phone: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: TOP_PER_TYPE,
+          })
+        : Promise.resolve([]),
+      showCall
+        ? this.prisma.call.findMany({
+            where: callWhere,
+            include: {
+              client: { select: { fullName: true, phone: true } },
+              broker: { select: { id: true, fullName: true, phone: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: TOP_PER_TYPE,
+          })
+        : Promise.resolve([]),
+      showOffer
+        ? this.prisma.offerAcceptance.findMany({
+            where: offerWhere,
+            include: {
+              broker: { select: { id: true, fullName: true, phone: true } },
+            },
+            orderBy: { acceptedAt: 'desc' },
+            take: TOP_PER_TYPE,
+          })
+        : Promise.resolve([]),
+    ]);
+
+    // Нормализуем к общей форме {type, id, personName, personPhone, date, broker, amoStatus, extra}
+    type App = {
+      type: 'CLIENT' | 'MEETING' | 'CALL' | 'OFFER';
+      id: string;
+      personName: string;
+      personPhone: string;
+      date: Date;
+      broker: { id: string; fullName: string; phone: string } | null;
+      amoStatus: string | null;
+      amoLeadId?: string | null;
+      amoSyncError?: string | null;
+      extra?: any;
+    };
+    const items: App[] = [];
+    for (const c of clients as any[]) {
+      items.push({
+        type: 'CLIENT',
+        id: c.id,
+        personName: c.fullName || '—',
+        personPhone: c.phone || '',
+        date: c.createdAt,
+        broker: c.broker,
+        amoStatus: c.amoSyncStatus || null,
+        amoLeadId: c.amoLeadId ? String(c.amoLeadId) : null,
+        amoSyncError: c.amoSyncError || null,
+        extra: { project: c.project, uniquenessStatus: c.uniquenessStatus },
+      });
+    }
+    for (const m of meetings as any[]) {
+      items.push({
+        type: 'MEETING',
+        id: m.id,
+        personName: m.client?.fullName || '—',
+        personPhone: m.client?.phone || '',
+        date: m.createdAt,
+        broker: m.broker,
+        amoStatus: null,
+        extra: { meetingType: m.type, meetingStatus: m.status, meetingDate: m.date },
+      });
+    }
+    for (const cl of calls as any[]) {
+      items.push({
+        type: 'CALL',
+        id: cl.id,
+        personName: cl.client?.fullName || '—',
+        personPhone: cl.client?.phone || '',
+        date: cl.createdAt,
+        broker: cl.broker,
+        amoStatus: null,
+        extra: { callStatus: cl.status, callResult: cl.result, durationSec: cl.durationSec },
+      });
+    }
+    for (const o of offers as any[]) {
+      items.push({
+        type: 'OFFER',
+        id: o.id,
+        personName: o.broker?.fullName || '—', // акцепт — это про брокера, не клиента
+        personPhone: o.broker?.phone || '',
+        date: o.acceptedAt,
+        broker: o.broker,
+        amoStatus: null,
+        extra: { offerVersion: o.offerVersion, ip: o.ip },
+      });
+    }
+
+    // Сортируем по дате (свежие сверху) и пагинируем.
+    items.sort((a, b) => b.date.getTime() - a.date.getTime());
+    const total = items.length;
+    const skip = (page - 1) * limit;
+    const pageItems = items.slice(skip, skip + limit);
+
+    return {
+      items: pageItems,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+      // Служебная инфа для KPI-бара.
+      countsByType: {
+        CLIENT: items.filter((i) => i.type === 'CLIENT').length,
+        MEETING: items.filter((i) => i.type === 'MEETING').length,
+        CALL: items.filter((i) => i.type === 'CALL').length,
+        OFFER: items.filter((i) => i.type === 'OFFER').length,
       },
-      orderBy: { amoSyncLastAttemptAt: 'desc' },
-      take: 200,
-    });
-    const agencyIds = Array.from(new Set(clients.map((c) => c.fixationAgencyId).filter(Boolean) as string[]));
-    const agencies = agencyIds.length
-      ? await this.prisma.agency.findMany({
-          where: { id: { in: agencyIds } },
-          select: { id: true, name: true, inn: true },
-        })
-      : [];
-    const agencyMap = new Map(agencies.map((a) => [a.id, a]));
-    return clients.map((c) => ({
-      id: c.id,
-      fullName: c.fullName,
-      phone: c.phone,
-      project: c.project,
-      broker: c.broker,
-      agency: c.fixationAgencyId ? agencyMap.get(c.fixationAgencyId) || null : null,
-      amoSyncError: c.amoSyncError,
-      amoSyncAttempts: c.amoSyncAttempts,
-      amoSyncLastAttemptAt: c.amoSyncLastAttemptAt,
-      createdAt: c.createdAt,
-    }));
+      countsByAmoStatus: {
+        SYNCED: items.filter((i) => i.amoStatus === 'SYNCED').length,
+        FAILED: items.filter((i) => i.amoStatus === 'FAILED').length,
+        PENDING: items.filter((i) => i.amoStatus === 'PENDING').length,
+      },
+    };
   }
 
   // 2026-05-25: ручной retry — менеджер видит FAILED-заявку и нажимает «повторить».
