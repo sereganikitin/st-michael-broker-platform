@@ -151,6 +151,10 @@ export interface MappedRow {
   // (или в поле «Результат», или в имени) встречается коммерческий
   // маркер — ставим 'COMM'. Иначе null (residential/both уточним позже).
   specialization: 'COMM' | 'RESIDENTIAL' | 'BOTH' | null;
+  // 2026-07-09: региональный признак — КЦ в комментариях пишет что
+  // брокер из региона. Отдельно от specialization: региональный может
+  // быть коммерческим или жилым — это разные оси.
+  isRegional: boolean;
 }
 
 // 2026-07-06: паттерн для распознавания «коммерческого» брокера в тексте.
@@ -158,12 +162,24 @@ export interface MappedRow {
 // достаточно чтобы пометить брокера как COMM. Слова в нижнем регистре
 // (мы приводим текст к lower перед проверкой).
 const COMM_KEYWORDS = /(комм(?:ерц|\.|ерческ)|komm|commercial|офис|склад|торгов|нежил|ритейл|retail)/i;
+// 2026-07-09: региональный брокер. Ключевые слова: «региональ», «регион»,
+// «из региона», «регионал». Плюс — фразы про конкретный город часто
+// сопровождаются словом «регион», поэтому названия городов НЕ парсим —
+// оставляем это как отдельный признак без географической детализации.
+const REGIONAL_KEYWORDS = /(регион(?:аль|ы|а|)?|из\s+регион|региональ)/i;
 
 export function detectSpecialization(...sources: (string | null | undefined)[]): 'COMM' | null {
   for (const s of sources) {
     if (s && COMM_KEYWORDS.test(String(s))) return 'COMM';
   }
   return null;
+}
+
+export function detectRegional(...sources: (string | null | undefined)[]): boolean {
+  for (const s of sources) {
+    if (s && REGIONAL_KEYWORDS.test(String(s))) return true;
+  }
+  return false;
 }
 
 export function mapRow(row: Record<string, unknown>): MappedRow {
@@ -188,8 +204,9 @@ export function mapRow(row: Record<string, unknown>): MappedRow {
     zorgeStr === 'Просил не звонить';
 
   const specialization = detectSpecialization(comment, name, resultStr, zorgeStr);
+  const isRegional = detectRegional(comment, name, resultStr, zorgeStr);
 
-  return { name, phoneRaw, callFlag, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr, specialization };
+  return { name, phoneRaw, callFlag, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr, specialization, isRegional };
 }
 
 export interface Candidate extends MappedRow {
@@ -254,6 +271,8 @@ function mergeCandidates(a: Candidate, b: Candidate): Candidate {
     zorgeStr: merge(a.zorgeStr, b.zorgeStr),
     // 2026-07-06: специализация — если хотя бы одна из строк дубля COMM, ставим COMM.
     specialization: a.specialization || b.specialization,
+    // 2026-07-09: региональный — OR по дублям (одна строка сказала регион → регионал).
+    isRegional: a.isRegional || b.isRegional,
   };
 }
 
