@@ -214,7 +214,7 @@ export class AdminService {
     return updated;
   }
 
-  async listBrokers(query: { page?: number; limit?: number; search?: string; role?: string; status?: string; isCoordinator?: string; specialization?: string; category?: string }) {
+  async listBrokers(query: { page?: number; limit?: number; search?: string; role?: string; status?: string; isCoordinator?: string; specialization?: 'COMM' | 'RESIDENTIAL' | 'BOTH' | 'REGIONAL' | 'UNSET' | string; category?: string }) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -237,7 +237,10 @@ export class AdminService {
     if (query.isCoordinator === 'false') where.isCoordinator = false;
     // 2026-07-06: фильтр по специализации (COMM/RESIDENTIAL/BOTH).
     // 'UNSET' — брокеры без указанной специализации (null).
-    if (query.specialization === 'UNSET') where.specialization = null;
+    // 2026-07-09: 'REGIONAL' — региональный брокер (isRegional=true). Не
+    // тип недвижимости, но живёт в том же селекте UI для удобства.
+    if (query.specialization === 'REGIONAL') where.isRegional = true;
+    else if (query.specialization === 'UNSET') where.specialization = null;
     else if (query.specialization && ['COMM', 'RESIDENTIAL', 'BOTH'].includes(query.specialization)) {
       where.specialization = query.specialization;
     }
@@ -265,6 +268,8 @@ export class AdminService {
           // 2026-07-06: возвращаем specialization и category — колонка в UI.
           specialization: true,
           category: true,
+          // 2026-07-09: региональный признак — покажется бейджем в списке.
+          isRegional: true,
           createdAt: true,
           _count: { select: { clients: true, deals: true, meetings: true, offerAcceptances: true } },
         },
@@ -959,7 +964,7 @@ export class AdminService {
     currentUserId?: string;
     // 2026-07-06: фильтр по специализации — чтобы КЦ мог собрать очередь
     // только коммерческих брокеров (или наоборот только жилой сегмент).
-    specialization?: 'COMM' | 'RESIDENTIAL' | 'BOTH' | 'UNSET' | string;
+    specialization?: 'COMM' | 'RESIDENTIAL' | 'BOTH' | 'REGIONAL' | 'UNSET' | string;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Number(query.limit) || 30);
@@ -991,7 +996,9 @@ export class AdminService {
     }
     // 'all' / пусто — никакого фильтра по assignedManagerId не накладываем.
     // 2026-07-06: специализация. UNSET — брокеры без указанной специализации.
-    if (query.specialization === 'UNSET') where.specialization = null;
+    // 2026-07-09: REGIONAL — региональный признак, живёт в том же селекте.
+    if (query.specialization === 'REGIONAL') where.isRegional = true;
+    else if (query.specialization === 'UNSET') where.specialization = null;
     else if (query.specialization && ['COMM', 'RESIDENTIAL', 'BOTH'].includes(String(query.specialization))) {
       where.specialization = query.specialization;
     }

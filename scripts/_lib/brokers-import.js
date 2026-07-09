@@ -104,7 +104,14 @@ function mapRow(row) {
     ? 'COMM'
     : null;
 
-  return { name, phoneRaw, callFlag, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr, specialization };
+  // 2026-07-09: региональный признак — КЦ пишет «регион», «региональ» в
+  // комментарии. Отдельно от specialization: региональный может быть
+  // одновременно коммерческим или жилым.
+  const REGIONAL_KEYWORDS = /(регион(?:аль|ы|а|)?|из\s+регион|региональ)/i;
+  const isRegional = [comment, name, resultStr, zorgeStr]
+    .some((s) => s && REGIONAL_KEYWORDS.test(String(s)));
+
+  return { name, phoneRaw, callFlag, category, callResult: mapped.result, zorgeResult, comment, doNotCall, resultStr, zorgeStr, specialization, isRegional };
 }
 
 function mapCoordRow(row) {
@@ -245,6 +252,13 @@ async function runImport(opts) {
             ...(c.specialization && !existing.specialization
               ? { specialization: c.specialization }
               : {}),
+            // 2026-07-09: региональный признак — OR. Если Google сказал
+            // regional и у нас ещё false — ставим true. Обратно не
+            // «размагничиваем»: если брокер уже помечен как регионал,
+            // отсутствие ключевого слова в новой строке не сбрасывает.
+            ...(c.isRegional && !existing.isRegional
+              ? { isRegional: true }
+              : {}),
           },
         });
         brokerId = existing.id;
@@ -261,6 +275,7 @@ async function runImport(opts) {
             baseSource,
             doNotCall: c.doNotCall,
             ...(c.specialization ? { specialization: c.specialization } : {}),
+            ...(c.isRegional ? { isRegional: true } : {}),
           },
         });
         brokerId = created.id;

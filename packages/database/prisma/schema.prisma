@@ -273,6 +273,11 @@ model Broker {
   category               BrokerCategory           @default(COLD)
   specialization         BrokerSpecialization?
   region                 String? // MSK / SPB / OTHER
+  // 2026-07-09: пометка «региональный» — КЦ в комментариях пишет что
+  // брокер из региона (регекс парсит «регион», «региональ»). Хранится
+  // как отдельный признак, не как значение specialization: региональный
+  // брокер может параллельно быть коммерческим или жилым.
+  isRegional             Boolean                  @default(false) @map("is_regional")
   isCoordinator          Boolean                  @default(false) @map("is_coordinator")
   coordinatorAgency      String?                  @map("coordinator_agency")
   lastCallAt             DateTime?                @map("last_call_at")

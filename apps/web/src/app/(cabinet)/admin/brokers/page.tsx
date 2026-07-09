@@ -164,6 +164,9 @@ export default function AdminBrokersPage() {
             <option value="COMM">Коммерция</option>
             <option value="RESIDENTIAL">Жилая</option>
             <option value="BOTH">Обе</option>
+            {/* 2026-07-09: региональный — отдельный признак, но фильтр
+                живёт в том же селекте (по решению пользователя). */}
+            <option value="REGIONAL">Региональный</option>
             <option value="UNSET">Не указана</option>
           </select>
         </div>

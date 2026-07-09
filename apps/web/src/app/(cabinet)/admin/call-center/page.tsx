@@ -288,6 +288,7 @@ export default function AdminCallCenterPage() {
             <option value="COMM">Коммерция</option>
             <option value="RESIDENTIAL">Жилая</option>
             <option value="BOTH">Обе</option>
+            <option value="REGIONAL">Региональный</option>
             <option value="UNSET">Не указана</option>
           </select>
           <select className="input w-auto" value={coordinatorsFilter} onChange={(e) => { setCoordinatorsFilter(e.target.value as any); setPage(1); }}>
