@@ -1340,12 +1340,17 @@ export class AdminService {
     // 5) Login — регистрации / реактивации аккаунтов брокеров. Одна строка на
     //    брокера: либо REGISTERED (createdAt), либо REACTIVATED (reactivatedAt)
     //    — что позже, то и берём. Бэйдж «без оферты» ставим отдельно.
+    //
+    // 2026-07-10: исключаем брокеров, попавших в БД через импорт
+    //    (baseSource = google_sheet / amocrm / manual) — у них createdAt
+    //    это дата импорта, а не реальный заход в кабинет. Показываем только
+    //    тех, кто сам зарегистрировался (baseSource == null).
     const loginWhereOr: any[] = [];
     if (hasDate) {
       loginWhereOr.push({ createdAt: dateFilter });
       loginWhereOr.push({ reactivatedAt: dateFilter });
     }
-    const loginWhere: any = {};
+    const loginWhere: any = { baseSource: null };
     if (loginWhereOr.length) loginWhere.OR = loginWhereOr;
     if (search) {
       loginWhere.AND = [
