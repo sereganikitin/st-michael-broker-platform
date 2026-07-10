@@ -328,7 +328,17 @@ export class AdminService {
   }
 
   async changeStatus(id: string, status: 'ACTIVE' | 'BLOCKED' | 'PENDING') {
-    return this.prisma.broker.update({ where: { id }, data: { status: status as any } });
+    // 2026-07-10: если возвращаем аккаунт в ACTIVE из закрытого/заблокированного,
+    // ставим reactivatedAt — этот факт выводится на /admin/broker-applications,
+    // вкладка «Заходы».
+    const current = await this.prisma.broker.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    const wasClosed = current && current.status !== 'ACTIVE';
+    const data: any = { status };
+    if (status === 'ACTIVE' && wasClosed) data.reactivatedAt = new Date();
+    return this.prisma.broker.update({ where: { id }, data });
   }
 
   async brokerDeals(brokerId: string, query: any) {
@@ -1252,16 +1262,33 @@ export class AdminService {
   async getBrokerApplications(query: {
     page?: number;
     limit?: number;
-    type?: 'CLIENT' | 'MEETING' | 'CALL' | 'OFFER' | 'ALL' | string;
-    amoStatus?: 'SYNCED' | 'FAILED' | 'PENDING' | 'ALL' | string;
+    // Мультиселект: строки-CSV ("CLIENT,MEETING") или строки-массивы.
+    // ALL / пусто = все типы (эквивалентно передаче всех).
+    type?: string;
+    amoStatus?: string;
     search?: string;
     startDate?: string;
     endDate?: string;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(200, Number(query.limit) || 50);
-    const type = String(query.type || 'ALL').toUpperCase();
-    const amoStatus = String(query.amoStatus || 'ALL').toUpperCase();
+    const ALL_TYPES = ['CLIENT', 'MEETING', 'CALL', 'OFFER', 'LOGIN'] as const;
+    const ALL_STATUSES = ['SYNCED', 'FAILED', 'PENDING'] as const;
+    // Парсим CSV или одиночную строку. Пусто/ALL — берём все.
+    const parseSet = (raw: string | undefined, fallback: readonly string[]): Set<string> => {
+      if (!raw) return new Set(fallback);
+      const parts = String(raw)
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+      if (!parts.length || parts.includes('ALL')) return new Set(fallback);
+      return new Set(parts);
+    };
+    const types = parseSet(query.type, ALL_TYPES);
+    const amoStatuses = parseSet(query.amoStatus, ALL_STATUSES);
+    // Если пользователь оставил все статусы — считаем, что фильтр «выключен»
+    // (показываем и заявки без amo-статуса: встречи/звонки/акцепты/логины).
+    const amoStatusFilterOn = amoStatuses.size < ALL_STATUSES.length;
     const search = (query.search || '').trim();
     const dateFilter: any = {};
     if (query.startDate) dateFilter.gte = new Date(query.startDate);
@@ -1273,14 +1300,14 @@ export class AdminService {
     // 1) Client (фиксации) — только тут есть amoSync
     const clientWhere: any = {};
     if (hasDate) clientWhere.createdAt = dateFilter;
-    if (amoStatus !== 'ALL') clientWhere.amoSyncStatus = amoStatus;
+    if (amoStatusFilterOn) clientWhere.amoSyncStatus = { in: Array.from(amoStatuses) };
     if (search) {
       clientWhere.OR = [
         { fullName: { contains: search, mode: 'insensitive' } },
         ...buildPhoneSearchConditions(search),
       ];
     }
-    const wantClient = type === 'ALL' || type === 'CLIENT';
+    const wantClient = types.has('CLIENT');
 
     // 2) Meeting (встречи) — amoSync-статуса нет
     const meetingWhere: any = {};
@@ -1288,9 +1315,9 @@ export class AdminService {
     if (search) {
       meetingWhere.client = { fullName: { contains: search, mode: 'insensitive' } };
     }
-    const wantMeeting = type === 'ALL' || type === 'MEETING';
-    // Если фильтр по amoStatus не ALL — встречи не показываем (у них статуса нет).
-    const showMeeting = wantMeeting && (amoStatus === 'ALL');
+    const wantMeeting = types.has('MEETING');
+    // Если включён фильтр по amoStatus — встречи не показываем (у них статуса нет).
+    const showMeeting = wantMeeting && !amoStatusFilterOn;
 
     // 3) Call (звонки через Mango брокер→клиент) — amoSync-статуса нет
     const callWhere: any = { clientId: { not: null } }; // только звонки с клиентом
@@ -1298,8 +1325,8 @@ export class AdminService {
     if (search) {
       callWhere.client = { fullName: { contains: search, mode: 'insensitive' } };
     }
-    const wantCall = type === 'ALL' || type === 'CALL';
-    const showCall = wantCall && (amoStatus === 'ALL');
+    const wantCall = types.has('CALL');
+    const showCall = wantCall && !amoStatusFilterOn;
 
     // 4) OfferAcceptance — акцепты договоров брокером (не клиентом)
     const offerWhere: any = {};
@@ -1307,10 +1334,33 @@ export class AdminService {
     if (search) {
       offerWhere.broker = { fullName: { contains: search, mode: 'insensitive' } };
     }
-    const wantOffer = type === 'ALL' || type === 'OFFER';
-    const showOffer = wantOffer && (amoStatus === 'ALL');
+    const wantOffer = types.has('OFFER');
+    const showOffer = wantOffer && !amoStatusFilterOn;
 
-    const [clients, meetings, calls, offers] = await Promise.all([
+    // 5) Login — регистрации / реактивации аккаунтов брокеров. Одна строка на
+    //    брокера: либо REGISTERED (createdAt), либо REACTIVATED (reactivatedAt)
+    //    — что позже, то и берём. Бэйдж «без оферты» ставим отдельно.
+    const loginWhereOr: any[] = [];
+    if (hasDate) {
+      loginWhereOr.push({ createdAt: dateFilter });
+      loginWhereOr.push({ reactivatedAt: dateFilter });
+    }
+    const loginWhere: any = {};
+    if (loginWhereOr.length) loginWhere.OR = loginWhereOr;
+    if (search) {
+      loginWhere.AND = [
+        {
+          OR: [
+            { fullName: { contains: search, mode: 'insensitive' } },
+            ...buildPhoneSearchConditions(search),
+          ],
+        },
+      ];
+    }
+    const wantLogin = types.has('LOGIN');
+    const showLogin = wantLogin && !amoStatusFilterOn;
+
+    const [clients, meetings, calls, offers, logins] = await Promise.all([
       wantClient
         ? this.prisma.client.findMany({
             where: clientWhere,
@@ -1353,11 +1403,26 @@ export class AdminService {
             take: TOP_PER_TYPE,
           })
         : Promise.resolve([]),
+      showLogin
+        ? this.prisma.broker.findMany({
+            where: loginWhere,
+            select: {
+              id: true,
+              fullName: true,
+              phone: true,
+              createdAt: true,
+              reactivatedAt: true,
+              _count: { select: { offerAcceptances: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: TOP_PER_TYPE,
+          })
+        : Promise.resolve([]),
     ]);
 
     // Нормализуем к общей форме {type, id, personName, personPhone, date, broker, amoStatus, extra}
     type App = {
-      type: 'CLIENT' | 'MEETING' | 'CALL' | 'OFFER';
+      type: 'CLIENT' | 'MEETING' | 'CALL' | 'OFFER' | 'LOGIN';
       id: string;
       personName: string;
       personPhone: string;
@@ -1366,6 +1431,7 @@ export class AdminService {
       amoStatus: string | null;
       amoLeadId?: string | null;
       amoSyncError?: string | null;
+      // Для LOGIN.subType: 'REGISTERED' | 'REACTIVATED', badges: ['NO_OFFER'] и т.п.
       extra?: any;
     };
     const items: App[] = [];
@@ -1419,6 +1485,25 @@ export class AdminService {
         extra: { offerVersion: o.offerVersion, ip: o.ip },
       });
     }
+    for (const b of logins as any[]) {
+      // Если у брокера есть reactivatedAt — это реактивация, дата = reactivatedAt.
+      // Иначе — регистрация, дата = createdAt.
+      const isReactivation = !!b.reactivatedAt;
+      const noOffer = (b._count?.offerAcceptances || 0) === 0;
+      items.push({
+        type: 'LOGIN',
+        id: b.id,
+        personName: b.fullName || '—',
+        personPhone: b.phone || '',
+        date: isReactivation ? b.reactivatedAt : b.createdAt,
+        broker: { id: b.id, fullName: b.fullName, phone: b.phone },
+        amoStatus: null,
+        extra: {
+          subType: isReactivation ? 'REACTIVATED' : 'REGISTERED',
+          noOffer,
+        },
+      });
+    }
 
     // Сортируем по дате (свежие сверху) и пагинируем.
     items.sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -1438,6 +1523,7 @@ export class AdminService {
         MEETING: items.filter((i) => i.type === 'MEETING').length,
         CALL: items.filter((i) => i.type === 'CALL').length,
         OFFER: items.filter((i) => i.type === 'OFFER').length,
+        LOGIN: items.filter((i) => i.type === 'LOGIN').length,
       },
       countsByAmoStatus: {
         SYNCED: items.filter((i) => i.amoStatus === 'SYNCED').length,

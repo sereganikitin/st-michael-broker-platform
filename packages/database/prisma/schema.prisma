@@ -306,6 +306,10 @@ model Broker {
   favoriteLots           FavoriteLot[]
   createdAt              DateTime                 @default(now()) @map("created_at")
   updatedAt              DateTime                 @updatedAt @map("updated_at")
+  // 2026-07-10: момент повторной активации аккаунта — ставится когда админ
+  // переводит status из BLOCKED/CLOSED обратно в ACTIVE. Используется на
+  // /admin/broker-applications, вкладка «Заходы».
+  reactivatedAt          DateTime?                @map("reactivated_at")
 
   @@index([category])
   @@index([nextCallAt])
