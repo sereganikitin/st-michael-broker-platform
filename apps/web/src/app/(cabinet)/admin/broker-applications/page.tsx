@@ -1,8 +1,8 @@
 'use client';
 
 // 2026-07-09: заменяет /admin/amo-failed. Единая страница со всеми заявками
-// от брокеров (Client + Meeting + Call + OfferAcceptance) — с фильтрами
-// по типу заявки, статусу amo-синка, периоду и поиском.
+// от брокеров (Client + Meeting + Call + OfferAcceptance + Login) — с
+// мультиселект-фильтрами по типу заявки, статусу amo-синка, периоду и поиском.
 // Доступ: MANAGER + ADMIN.
 
 import { useEffect, useState } from 'react';
@@ -10,13 +10,16 @@ import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import {
   AlertTriangle, RefreshCw, Search, ChevronLeft, ChevronRight,
-  User, HeartHandshake, Phone as PhoneIcon, FileCheck, Building,
+  User, HeartHandshake, Phone as PhoneIcon, FileCheck, LogIn,
   CheckCircle2, XCircle, Clock,
 } from 'lucide-react';
 import AmoHealthBanner from '@/components/AmoHealthBanner';
 
+type AppType = 'CLIENT' | 'MEETING' | 'CALL' | 'OFFER' | 'LOGIN';
+type AmoStatus = 'SYNCED' | 'FAILED' | 'PENDING';
+
 type Application = {
-  type: 'CLIENT' | 'MEETING' | 'CALL' | 'OFFER';
+  type: AppType;
   id: string;
   personName: string;
   personPhone: string;
@@ -34,15 +37,19 @@ type Response = {
   page: number;
   limit: number;
   totalPages: number;
-  countsByType: { CLIENT: number; MEETING: number; CALL: number; OFFER: number };
+  countsByType: { CLIENT: number; MEETING: number; CALL: number; OFFER: number; LOGIN: number };
   countsByAmoStatus: { SYNCED: number; FAILED: number; PENDING: number };
 };
 
-const typeLabels: Record<string, { label: string; Icon: any; color: string }> = {
+const ALL_TYPES: AppType[] = ['CLIENT', 'MEETING', 'CALL', 'OFFER', 'LOGIN'];
+const ALL_STATUSES: AmoStatus[] = ['SYNCED', 'FAILED', 'PENDING'];
+
+const typeLabels: Record<AppType, { label: string; Icon: any; color: string }> = {
   CLIENT: { label: 'Фиксация', Icon: User, color: 'text-accent' },
   MEETING: { label: 'Встреча', Icon: HeartHandshake, color: 'text-success' },
   CALL: { label: 'Звонок', Icon: PhoneIcon, color: 'text-info' },
   OFFER: { label: 'Акцепт', Icon: FileCheck, color: 'text-warning' },
+  LOGIN: { label: 'Заход', Icon: LogIn, color: 'text-info' },
 };
 
 const fmtDate = (s: string | null | undefined) =>
@@ -56,6 +63,14 @@ const formatPhone = (phone: string | null | undefined): string => {
   return `+7 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7, 9)}-${d.slice(9, 11)}`;
 };
 
+// Хелпер тумблера чекбоксов в Set (не мутирует).
+const toggle = <T,>(set: Set<T>, item: T): Set<T> => {
+  const next = new Set(set);
+  if (next.has(item)) next.delete(item);
+  else next.add(item);
+  return next;
+};
+
 export default function BrokerApplicationsPage() {
   const { broker } = useAuth();
   const [data, setData] = useState<Response | null>(null);
@@ -63,8 +78,9 @@ export default function BrokerApplicationsPage() {
   const [retrying, setRetrying] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
   const [page, setPage] = useState(1);
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'CLIENT' | 'MEETING' | 'CALL' | 'OFFER'>('ALL');
-  const [amoStatusFilter, setAmoStatusFilter] = useState<'ALL' | 'SYNCED' | 'FAILED' | 'PENDING'>('ALL');
+  // Мультиселект: изначально все включены = «все».
+  const [typeFilter, setTypeFilter] = useState<Set<AppType>>(new Set(ALL_TYPES));
+  const [amoStatusFilter, setAmoStatusFilter] = useState<Set<AmoStatus>>(new Set(ALL_STATUSES));
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
 
@@ -77,9 +93,14 @@ export default function BrokerApplicationsPage() {
     const params = new URLSearchParams({
       page: String(page),
       limit: '50',
-      type: typeFilter,
-      amoStatus: amoStatusFilter,
     });
+    // Передаём CSV, пустой = все (backend поймёт).
+    if (typeFilter.size < ALL_TYPES.length) {
+      params.set('type', Array.from(typeFilter).join(','));
+    }
+    if (amoStatusFilter.size < ALL_STATUSES.length) {
+      params.set('amoStatus', Array.from(amoStatusFilter).join(','));
+    }
     if (search) params.set('search', search);
     apiGet<Response>(`/admin/broker-applications?${params}`)
       .then((d) => setData(d))
@@ -103,6 +124,8 @@ export default function BrokerApplicationsPage() {
     setRetrying(null);
   };
 
+  const amoStatusFilterOn = amoStatusFilter.size < ALL_STATUSES.length;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -111,7 +134,7 @@ export default function BrokerApplicationsPage() {
             <AlertTriangle className="w-7 h-7 text-accent" /> Все заявки от брокеров
           </h1>
           <div className="text-text-muted text-sm mt-1">
-            Фиксации клиентов, встречи, звонки и акцепты договоров — по всем брокерам.
+            Фиксации клиентов, встречи, звонки, акцепты оферты и заходы брокеров на платформу.
           </div>
         </div>
       </div>
@@ -122,17 +145,22 @@ export default function BrokerApplicationsPage() {
         <div className="mb-4 p-3 rounded-lg bg-info/20 text-info text-sm">{msg}</div>
       )}
 
-      {/* KPI-бар */}
+      {/* KPI-бар: клик по карточке = быстрая переключалка «только этот тип». */}
       {data && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          {(['CLIENT', 'MEETING', 'CALL', 'OFFER'] as const).map((t) => {
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+          {ALL_TYPES.map((t) => {
             const meta = typeLabels[t];
             const count = data.countsByType[t] || 0;
+            // «Активна» = только этот тип выбран (одиночка).
+            const isSolo = typeFilter.size === 1 && typeFilter.has(t);
             return (
               <button
                 key={t}
-                onClick={() => { setTypeFilter(t); setPage(1); }}
-                className={`card text-left transition ${typeFilter === t ? 'ring-2 ring-accent' : ''}`}
+                onClick={() => {
+                  setTypeFilter(new Set([t]));
+                  setPage(1);
+                }}
+                className={`card text-left transition ${isSolo ? 'ring-2 ring-accent' : ''}`}
               >
                 <div className="flex items-center gap-2 mb-1">
                   <meta.Icon className={`w-4 h-4 ${meta.color}`} />
@@ -146,47 +174,112 @@ export default function BrokerApplicationsPage() {
       )}
 
       {/* Фильтры */}
-      <div className="card mb-4">
-        <div className="flex flex-col md:flex-row gap-3">
-          <form
-            onSubmit={(e) => { e.preventDefault(); setSearch(searchInput); setPage(1); }}
-            className="flex-1 min-w-0 relative"
+      <div className="card mb-4 space-y-3">
+        <form
+          onSubmit={(e) => { e.preventDefault(); setSearch(searchInput); setPage(1); }}
+          className="relative"
+        >
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+          <input
+            className="input pl-10"
+            placeholder="Поиск по ФИО или телефону..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </form>
+
+        {/* Мультиселект по типу — пилюли-чекбоксы. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-text-muted mr-1">Тип:</span>
+          <button
+            type="button"
+            onClick={() => { setTypeFilter(new Set(ALL_TYPES)); setPage(1); }}
+            className={`text-xs px-3 py-1 rounded-full border transition ${
+              typeFilter.size === ALL_TYPES.length
+                ? 'bg-accent text-white border-accent'
+                : 'border-border text-text-muted hover:border-accent'
+            }`}
           >
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-            <input
-              className="input pl-10"
-              placeholder="Поиск по ФИО или телефону..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-            />
-          </form>
-          <select
-            className="input w-auto"
-            value={typeFilter}
-            onChange={(e) => { setTypeFilter(e.target.value as any); setPage(1); }}
-          >
-            <option value="ALL">Все типы</option>
-            <option value="CLIENT">Фиксации</option>
-            <option value="MEETING">Встречи</option>
-            <option value="CALL">Звонки</option>
-            <option value="OFFER">Акцепты</option>
-          </select>
-          <select
-            className="input w-auto"
-            value={amoStatusFilter}
-            onChange={(e) => { setAmoStatusFilter(e.target.value as any); setPage(1); }}
-          >
-            <option value="ALL">Все статусы amo</option>
-            <option value="SYNCED">Синхронизировано</option>
-            <option value="FAILED">Ошибка синка</option>
-            <option value="PENDING">В очереди</option>
-          </select>
+            Все
+          </button>
+          {ALL_TYPES.map((t) => {
+            const meta = typeLabels[t];
+            const active = typeFilter.has(t) && typeFilter.size < ALL_TYPES.length;
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  setTypeFilter((prev) => {
+                    // Если сейчас включены все — начинаем с этого одного.
+                    if (prev.size === ALL_TYPES.length) return new Set([t]);
+                    const next = toggle(prev, t);
+                    // Не даём выключить всё — если пусто, возвращаем «все».
+                    return next.size === 0 ? new Set(ALL_TYPES) : next;
+                  });
+                  setPage(1);
+                }}
+                className={`text-xs px-3 py-1 rounded-full border flex items-center gap-1 transition ${
+                  active
+                    ? 'bg-accent text-white border-accent'
+                    : 'border-border text-text-muted hover:border-accent'
+                }`}
+              >
+                <meta.Icon className="w-3 h-3" />
+                {meta.label}
+              </button>
+            );
+          })}
         </div>
-        {data && amoStatusFilter === 'ALL' && (
-          <div className="flex gap-4 mt-3 text-xs text-text-muted">
+
+        {/* Мультиселект по статусу amo. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-text-muted mr-1">Статус amo:</span>
+          <button
+            type="button"
+            onClick={() => { setAmoStatusFilter(new Set(ALL_STATUSES)); setPage(1); }}
+            className={`text-xs px-3 py-1 rounded-full border transition ${
+              !amoStatusFilterOn
+                ? 'bg-accent text-white border-accent'
+                : 'border-border text-text-muted hover:border-accent'
+            }`}
+          >
+            Все
+          </button>
+          {ALL_STATUSES.map((s) => {
+            const active = amoStatusFilter.has(s) && amoStatusFilterOn;
+            const label = s === 'SYNCED' ? 'Синк' : s === 'FAILED' ? 'Ошибка' : 'Очередь';
+            const cls =
+              s === 'SYNCED' ? 'text-success' : s === 'FAILED' ? 'text-error' : 'text-warning';
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => {
+                  setAmoStatusFilter((prev) => {
+                    if (prev.size === ALL_STATUSES.length) return new Set([s]);
+                    const next = toggle(prev, s);
+                    return next.size === 0 ? new Set(ALL_STATUSES) : next;
+                  });
+                  setPage(1);
+                }}
+                className={`text-xs px-3 py-1 rounded-full border flex items-center gap-1 transition ${
+                  active
+                    ? 'bg-accent text-white border-accent'
+                    : `border-border ${cls} hover:border-accent`
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {data && !amoStatusFilterOn && (
+          <div className="flex gap-4 text-xs text-text-muted pt-1 border-t border-border">
             <span className="flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3 text-success" />
-              Синхронизировано: <b className="text-success">{data.countsByAmoStatus.SYNCED}</b>
+              Синк: <b className="text-success">{data.countsByAmoStatus.SYNCED}</b>
             </span>
             <span className="flex items-center gap-1">
               <XCircle className="w-3 h-3 text-error" />
@@ -194,7 +287,7 @@ export default function BrokerApplicationsPage() {
             </span>
             <span className="flex items-center gap-1">
               <Clock className="w-3 h-3 text-warning" />
-              В очереди: <b className="text-warning">{data.countsByAmoStatus.PENDING}</b>
+              Очередь: <b className="text-warning">{data.countsByAmoStatus.PENDING}</b>
             </span>
           </div>
         )}
@@ -226,12 +319,19 @@ export default function BrokerApplicationsPage() {
                 <tbody>
                   {data.items.map((item) => {
                     const meta = typeLabels[item.type];
+                    const isLogin = item.type === 'LOGIN';
+                    const loginSubType: string | undefined = item.extra?.subType;
+                    const loginNoOffer: boolean = !!item.extra?.noOffer;
                     return (
                       <tr key={`${item.type}-${item.id}`} className="border-b border-border last:border-0 hover:bg-surface-secondary">
                         <td className="py-3">
                           <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded ${meta.color} bg-current/10`}>
                             <meta.Icon className="w-3 h-3" />
-                            {meta.label}
+                            {isLogin
+                              ? loginSubType === 'REACTIVATED'
+                                ? 'Реактивация'
+                                : 'Регистрация'
+                              : meta.label}
                           </span>
                         </td>
                         <td className="py-3">
@@ -239,6 +339,11 @@ export default function BrokerApplicationsPage() {
                           {item.extra?.project && (
                             <div className="text-xs text-text-muted">
                               {item.extra.project === 'ZORGE9' ? 'Зорге 9' : 'Серебряный бор'}
+                            </div>
+                          )}
+                          {isLogin && loginNoOffer && (
+                            <div className="text-xs text-warning mt-0.5 inline-flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" /> без оферты
                             </div>
                           )}
                         </td>
