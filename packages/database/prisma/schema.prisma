@@ -306,49 +306,49 @@ model Broker {
 }
 
 model Client {
-  id                  String           @id @default(uuid())
-  brokerId            String           @map("broker_id")
-  broker              Broker           @relation(fields: [brokerId], references: [id])
-  amoLeadId           BigInt?          @map("amo_lead_id")
-  fullName            String           @map("full_name")
-  phone               String
-  email               String?
-  comment             String?
-  project             Project          @default(ZORGE9)
-  fixationAgencyId    String?          @map("fixation_agency_id") // Компания, от которой подана заявка
-  uniquenessStatus    UniquenessStatus @default(CONDITIONALLY_UNIQUE) @map("uniqueness_status")
-  uniquenessReason    String?          @map("uniqueness_reason") // Пояснение (напр. «переоткрыта сделка»)
-  uniquenessExpiresAt DateTime?        @map("uniqueness_expires_at")
-  fixationStatus      FixationStatus   @default(NOT_FIXED) @map("fixation_status")
-  fixationExpiresAt   DateTime?        @map("fixation_expires_at")
-  inspectionActSigned Boolean          @default(false) @map("inspection_act_signed")
-  status              ClientStatus     @default(NEW)
-  deals               Deal[]
-  meetings            Meeting[]
-  calls               Call[]
-  createdAt           DateTime         @default(now()) @map("created_at")
-  updatedAt           DateTime         @updatedAt @map("updated_at")
+  id                   String           @id @default(uuid())
+  brokerId             String           @map("broker_id")
+  broker               Broker           @relation(fields: [brokerId], references: [id])
+  amoLeadId            BigInt?          @map("amo_lead_id")
+  fullName             String           @map("full_name")
+  phone                String
+  email                String?
+  comment              String?
+  project              Project          @default(ZORGE9)
+  fixationAgencyId     String?          @map("fixation_agency_id") // Компания, от которой подана заявка
+  uniquenessStatus     UniquenessStatus @default(CONDITIONALLY_UNIQUE) @map("uniqueness_status")
+  uniquenessReason     String?          @map("uniqueness_reason") // Пояснение (напр. «переоткрыта сделка»)
+  uniquenessExpiresAt  DateTime?        @map("uniqueness_expires_at")
+  fixationStatus       FixationStatus   @default(NOT_FIXED) @map("fixation_status")
+  fixationExpiresAt    DateTime?        @map("fixation_expires_at")
+  inspectionActSigned  Boolean          @default(false) @map("inspection_act_signed")
+  status               ClientStatus     @default(NEW)
+  deals                Deal[]
+  meetings             Meeting[]
+  calls                Call[]
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
   // amoCRM dates — для показа в кабинете вместо нашей sync-даты.
-  amoCreatedAt        DateTime?        @map("amo_created_at")
-  amoUpdatedAt        DateTime?        @map("amo_updated_at")
+  amoCreatedAt         DateTime?        @map("amo_created_at")
+  amoUpdatedAt         DateTime?        @map("amo_updated_at")
   // 2026-05-25: статус синка с amoCRM. Если amo упал во время фиксации,
   // клиент НЕ теряется (остаётся в БД), а сюда пишем FAILED и amoSyncError.
   // Менеджеры/координаторы видят список FAILED, scheduler ретраит.
-  amoSyncStatus       AmoSyncStatus    @default(SYNCED) @map("amo_sync_status")
-  amoSyncError        String?          @map("amo_sync_error")
-  amoSyncAttempts     Int              @default(0) @map("amo_sync_attempts")
-  amoSyncLastAttemptAt DateTime?       @map("amo_sync_last_attempt_at")
+  amoSyncStatus        AmoSyncStatus    @default(SYNCED) @map("amo_sync_status")
+  amoSyncError         String?          @map("amo_sync_error")
+  amoSyncAttempts      Int              @default(0) @map("amo_sync_attempts")
+  amoSyncLastAttemptAt DateTime?        @map("amo_sync_last_attempt_at")
 
   // 2026-06-09: поля формы фиксации — раньше склеивались в comment строкой,
   // что мешало брокеру видеть структурированно. Теперь храним каждое поле
   // отдельно и показываем в карточке клиента.
-  propertyType        String?          @map("property_type")        // «Квартира» / «Апартаменты» / «Коммерция» и т.п.
-  roomsCount          String?          @map("rooms_count")          // «Студия» / «1» / «2» / ... / «Коммерческое помещение»
-  amount              Decimal?         @db.Decimal(14, 2)            // бюджет покупки, руб.
-  sqm                 Decimal?         @db.Decimal(10, 2)            // метраж, м²
-  clientRegion        String?          @map("client_region")         // «Москва / СПб / другой»
-  purchaseTiming      String?          @map("purchase_timing")       // «1-3 месяца» / «3-6» / «от 5» / «Не выяснил»
-  readinessLevel      String?          @map("readiness_level")       // «Горячий» / «Тёплый» / «Холодный»
+  propertyType   String?  @map("property_type") // «Квартира» / «Апартаменты» / «Коммерция» и т.п.
+  roomsCount     String?  @map("rooms_count") // «Студия» / «1» / «2» / ... / «Коммерческое помещение»
+  amount         Decimal? @db.Decimal(14, 2) // бюджет покупки, руб.
+  sqm            Decimal? @db.Decimal(10, 2) // метраж, м²
+  clientRegion   String?  @map("client_region") // «Москва / СПб / другой»
+  purchaseTiming String?  @map("purchase_timing") // «1-3 месяца» / «3-6» / «от 5» / «Не выяснил»
+  readinessLevel String?  @map("readiness_level") // «Горячий» / «Тёплый» / «Холодный»
 
   @@index([phone])
   @@index([brokerId])
@@ -560,22 +560,45 @@ model MeetingSlot {
 }
 
 model Document {
-  id          String   @id @default(uuid())
+  id          String          @id @default(uuid())
   name        String
   description String?
   type        String // mime type or extension label (PDF, DOCX, MP4, URL...)
   category    String // cooperation | analytics | marketing | materials
-  subcategory String? // optional sub-grouping label
+  subcategory String? // DEPRECATED: legacy string label, replaced by MaterialFolder. Kept for backfill and existing rows.
+  folderId    String?         @map("folder_id")
+  folder      MaterialFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   project     Project?
-  fileUrl     String   @map("file_url") // local: /files/<cat>/<uuid>.ext  |  external URL
-  fileSize    Int?     @map("file_size")
-  isPublic    Boolean  @default(true) @map("is_public")
-  sortOrder   Int      @default(0) @map("sort_order")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  fileUrl     String          @map("file_url") // local: /files/<cat>/<uuid>.ext  |  external URL
+  fileSize    Int?            @map("file_size")
+  isPublic    Boolean         @default(true) @map("is_public")
+  sortOrder   Int             @default(0) @map("sort_order")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
 
   @@index([category, isPublic, sortOrder])
+  @@index([folderId, sortOrder])
   @@map("documents")
+}
+
+// Папка «Материалов» — заменяет прежнюю строку Document.subcategory.
+// Позволяет админу: переименовать/удалить папку целиком, менять порядок
+// (drag-drop через sortOrder), включать/выключать показ отдельно в кабинете
+// брокера и на лендинге, задавать кастомную обложку и общую ссылку на
+// Я.Диск. Введено 2026-07-13.
+model MaterialFolder {
+  id            String     @id @default(uuid())
+  name          String     @unique
+  sortOrder     Int        @default(0) @map("sort_order")
+  showInCabinet Boolean    @default(true) @map("show_in_cabinet")
+  showOnLanding Boolean    @default(false) @map("show_on_landing")
+  iconUrl       String?    @map("icon_url") // /files/folder-icons/*.png | emoji | URL
+  folderUrl     String?    @map("folder_url") // «Открыть папку на Я.Диске»
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  documents     Document[]
+
+  @@map("material_folders")
 }
 
 model Notification {
@@ -701,16 +724,15 @@ model SystemSetting {
 // Позволяет откатиться / посмотреть изменения «как в Google Docs».
 model SiteContentRevision {
   id         String   @id @default(uuid())
-  key        String   // тот же что в SiteContent
-  value      Json     // снимок значения после правки
-  editorId   String?  @map("editor_id")     // brokerId редактора (если есть)
-  editorName String?  @map("editor_name")   // ФИО на момент правки (для истории)
+  key        String // тот же что в SiteContent
+  value      Json // снимок значения после правки
+  editorId   String?  @map("editor_id") // brokerId редактора (если есть)
+  editorName String?  @map("editor_name") // ФИО на момент правки (для истории)
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([key, createdAt])
   @@map("site_content_revisions")
 }
-
 
 model LandingEvent {
   id          String   @id @default(uuid())

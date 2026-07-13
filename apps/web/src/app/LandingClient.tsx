@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import {
@@ -540,38 +540,73 @@ function BrokerToursCalendarModal({ events, onClose }: { events: any[]; onClose:
   );
 }
 
-// Раздел "Материалы для продвижения" — компактные группы по папкам Я.Диска.
-// Каждая группа сворачивается в одну карточку: иконка + имя папки + счётчик +
-// "Скачать с Я.Диска" (открывает родительскую папку). По клику разворачивается
-// и показывает все файлы. Правка "Корректировка 16:06" 2026-05-07.
+// Раздел "Материалы для продвижения" — компактные группы по папкам.
+// Правка 2026-07-13: источник — /public/documents/folders (MaterialFolder с
+// showOnLanding=true, отсортированные админом). Прежний prop `materials` —
+// fallback, если API вернёт пустоту (например пока backfill не отработал на
+// прод). У каждой папки — своя иконка, порядок задаётся в админке.
 function MaterialsSection({ materials }: { materials: any[] }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const groups = materials.reduce((acc: Record<string, any[]>, d: any) => {
-    const key = d.subcategory?.trim() || 'Материалы';
-    (acc[key] = acc[key] || []).push(d);
-    return acc;
-  }, {});
-  const groupNames = Object.keys(groups).sort();
+  const [folders, setFolders] = useState<any[] | null>(null);
+
+  useEffect(() => {
+    fetch('/api/public/documents/folders')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setFolders(Array.isArray(data) ? data : []))
+      .catch(() => setFolders([]));
+  }, []);
+
+  const groups = useMemo(() => {
+    if (folders && folders.length > 0) {
+      return folders.map((f: any) => ({
+        key: f.id,
+        name: f.name,
+        iconUrl: f.iconUrl as string | null,
+        folderUrl: f.folderUrl as string | null,
+        docs: f.documents || [],
+      }));
+    }
+    // fallback: группируем прежним способом по subcategory
+    const acc: Record<string, any[]> = {};
+    for (const d of materials || []) {
+      const key = d.subcategory?.trim() || 'Материалы';
+      (acc[key] = acc[key] || []).push(d);
+    }
+    return Object.keys(acc).sort().map((k) => ({
+      key: k,
+      name: k,
+      iconUrl: null as string | null,
+      folderUrl: (acc[k][0]?.fileUrl as string) || null,
+      docs: acc[k],
+    }));
+  }, [folders, materials]);
+
   const toggle = (g: string) => setExpanded((e) => ({ ...e, [g]: !e[g] }));
+  const isEmpty = groups.length === 0;
+
   return (
     <section id="materials" style={{background:'var(--bg)'}}>
-      <div className="sh"><div className="sh-tag">Реклама</div><h2>Материалы для <em>продвижения</em></h2><p className="sh-sub">Изображения, рендеры, видео и презентации — сгруппированы по папкам Яндекс.Диска. Кликните на группу, чтобы развернуть.</p></div>
-      {materials.length === 0 ? (
+      <div className="sh"><div className="sh-tag">Реклама</div><h2>Материалы для <em>продвижения</em></h2><p className="sh-sub">Изображения, рендеры, видео и презентации — сгруппированы по папкам. Кликните на группу, чтобы развернуть.</p></div>
+      {isEmpty ? (
         <div className="doc-item" style={{cursor:'default'}}><div className="doc-name" style={{color:'var(--muted)'}}>Скоро здесь появятся материалы</div></div>
       ) : (
         <div className="mat-groups">
-          {groupNames.map((group) => {
-            const docs = groups[group];
-            const isOpen = !!expanded[group];
-            // Берём первый publicUrl из группы — если все файлы из одной папки
-            // Я.Диска, ссылка приведёт прямо в эту папку (можно "Скачать всё").
-            const folderUrl = docs[0]?.fileUrl || '';
+          {groups.map((group) => {
+            const isOpen = !!expanded[group.key];
+            const docs = group.docs;
             return (
-              <div key={group} className={`mat-group${isOpen ? ' open' : ''}`}>
-                <button type="button" className="mat-group-header" onClick={() => toggle(group)}>
-                  <div className="mat-group-icon"><FileText size={18} /></div>
+              <div key={group.key} className={`mat-group${isOpen ? ' open' : ''}`}>
+                <button type="button" className="mat-group-header" onClick={() => toggle(group.key)}>
+                  <div className="mat-group-icon">
+                    {group.iconUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={group.iconUrl} alt="" style={{width:22,height:22,objectFit:'cover',borderRadius:6}} />
+                    ) : (
+                      <FileText size={18} />
+                    )}
+                  </div>
                   <div className="mat-group-info">
-                    <div className="mat-group-name">{group}</div>
+                    <div className="mat-group-name">{group.name}</div>
                     <div className="mat-group-meta">{docs.length} {docs.length === 1 ? 'файл' : docs.length < 5 ? 'файла' : 'файлов'}</div>
                   </div>
                   <ChevronRight className="mat-group-chev" size={20} />
@@ -590,8 +625,8 @@ function MaterialsSection({ materials }: { materials: any[] }) {
                         </a>
                       ))}
                     </div>
-                    {folderUrl && (
-                      <a href={folderUrl} target="_blank" rel="noopener noreferrer" className="btn-outline" style={{display:'inline-flex',marginTop:14,padding:'10px 22px',fontSize:11}}>
+                    {group.folderUrl && (
+                      <a href={group.folderUrl} target="_blank" rel="noopener noreferrer" className="btn-outline" style={{display:'inline-flex',marginTop:14,padding:'10px 22px',fontSize:11}}>
                         Открыть папку на Я.Диске →
                       </a>
                     )}

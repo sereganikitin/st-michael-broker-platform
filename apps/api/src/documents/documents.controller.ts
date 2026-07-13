@@ -16,6 +16,15 @@ export class DocumentsController {
     return this.documentsService.getDocuments(query);
   }
 
+  @Get('folders')
+  @ApiOperation({ summary: 'Папки материалов для кабинета (showInCabinet=true) со вложенными файлами' })
+  async listFoldersForCabinet() {
+    return this.documentsService.listFolders({
+      onlyCabinet: true,
+      includeDocuments: true,
+    });
+  }
+
   @Get('external')
   @ApiOperation({ summary: 'Legacy: scrape external broker page' })
   async getExternalDocuments() {

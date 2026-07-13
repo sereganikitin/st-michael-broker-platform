@@ -18,4 +18,14 @@ export class DocumentsPublicController {
     });
     return data.documents;
   }
+
+  @Get('folders')
+  @ApiOperation({ summary: 'Папки материалов для лендинга (showOnLanding=true) со вложенными публичными файлами' })
+  async listFoldersForLanding() {
+    return this.documentsService.listFolders({
+      onlyLanding: true,
+      includeDocuments: true,
+      onlyPublicDocuments: true,
+    });
+  }
 }

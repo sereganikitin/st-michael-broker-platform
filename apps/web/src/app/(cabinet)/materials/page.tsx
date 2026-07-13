@@ -5,6 +5,9 @@
 // — Документы — обычный список со ссылкой.
 // — Фотографии (image/* + jpg/png/webp) — плитка превью; клик открывает
 //   модальный просмотрщик с навигацией prev/next.
+// Правка 2026-07-13: источник данных — /documents/folders (MaterialFolder с
+// флагом showInCabinet). Пока раздел живёт с fallback на плоский список по
+// subcategory для файлов, не привязанных к папке.
 
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet } from '@/lib/api';
@@ -17,8 +20,17 @@ interface DocItem {
   type: string;
   category: string;
   subcategory: string | null;
+  folderId?: string | null;
   fileUrl: string;
   fileSize: number | null;
+}
+
+interface FolderGroup {
+  id: string;
+  name: string;
+  iconUrl: string | null;
+  folderUrl: string | null;
+  documents: DocItem[];
 }
 
 // 2026-05-28: regex match расширение в конце строки ИЛИ перед ?/#/&
@@ -105,31 +117,39 @@ function PhotoViewer({
 }
 
 export default function MaterialsPage() {
-  const [docs, setDocs] = useState<DocItem[]>([]);
+  const [folders, setFolders] = useState<FolderGroup[]>([]);
+  const [orphanDocs, setOrphanDocs] = useState<DocItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [viewer, setViewer] = useState<{ items: DocItem[]; index: number } | null>(null);
 
   useEffect(() => {
+    // Основной источник: папки с флагом showInCabinet=true.
+    // Fallback: плоский список marketing+materials для файлов без папки.
     Promise.all([
+      apiGet('/documents/folders').catch(() => []),
       apiGet('/documents?category=marketing&limit=200').catch(() => ({ documents: [] })),
       apiGet('/documents?category=materials&limit=200').catch(() => ({ documents: [] })),
     ])
-      .then(([a, b]) => setDocs([...(a.documents || []), ...(b.documents || [])]))
+      .then(([fs, a, b]) => {
+        const list: FolderGroup[] = Array.isArray(fs) ? fs : [];
+        setFolders(list);
+        const all = [...(a.documents || []), ...(b.documents || [])];
+        const orphans = all.filter((d: DocItem) => !d.folderId);
+        setOrphanDocs(orphans);
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  const groups = useMemo(() => {
-    const g: Record<string, DocItem[]> = {};
-    for (const d of docs) {
-      const key = d.subcategory || 'Без категории';
-      if (!g[key]) g[key] = [];
-      g[key].push(d);
+  // Формируем итоговые группы: сначала папки в их порядке (уже отсортированы
+  // API по sortOrder), затем «Без категории» для файлов без папки.
+  const groupList = useMemo(() => {
+    const groups: FolderGroup[] = folders.map((f) => ({ ...f, documents: f.documents || [] }));
+    if (orphanDocs.length > 0) {
+      groups.push({ id: '__orphan__', name: 'Без категории', iconUrl: null, folderUrl: null, documents: orphanDocs });
     }
-    return g;
-  }, [docs]);
-
-  const groupNames = Object.keys(groups).sort();
+    return groups;
+  }, [folders, orphanDocs]);
 
   const toggle = (g: string) => setOpenGroups((s) => ({ ...s, [g]: !s[g] }));
 
@@ -144,7 +164,7 @@ export default function MaterialsPage() {
 
       {loading ? (
         <div className="card text-center py-8 text-text-muted">Загрузка...</div>
-      ) : docs.length === 0 ? (
+      ) : groupList.length === 0 ? (
         <div className="card text-center py-12 text-text-muted">
           <BookOpen className="w-12 h-12 mx-auto mb-3 text-text-muted/50" />
           <p>Материалы пока не добавлены</p>
@@ -152,29 +172,35 @@ export default function MaterialsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {groupNames.map((groupName) => {
-            const items = groups[groupName];
+          {groupList.map((group) => {
+            const items = group.documents;
             const images = items.filter(isImage);
             const videos = items.filter(isVideo);
             const pdfs = items.filter(isPdf);
             const docsList = items.filter((d) => !isImage(d) && !isVideo(d) && !isPdf(d));
-            const isOpen = !!openGroups[groupName];
+            const isOpen = !!openGroups[group.id];
             return (
-              <div key={groupName} className="card p-0 overflow-hidden">
+              <div key={group.id} className="card p-0 overflow-hidden">
                 <button
                   className="w-full flex items-center justify-between p-4 hover:bg-surface-secondary transition text-left"
-                  onClick={() => toggle(groupName)}
+                  onClick={() => toggle(group.id)}
                 >
-                  <div>
-                    <h3 className="font-semibold">{groupName}</h3>
-                    <p className="text-xs text-text-muted mt-0.5">
-                      {items.length} {items.length === 1 ? 'элемент' : items.length < 5 ? 'элемента' : 'элементов'}
-                      {images.length > 0 && ` · ${images.length} фото`}
-                      {videos.length > 0 && ` · ${videos.length} видео`}
-                      {pdfs.length > 0 && ` · ${pdfs.length} PDF`}
-                    </p>
+                  <div className="flex items-center gap-3 min-w-0">
+                    {group.iconUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={group.iconUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                    ) : null}
+                    <div className="min-w-0">
+                      <h3 className="font-semibold truncate">{group.name}</h3>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        {items.length} {items.length === 1 ? 'элемент' : items.length < 5 ? 'элемента' : 'элементов'}
+                        {images.length > 0 && ` · ${images.length} фото`}
+                        {videos.length > 0 && ` · ${videos.length} видео`}
+                        {pdfs.length > 0 && ` · ${pdfs.length} PDF`}
+                      </p>
+                    </div>
                   </div>
-                  {isOpen ? <ChevronUp className="w-5 h-5 text-text-muted" /> : <ChevronDown className="w-5 h-5 text-text-muted" />}
+                  {isOpen ? <ChevronUp className="w-5 h-5 text-text-muted flex-shrink-0" /> : <ChevronDown className="w-5 h-5 text-text-muted flex-shrink-0" />}
                 </button>
                 {isOpen && (
                   <div className="p-4 border-t border-border space-y-4">
@@ -285,6 +311,12 @@ export default function MaterialsPage() {
                           ))}
                         </div>
                       </div>
+                    )}
+
+                    {group.folderUrl && (
+                      <a href={group.folderUrl} target="_blank" rel="noopener noreferrer" className="btn-outline inline-flex items-center gap-2 mt-2 text-sm">
+                        Открыть папку на Я.Диске →
+                      </a>
                     )}
                   </div>
                 )}
