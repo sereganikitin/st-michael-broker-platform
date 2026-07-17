@@ -46,6 +46,9 @@ const adminNavigation = [
   // по статусу amo. См. /admin/broker-applications.
   { name: 'Все заявки от брокеров', href: '/admin/broker-applications', icon: AlertTriangle },
   { name: 'Админка — Брокеры', href: '/admin/brokers', icon: Shield },
+  // 2026-07-17: ручное слияние дублей ФИО (аудит: 839 групп). Только ADMIN —
+  // страница сама покажет заглушку менеджеру.
+  { name: 'Дубли брокеров', href: '/admin/broker-dedup', icon: Users },
   { name: 'Комиссия — политики', href: '/admin/commission-policies', icon: Calculator },
   { name: 'Управление встречами', href: '/admin/meetings', icon: CalendarPlus },
   { name: 'Расписание встреч', href: '/admin/meeting-slots', icon: Calendar },
