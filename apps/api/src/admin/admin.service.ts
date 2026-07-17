@@ -1404,16 +1404,18 @@ export class AdminService {
     //    брокера: либо REGISTERED (createdAt), либо REACTIVATED (reactivatedAt)
     //    — что позже, то и берём. Бэйдж «без оферты» ставим отдельно.
     //
-    // 2026-07-10: исключаем брокеров, попавших в БД через импорт
-    //    (baseSource = google_sheet / amocrm / manual) — у них createdAt
-    //    это дата импорта, а не реальный заход в кабинет. Показываем только
-    //    тех, кто сам зарегистрировался (baseSource == null).
+    // 2026-07-10: исключаем брокеров, попавших в БД через импорт.
+    // 2026-07-17: фильтр baseSource==null дырявый в обе стороны — часть
+    //    импортных записей имеет baseSource=null (показывались как ложные
+    //    «Регистрации»), а импортный брокер, который ПОТОМ реально
+    //    зарегистрировался, наоборот скрывался. Правильный признак
+    //    регистрации — наличие пароля: аккаунт создал сам человек.
     const loginWhereOr: any[] = [];
     if (hasDate) {
       loginWhereOr.push({ createdAt: dateFilter });
       loginWhereOr.push({ reactivatedAt: dateFilter });
     }
-    const loginWhere: any = { baseSource: null };
+    const loginWhere: any = { passwordHash: { not: null } };
     if (loginWhereOr.length) loginWhere.OR = loginWhereOr;
     if (search) {
       loginWhere.AND = [
@@ -1480,7 +1482,15 @@ export class AdminService {
               phone: true,
               createdAt: true,
               reactivatedAt: true,
+              baseSource: true,
               _count: { select: { offerAcceptances: true } },
+              // Для импортных, зарегистрировавшихся позже: дата регистрации =
+              // момент акцепта оферты (createdAt у них — дата импорта).
+              offerAcceptances: {
+                select: { acceptedAt: true },
+                orderBy: { acceptedAt: 'desc' },
+                take: 1,
+              },
             },
             orderBy: { createdAt: 'desc' },
             take: TOP_PER_TYPE,
@@ -1558,15 +1568,19 @@ export class AdminService {
     }
     for (const b of logins as any[]) {
       // Если у брокера есть reactivatedAt — это реактивация, дата = reactivatedAt.
-      // Иначе — регистрация, дата = createdAt.
+      // Иначе — регистрация: createdAt, а для импортных (baseSource задан) —
+      // дата акцепта оферты, потому что createdAt у них = дата импорта.
       const isReactivation = !!b.reactivatedAt;
       const noOffer = (b._count?.offerAcceptances || 0) === 0;
+      const regDate = b.baseSource && b.offerAcceptances?.[0]?.acceptedAt
+        ? b.offerAcceptances[0].acceptedAt
+        : b.createdAt;
       items.push({
         type: 'LOGIN',
         id: b.id,
         personName: b.fullName || '—',
         personPhone: b.phone || '',
-        date: isReactivation ? b.reactivatedAt : b.createdAt,
+        date: isReactivation ? b.reactivatedAt : regDate,
         broker: { id: b.id, fullName: b.fullName, phone: b.phone },
         amoStatus: null,
         extra: {
