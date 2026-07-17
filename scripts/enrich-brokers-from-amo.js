@@ -39,9 +39,16 @@ function isBadName(name) {
 }
 
 // Имя из amo годится, если оно само не «плохое» и длиннее 2 символов.
+// 2026-07-17 (по dry-run): в amo встречаются имена-заглушки — «брокер»,
+// «Не оставлял заявку» и т.п. Такими не обогащаем (связь amoContactId
+// при этом всё равно проставляется).
+const STOP_NAMES = new Set(['брокер', 'клиент', 'тест', 'без имени', 'не оставлял заявку']);
 function isGoodCandidate(name) {
   const t = String(name || '').trim();
-  return !isBadName(t) && t.length > 2;
+  if (isBadName(t) || t.length <= 2) return false;
+  if (STOP_NAMES.has(t.toLowerCase())) return false;
+  if (/^не оставлял/i.test(t)) return false;
+  return true;
 }
 
 function cfValue(contact, fieldId) {
