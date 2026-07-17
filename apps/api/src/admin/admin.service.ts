@@ -1354,7 +1354,15 @@ export class AdminService {
 
     // 1) Client (фиксации) — только тут есть amoSync
     const clientWhere: any = {};
-    if (hasDate) clientWhere.createdAt = dateFilter;
+    // 2026-07-17: дата заявки = amoCreatedAt (реальная дата лида в amo) для
+    // клиентов, приехавших синком, иначе createdAt. Кейс Нины Карвосенои:
+    // синк подтянул её лиды 2021-2023 гг, страница показала «сегодня 14:31»
+    // на всех — менеджер продаж решил, что свалилась пачка новых заявок.
+    if (hasDate) {
+      clientWhere.AND = [
+        { OR: [{ amoCreatedAt: dateFilter }, { amoCreatedAt: null, createdAt: dateFilter }] },
+      ];
+    }
     if (amoStatusFilterOn) clientWhere.amoSyncStatus = { in: Array.from(amoStatuses) };
     if (search) {
       clientWhere.OR = [
@@ -1496,17 +1504,20 @@ export class AdminService {
     };
     const items: App[] = [];
     for (const c of clients as any[]) {
+      // Синк из amo создаёт Client пачкой — настоящая дата заявки в amoCreatedAt.
+      const fromAmoSync = !!c.amoCreatedAt
+        && new Date(c.createdAt).getTime() - new Date(c.amoCreatedAt).getTime() > 60 * 60 * 1000;
       items.push({
         type: 'CLIENT',
         id: c.id,
         personName: c.fullName || '—',
         personPhone: c.phone || '',
-        date: c.createdAt,
+        date: c.amoCreatedAt || c.createdAt,
         broker: c.broker,
         amoStatus: c.amoSyncStatus || null,
         amoLeadId: c.amoLeadId ? String(c.amoLeadId) : null,
         amoSyncError: c.amoSyncError || null,
-        extra: { project: c.project, uniquenessStatus: c.uniquenessStatus },
+        extra: { project: c.project, uniquenessStatus: c.uniquenessStatus, fromAmoSync },
       });
     }
     for (const m of meetings as any[]) {

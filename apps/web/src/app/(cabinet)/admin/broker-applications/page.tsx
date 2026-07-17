@@ -348,7 +348,14 @@ export default function BrokerApplicationsPage() {
                           )}
                         </td>
                         <td className="py-3 text-text-muted">{formatPhone(item.personPhone)}</td>
-                        <td className="py-3 text-text-muted">{fmtDate(item.date)}</td>
+                        <td className="py-3 text-text-muted">
+                          {fmtDate(item.date)}
+                          {/* 2026-07-17: клиент приехал синком из amo — дата настоящая
+                              (из amo), помечаем чтобы не путали со свежей заявкой */}
+                          {item.extra?.fromAmoSync && (
+                            <div className="text-xs text-text-muted/70 mt-0.5">архив из amo</div>
+                          )}
+                        </td>
                         <td className="py-3">
                           {item.broker ? (
                             <>
