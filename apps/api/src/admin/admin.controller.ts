@@ -183,6 +183,36 @@ export class AdminController {
     return this.adminService.getCallCenterStats(user.id);
   }
 
+  // ─── Дубли брокеров: ручное слияние (2026-07-17) ────────────────────
+  // Решение пользователя после аудита базы: автослияния нет, только вручную.
+
+  @Get('broker-dedup/groups')
+  @ApiOperation({ summary: 'Группы дублей ФИО среди брокеров (для ручного слияния)' })
+  @Roles(UserRole.ADMIN)
+  async dedupGroups(@Query() query: any) {
+    return this.adminService.getDedupGroups(query);
+  }
+
+  @Post('broker-dedup/merge')
+  @ApiOperation({ summary: 'Слить дубли в основную карточку (записи не удаляются)' })
+  @Roles(UserRole.ADMIN)
+  async dedupMerge(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { primaryId: string; duplicateIds: string[] },
+  ) {
+    return this.adminService.mergeBrokers(user.id, body);
+  }
+
+  @Post('broker-dedup/dismiss')
+  @ApiOperation({ summary: 'Пометить группу дублей как «это разные люди»' })
+  @Roles(UserRole.ADMIN)
+  async dedupDismiss(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { nameKey: string },
+  ) {
+    return this.adminService.dismissDedupGroup(body.nameKey, user.id);
+  }
+
   // A3 fix 2026-05-24: UI решения конфликтов уникальности.
   @Get('uniqueness-conflicts')
   @ApiOperation({ summary: 'Список клиентов в UNDER_REVIEW (конфликт фиксации) с инфой о конкурентном брокере' })

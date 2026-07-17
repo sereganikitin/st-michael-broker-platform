@@ -220,7 +220,8 @@ export class AdminService {
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    // 2026-07-17: слитые дубли скрываем и из общего списка брокеров.
+    const where: any = { mergedIntoId: null };
     if (query.search) {
       // 2026-06-29: phone-поиск теперь нормализует входной формат.
       // "8925..." и "+7925..." и "79255724188" — все находят брокера
@@ -981,7 +982,8 @@ export class AdminService {
     const limit = Math.min(100, Number(query.limit) || 30);
     const skip = (page - 1) * limit;
 
-    const where: any = { isInBase: true };
+    // 2026-07-17: слитые дубли (mergedIntoId) в очередь не попадают никогда.
+    const where: any = { isInBase: true, mergedIntoId: null };
     if (query.includeAll !== 'true' && query.includeAll !== true) {
       where.doNotCall = false;
     }
@@ -2144,6 +2146,246 @@ export class AdminService {
     if (key === 'MANGO_API_URL') setMangoConfig({ apiUrl: trimmed });
     if (key === 'MANGO_CALLBACK_URL') setMangoConfig({ callbackUrl: trimmed });
     return { ok: true, key };
+  }
+
+  // ─── Дубли брокеров: ручное слияние (/admin/broker-dedup) ─────────────
+  // 2026-07-17: аудит нашёл 839 групп совпадающих ФИО (4562 записи).
+  // Решение пользователя: никакого автослияния — только вручную со страницы.
+  // Слитые карточки НЕ удаляются: mergedIntoId + isInBase=false скрывают их
+  // из очереди КЦ и списков, история и телефоны переезжают в основную.
+
+  async getDedupGroups(query: { page?: string | number; limit?: string | number; search?: string }) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(50, Number(query.limit) || 20);
+    const offset = (page - 1) * limit;
+    const search = String(query.search || '').trim().toLowerCase();
+    const searchLike = `%${search}%`;
+
+    // Группы: одинаковое нормализованное ФИО среди неслитых BROKER-записей.
+    // «(без имени)», пустые и телефоны-вместо-имени в дубли не попадают —
+    // это не совпадение личности, ими займётся обогащение из amo.
+    const groups = await this.prisma.$queryRaw<Array<{ name_key: string; cnt: bigint }>>`
+      SELECT lower(btrim(full_name)) AS name_key, count(*) AS cnt
+      FROM brokers
+      WHERE role = 'BROKER'
+        AND merged_into_id IS NULL
+        AND btrim(coalesce(full_name, '')) <> ''
+        AND lower(btrim(full_name)) <> '(без имени)'
+        AND full_name !~ '^[-+0-9() ]+$'
+        AND (${search} = '' OR lower(btrim(full_name)) LIKE ${searchLike})
+        AND lower(btrim(full_name)) NOT IN (SELECT name_key FROM broker_dedup_dismissals)
+      GROUP BY 1
+      HAVING count(*) > 1
+      ORDER BY count(*) DESC, 1
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    const totalRows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
+      SELECT count(*) AS total FROM (
+        SELECT 1
+        FROM brokers
+        WHERE role = 'BROKER'
+          AND merged_into_id IS NULL
+          AND btrim(coalesce(full_name, '')) <> ''
+          AND lower(btrim(full_name)) <> '(без имени)'
+          AND full_name !~ '^[-+0-9() ]+$'
+          AND (${search} = '' OR lower(btrim(full_name)) LIKE ${searchLike})
+          AND lower(btrim(full_name)) NOT IN (SELECT name_key FROM broker_dedup_dismissals)
+        GROUP BY lower(btrim(full_name))
+        HAVING count(*) > 1
+      ) g
+    `;
+    const total = Number(totalRows[0]?.total || 0);
+
+    const keys = groups.map((g) => g.name_key);
+    let brokers: any[] = [];
+    if (keys.length > 0) {
+      brokers = await this.prisma.$queryRaw<any[]>`
+        SELECT id, full_name, phone, email, category, status, password_hash IS NOT NULL AS has_cabinet,
+               amo_contact_id IS NOT NULL AS has_amo, is_coordinator, coordinator_agency,
+               specialization, do_not_call, base_source, created_at, last_call_at,
+               lower(btrim(full_name)) AS name_key,
+               (SELECT count(*) FROM call_logs cl WHERE cl.broker_id = brokers.id) AS call_count,
+               (SELECT count(*) FROM clients c WHERE c.broker_id = brokers.id) AS client_count,
+               (SELECT count(*) FROM deals d WHERE d.broker_id = brokers.id) AS deal_count
+        FROM brokers
+        WHERE role = 'BROKER' AND merged_into_id IS NULL
+          AND lower(btrim(full_name)) = ANY(${keys})
+        ORDER BY created_at ASC
+      `;
+    }
+
+    const byKey = new Map<string, any[]>();
+    for (const b of brokers) {
+      const list = byKey.get(b.name_key) || [];
+      list.push({
+        id: b.id,
+        fullName: b.full_name,
+        phone: b.phone,
+        email: b.email,
+        category: b.category,
+        status: b.status,
+        hasCabinet: b.has_cabinet,
+        hasAmo: b.has_amo,
+        isCoordinator: b.is_coordinator,
+        coordinatorAgency: b.coordinator_agency,
+        specialization: b.specialization,
+        doNotCall: b.do_not_call,
+        baseSource: b.base_source,
+        createdAt: b.created_at,
+        lastCallAt: b.last_call_at,
+        callCount: Number(b.call_count),
+        clientCount: Number(b.client_count),
+        dealCount: Number(b.deal_count),
+      });
+      byKey.set(b.name_key, list);
+    }
+
+    return {
+      groups: groups.map((g) => ({
+        nameKey: g.name_key,
+        count: Number(g.cnt),
+        brokers: byKey.get(g.name_key) || [],
+      })),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async dismissDedupGroup(nameKey: string, userId: string) {
+    const key = String(nameKey || '').trim().toLowerCase();
+    if (!key) throw new BadRequestException('nameKey обязателен');
+    await this.prisma.brokerDedupDismissal.upsert({
+      where: { nameKey: key },
+      update: {},
+      create: { nameKey: key, createdById: userId },
+    });
+    return { ok: true };
+  }
+
+  async mergeBrokers(userId: string, body: { primaryId: string; duplicateIds: string[] }) {
+    const { primaryId } = body;
+    const duplicateIds = (body.duplicateIds || []).filter((id) => id && id !== primaryId);
+    if (!primaryId || duplicateIds.length === 0) {
+      throw new BadRequestException('Нужны primaryId и хотя бы один duplicateId');
+    }
+
+    const all = await this.prisma.broker.findMany({
+      where: { id: { in: [primaryId, ...duplicateIds] } },
+    });
+    const primary = all.find((b) => b.id === primaryId);
+    const dups = all.filter((b) => duplicateIds.includes(b.id));
+    if (!primary) throw new NotFoundException('Основная карточка не найдена');
+    if (dups.length !== duplicateIds.length) throw new NotFoundException('Часть дублей не найдена');
+    if (primary.mergedIntoId) throw new BadRequestException('Основная карточка сама уже слита');
+    for (const d of dups) {
+      if (d.mergedIntoId) throw new BadRequestException(`Карточка ${d.fullName} уже слита`);
+      if ((d as any).role !== 'BROKER') throw new BadRequestException('Сливать можно только брокеров');
+      // Защита: зарегистрированный в кабинете (есть пароль) не может быть
+      // дублем — иначе у человека умрёт логин. Его делают основной карточкой.
+      if (d.passwordHash && !primary.passwordHash) {
+        throw new BadRequestException(
+          `«${d.fullName}» зарегистрирован в кабинете — выберите его основной карточкой`,
+        );
+      }
+      if (d.passwordHash && primary.passwordHash) {
+        throw new BadRequestException(
+          'Обе карточки зарегистрированы в кабинете — такое слияние делаем только руками через поддержку',
+        );
+      }
+    }
+
+    // Ранги категорий: при слиянии берём «самую тёплую».
+    const catRank: Record<string, number> = {
+      CONVERTED: 5, HOT: 4, WARM: 3, COLD: 2, ON_BOT_REVIEW: 1, BLACKLIST: 0,
+    };
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const dup of dups) {
+        // 1. Телефон дубля и его доп.номера → BrokerPhone основной карточки.
+        //    skipDuplicates покрывает конфликт unique(phone).
+        const dupPhones = await tx.brokerPhone.findMany({ where: { brokerId: dup.id } });
+        await tx.brokerPhone.createMany({
+          data: [
+            { brokerId: primaryId, phone: dup.phone },
+            ...dupPhones.map((p) => ({ brokerId: primaryId, phone: p.phone })),
+          ],
+          skipDuplicates: true,
+        });
+        await tx.brokerPhone.deleteMany({ where: { brokerId: dup.id } });
+
+        // 2. История и связи → на основную.
+        await tx.callLog.updateMany({ where: { brokerId: dup.id }, data: { brokerId: primaryId } });
+        await tx.client.updateMany({ where: { brokerId: dup.id }, data: { brokerId: primaryId } });
+        await tx.client.updateMany({ where: { responsibleBrokerId: dup.id }, data: { responsibleBrokerId: primaryId } });
+        await tx.deal.updateMany({ where: { brokerId: dup.id }, data: { brokerId: primaryId } });
+        await tx.meeting.updateMany({ where: { brokerId: dup.id }, data: { brokerId: primaryId } });
+        await tx.call.updateMany({ where: { brokerId: dup.id }, data: { brokerId: primaryId } });
+
+        // Связи с агентствами: переносим только отсутствующие у основной.
+        const dupAgencies = await tx.brokerAgency.findMany({ where: { brokerId: dup.id } });
+        for (const ba of dupAgencies) {
+          const exists = await tx.brokerAgency.findUnique({
+            where: { brokerId_agencyId: { brokerId: primaryId, agencyId: ba.agencyId } },
+          });
+          if (!exists) {
+            await tx.brokerAgency.update({ where: { id: ba.id }, data: { brokerId: primaryId, isPrimary: false } });
+          } else {
+            await tx.brokerAgency.delete({ where: { id: ba.id } });
+          }
+        }
+
+        // 3. Обогащение основной карточки пустых полей из дубля.
+        //    Unique-поля (amoContactId, telegramChatId) сначала освобождаем.
+        const patch: any = {};
+        if (!primary.email && dup.email) patch.email = dup.email;
+        if (!primary.position && dup.position) patch.position = dup.position;
+        if (!primary.telegramUsername && dup.telegramUsername) patch.telegramUsername = dup.telegramUsername;
+        if (!primary.whatsappUsername && dup.whatsappUsername) patch.whatsappUsername = dup.whatsappUsername;
+        if (!primary.specialization && dup.specialization) patch.specialization = dup.specialization;
+        if (!primary.region && dup.region) patch.region = dup.region;
+        if (dup.isRegional && !primary.isRegional) patch.isRegional = true;
+        if (dup.isCoordinator && !primary.isCoordinator) patch.isCoordinator = true;
+        if (!primary.coordinatorAgency && dup.coordinatorAgency) patch.coordinatorAgency = dup.coordinatorAgency;
+        if (dup.doNotCall && !primary.doNotCall) patch.doNotCall = true;
+        if ((catRank[dup.category] ?? 0) > (catRank[primary.category] ?? 0)) patch.category = dup.category;
+        if (dup.lastCallAt && (!primary.lastCallAt || dup.lastCallAt > primary.lastCallAt)) patch.lastCallAt = dup.lastCallAt;
+        if (!primary.amoContactId && dup.amoContactId) {
+          const moved = dup.amoContactId;
+          await tx.broker.update({ where: { id: dup.id }, data: { amoContactId: null } });
+          patch.amoContactId = moved;
+        }
+        if (!primary.telegramChatId && dup.telegramChatId) {
+          const moved = dup.telegramChatId;
+          await tx.broker.update({ where: { id: dup.id }, data: { telegramChatId: null } });
+          patch.telegramChatId = moved;
+        }
+        if (Object.keys(patch).length > 0) {
+          await tx.broker.update({ where: { id: primaryId }, data: patch });
+          Object.assign(primary, patch); // чтобы следующий дубль видел уже обогащённую основную
+        }
+
+        // 4. Помечаем дубль слитым (не удаляем!). isInBase=false страхует от
+        //    возврата в очередь, если ночной sheet-sync снова тронет запись.
+        await tx.broker.update({
+          where: { id: dup.id },
+          data: { mergedIntoId: primaryId, mergedAt: new Date(), isInBase: false, doNotCall: true },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'BROKER_DEDUP_MERGE',
+          entity: 'Broker',
+          entityId: primaryId,
+          payload: { primaryId, duplicateIds, mergedCount: duplicateIds.length },
+        },
+      });
+    });
+
+    return { ok: true, primaryId, merged: duplicateIds.length };
   }
 
 }

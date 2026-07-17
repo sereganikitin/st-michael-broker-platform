@@ -310,6 +310,14 @@ model Broker {
   // переводит status из BLOCKED/CLOSED обратно в ACTIVE. Используется на
   // /admin/broker-applications, вкладка «Заходы».
   reactivatedAt          DateTime?                @map("reactivated_at")
+  // 2026-07-17: ручное слияние дублей (/admin/broker-dedup). Карточка с
+  // mergedIntoId — дубль, слитый в другую; из очередей и списков скрывается,
+  // но НЕ удаляется (решение пользователя: ничего не удалять). Телефон
+  // дубля при слиянии копируется в BrokerPhone основной карточки.
+  mergedIntoId           String?                  @map("merged_into_id")
+  mergedInto             Broker?                  @relation("BrokerMergedInto", fields: [mergedIntoId], references: [id])
+  mergedBrokers          Broker[]                 @relation("BrokerMergedInto")
+  mergedAt               DateTime?                @map("merged_at")
 
   @@index([category])
   @@index([nextCallAt])
@@ -490,6 +498,17 @@ model Call {
 }
 
 // Дополнительные телефоны брокера (TZ v3 §2.3). Broker.phone остаётся primary.
+// 2026-07-17: группа дублей ФИО, помеченная админом как «это разные люди»
+// на /admin/broker-dedup — такая группа больше не показывается в списке.
+model BrokerDedupDismissal {
+  id          String   @id @default(uuid())
+  nameKey     String   @unique @map("name_key") // lower(btrim(full_name))
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("broker_dedup_dismissals")
+}
+
 model BrokerPhone {
   id        String   @id @default(uuid())
   brokerId  String   @map("broker_id")
