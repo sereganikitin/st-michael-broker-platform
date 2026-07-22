@@ -18,7 +18,9 @@ jobs:
   report:
     name: Run amo fixations report on production
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # 2026-07-22: первый прогон убило по command_timeout=35m (exit 137) —
+    # 125k контактов + ~100k лидов не влезли. Подняли до 55m.
+    timeout-minutes: 60
     steps:
       - name: SSH and run report
         uses: appleboy/ssh-action@v1.0.3
@@ -28,7 +30,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           script_stop: true
-          command_timeout: 35m
+          command_timeout: 55m
           script: |
             set -e
             cd ${{ secrets.DEPLOY_PATH }}

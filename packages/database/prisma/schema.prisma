@@ -140,6 +140,13 @@ enum MeetingType {
   BROKER_TOUR
 }
 
+// 2026-07-22: разделение менеджеров КЦ на штатных (Empire Estate) и
+// аутсорс-операторов. Только для role=MANAGER; у остальных null.
+enum KcTeam {
+  STAFF
+  OUTSOURCE
+}
+
 enum MeetingStatus {
   PENDING
   CONFIRMED
@@ -263,6 +270,10 @@ model Broker {
   // 2026-06-09: внутренний номер сотрудника в Mango (для click-to-call:
   // Mango сначала набирает этот номер, оператор берёт трубку → соединение).
   mangoEmployeeNum       String?                  @map("mango_employee_num")
+  // 2026-07-22: Штат (Empire Estate) / Аутсорс — только для role=MANAGER.
+  // Backfill: scripts/backfill-kc-team.js (6 штатных по ФИО из
+  // docs/call-center-team.md, остальные MANAGER → OUTSOURCE).
+  kcTeam                 KcTeam?                  @map("kc_team")
   // ─── Поля для амо-карточки контакта (sync через brokerToAmoContactFields) ───
   position               String? // Должность
   telegramUsername       String?                  @map("telegram_username")
