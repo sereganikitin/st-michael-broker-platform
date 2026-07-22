@@ -1,15 +1,24 @@
-name: Report broker tour from amo (read-only)
+name: Report broker tour from amo
 
 # 2026-07-22: отчёт «кто был на брокер-туре» из amoCRM + сопоставление с
-# фиксациями в нашей БД. Read-only: ничего не пишет ни в amo, ни в БД.
+# фиксациями в нашей БД. По умолчанию dry-run (ничего не пишет).
+# С apply=true записывает broker_tour_visited/broker_tour_date найденным
+# брокерам — оживает воронка тур→фиксация→сделка на /admin/analytics.
+# В amo не пишет никогда.
 #
 # Скрипт закидывается в работающий контейнер api через docker cp —
 # пересборка образа и деплой не нужны.
 #
-# Запуск: gh workflow run report-broker-tour-amo.yml
+# Запуск: gh workflow run report-broker-tour-amo.yml [-f apply=true]
 
 on:
   workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Записать тур-поля в БД (false = только отчёт)'
+        required: true
+        type: boolean
+        default: false
 
 concurrency:
   group: report-broker-tour-amo
@@ -37,5 +46,7 @@ jobs:
             echo "=== Скрипт из origin/master: $(git rev-parse --short origin/master) ==="
             git show origin/master:scripts/report-broker-tour-from-amo.js > /tmp/report-broker-tour-from-amo.js
             docker cp /tmp/report-broker-tour-from-amo.js st-michael-api:/app/scripts/report-broker-tour-from-amo.js
-            docker compose exec -T api node /app/scripts/report-broker-tour-from-amo.js
+            ARGS=""
+            if [ "${{ inputs.apply }}" = "true" ]; then ARGS="--apply"; fi
+            docker compose exec -T api node /app/scripts/report-broker-tour-from-amo.js $ARGS
             echo "=== Отчёт завершён ==="
