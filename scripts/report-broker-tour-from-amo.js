@@ -8,12 +8,17 @@
  * и сопоставляет их с нашей БД (по amo_contact_id и телефону) и с
  * уникальными фиксациями (clients.uniqueness_status = CONDITIONALLY_UNIQUE).
  *
- * Ничего не пишет ни в amo, ни в БД. Телефоны в выводе маскируются.
+ * Без --apply ничего не пишет ни в amo, ни в БД. Телефоны маскируются.
+ * С --apply записывает найденным брокерам broker_tour_visited=true и
+ * broker_tour_date — после этого оживает воронка тур→фиксация→сделка
+ * на /admin/analytics. В amo не пишет никогда.
  *
  * Запуск в контейнере api (workflow report-broker-tour-amo.yml):
- *   node /app/scripts/report-broker-tour-from-amo.js
+ *   node /app/scripts/report-broker-tour-from-amo.js          # только отчёт
+ *   node /app/scripts/report-broker-tour-from-amo.js --apply  # + запись в БД
  */
 
+const APPLY = process.argv.slice(2).includes('--apply');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const last10 = (p) => String(p || '').replace(/\D/g, '').slice(-10);
 const mask = (p) => {
@@ -31,14 +36,14 @@ function contactPhones(contact) {
   return (f?.values || []).map((v) => String(v.value || '')).filter(Boolean);
 }
 
-function fmtTourDate(raw) {
-  if (raw == null) return '(без даты)';
+function parseTourDate(raw) {
+  if (raw == null) return null;
   if (typeof raw === 'number' || /^\d{9,}$/.test(String(raw))) {
     const d = new Date(Number(raw) * 1000);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    if (!isNaN(d.getTime())) return d;
   }
   const d = new Date(String(raw));
-  return isNaN(d.getTime()) ? String(raw) : d.toISOString().slice(0, 10);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 (async () => {
@@ -62,14 +67,17 @@ function fmtTourDate(raw) {
     const TOUR_VISITED = AMO_CONTACT_FIELDS.BROKER_TOUR_VISITED; // 842303
     const TOUR_DATE = AMO_CONTACT_FIELDS.BROKER_TOUR_DATE; // 842305
 
+    console.log(`Режим: ${APPLY ? 'APPLY (пишем тур-поля в БД)' : 'DRY-RUN (только отчёт)'}`);
+
     // ─── 1. Обходим все контакты amo ───
+    // ВАЖНО: adapter.request() сам добавляет /api/v4 — путь без префикса.
     const tourists = [];
     let page = 1;
     let scanned = 0;
     for (;;) {
       let res;
       try {
-        res = await amo['request'](`/api/v4/contacts?page=${page}&limit=250`);
+        res = await amo['request'](`/contacts?page=${page}&limit=250`);
       } catch (e) {
         console.error(`Страница ${page}: ${e?.message || e} — стоп.`);
         break;
@@ -81,11 +89,13 @@ function fmtTourDate(raw) {
         const v = cfRaw(c, TOUR_VISITED);
         const visited = v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
         if (!visited) continue;
+        const d = parseTourDate(cfRaw(c, TOUR_DATE));
         tourists.push({
           amoId: c.id,
           name: String(c.name || '').trim() || '(без имени)',
           phones: contactPhones(c),
-          tourDate: fmtTourDate(cfRaw(c, TOUR_DATE)),
+          tourDate: d ? d.toISOString().slice(0, 10) : '(без даты)',
+          tourDateObj: d,
         });
       }
       if (page % 10 === 0) console.log(`— прогресс: ${scanned} контактов, с туром: ${tourists.length} —`);
@@ -125,6 +135,7 @@ function fmtTourDate(raw) {
     console.log('───────────────────────────────────────────');
     let withFix = 0;
     let inDb = 0;
+    let applied = 0;
     const fixNames = [];
     for (const t of tourists.sort((a, b) => a.name.localeCompare(b.name, 'ru'))) {
       let b = byAmoId.get(String(t.amoId)) || null;
@@ -142,6 +153,17 @@ function fmtTourDate(raw) {
       }
       const phone = mask(t.phones[0]);
       console.log(`${t.name} | ${phone} | ${t.tourDate} | ${b ? 'да' : 'НЕТ'} | ${fix > 0 ? fix : '—'}`);
+
+      if (APPLY && b) {
+        await prisma.broker.update({
+          where: { id: b.id },
+          data: {
+            brokerTourVisited: true,
+            ...(t.tourDateObj ? { brokerTourDate: t.tourDateObj } : {}),
+          },
+        });
+        applied++;
+      }
     }
 
     console.log('───────────────────────────────────────────');
@@ -149,6 +171,7 @@ function fmtTourDate(raw) {
     console.log(`  было на брокер-туре (по amo):     ${tourists.length}`);
     console.log(`  из них найдены в БД платформы:    ${inDb}`);
     console.log(`  из них с уникальными фиксациями:  ${withFix}`);
+    if (APPLY) console.log(`  записано тур-полей в БД:          ${applied}`);
     if (fixNames.length) {
       console.log('  Кто именно зафиксировал:');
       for (const n of fixNames) console.log(`    - ${n}`);

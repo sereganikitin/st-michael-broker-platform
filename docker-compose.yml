@@ -1,9 +1,16 @@
-version: '3.8'
+# 2026-07-22: ротация docker-логов. Лог api дорос до 12 ГБ и забил диск
+# (postgres упал). Лимит: 50 МБ × 3 файла = максимум ~150 МБ на контейнер.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
 
 services:
   postgres:
     image: postgres:16-alpine
     container_name: st-michael-postgres
+    logging: *default-logging
     environment:
       POSTGRES_DB: broker_platform
       POSTGRES_USER: postgres
@@ -24,6 +31,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: st-michael-redis
+    logging: *default-logging
     ports:
       - "6379:6379"
     volumes:
@@ -42,6 +50,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.api
     container_name: st-michael-api
+    logging: *default-logging
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/broker_platform
       REDIS_HOST: redis
@@ -93,6 +102,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.web
     container_name: st-michael-web
+    logging: *default-logging
     environment:
       API_URL: http://api:4000
       NEXT_PUBLIC_API_URL: /api
@@ -113,6 +123,7 @@ services:
   nginx:
     image: nginx:alpine
     container_name: st-michael-nginx
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
