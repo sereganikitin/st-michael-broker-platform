@@ -52,6 +52,10 @@ services:
     container_name: st-michael-api
     logging: *default-logging
     environment:
+      # 2026-07-22: без NODE_ENV=production Prisma логирует КАЖДЫЙ SQL-запрос
+      # (database.module.ts: verbose при NODE_ENV!=production) — так лог api
+      # дорос до 12 ГБ и уронил диск с postgres. Dockerfile.api его не ставит.
+      NODE_ENV: production
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/broker_platform
       REDIS_HOST: redis
       REDIS_PORT: 6379
