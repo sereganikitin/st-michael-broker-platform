@@ -100,7 +100,7 @@ function contactPhones(contact) {
       if (page % 40 === 0) console.log(`— контакты: ${scanned} —`);
       if (!res?._links?.next) break;
       page++;
-      await sleep(250);
+      await sleep(150);
     }
     console.log(`Контактов в amo: ${scanned}; из них брокеров (checkbox): ${[...contacts.values()].filter((c) => c.isBroker).length}; с туром: ${[...contacts.values()].filter((c) => c.tour).length}`);
 
@@ -151,7 +151,7 @@ function contactPhones(contact) {
         }
         if (!res?._links?.next) break;
         p++;
-        await sleep(250);
+        await sleep(150);
       }
       console.log(`${label}: лидов ${leads.length}`);
       return leads;

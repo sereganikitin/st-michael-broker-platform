@@ -1086,13 +1086,16 @@ export class AdminService {
       select: {
         id: true,
         fullName: true,
+        kcTeam: true,
         _count: { select: { assignedBrokers: true } },
       },
-      orderBy: { fullName: 'asc' },
+      // 2026-07-22: Штат выше Аутсорса, внутри группы — по алфавиту.
+      orderBy: [{ kcTeam: 'asc' }, { fullName: 'asc' }],
     });
     return managers.map((m: any) => ({
       id: m.id,
       fullName: m.fullName,
+      kcTeam: m.kcTeam || null,
       assignedCount: m._count?.assignedBrokers || 0,
     }));
   }

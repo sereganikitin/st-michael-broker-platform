@@ -87,6 +87,8 @@ interface QueueBroker {
 interface KcManager {
   id: string;
   fullName: string;
+  // 2026-07-22: Штат (Empire Estate) / Аутсорс; null у не размеченных.
+  kcTeam: 'STAFF' | 'OUTSOURCE' | null;
   assignedCount: number;
 }
 
@@ -338,9 +340,17 @@ export default function AdminCallCenterPage() {
               onChange={(e) => setBatchManagerId(e.target.value)}
             >
               <option value="">— менеджер КЦ —</option>
-              {managers.map((m) => (
-                <option key={m.id} value={m.id}>{m.fullName} ({m.assignedCount})</option>
-              ))}
+              {/* 2026-07-22: группировка Штат / Аутсорс */}
+              <optgroup label="Штат">
+                {managers.filter((m) => m.kcTeam === 'STAFF').map((m) => (
+                  <option key={m.id} value={m.id}>{m.fullName} ({m.assignedCount})</option>
+                ))}
+              </optgroup>
+              <optgroup label="Аутсорс">
+                {managers.filter((m) => m.kcTeam !== 'STAFF').map((m) => (
+                  <option key={m.id} value={m.id}>{m.fullName} ({m.assignedCount})</option>
+                ))}
+              </optgroup>
             </select>
             <button
               className="btn btn-primary"
