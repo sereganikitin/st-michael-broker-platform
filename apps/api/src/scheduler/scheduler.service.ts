@@ -142,9 +142,12 @@ export class SchedulerService {
     // самого нового (тот кто ведёт). Более новые удаляем.
     // Идемпотентно: после первой очистки — дублей нет, UPDATE 0.
     try {
+      // 2026-07-22: было FROM "Client" — таблица называется clients
+      // (@@map), запрос падал 42P01 при КАЖДОМ запуске cron с самого
+      // рождения и засорял лог ошибками. Дедуп клиентов не работал.
       const dupes = await this.prisma.$queryRaw<Array<{ phone: string; cnt: bigint }>>`
         SELECT "phone", COUNT(*) AS cnt
-        FROM "Client"
+        FROM "clients"
         GROUP BY "phone"
         HAVING COUNT(*) > 1
         LIMIT 100
@@ -207,8 +210,10 @@ export class SchedulerService {
     // новые встречи такое уже не пишут, но старые записи в БД остались —
     // засоряли UI в /meetings. Один UPDATE, потом всегда UPDATE 0.
     try {
+      // 2026-07-22: было UPDATE "Meeting" — таблица meetings (@@map),
+      // 42P01 каждый цикл, очистка комментариев так и не отработала.
       await this.prisma.$executeRaw`
-        UPDATE "Meeting"
+        UPDATE "meetings"
         SET "comment" = NULL
         WHERE "comment" LIKE 'Тип из amoCRM:%'
       `;
@@ -222,8 +227,9 @@ export class SchedulerService {
     // Regexp удаляет все такие строки (с необязательным \n). Потом NULLим
     // пустые comment. Идемпотентно.
     try {
+      // 2026-07-22: было UPDATE "Client" — таблица clients (@@map), 42P01.
       await this.prisma.$executeRaw`
-        UPDATE "Client"
+        UPDATE "clients"
         SET "comment" = regexp_replace(
           "comment",
           E'\\n?\\[\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\] amoCRM статус: \\d+',
@@ -233,7 +239,7 @@ export class SchedulerService {
         WHERE "comment" ~ 'amoCRM статус: \\d+'
       `;
       await this.prisma.$executeRaw`
-        UPDATE "Client"
+        UPDATE "clients"
         SET "comment" = NULL
         WHERE "comment" IS NOT NULL AND TRIM("comment") = ''
       `;
