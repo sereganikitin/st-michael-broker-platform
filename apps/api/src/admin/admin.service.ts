@@ -215,7 +215,7 @@ export class AdminService {
     return updated;
   }
 
-  async listBrokers(query: { page?: number; limit?: number; search?: string; role?: string; status?: string; isCoordinator?: string; specialization?: 'COMM' | 'RESIDENTIAL' | 'BOTH' | 'REGIONAL' | 'UNSET' | string; category?: string }) {
+  async listBrokers(query: { page?: number; limit?: number; search?: string; role?: string; status?: string; isCoordinator?: string; specialization?: 'COMM' | 'RESIDENTIAL' | 'BOTH' | 'REGIONAL' | 'UNSET' | string; category?: string; contact?: string }) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -251,6 +251,11 @@ export class AdminService {
     if (query.category && ['COLD', 'WARM', 'HOT', 'CONVERTED', 'ON_BOT_REVIEW', 'BLACKLIST'].includes(query.category)) {
       where.category = query.category;
     }
+    // 2026-07-23: контакты из TG-чатов без телефона хранятся с
+    // phone='tg:<ник>' (телефон обязателен и уникален в схеме).
+    // TG_ONLY — показать только их; WITH_PHONE — скрыть их из списка.
+    if (query.contact === 'TG_ONLY') where.phone = { startsWith: 'tg:' };
+    else if (query.contact === 'WITH_PHONE') where.phone = { not: { startsWith: 'tg:' } };
 
     const [brokers, total] = await Promise.all([
       this.prisma.broker.findMany({
