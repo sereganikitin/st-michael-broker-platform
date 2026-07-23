@@ -24,6 +24,8 @@ export default function AdminBrokersPage() {
   const [statusFilter, setStatusFilter] = useState('');
   // 2026-07-06: фильтр по специализации (COMM/RESIDENTIAL/BOTH/UNSET).
   const [specializationFilter, setSpecializationFilter] = useState('');
+  // 2026-07-23: фильтр «только Telegram-контакты» (импорт из TG-чатов без телефона)
+  const [contactFilter, setContactFilter] = useState('');
   // 2026-06-29 (refactor): фильтр по координаторам удалён — флаг убран.
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -43,6 +45,7 @@ export default function AdminBrokersPage() {
     if (roleFilter) params.set('role', roleFilter);
     if (statusFilter) params.set('status', statusFilter);
     if (specializationFilter) params.set('specialization', specializationFilter);
+    if (contactFilter) params.set('contact', contactFilter);
     apiGet(`/admin/brokers?${params}`)
       .then((data) => {
         setBrokers(data.brokers || []);
@@ -53,7 +56,7 @@ export default function AdminBrokersPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchBrokers(); }, [page, roleFilter, statusFilter, specializationFilter]);
+  useEffect(() => { fetchBrokers(); }, [page, roleFilter, statusFilter, specializationFilter, contactFilter]);
 
   const handleSearch = (e: React.FormEvent) => { e.preventDefault(); setPage(1); fetchBrokers(); };
 
@@ -168,6 +171,13 @@ export default function AdminBrokersPage() {
                 живёт в том же селекте (по решению пользователя). */}
             <option value="REGIONAL">Региональный</option>
             <option value="UNSET">Не указана</option>
+          </select>
+          {/* 2026-07-23: контакты из TG-чатов без телефона (phone='tg:<ник>').
+              TG_ONLY — только они; WITH_PHONE — скрыть их. */}
+          <select className="input w-auto" value={contactFilter} onChange={(e) => { setContactFilter(e.target.value); setPage(1); }}>
+            <option value="">Все контакты</option>
+            <option value="TG_ONLY">Только Telegram (без телефона)</option>
+            <option value="WITH_PHONE">Только с телефоном</option>
           </select>
         </div>
       </div>
