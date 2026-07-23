@@ -338,6 +338,55 @@ export class SchedulerService {
       this.logger.warn(`[gsheets-brokers] FAILED: ${r.error}`);
     }
   }
+  // 2026-07-23: КЦ-заявки, зависшие на Админе. MoreKIT ставит оператора в
+  // ЗАДАЧЕ, а карточку синкает разовый 5-мин поллинг при создании фиксации —
+  // но для делегированных/повторных фиксаций синк выключен, а позднее
+  // назначение MoreKIT (задача пришла после поллинга) никто не подхватывает.
+  // Итог: лид остаётся на владельце токена (Админ), поле «Ответственный КЦ»
+  // = «Без КЦ».
+  //
+  // ПРЕДОХРАНИТЕЛЬ (из-за него periodic-синк откатывали в июне): трогаем ТОЛЬКО
+  // лиды, всё ещё висящие на Админе, и ставим ответственного из СВЕЖЕЙ задачи
+  // НЕ-Админа. Как только лид на живом операторе — фильтр его больше не
+  // возвращает, «прыгания» ответственного нет.
+  @Cron('*/5 * * * *')
+  async handleStuckKcLeadResponsible() {
+    const adminId = Number(process.env.AMO_ADMIN_USER_ID || 6089620);
+    if (!adminId) return;
+    const sinceSec = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60; // за 7 дней
+    let stuck: any[] = [];
+    try {
+      stuck = await this.amo.getLeadsByPipelineAndResponsible(AMO_PIPELINES.KC, adminId, sinceSec);
+    } catch (e: any) {
+      this.logger.warn(`[kc-responsible-sync] выборка лидов упала: ${e?.message || e}`);
+      return;
+    }
+    if (!stuck.length) return;
+
+    let fixed = 0;
+    for (const lead of stuck) {
+      try {
+        // Не трогаем закрытые лиды (успех/отказ).
+        if (lead.status_id === 142 || lead.status_id === 143) continue;
+        // Повторная проверка ответственного на свежих данных (защита от гонки).
+        if (Number(lead.responsible_user_id) !== adminId) continue;
+        const tasks = await this.amo.getTasksByEntity('leads', lead.id);
+        const opTask = tasks
+          .filter((t) => t.responsible_user_id && Number(t.responsible_user_id) !== adminId)
+          .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+        if (!opTask?.responsible_user_id) continue; // MoreKIT ещё не назначил оператора
+        await this.amo.updateLead(lead.id, { responsible_user_id: opTask.responsible_user_id });
+        fixed++;
+        this.logger.log(
+          `[kc-responsible-sync] lead=${lead.id}: ${adminId} → ${opTask.responsible_user_id} (task ${opTask.id})`,
+        );
+      } catch (e: any) {
+        this.logger.error(`[kc-responsible-sync] lead=${lead.id} error: ${e?.message || e}`);
+      }
+    }
+    if (fixed) this.logger.log(`[kc-responsible-sync] исправлено заявок: ${fixed} из ${stuck.length} на Админе`);
+  }
+
   // 2026-05-29: Yandex.Disk локальный кеш файлов — раз в сутки в 04:00.
   // Скачивает физически файлы в /app/uploads/yandex/, обновляет Document.fileUrl
   // на /files/yandex/... — nginx отдаёт напрямую без обращения к Я.Диску.

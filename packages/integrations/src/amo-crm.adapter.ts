@@ -777,6 +777,38 @@ export class AmoCrmAdapter {
     return allLeads;
   }
 
+  // 2026-07-23: лиды воронки в руках конкретного ответственного, опционально
+  // созданные не раньше createdFromSec. Используется кроном, который чинит
+  // КЦ-заявки, зависшие на Админе (responsible = владелец токена по умолчанию).
+  async getLeadsByPipelineAndResponsible(
+    pipelineId: number,
+    userId: number,
+    createdFromSec?: number,
+    limit = 250,
+  ): Promise<AmoLead[]> {
+    const allLeads: AmoLead[] = [];
+    let page = 1;
+    try {
+      while (true) {
+        const params = [
+          `filter[pipeline_id][]=${pipelineId}`,
+          `filter[responsible_user_id][]=${userId}`,
+          `limit=${limit}`,
+          `page=${page}`,
+        ];
+        if (createdFromSec) params.push(`filter[created_at][from]=${createdFromSec}`);
+        const data = await this.request<any>(`/leads?${params.join('&')}`);
+        const leads = data?._embedded?.leads || [];
+        if (leads.length === 0) break;
+        allLeads.push(...leads);
+        if (leads.length < limit) break;
+        page++;
+        if (page > 20) break; // safety
+      }
+    } catch {}
+    return allLeads;
+  }
+
   async reopenLead(id: number, newBrokerAmoId: number): Promise<AmoLead> {
     await this.updateLead(id, { status_id: 142 } as any);
     return (await this.getLead(id))!;
