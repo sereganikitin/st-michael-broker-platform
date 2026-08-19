@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Plug,
   Database,
+  ClipboardList,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,7 @@ const navigation = [
 ];
 
 const adminNavigation = [
+  { name: 'Инструкции сотрудникам', href: '/admin/instructions', icon: ClipboardList },
   { name: 'Аналитика платформы', href: '/admin/analytics', icon: BarChart3 },
   { name: 'База лояльности', href: '/admin/loyalty-base', icon: Database },
   { name: 'Колл-центр', href: '/admin/call-center', icon: PhoneCall },

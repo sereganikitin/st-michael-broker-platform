@@ -18,6 +18,7 @@ const labels: Record<string, string> = {
   profile: 'Профиль',
   analytics: 'Аналитика',
   admin: 'Админка',
+  instructions: 'Инструкции сотрудникам',
   brokers: 'Брокеры',
   events: 'События',
   projects: 'Проекты',
