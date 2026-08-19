@@ -20,6 +20,7 @@ import {
   PhoneCall,
   AlertTriangle,
   Plug,
+  Database,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,7 @@ const navigation = [
 
 const adminNavigation = [
   { name: 'Аналитика платформы', href: '/admin/analytics', icon: BarChart3 },
+  { name: 'База лояльности', href: '/admin/loyalty-base', icon: Database },
   { name: 'Колл-центр', href: '/admin/call-center', icon: PhoneCall },
   { name: 'Конфликты уникальности', href: '/admin/uniqueness-conflicts', icon: AlertTriangle },
   // 2026-07-09: заменяет «Заявки без amoCRM» — теперь тут все типы
@@ -108,7 +110,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
         <nav className="px-4">
           <ul className="space-y-2">
             {items.map((item) => {
-              const isActive = pathname === item.href;
+              const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
                 <li key={item.name}>
                   <Link
