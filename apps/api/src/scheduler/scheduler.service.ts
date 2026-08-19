@@ -962,12 +962,31 @@ export class SchedulerService {
     this.logger.log(`amoCRM sync complete: ${totalDeals} new deals, ${totalClients} new clients, ${brokers.length} brokers`);
   }
 
+  // 2026-08-19: без этого флага зависший amoCRM (fetch без ответа) позволял
+  // следующему прогону крона (через 5 минут) выбрать того же самого клиента
+  // и параллельно отправить его ещё раз — в amoCRM создавался дубль лида
+  // на одну фиксацию (см. code-review PR #288).
+  private amoFailedRetryRunning = false;
+
   // 2026-05-27 ROBUST AMO #1: auto-retry для клиентов с amoSyncStatus=FAILED.
   // Каждые 5 минут берёт до 20 заявок которые не дошли в amoCRM, пытается
   // переотправить. Если amo живой — заявки появятся в amo автоматически.
   // Гасит счётчик попыток — если >10, не пытаемся больше (вечно сломанное).
   @Cron('*/5 * * * *')
   async handleAmoFailedRetry() {
+    if (this.amoFailedRetryRunning) {
+      this.logger.warn('amo auto-retry: предыдущий прогон ещё не завершился, пропускаем');
+      return;
+    }
+    this.amoFailedRetryRunning = true;
+    try {
+      await this.runAmoFailedRetry();
+    } finally {
+      this.amoFailedRetryRunning = false;
+    }
+  }
+
+  private async runAmoFailedRetry() {
     if (!hasConfiguredAmoCredentials()) {
       await this.alertAmoTokenMissing();
       return;
@@ -997,6 +1016,10 @@ export class SchedulerService {
     for (const client of candidates) {
       const requiresUniquenessRecheck = String(client.amoSyncError || '')
         .startsWith(AMO_UNIQUENESS_RECHECK_MARKER);
+      // Только ошибка вокруг самого createFixationRequest (POST, создающего
+      // лид) неоднозначна — отваливающийся до него checkUniqueness ничего
+      // не создаёт, ретраить его безопасно как обычно.
+      let leadCreateAttempted = false;
       try {
         const retryBroker = client.responsibleBroker ?? client.broker;
         const clientId = String(client.id);
@@ -1066,6 +1089,7 @@ export class SchedulerService {
           continue;
         }
 
+        leadCreateAttempted = true;
         const resultLead = await this.amo.createFixationRequest({
           clientPhone: client.phone,
           clientEmail: client.email || undefined,
@@ -1166,12 +1190,24 @@ export class SchedulerService {
       } catch (e: any) {
         const rawError = String(e?.message || e);
         const safeError = sanitizeAmoSyncError(e);
-        const nextAttempts = Number(client.amoSyncAttempts || 0) + 1;
+        // 2026-08-19: сетевая ошибка/5xx во время createFixationRequest не
+        // говорит, дошёл ли POST до amoCRM — лид мог реально создаться, а мы
+        // просто не увидели ответ. Автоматический повтор через 5 минут может
+        // задвоить лид, поэтому для этой категории не даём крону тронуть
+        // клиента снова (тот же принцип, что уже применён к дохлому токену
+        // ниже) — attempts сразу выставляются в максимум, ручной «Повторить»
+        // в /admin/broker-applications остаётся доступен после проверки
+        // в самой amoCRM (см. code-review PR #288).
+        const isAmbiguousPost = leadCreateAttempted
+          && (safeError === 'AMO_NETWORK_ERROR' || safeError === 'AMO_TEMPORARY_UNAVAILABLE');
+        const nextAttempts = isAmbiguousPost
+          ? AMO_RETRY_MAX_ATTEMPTS
+          : Number(client.amoSyncAttempts || 0) + 1;
         await this.prisma.client.update({
           where: { id: client.id },
           data: {
             amoSyncError: requiresUniquenessRecheck ? client.amoSyncError : safeError,
-            amoSyncAttempts: { increment: 1 },
+            amoSyncAttempts: isAmbiguousPost ? AMO_RETRY_MAX_ATTEMPTS : { increment: 1 },
             amoSyncLastAttemptAt: new Date(),
             ...(nextAttempts >= AMO_RETRY_MAX_ATTEMPTS
               ? { amoSyncStatus: 'FAILED' as any }
@@ -1179,7 +1215,15 @@ export class SchedulerService {
           },
         });
         failed++;
-        if (nextAttempts >= AMO_RETRY_MAX_ATTEMPTS) {
+        if (isAmbiguousPost) {
+          const retryBroker = client.responsibleBroker ?? client.broker;
+          const clientId = String(client.id);
+          const brokerId = retryBroker?.id ? String(retryBroker.id) : 'unknown';
+          await this.sendOpsAlert(
+            `🔴 PROD: неоднозначный ответ amoCRM при фиксации\nclientId: ${clientId}\nbrokerId: ${brokerId}\ncategory: ${safeError}\nЛид мог уже создаться — перед ручным «Повторить» проверьте amoCRM, иначе будет дубль.`,
+            `scheduler:amo-retry:ambiguous-post:${clientId}`,
+          );
+        } else if (nextAttempts >= AMO_RETRY_MAX_ATTEMPTS) {
           const retryBroker = client.responsibleBroker ?? client.broker;
           const clientId = String(client.id);
           const brokerId = retryBroker?.id ? String(retryBroker.id) : 'unknown';
@@ -1339,6 +1383,10 @@ export class SchedulerService {
       '🔴 PROD: токен amoCRM недействителен\namoCRM отклонил авторизацию; требуется обновить токен.',
       'scheduler:amo:token-dead',
     );
+    // 2026-08-19: раньше здесь ещё рассылались персональные TELEGRAM-нотификации
+    // всем MANAGER без проверки telegramChatId — sendOpsAlert выше уже покрывает
+    // доставку, а у менеджеров без привязанного чата это создавало вечный retry
+    // в очереди Bull (см. code-review PR #288).
     try {
       await this.prisma.auditLog.create({
         data: {
@@ -1348,18 +1396,6 @@ export class SchedulerService {
           payload: { error: this.safeOpsErrorCategory(error), at: new Date().toISOString() },
         },
       });
-      const managers = await this.prisma.broker.findMany({
-        where: { role: 'MANAGER', status: 'ACTIVE' },
-        select: { id: true },
-      });
-      for (const m of managers) {
-        await this.notificationQueue.add('send', {
-          brokerId: m.id,
-          channel: 'TELEGRAM',
-          subject: '🔑 amoCRM: токен умер',
-          body: 'Токен AMO_ACCESS_TOKEN истёк или невалиден. Обнови secret и перезапусти сервис.',
-        }).catch(() => {});
-      }
     } catch {
       console.error('[alertAmoTokenDead] failed');
     }
@@ -1379,18 +1415,6 @@ export class SchedulerService {
           payload: { error: this.safeOpsErrorCategory(error), at: new Date().toISOString() },
         },
       });
-      const managers = await this.prisma.broker.findMany({
-        where: { role: 'MANAGER', status: 'ACTIVE' },
-        select: { id: true },
-      });
-      for (const m of managers) {
-        await this.notificationQueue.add('send', {
-          brokerId: m.id,
-          channel: 'TELEGRAM',
-          subject: '⚠ amoCRM недоступен',
-          body: 'amoCRM не отвечает. Заявки сохраняются локально и переотправятся автоматически после восстановления.',
-        }).catch(() => {});
-      }
     } catch {
       console.error('[alertAmoDown] failed');
     }
@@ -1456,18 +1480,6 @@ export class SchedulerService {
           payload: { error: this.safeOpsErrorCategory(error), at: new Date().toISOString() },
         },
       });
-      const managers = await this.prisma.broker.findMany({
-        where: { role: 'MANAGER', status: 'ACTIVE' },
-        select: { id: true },
-      });
-      for (const m of managers) {
-        await this.notificationQueue.add('send', {
-          brokerId: m.id,
-          channel: 'TELEGRAM',
-          subject: '⚠ SMTP недоступен',
-          body: 'SMTP не отвечает. Forgot-password и welcome-email временно не уходят. Проверь настройки почты.',
-        }).catch(() => {});
-      }
     } catch {
       console.error('[alertSmtpDown] failed');
     }

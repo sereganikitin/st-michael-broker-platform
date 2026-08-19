@@ -575,7 +575,7 @@ describe("SchedulerService.handleAmoFailedRetry", () => {
     expect(opsAlerts.sendSafely).not.toHaveBeenCalled();
   });
 
-  it("keeps manager token-dead notifications and sends a sanitized direct alert", async () => {
+  it("sends a sanitized direct ops alert on token-dead, without a redundant per-manager notification", async () => {
     const rawError =
       "401 Unauthorized token=raw-secret client=Private Client Name";
     const candidate = {
@@ -617,14 +617,11 @@ describe("SchedulerService.handleAmoFailedRetry", () => {
         data: expect.objectContaining({ action: "AMO_TOKEN_DEAD" }),
       }),
     );
-    expect(notificationQueue.add).toHaveBeenCalledWith(
-      "send",
-      expect.objectContaining({
-        brokerId: "manager-1",
-        channel: "TELEGRAM",
-        subject: "🔑 amoCRM: токен умер",
-      }),
-    );
+    // 2026-08-19: раньше здесь ещё рассылались персональные TELEGRAM-нотификации
+    // всем MANAGER без проверки telegramChatId — это создавало вечный retry в
+    // очереди Bull для менеджеров без привязанного чата. sendOpsAlert ниже —
+    // единственный канал доставки теперь.
+    expect(notificationQueue.add).not.toHaveBeenCalled();
     expect(opsAlerts.sendSafely).toHaveBeenCalledWith(
       expect.stringContaining("токен amoCRM недействителен"),
       expect.objectContaining({ dedupKey: "scheduler:amo:token-dead" }),
@@ -703,14 +700,9 @@ describe("SchedulerService operations health alerts", () => {
 
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
     expect(prisma.client.updateMany).toHaveBeenCalledTimes(1);
-    expect(notificationQueue.add).toHaveBeenCalledTimes(1);
-    expect(notificationQueue.add).toHaveBeenCalledWith(
-      "send",
-      expect.objectContaining({
-        subject: "⚠ amoCRM недоступен",
-        body: expect.not.stringContaining(rawError),
-      }),
-    );
+    // 2026-08-19: персональная TELEGRAM-рассылка всем MANAGER без проверки
+    // telegramChatId убрана — sendOpsAlert ниже единственный канал доставки.
+    expect(notificationQueue.add).not.toHaveBeenCalled();
     expect(opsAlerts.sendSafely).toHaveBeenCalledTimes(2);
     expect(opsAlerts.sendSafely).toHaveBeenNthCalledWith(
       1,
@@ -769,14 +761,9 @@ describe("SchedulerService operations health alerts", () => {
     await service.handleSmtpHealthCheck();
 
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
-    expect(notificationQueue.add).toHaveBeenCalledTimes(1);
-    expect(notificationQueue.add).toHaveBeenCalledWith(
-      "send",
-      expect.objectContaining({
-        subject: "⚠ SMTP недоступен",
-        body: expect.not.stringContaining(rawError),
-      }),
-    );
+    // 2026-08-19: персональная TELEGRAM-рассылка всем MANAGER без проверки
+    // telegramChatId убрана — sendOpsAlert ниже единственный канал доставки.
+    expect(notificationQueue.add).not.toHaveBeenCalled();
     expect(opsAlerts.sendSafely).toHaveBeenCalledTimes(2);
     expect(opsAlerts.sendSafely).toHaveBeenNthCalledWith(
       1,

@@ -7,6 +7,12 @@ import {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// 2026-08-19: без таймаута зависший amoCRM держит fetch() открытым
+// бесконечно — вместе с overlap-guard'ом в handleAmoFailedRetry это
+// раньше позволяло двум прогонам крона параллельно слать один и тот же
+// лид (см. code-review PR #288).
+const AMO_REQUEST_TIMEOUT_MS = 15_000;
+
 // "+79039606053" / "8 (903) 960-60-53" / "+7-903-960-60-53" → "9039606053".
 // amoCRM ?query=<substring> капризно реагирует на формат: поиск по «+79039606053»
 // не находит контакт сохранённый как «8 (903) 960-60-53», поэтому ищем по
@@ -216,9 +222,12 @@ export class AmoCrmAdapter {
     const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
     const safePath = safeAmoRequestPath(path);
     let res: Response;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AMO_REQUEST_TIMEOUT_MS);
     try {
       res = await fetch(url, {
         ...init,
+        signal: controller.signal,
         headers: {
           // 2026-05-27: «человеческий» User-Agent + Accept — без них
           // WAF возвращает 403. С браузерным UA проходит.
@@ -236,6 +245,8 @@ export class AmoCrmAdapter {
         return this.request<T>(path, init, options, attempt + 1, didRefresh);
       }
       throw new Error(`amoCRM network error ${safePath}`);
+    } finally {
+      clearTimeout(timer);
     }
 
     if (res.status === 204) return null as T;
