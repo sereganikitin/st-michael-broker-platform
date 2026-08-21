@@ -71,6 +71,12 @@ export class CatalogService {
       const images = Array.isArray(offer.image) ? offer.image : offer.image ? [offer.image] : [];
       const planImage = images.find((img: any) => (img?.['@_type'] || '') === 'plan');
       const planImageUrl = typeof planImage === 'string' ? planImage : planImage?.['#text'] || null;
+      // Feed order (plan always first, per ProfitBase convention) — kept
+      // as-is so YandexDiskPhotosService can append it after personal
+      // Yandex.Disk photos. See docs/yandex-disk-photos-feed.md.
+      const feedImageUrls = images
+        .map((img: any) => (typeof img === 'string' ? img : img?.['#text']))
+        .filter((url: unknown): url is string => Boolean(url));
 
       // Parse additional features from custom-fields / property_type
       const customFields = Array.isArray(offer['custom-field']) ? offer['custom-field'] : offer['custom-field'] ? [offer['custom-field']] : [];
@@ -147,6 +153,7 @@ export class CatalogService {
         propertyType,
         layoutUrl: null as string | null,
         planImageUrl,
+        feedImageUrls,
         description: offer?.['window-view'] || null,
         floorsTotal: Number(offer?.house?.['floors-total'] || 0) || null,
         buildingSection: offer?.['building-section'] ? String(offer['building-section']) : null,
