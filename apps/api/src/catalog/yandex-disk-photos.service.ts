@@ -15,7 +15,8 @@ import * as path from 'path';
  *    Only consulted when Source 1 has no match for the lot.
  *
  * Final gallery order written to Lot.photos:
- *   [plan image] + [personal Yandex.Disk photos] + [remaining feed images]
+ *   [plan image] + [floor plan (Lot.layoutUrl, type="plan floor" in the feed)]
+ *   + [personal Yandex.Disk photos] + [remaining feed images]
  *
  * Full background: docs/yandex-disk-photos-feed.md.
  */
@@ -85,18 +86,23 @@ export function buildSohoKey(lotNumber: string, floor: number, subIndexOverride?
 }
 
 /**
- * Assembles the final gallery order: plan first, then personal Yandex.Disk
- * photos, then whatever else came from the feed (minus the plan, already
- * placed first). Always keeps the "remaining feed photos" tail, regardless
- * of whether personal photos were found — see docs/yandex-disk-photos-feed.md.
+ * Assembles the final gallery order: plan first, then the per-floor site
+ * plan (Lot.layoutUrl — distinct from the apartment plan, see feed type
+ * "plan floor"), then personal Yandex.Disk photos, then whatever else came
+ * from the feed (minus the plan and floor plan, already placed). Always
+ * keeps the "remaining feed photos" tail, regardless of whether personal
+ * photos were found — see docs/yandex-disk-photos-feed.md.
  */
 export function computePhotoOrder(
   planImageUrl: string | null,
+  layoutUrl: string | null,
   personalUrls: string[],
   feedImageUrls: string[],
 ): string[] {
-  const rest = (feedImageUrls || []).filter((u) => Boolean(u) && u !== planImageUrl);
-  return [planImageUrl, ...personalUrls, ...rest].filter((u): u is string => Boolean(u));
+  const rest = (feedImageUrls || []).filter(
+    (u) => Boolean(u) && u !== planImageUrl && u !== layoutUrl,
+  );
+  return [planImageUrl, layoutUrl, ...personalUrls, ...rest].filter((u): u is string => Boolean(u));
 }
 
 @Injectable()
@@ -129,6 +135,7 @@ export class YandexDiskPhotosService {
         building: true,
         floor: true,
         planImageUrl: true,
+        layoutUrl: true,
         feedImageUrls: true,
       },
     });
@@ -168,7 +175,7 @@ export class YandexDiskPhotosService {
           }
         }
 
-        const photos = computePhotoOrder(lot.planImageUrl, personalUrls, lot.feedImageUrls);
+        const photos = computePhotoOrder(lot.planImageUrl, lot.layoutUrl, personalUrls, lot.feedImageUrls);
         await this.prisma.lot.update({ where: { id: lot.id }, data: { photos } });
         updated++;
       } catch (e) {

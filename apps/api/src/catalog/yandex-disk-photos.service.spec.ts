@@ -92,14 +92,20 @@ describe('sanitizeName', () => {
 });
 
 describe('computePhotoOrder', () => {
-  it('orders plan, then personal Yandex photos, then remaining feed photos — always, per confirmed spec', () => {
+  // Real offers (fetched live 2026-08-21 from the ZORGE9 feed) tag images
+  // type="plan" (apartment plan, 2-3 per offer) then type="plan floor" (one
+  // per floor, shared across every unit on it) then house/facade/building —
+  // see docs/yandex-disk-photos-feed.md for the confirmed final order.
+  it('orders plan, floor plan, then personal Yandex photos, then remaining feed photos — always', () => {
     const result = computePhotoOrder(
       'https://feed/plan.jpg',
+      'https://feed/plan-floor.jpg',
       ['https://files/yandex/lot/01.jpg', 'https://files/yandex/lot/02.jpg'],
-      ['https://feed/plan.jpg', 'https://feed/extra1.jpg', 'https://feed/extra2.jpg'],
+      ['https://feed/plan.jpg', 'https://feed/plan-floor.jpg', 'https://feed/extra1.jpg', 'https://feed/extra2.jpg'],
     );
     expect(result).toEqual([
       'https://feed/plan.jpg',
+      'https://feed/plan-floor.jpg',
       'https://files/yandex/lot/01.jpg',
       'https://files/yandex/lot/02.jpg',
       'https://feed/extra1.jpg',
@@ -110,14 +116,25 @@ describe('computePhotoOrder', () => {
   it('still appends remaining feed photos when no personal photos were found', () => {
     const result = computePhotoOrder(
       'https://feed/plan.jpg',
+      'https://feed/plan-floor.jpg',
       [],
-      ['https://feed/plan.jpg', 'https://feed/extra1.jpg'],
+      ['https://feed/plan.jpg', 'https://feed/plan-floor.jpg', 'https://feed/extra1.jpg'],
     );
-    expect(result).toEqual(['https://feed/plan.jpg', 'https://feed/extra1.jpg']);
+    expect(result).toEqual(['https://feed/plan.jpg', 'https://feed/plan-floor.jpg', 'https://feed/extra1.jpg']);
   });
 
-  it('drops falsy entries and a null plan', () => {
-    const result = computePhotoOrder(null, ['https://y/1.jpg'], ['', 'https://feed/extra.jpg']);
+  it('drops falsy entries, a null plan, and a null floor plan', () => {
+    const result = computePhotoOrder(null, null, ['https://y/1.jpg'], ['', 'https://feed/extra.jpg']);
     expect(result).toEqual(['https://y/1.jpg', 'https://feed/extra.jpg']);
+  });
+
+  it('handles a lot with no floor plan in the feed (layoutUrl null) without dropping other photos', () => {
+    const result = computePhotoOrder(
+      'https://feed/plan.jpg',
+      null,
+      ['https://y/1.jpg'],
+      ['https://feed/plan.jpg', 'https://feed/extra1.jpg'],
+    );
+    expect(result).toEqual(['https://feed/plan.jpg', 'https://y/1.jpg', 'https://feed/extra1.jpg']);
   });
 });
