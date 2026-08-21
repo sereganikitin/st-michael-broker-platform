@@ -80,10 +80,16 @@ export class CatalogService {
       // never by this feed sync.
       const planFloorImage = images.find((img: any) => (img?.['@_type'] || '') === 'plan floor');
       const layoutUrl = imageUrl(planFloorImage);
-      // Feed order (plan always first, per ProfitBase convention) — kept
-      // as-is so YandexDiskPhotosService can append it after personal
-      // Yandex.Disk photos. See docs/yandex-disk-photos-feed.md.
-      const feedImageUrls = images.map(imageUrl).filter((url: string | null): url is string => Boolean(url));
+      // Everything except type="plan" — offers often carry 2-3 apartment-plan
+      // renders, and only the first (planImageUrl above) is shown; the rest
+      // duplicate what personal Yandex.Disk photos already cover, so they're
+      // dropped here rather than surfacing again in the "remaining feed
+      // photos" tail. type="plan floor" (layoutUrl) is kept — it's placed
+      // separately by computePhotoOrder. See docs/yandex-disk-photos-feed.md.
+      const feedImageUrls = images
+        .filter((img: any) => (img?.['@_type'] || '') !== 'plan')
+        .map(imageUrl)
+        .filter((url: string | null): url is string => Boolean(url));
 
       // Parse additional features from custom-fields / property_type
       const customFields = Array.isArray(offer['custom-field']) ? offer['custom-field'] : offer['custom-field'] ? [offer['custom-field']] : [];
