@@ -73,8 +73,8 @@ jobs:
         shell: bash
         env:
           EXPECTED_REPOSITORY: ${{ github.repository }}
-          EXPECTED_REF: ${{ github.ref }}
-          EXPECTED_RETIREMENT_SHA: ${{ github.sha }}
+          EXPECTED_REF: refs/heads/master
+          EXPECTED_RETIREMENT_SHA: 25b5aa65a69de2cbacf2be2d0e9caa41dd8f85eb
           OPERATION: ${{ inputs.operation }}
           CONFIRM_RETIREMENT: ${{ inputs.confirm_retirement }}
           EXPECTED_TARGET_API_IMAGE_ID: ${{ inputs.expected_target_api_image_id }}
@@ -97,6 +97,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$EXPECTED_REPOSITORY" = "$CANONICAL_REPOSITORY" || { echo "Rollback retirement is restricted to the canonical repository"; exit 1; }
+          test "$OPERATION" = "inspect" || { echo "Diagnostic branch is inspect-only"; exit 1; }
+          test "$CONFIRM_RETIREMENT" = "false" || { echo "Diagnostic branch forbids retirement confirmation"; exit 1; }
           test "$EXPECTED_REF" = "refs/heads/master" || { echo "Rollback retirement is restricted to master"; exit 1; }
           [[ "$EXPECTED_RETIREMENT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Workflow SHA is invalid"; exit 1; }
           case "$OPERATION" in
@@ -157,6 +159,9 @@ jobs:
           RELEASE_TIMESTAMP=20260821-121353
           TARGET_API_TAG="st-michael-rollback-api:$RELEASE_TIMESTAMP"
           TARGET_WEB_TAG="st-michael-rollback-web:$RELEASE_TIMESTAMP"
+          DIAGNOSTIC_EXTRA_TIMESTAMP=20260825-160034
+          DIAGNOSTIC_EXTRA_API_TAG="st-michael-rollback-api:$DIAGNOSTIC_EXTRA_TIMESTAMP"
+          DIAGNOSTIC_EXTRA_WEB_TAG="st-michael-rollback-web:$DIAGNOSTIC_EXTRA_TIMESTAMP"
           TARGET_API_PREFIX=dcac4b4619a4
           TARGET_WEB_PREFIX=82594645efc6
           TARGET_COMMIT=c690fa9b44b5c7d291247bd88343af94ba241dd0
@@ -541,6 +546,28 @@ jobs:
           if tag_is_present "$rollback_tags_before" "$TARGET_WEB_TAG"; then target_web_present=true; fi
           actual_retained_tags=$(printf '%s\n' "$rollback_tags_before" \
             | awk -v target_api="$TARGET_API_TAG" -v target_web="$TARGET_WEB_TAG" '$0 != target_api && $0 != target_web { print }')
+          printf 'diagnostic_rollback_tag_count=%s\n' "$rollback_tag_count"
+          echo "diagnostic_rollback_tags_begin"
+          printf '%s\n' "$rollback_tags_before"
+          echo "diagnostic_rollback_tags_end"
+          diagnostic_extra_api_image_id=$(image_id_for_tag "$DIAGNOSTIC_EXTRA_API_TAG")
+          diagnostic_extra_web_image_id=$(image_id_for_tag "$DIAGNOSTIC_EXTRA_WEB_TAG")
+          diagnostic_extra_release_record="$RELEASE_DIR/release-$DIAGNOSTIC_EXTRA_TIMESTAMP.txt"
+          diagnostic_extra_rollback_override="$RELEASE_DIR/rollback-$DIAGNOSTIC_EXTRA_TIMESTAMP.yml"
+          assert_private_regular_file "$diagnostic_extra_release_record" "$deploy_uid"
+          assert_private_regular_file "$diagnostic_extra_rollback_override" "$deploy_uid"
+          diagnostic_extra_target_commit=$(record_value target_commit "$diagnostic_extra_release_record")
+          [[ "$diagnostic_extra_target_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Diagnostic extra target commit is invalid"; exit 1; }
+          diagnostic_extra_release_record_sha256=$(sha256sum -- "$diagnostic_extra_release_record" | awk '{print $1}')
+          diagnostic_extra_rollback_override_sha256=$(sha256sum -- "$diagnostic_extra_rollback_override" | awk '{print $1}')
+          [[ "$diagnostic_extra_release_record_sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "Diagnostic extra release-record SHA-256 is invalid"; exit 1; }
+          [[ "$diagnostic_extra_rollback_override_sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "Diagnostic extra rollback-override SHA-256 is invalid"; exit 1; }
+          printf 'diagnostic_extra_timestamp=%s\n' "$DIAGNOSTIC_EXTRA_TIMESTAMP"
+          printf 'diagnostic_extra_api_image_id=%s\n' "$diagnostic_extra_api_image_id"
+          printf 'diagnostic_extra_web_image_id=%s\n' "$diagnostic_extra_web_image_id"
+          printf 'diagnostic_extra_target_commit=%s\n' "$diagnostic_extra_target_commit"
+          printf 'diagnostic_extra_release_record_sha256=%s\n' "$diagnostic_extra_release_record_sha256"
+          printf 'diagnostic_extra_rollback_override_sha256=%s\n' "$diagnostic_extra_rollback_override_sha256"
           test "$actual_retained_tags" = "$expected_retained_tags" || { echo "Retained rollback tags differ from the exact ten-tag allowlist"; exit 1; }
           case "$rollback_tag_count" in 10|11|12) ;; *) echo "Rollback inventory requires the exact retained set plus zero, one, or two target tags"; exit 1;; esac
           expected_current_tags=$(
