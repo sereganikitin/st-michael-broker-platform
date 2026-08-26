@@ -73,10 +73,10 @@ jobs:
         shell: bash
         env:
           EXPECTED_REPOSITORY: ${{ github.repository }}
-          EXPECTED_REF: ${{ github.ref }}
-          EXPECTED_RETIREMENT_SHA: ${{ github.sha }}
-          OPERATION: ${{ inputs.operation }}
-          CONFIRM_RETIREMENT: ${{ inputs.confirm_retirement }}
+          EXPECTED_REF: refs/heads/master
+          EXPECTED_RETIREMENT_SHA: c3ed80831a3001bf7dd02fd82a784145ed8ba2c6
+          OPERATION: inspect
+          CONFIRM_RETIREMENT: false
           EXPECTED_TARGET_API_IMAGE_ID: ${{ inputs.expected_target_api_image_id }}
           EXPECTED_TARGET_WEB_IMAGE_ID: ${{ inputs.expected_target_web_image_id }}
           EXPECTED_TARGET_REPO_DIGESTS_MANIFEST: ${{ inputs.expected_target_repo_digests_manifest }}
@@ -95,8 +95,28 @@ jobs:
           PRODUCTION_PG_SYSTEM_IDENTIFIER: ${{ vars.PRODUCTION_PG_SYSTEM_IDENTIFIER }}
           PRODUCTION_MIN_BROKER_ROWS: ${{ vars.PRODUCTION_MIN_BROKER_ROWS }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          diagnostic_stage=local_init
+          diagnostic_report_error() {
+            local diagnostic_exit_code=$?
+            local diagnostic_line=${1:-0}
+            local safe_stage=$diagnostic_stage
+            case "$safe_stage" in
+              local_init|local_guard|local_ssh_setup|remote_execution) ;;
+              *) safe_stage=local_unknown ;;
+            esac
+            [[ "$diagnostic_line" =~ ^[0-9]+$ ]] || diagnostic_line=0
+            [[ "$diagnostic_exit_code" =~ ^[1-9][0-9]*$ ]] || diagnostic_exit_code=1
+            printf 'diagnostic_failure_scope=runner\n' >&2
+            printf 'diagnostic_failure_stage=%s\n' "$safe_stage" >&2
+            printf 'diagnostic_failure_line=%s\n' "$diagnostic_line" >&2
+            printf 'diagnostic_failure_exit_code=%s\n' "$diagnostic_exit_code" >&2
+          }
+          trap 'diagnostic_report_error "$LINENO"' ERR
+          diagnostic_stage=local_guard
           test "$EXPECTED_REPOSITORY" = "$CANONICAL_REPOSITORY" || { echo "Rollback retirement is restricted to the canonical repository"; exit 1; }
+          test "$OPERATION" = "inspect" || { echo "Diagnostic branch is inspect-only"; exit 1; }
+          test "$CONFIRM_RETIREMENT" = "false" || { echo "Diagnostic branch forbids retirement confirmation"; exit 1; }
           test "$EXPECTED_REF" = "refs/heads/master" || { echo "Rollback retirement is restricted to master"; exit 1; }
           [[ "$EXPECTED_RETIREMENT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Workflow SHA is invalid"; exit 1; }
           case "$OPERATION" in
@@ -135,6 +155,7 @@ jobs:
           [[ "$PRODUCTION_PG_SYSTEM_IDENTIFIER" =~ ^[0-9]+$ ]] || { echo "Production database identity variable is missing or invalid"; exit 1; }
           [[ "$PRODUCTION_MIN_BROKER_ROWS" =~ ^[1-9][0-9]*$ ]] || { echo "Production broker-row floor is missing or invalid"; exit 1; }
 
+          diagnostic_stage=local_ssh_setup
           ssh_root=$(mktemp -d)
           known_hosts="$ssh_root/known_hosts"
           private_key="$ssh_root/deploy-key"
@@ -148,9 +169,38 @@ jobs:
           test "${#fingerprints[@]}" -eq 1 || { echo "Expected exactly one production ED25519 fingerprint"; exit 1; }
           test "${fingerprints[0]}" = "$EXPECTED_SSH_FINGERPRINT" || { echo "Production SSH host fingerprint mismatch"; exit 1; }
 
+          diagnostic_stage=remote_execution
           ssh -i "$private_key" -p "$SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
             "${SSH_USER}@${SSH_HOST}" "bash -s -- '$DEPLOY_PATH' '$EXPECTED_RETIREMENT_SHA' '$OPERATION' '$CONFIRM_RETIREMENT' '$EXPECTED_TARGET_API_IMAGE_ID' '$EXPECTED_TARGET_WEB_IMAGE_ID' '$EXPECTED_TARGET_REPO_DIGESTS_MANIFEST' '$EXPECTED_RELEASE_RECORD_SHA256' '$EXPECTED_ROLLBACK_OVERRIDE_SHA256' '$EXPECTED_FULL_ROLLBACK_INVENTORY_SHA256' '$EXPECTED_NON_TARGET_IMAGE_INVENTORY_SHA256' '$EXPECTED_RUNTIME_EVIDENCE_MANIFEST' '$PRODUCTION_PG_SYSTEM_IDENTIFIER' '$PRODUCTION_MIN_BROKER_ROWS'" <<'REMOTE'
-          set -euo pipefail
+          set -Eeuo pipefail
+          diagnostic_stage=remote_init
+          diagnostic_retained_index=none
+          diagnostic_retained_timestamp=none
+          diagnostic_report_error() {
+            local diagnostic_exit_code=$?
+            local diagnostic_line=${1:-0}
+            local safe_stage=$diagnostic_stage
+            local safe_retained_index=$diagnostic_retained_index
+            local safe_retained_timestamp=$diagnostic_retained_timestamp
+            case "$safe_stage" in
+              remote_init|remote_arguments|remote_host_preflight|target_metadata|target_api_topology|target_web_topology|target_unused_check|retained_metadata|retained_api_topology|retained_web_topology|retained_record_links|image_inventory_snapshot|production_health|runtime_containers|runtime_volumes|runtime_networks|runtime_worktree|runtime_daemon|runtime_events|runtime_validation|inspection_output) ;;
+              *) safe_stage=remote_unknown ;;
+            esac
+            case "$safe_retained_index" in none|0|1|2|3|4|5) ;; *) safe_retained_index=unknown ;; esac
+            case "$safe_retained_timestamp" in
+              none|20260821-151042|20260821-221026|20260825-145230|20260825-160034|20260826-101612|20260826-142213) ;;
+              *) safe_retained_timestamp=unknown ;;
+            esac
+            [[ "$diagnostic_line" =~ ^[0-9]+$ ]] || diagnostic_line=0
+            [[ "$diagnostic_exit_code" =~ ^[1-9][0-9]*$ ]] || diagnostic_exit_code=1
+            printf 'diagnostic_failure_scope=production_host\n' >&2
+            printf 'diagnostic_failure_stage=%s\n' "$safe_stage" >&2
+            printf 'diagnostic_failure_line=%s\n' "$diagnostic_line" >&2
+            printf 'diagnostic_failure_exit_code=%s\n' "$diagnostic_exit_code" >&2
+            printf 'diagnostic_failure_retained_index=%s\n' "$safe_retained_index" >&2
+            printf 'diagnostic_failure_retained_timestamp=%s\n' "$safe_retained_timestamp" >&2
+          }
+          trap 'diagnostic_report_error "$LINENO"' ERR
           export LC_ALL=C
           MIN_AVAILABLE_BYTES=8589934592
           BACKUP_SIZE_OVERHEAD_BYTES=67108864
@@ -176,6 +226,7 @@ jobs:
           BACKUP_PARENT=/var/backups/stmichael
           BACKUP_DIR="$BACKUP_PARENT/loyalty-predeploy"
           CANONICAL_REPOSITORY_URL=https://github.com/sereganikitin/st-michael-broker-platform.git
+          diagnostic_stage=remote_arguments
           deploy_path=$1
           expected_retirement_sha=$2
           operation=$3
@@ -190,6 +241,10 @@ jobs:
           expected_runtime_evidence_manifest=${12}
           production_pg_system_identifier=${13}
           production_min_broker_rows=${14}
+
+          test "$operation" = "inspect" || { echo "Diagnostic branch is inspect-only on the production host" >&2; exit 1; }
+          test "$confirm_retirement" = "false" || { echo "Diagnostic branch forbids retirement confirmation on the production host" >&2; exit 1; }
+          diagnostic_stage=remote_host_preflight
 
           for required_tool in awk curl date df docker flock git grep id readlink sha256sum sort stat systemctl tr wc xargs; do
             command -v "$required_tool" >/dev/null || { echo "Required retirement tool is missing"; exit 1; }
@@ -263,6 +318,10 @@ jobs:
             local repo_tags
             local repo_digests
             local repo_digest
+            local actual_repo_tag_count
+            local actual_repo_tags_sha256
+            local actual_repo_tags_invalid_count
+            local actual_repo_tags_safe_list
             local expected_tag
             local expected_tag_count=0
             while IFS= read -r expected_tag; do
@@ -273,7 +332,24 @@ jobs:
             test "$expected_tag_count" -ge 1 -a "$expected_tag_count" -le 2 || { echo "Expected rollback repo-tag topology has an invalid size"; exit 1; }
             expected_repo_tags=$(printf '%s\n' "$expected_repo_tags" | sort -u)
             repo_tags=$(docker image inspect --format '{{range .RepoTags}}{{println .}}{{end}}' "$tag" | sort -u)
-            test "$repo_tags" = "$expected_repo_tags" || { echo "Rollback image repo-tag topology differs from the exact audit"; exit 1; }
+            if [ "$repo_tags" != "$expected_repo_tags" ]; then
+              actual_repo_tag_count=$(printf '%s\n' "$repo_tags" | awk 'NF { count++ } END { print count + 0 }')
+              actual_repo_tags_sha256=$(printf '%s' "$repo_tags" | sha256sum | awk '{print $1}')
+              actual_repo_tags_invalid_count=$(printf '%s\n' "$repo_tags" | awk 'NF && $0 !~ /^st-michael-[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$/ { count++ } END { print count + 0 }')
+              [[ "$actual_repo_tag_count" =~ ^[0-9]+$ ]] || actual_repo_tag_count=0
+              [[ "$actual_repo_tags_sha256" =~ ^[0-9a-f]{64}$ ]] || actual_repo_tags_sha256=invalid
+              [[ "$actual_repo_tags_invalid_count" =~ ^[0-9]+$ ]] || actual_repo_tags_invalid_count=unknown
+              printf 'diagnostic_actual_repo_tag_count=%s\n' "$actual_repo_tag_count" >&2
+              printf 'diagnostic_actual_repo_tags_sha256=%s\n' "$actual_repo_tags_sha256" >&2
+              if [ "$actual_repo_tags_invalid_count" = "0" ]; then
+                actual_repo_tags_safe_list=$(printf '%s\n' "$repo_tags" | awk 'NF { printf "%s%s", separator, $0; separator="," } END { print "" }')
+                printf 'diagnostic_actual_repo_tags_safe_list=%s\n' "$actual_repo_tags_safe_list" >&2
+              else
+                printf 'diagnostic_actual_repo_tags_redacted_count=%s\n' "$actual_repo_tags_invalid_count" >&2
+              fi
+              echo "Rollback image repo-tag topology differs from the exact audit" >&2
+              exit 1
+            fi
             repo_digests=$(docker image inspect --format '{{json .RepoDigests}}' "$tag")
             case "$repo_digests" in
               null|"[]") printf 'none\n' ;;
@@ -628,6 +704,7 @@ jobs:
             test "$confirm_retirement" = "true" || { echo "Retire mode requires explicit confirmation on the production host"; exit 1; }
           fi
 
+          diagnostic_stage=target_metadata
           target_api_id=$(record_value previous_api_image "$RELEASE_RECORD")
           target_web_id=$(record_value previous_web_image "$RELEASE_RECORD")
           [[ "$target_api_id" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Target API image ID in the release record is invalid"; exit 1; }
@@ -635,6 +712,7 @@ jobs:
           image_has_prefix "$target_api_id" "$TARGET_API_PREFIX" || { echo "Target API rollback image does not match the prior read-only audit"; exit 1; }
           image_has_prefix "$target_web_id" "$TARGET_WEB_PREFIX" || { echo "Target web rollback image does not match the prior read-only audit"; exit 1; }
           test "$target_api_id" != "$target_web_id" || { echo "Rollback API and web unexpectedly resolve to the same image"; exit 1; }
+          diagnostic_stage=target_api_topology
           if [ "$target_api_present" = "true" ]; then
             test "$(image_id_for_tag "$TARGET_API_TAG")" = "$target_api_id" || { echo "API rollback tag disagrees with its release record"; exit 1; }
             target_api_repo_digest=$(validated_repo_digest_for_tag "$TARGET_API_TAG")
@@ -649,6 +727,7 @@ jobs:
               exit 1
             fi
           fi
+          diagnostic_stage=target_web_topology
           if [ "$target_web_present" = "true" ]; then
             test "$(image_id_for_tag "$TARGET_WEB_TAG")" = "$target_web_id" || { echo "Web rollback tag disagrees with its release record"; exit 1; }
             target_web_repo_digest=$(validated_repo_digest_for_tag "$TARGET_WEB_TAG")
@@ -663,6 +742,7 @@ jobs:
               exit 1
             fi
           fi
+          diagnostic_stage=target_unused_check
           assert_no_container_uses_image "$target_api_id"
           assert_no_container_uses_image "$target_web_id"
 
@@ -675,7 +755,10 @@ jobs:
           newer_records=()
           newer_overrides=()
           for newer_index in "${!NEWER_TIMESTAMPS[@]}"; do
+            diagnostic_retained_index=$newer_index
             newer_timestamp=${NEWER_TIMESTAMPS[$newer_index]}
+            diagnostic_retained_timestamp=$newer_timestamp
+            diagnostic_stage=retained_metadata
             newer_api_tag="st-michael-rollback-api:$newer_timestamp"
             newer_web_tag="st-michael-rollback-web:$newer_timestamp"
             newer_record="$RELEASE_DIR/release-$newer_timestamp.txt"
@@ -684,9 +767,13 @@ jobs:
             assert_private_regular_file "$newer_override" "$deploy_uid"
             assert_exact_release_record_shape "$newer_record" "${NEWER_TARGET_COMMITS[$newer_index]}"
             assert_exact_rollback_override "$newer_override" "$newer_api_tag" "$newer_web_tag"
+            diagnostic_stage=retained_api_topology
             newer_api_id=$(image_id_for_tag "$newer_api_tag")
+            diagnostic_stage=retained_web_topology
             newer_web_id=$(image_id_for_tag "$newer_web_tag")
+            diagnostic_stage=retained_api_topology
             image_has_prefix "$newer_api_id" "${NEWER_API_PREFIXES[$newer_index]}" || { echo "A retained API rollback does not match the prior read-only audit"; exit 1; }
+            diagnostic_stage=retained_web_topology
             image_has_prefix "$newer_web_id" "${NEWER_WEB_PREFIXES[$newer_index]}" || { echo "A retained web rollback does not match the prior read-only audit"; exit 1; }
             case "$newer_timestamp" in
               20260825-145230|20260825-160034)
@@ -694,10 +781,14 @@ jobs:
                 test "$newer_web_id" = "$DUPLICATE_RETAINED_WEB_IMAGE_ID" || { echo "A duplicate retained web image ID differs from the confirmed audit"; exit 1; }
                 ;;
             esac
+            diagnostic_stage=retained_record_links
             test "$(record_value previous_api_image "$newer_record")" = "$newer_api_id" || { echo "A retained API rollback disagrees with its release record"; exit 1; }
             test "$(record_value previous_web_image "$newer_record")" = "$newer_web_id" || { echo "A retained web rollback disagrees with its release record"; exit 1; }
+            diagnostic_stage=retained_api_topology
             newer_api_repo_digest=$(validated_repo_digest_for_tag "$newer_api_tag" "$(expected_retained_repo_tags api "$newer_timestamp")")
+            diagnostic_stage=retained_web_topology
             newer_web_repo_digest=$(validated_repo_digest_for_tag "$newer_web_tag" "$(expected_retained_repo_tags web "$newer_timestamp")")
+            diagnostic_stage=retained_record_links
             test "$newer_api_id" != "$target_api_id" -a "$newer_api_id" != "$target_web_id" || { echo "A retained API rollback resolves to a retirement image"; exit 1; }
             test "$newer_web_id" != "$target_api_id" -a "$newer_web_id" != "$target_web_id" || { echo "A retained web rollback resolves to a retirement image"; exit 1; }
             newer_api_ids+=("$newer_api_id")
@@ -709,7 +800,10 @@ jobs:
             newer_records+=("$newer_record")
             newer_overrides+=("$newer_override")
           done
+          diagnostic_retained_index=none
+          diagnostic_retained_timestamp=none
 
+          diagnostic_stage=image_inventory_snapshot
           full_rollback_inventory_payload=$(
             printf 'target_api=%s\ntarget_api_repo_digest=%s\ntarget_web=%s\ntarget_web_repo_digest=%s\ntarget_record=%s\ntarget_override=%s\n' \
               "$target_api_id" "$target_api_repo_digest" "$target_web_id" "$target_web_repo_digest" \
@@ -742,18 +836,26 @@ jobs:
             test "$expected_non_target_image_inventory_sha256" = "$non_target_image_inventory_sha256" || { echo "Expected non-target image inventory SHA-256 does not match"; exit 1; }
           fi
 
+          diagnostic_stage=production_health
           assert_production_health
+          diagnostic_stage=runtime_containers
           running_container_inventory_before=$(container_inventory running)
           all_container_inventory_before=$(container_inventory all)
+          diagnostic_stage=runtime_volumes
           volume_inventory_before=$(volume_inventory)
+          diagnostic_stage=runtime_networks
           network_inventory_before=$(network_inventory)
           running_container_inventory_sha256=$(printf '%s' "$running_container_inventory_before" | sha256sum | awk '{print $1}')
           all_container_inventory_sha256=$(printf '%s' "$all_container_inventory_before" | sha256sum | awk '{print $1}')
           volume_inventory_sha256=$(printf '%s' "$volume_inventory_before" | sha256sum | awk '{print $1}')
           network_inventory_sha256=$(printf '%s' "$network_inventory_before" | sha256sum | awk '{print $1}')
+          diagnostic_stage=runtime_worktree
           deploy_worktree_sha256_before=$(deploy_worktree_sha256)
+          diagnostic_stage=runtime_daemon
           IFS=: read -r docker_daemon_uptime_seconds docker_daemon_identity_sha256 <<< "$(docker_daemon_snapshot)"
+          diagnostic_stage=runtime_events
           IFS=: read -r event_window_start event_window_end runtime_event_count risky_runtime_event_count runtime_action_type_sha256 runtime_event_actor_sha256 <<< "$(runtime_event_audit)"
+          diagnostic_stage=runtime_validation
           for runtime_sha256 in "$running_container_inventory_sha256" "$all_container_inventory_sha256" "$volume_inventory_sha256" \
             "$network_inventory_sha256" "$deploy_worktree_sha256_before" "$docker_daemon_identity_sha256" \
             "$runtime_action_type_sha256" "$runtime_event_actor_sha256"; do
@@ -815,6 +917,7 @@ jobs:
           printf 'backup_available_bytes_before=%s\n' "$backup_before"
           printf 'required_backup_available_bytes=%s\n' "$required_backup_available_bytes"
 
+          diagnostic_stage=inspection_output
           if [ "$operation" = "inspect" ]; then
             print_rollback_tag_diagnostics "$rollback_tags_before"
             printf 'rollback_tag_count=%s\n' "$rollback_tag_count"
