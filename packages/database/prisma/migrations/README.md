@@ -21,8 +21,9 @@ the legacy baseline first and then all dated additive migrations in order:
 `20260818000100_loyalty_base`, `20260818000200_mango_release_safety`,
 `20260821000100_loyalty_source_aggregates`,
 `20260821180000_lot_photos`, `20260824000100_loyalty_workflows`,
-`20260824000200_loyalty_event_restore_version` and
-`20260824000300_loyalty_event_attachments`.
+`20260824000200_loyalty_event_restore_version`,
+`20260824000300_loyalty_event_attachments` and
+`20260828000100_loyalty_program_matches`.
 
 ```powershell
 npx.cmd prisma migrate deploy --schema packages/database/prisma/schema.prisma

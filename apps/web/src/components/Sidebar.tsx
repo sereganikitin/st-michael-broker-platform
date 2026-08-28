@@ -42,6 +42,7 @@ const adminNavigation = [
   { name: 'Инструкции сотрудникам', href: '/admin/instructions', icon: ClipboardList },
   // 2026-08-28: «Аналитика платформы» скрыта — отчёт падает, пункт убран из меню.
   { name: 'База лояльности', href: '/admin/loyalty-base', icon: Database },
+  { name: 'Программа 2026', href: '/admin/loyalty-program', icon: HeartHandshake },
   { name: 'Колл-центр', href: '/admin/call-center', icon: PhoneCall },
   { name: 'Конфликты уникальности', href: '/admin/uniqueness-conflicts', icon: AlertTriangle },
   // 2026-07-09: заменяет «Заявки без amoCRM» — теперь тут все типы
