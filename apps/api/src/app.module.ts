@@ -34,6 +34,7 @@ import { LoyaltySyncModule } from "./loyalty-sync/loyalty-sync.module";
 import { LoyaltyManualModule } from "./loyalty-manual/loyalty-manual.module";
 import { LoyaltyReconciliationV2Module } from "./loyalty-reconciliation-v2/loyalty-reconciliation-v2.module";
 import { LoyaltyAttachmentsModule } from "./loyalty-attachments/loyalty-attachments.module";
+import { LoyaltyProgramModule } from "./loyalty-program/loyalty-program.module";
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { LoyaltyAttachmentsModule } from "./loyalty-attachments/loyalty-attachme
     LoyaltyManualModule,
     LoyaltyReconciliationV2Module,
     LoyaltyAttachmentsModule,
+    LoyaltyProgramModule,
   ],
   providers: [AmoTokenBootstrapService, MangoBootstrapService],
 })

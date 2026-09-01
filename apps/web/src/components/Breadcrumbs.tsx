@@ -27,6 +27,7 @@ const labels: Record<string, string> = {
   mailings: 'Рассылки',
   'meeting-slots': 'Расписание встреч',
   'loyalty-base': 'База лояльности',
+  'loyalty-program': 'Программа 2026',
   anna: 'База Анны Скибицкой',
   ours: 'Наша база',
   agencies: 'Агентства',
