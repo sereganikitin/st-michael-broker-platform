@@ -86,4 +86,16 @@ describe("match Word program names to Anna agencies", () => {
     expect(result.status).toBe("UNMATCHED");
     expect(result.candidates).toEqual([]);
   });
+
+  it("does not auto-match a short name from one weak shared token", () => {
+    const result = matchPartnerName("alpha-north", "Альфа Север", [
+      {
+        id: "ag-alpha-estate",
+        entityType: "AGENCY",
+        names: ["Альфа Юг"],
+      },
+    ]);
+    expect(result.status).toBe("UNMATCHED");
+    expect(result.candidates[0]?.id).toBe("ag-alpha-estate");
+  });
 });

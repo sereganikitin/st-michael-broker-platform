@@ -53,6 +53,7 @@ function harness() {
   };
   const permissions: any = {
     require: jest.fn().mockResolvedValue(undefined),
+    requireAll: jest.fn().mockResolvedValue(undefined),
   };
   return {
     prisma,
@@ -73,5 +74,31 @@ describe("LoyaltyProgramService overlay", () => {
     expect(soldNames).toContain("Trend Agent");
     expect(overlay.counts.sold).toBe(31);
     expect(overlay.counts.sleeping).toBe(57);
+    expect(overlay.source).toMatchObject({
+      status: "UNCONFIRMED",
+      accuracy: "UNKNOWN",
+      periodApplied: false,
+      declared: { soldPartners: 32, dduCount: 76, soldMln: 2367 },
+      extracted: { soldPartners: 31, dduCount: 75, soldMln: 2343.4 },
+      discrepancy: { soldPartners: 1, dduCount: 1, soldMln: 23.6 },
+    });
+  });
+
+  it("does not hide stored-match database failures as an empty result", async () => {
+    const { service, prisma } = harness();
+    prisma.loyaltyProgramMatch.findMany.mockRejectedValue(new Error("database offline"));
+    await expect(service.overlay(manager, "SOLD_2026")).rejects.toThrow("database offline");
+  });
+
+  it("requires reference-management permission before saving a match", async () => {
+    const { service, permissions } = harness();
+    await service.decide(manager, {
+      partnerKey: "trend-agent",
+      status: "SKIPPED",
+    });
+    expect(permissions.requireAll).toHaveBeenCalledWith(manager, [
+      "READ_ALL",
+      "REFERENCE_MANAGE",
+    ]);
   });
 });

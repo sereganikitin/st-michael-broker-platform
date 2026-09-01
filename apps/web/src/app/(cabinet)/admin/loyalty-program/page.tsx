@@ -37,6 +37,17 @@ interface OverlayRow {
 }
 
 interface OverlayResponse {
+  source: {
+    status: 'UNCONFIRMED';
+    accuracy: 'UNKNOWN';
+    periodApplied: false;
+    provenance: 'ANNA_LEGACY_WORD';
+    documentName: string;
+    note: string;
+    declared: { soldPartners: number; dduCount: number; soldMln: number };
+    extracted: { soldPartners: number; dduCount: number; soldMln: number };
+    discrepancy: { soldPartners: number; dduCount: number; soldMln: number };
+  };
   program: { from: string; until: string; note: string };
   counts: {
     sold: number;
@@ -159,6 +170,28 @@ export default function LoyaltyProgramPage() {
           не колонка «Сделки». Считаем продажи с 1 января 2026, условия до 31 января 2027.
         </p>
       </div>
+
+      {data && (
+        <div className="rounded-xl border border-warning/40 bg-warning/10 p-4 text-sm space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold">Срез Word — НЕ ПОДТВЕРЖДЕНО</span>
+            <span className="rounded-full bg-warning/20 px-2 py-0.5 text-xs">
+              точность {data.source.accuracy}
+            </span>
+            <span className="rounded-full bg-warning/20 px-2 py-0.5 text-xs">
+              период не применён
+            </span>
+          </div>
+          <p>{data.source.note}</p>
+          <p className="text-text-muted">
+            В строках файла: {data.source.extracted.soldPartners} партнёров,{' '}
+            {data.source.extracted.dduCount} ДДУ, {formatMln(data.source.extracted.soldMln)}.
+            В заголовке файла: {data.source.declared.soldPartners} партнёра,{' '}
+            {data.source.declared.dduCount} ДДУ, {formatMln(data.source.declared.soldMln)}.
+            Отсутствующая строка не найдена и не добавлена.
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <button

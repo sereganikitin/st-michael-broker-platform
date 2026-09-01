@@ -17,6 +17,20 @@ export interface ProgramPartner {
   pitch: string;
 }
 
+export const PROGRAM_2026_SOURCE = {
+  status: "UNCONFIRMED",
+  accuracy: "UNKNOWN",
+  periodApplied: false,
+  provenance: "ANNA_LEGACY_WORD",
+  documentName: "Лояльность_брокеров_исправленная_St_Michael.docx",
+  declared: {
+    soldPartners: 32,
+    dduCount: 76,
+    soldMln: 2367,
+  },
+  note: "Заголовок Word расходится с извлечёнными строками. Данные не пересчитаны по amoCRM и не входят в точные KPI.",
+} as const;
+
 export const PROGRAM_2026_PARTNERS: ProgramPartner[] = [
   {
     key: "ип-цюрупа-ю-а-highpoint",

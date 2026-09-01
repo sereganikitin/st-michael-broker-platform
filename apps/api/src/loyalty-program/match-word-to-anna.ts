@@ -162,7 +162,7 @@ export function matchPartnerName(
   }
   const top = scored.filter((row) => row.score === best.score).map((row) => row.entry);
   const uniq = uniqueEntries(top);
-  if (uniq.length === 1 && (best.score >= 50 || partnerTokens.length <= 2)) {
+  if (uniq.length === 1 && best.score >= 50) {
     return { partnerKey, status: "AUTO", candidates: toCandidates(uniq) };
   }
   if (uniq.length > 1) {

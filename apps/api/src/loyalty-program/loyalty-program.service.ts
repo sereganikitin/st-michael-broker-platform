@@ -7,7 +7,10 @@ import {
 import { PrismaClient } from "@st-michael/database";
 import type { CurrentUserPayload } from "../auth/current-user.decorator";
 import { LoyaltyPermissionService } from "../loyalty-workflow/loyalty-permission.service";
-import { PROGRAM_2026_PARTNERS } from "./program-2026-partners";
+import {
+  PROGRAM_2026_PARTNERS,
+  PROGRAM_2026_SOURCE,
+} from "./program-2026-partners";
 import {
   matchAllPartners,
   type AnnaCatalogEntry,
@@ -91,7 +94,26 @@ export class LoyaltyProgramService {
 
     const working = PROGRAM_2026_PARTNERS.filter((row) => row.list === "SOLD_2026");
     const workingRows = rows.filter((row) => row.partner.list === "SOLD_2026");
+    const extracted = {
+      soldPartners: working.length,
+      dduCount: working.reduce((sum, row) => sum + row.dduCount, 0),
+      soldMln: Math.round(
+        working.reduce((sum, row) => sum + row.soldMln, 0) * 10,
+      ) / 10,
+    };
     return {
+      source: {
+        ...PROGRAM_2026_SOURCE,
+        extracted,
+        discrepancy: {
+          soldPartners:
+            PROGRAM_2026_SOURCE.declared.soldPartners - extracted.soldPartners,
+          dduCount: PROGRAM_2026_SOURCE.declared.dduCount - extracted.dduCount,
+          soldMln: Math.round(
+            (PROGRAM_2026_SOURCE.declared.soldMln - extracted.soldMln) * 10,
+          ) / 10,
+        },
+      },
       program: {
         from: "2026-01-01",
         until: "2027-01-31",
@@ -113,7 +135,7 @@ export class LoyaltyProgramService {
   }
 
   async decide(user: CurrentUserPayload, body: LoyaltyProgramDecideDto) {
-    await this.permissions.require(user, "READ_ALL");
+    await this.permissions.requireAll(user, ["READ_ALL", "REFERENCE_MANAGE"]);
     const partner = PROGRAM_2026_PARTNERS.find((row) => row.key === body.partnerKey);
     if (!partner) throw new NotFoundException("Партнёр программы не найден");
 
@@ -174,20 +196,16 @@ export class LoyaltyProgramService {
   }
 
   private async loadStored(): Promise<StoredMatch[]> {
-    try {
-      return await this.matches().findMany({
-        select: {
-          partnerKey: true,
-          organizationId: true,
-          personId: true,
-          status: true,
-          decidedById: true,
-          decidedAt: true,
-        },
-      });
-    } catch {
-      return [];
-    }
+    return this.matches().findMany({
+      select: {
+        partnerKey: true,
+        organizationId: true,
+        personId: true,
+        status: true,
+        decidedById: true,
+        decidedAt: true,
+      },
+    });
   }
 
   private async upsertMatch(row: StoredMatch) {
