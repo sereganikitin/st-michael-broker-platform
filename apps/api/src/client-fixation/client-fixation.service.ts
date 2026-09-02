@@ -147,6 +147,7 @@ export class ClientFixationService {
       comment?: string;
       project: Project;
       agencyInn: string;
+      agencyId?: string;
       // Новые поля 2026-05-14: для авто-заполнения custom-полей в amoCRM.
       propertyType?: string;
       roomsCount?: string;
@@ -173,9 +174,9 @@ export class ClientFixationService {
       where: { id: brokerId },
       include: {
         brokerAgencies: {
-          where: { isPrimary: true },
+          where: { endedAt: null },
           include: { agency: true },
-          take: 1,
+          orderBy: [{ isPrimary: "desc" }, { joinedAt: "asc" }],
         },
       },
     });
@@ -193,7 +194,7 @@ export class ClientFixationService {
         where: { id: data.responsibleBrokerId },
         include: {
           brokerAgencies: {
-            where: { isPrimary: true },
+            where: { endedAt: null, isPrimary: true },
             include: { agency: true },
             take: 1,
           },
@@ -253,36 +254,43 @@ export class ClientFixationService {
       readinessLevel: data.readinessLevel || null,
     } as any;
 
-    // Find or create agency
-    let agency = await this.prisma.agency.findUnique({
-      where: { inn: data.agencyInn },
-    });
-
-    if (!agency) {
-      // Bug fix 2026-05-25: если amo лежит/токен истёк — НЕ валим фиксацию.
-      // Создаём агентство в нашей БД с минимальными данными, amo-sync
-      // подберёт позже через scheduler/manual sync.
-      let agencyName = `Агентство ${data.agencyInn}`;
-      try {
-        const amoCompany = await this.amoCrmAdapter.findCompanyByInn(
-          data.agencyInn,
+    // The submitting broker chooses one of their own active agencies. Never
+    // trust a free-form INN here: otherwise any caller could attribute a
+    // fixation to an unrelated company and corrupt loyalty statistics.
+    const creatorAgencyLinks = Array.isArray((broker as any).brokerAgencies)
+      ? (broker as any).brokerAgencies
+      : [];
+    let selectedAgencyLink = data.agencyId
+      ? creatorAgencyLinks.find((link: any) => {
+          if (link.endedAt) return false;
+          return link.agencyId === data.agencyId || link.agency?.id === data.agencyId;
+        })
+      : creatorAgencyLinks.find(
+          (link: any) => !link.endedAt && link.agency?.inn === data.agencyInn,
         );
-        if (amoCompany) {
-          agencyName = amoCompany.name;
-        } else {
-          const newAmoCompany = await this.amoCrmAdapter.createCompany({
-            name: agencyName,
-          });
-          if (newAmoCompany?.name) agencyName = newAmoCompany.name;
-        }
-      } catch {
-        console.error(
-          "[fixClient] amo agency lookup failed, продолжаем без amo",
-        );
-      }
-      agency = await this.prisma.agency.create({
-        data: { name: agencyName, inn: data.agencyInn },
+    // Rolling-deploy compatibility for already-open browser tabs: old bundles
+    // send only agencyInn. Resolve it through the authenticated broker's
+    // active membership, never through the global Agency table.
+    if (!selectedAgencyLink && !data.agencyId) {
+      selectedAgencyLink = await this.prisma.brokerAgency.findFirst({
+        where: {
+          brokerId,
+          endedAt: null,
+          agency: { inn: data.agencyInn },
+        },
+        include: { agency: true },
       });
+    }
+    const agency = selectedAgencyLink?.agency;
+    if (!agency) {
+      throw new BadRequestException(
+        "Выбранное агентство не связано с вашим профилем или связь уже завершена",
+      );
+    }
+    if (data.agencyInn && agency.inn !== data.agencyInn) {
+      throw new BadRequestException(
+        "ИНН не соответствует выбранному агентству",
+      );
     }
 
     // 2026-06-11: ПРОВЕРКА УНИКАЛЬНОСТИ В amoCRM ВСЕГДА И ПЕРВОЙ.
@@ -1628,10 +1636,14 @@ export class ClientFixationService {
       where: { id: currentBrokerId },
       select: {
         brokerAgencies: {
+          where: { endedAt: null },
           select: {
             isPrimary: true,
+            joinedAt: true,
+            lastConfirmedAt: true,
             agency: { select: { id: true, name: true, inn: true } },
           },
+          orderBy: [{ isPrimary: "desc" }, { joinedAt: "asc" }],
         },
       },
     });
@@ -1641,6 +1653,8 @@ export class ClientFixationService {
       name: ba.agency.name,
       inn: ba.agency.inn,
       isPrimary: ba.isPrimary,
+      joinedAt: ba.joinedAt,
+      lastConfirmedAt: ba.lastConfirmedAt,
     }));
     return { agencies };
   }
@@ -1687,7 +1701,7 @@ export class ClientFixationService {
             where: { id: brokerId },
             include: {
               brokerAgencies: {
-                where: { isPrimary: true },
+                where: { isPrimary: true, endedAt: null },
                 include: { agency: true },
                 take: 1,
               },
@@ -1867,7 +1881,7 @@ export class ClientFixationService {
   // согласованный с заказчиком).
   async createBrokerByCreator(
     creatorId: string,
-    data: { fullName: string; phone: string; email?: string },
+    data: { fullName: string; phone: string; email?: string; agencyId?: string },
   ) {
     // 2026-07-01: agencyId и customInn убраны — новый брокер автоматически
     // привязывается к PRIMARY агентству того кто фиксирует.
@@ -1877,8 +1891,9 @@ export class ClientFixationService {
         id: true,
         fullName: true,
         brokerAgencies: {
+          where: { endedAt: null },
           include: { agency: { select: { id: true, name: true, inn: true } } },
-          orderBy: { isPrimary: "desc" },
+          orderBy: [{ isPrimary: "desc" }, { joinedAt: "asc" }],
         },
       },
     });
@@ -1932,18 +1947,21 @@ export class ClientFixationService {
       }
     }
 
-    // Primary агентство creator — сначала isPrimary=true, потом первое.
-    const primaryLink =
-      creator.brokerAgencies.find((ba) => ba.isPrimary) ||
-      creator.brokerAgencies[0];
-    if (!primaryLink) {
+    // Новый брокер получает именно агентство, выбранное создателем для этой
+    // фиксации. Это важно, когда координатор состоит в нескольких компаниях.
+    const selectedLink = data.agencyId
+      ? creator.brokerAgencies.find(
+          (ba) => ba.agencyId === data.agencyId || ba.agency.id === data.agencyId,
+        )
+      : creator.brokerAgencies.find((ba) => ba.isPrimary) ||
+        creator.brokerAgencies[0];
+    if (!selectedLink) {
       throw new BadRequestException({
         message:
-          "У вас не привязано агентство — сначала укажите ИНН агентства в профиле",
+          "Выбранное агентство не связано с вашим профилем или связь уже завершена",
       });
     }
-    const agency = primaryLink.agency;
-    if (!agency) throw new NotFoundException("Primary agency not found");
+    const agency = selectedLink.agency;
 
     // 2026-07-01: сначала создаём Broker в БД + BrokerAgency, потом
     // единый amo-синк через brokerToAmoContactFields (все 13 полей,
@@ -1958,7 +1976,14 @@ export class ClientFixationService {
       },
     });
     await this.prisma.brokerAgency.create({
-      data: { brokerId: broker.id, agencyId: agency.id, isPrimary: true },
+      data: {
+        brokerId: broker.id,
+        agencyId: agency.id,
+        isPrimary: true,
+        linkedSource: "CREATED_BY_OTHER_BROKER",
+        lastConfirmedAt: new Date(),
+        lastConfirmationSource: "CREATED_BY_OTHER_BROKER",
+      },
     });
 
     let amoContactId: number | undefined;

@@ -252,7 +252,7 @@ export class OfferService {
     const broker = await this.prisma.broker.findUnique({
       where: { id: brokerId },
       include: {
-        brokerAgencies: { include: { agency: true }, where: { isPrimary: true }, take: 1 },
+        brokerAgencies: { include: { agency: true }, where: { isPrimary: true, endedAt: null }, take: 1 },
       },
     });
     if (!broker) throw new NotFoundException('Broker not found');

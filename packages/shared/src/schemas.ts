@@ -75,6 +75,10 @@ export const fixClientDtoSchema = z.object({
     (v) => (typeof v === 'string' ? v.replace(/\D/g, '') : v),
     z.string().regex(/^\d{10}$|^\d{12}$/, 'INN must be 10 or 12 digits'),
   ),
+  // Stable internal id prevents two agencies with similarly displayed names
+  // from being confused. Optional only for backward compatibility; the API
+  // still verifies agencyInn against an active link of the authenticated user.
+  agencyId: z.string().uuid().optional(),
   // Auto-fill amo lead/contact fields (правка 2026-05-22)
   propertyType: z.string().optional(),
   roomsCount: z.string().optional(),

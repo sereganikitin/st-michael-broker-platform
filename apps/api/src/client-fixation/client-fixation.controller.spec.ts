@@ -4,6 +4,7 @@ const validBody = {
   phone: "+79990000001",
   fullName: "Тестовый Клиент",
   project: "ZORGE9",
+  agencyId: "b17ecfc0-e911-4d5b-9f1b-0fa4882e23a8",
   agencyInn: "7700000000",
 };
 
@@ -110,6 +111,30 @@ describe("ClientFixationController idempotency", () => {
     expect(clientFixationService.fixClient).toHaveBeenCalledWith(
       "broker-1",
       expect.objectContaining({ agencyInn: "123456789777" }),
+      assertOwned,
+    );
+  });
+
+  it("keeps an already-open legacy form compatible without agency id", async () => {
+    const clientFixationService = {
+      fixClient: jest.fn().mockResolvedValue({ client: { id: "client-legacy" } }),
+    };
+    const assertOwned = jest.fn().mockResolvedValue(undefined);
+    const fixationSafety = {
+      execute: jest.fn((_request, action) => action({ assertOwned })),
+    };
+    const controller = new ClientFixationController(
+      clientFixationService as any,
+      fixationSafety as any,
+    );
+    const { agencyId: _agencyId, ...withoutAgencyId } = validBody;
+
+    await expect(
+      controller.fixClient({ id: "broker-1" } as any, withoutAgencyId),
+    ).resolves.toEqual({ client: { id: "client-legacy" } });
+    expect(clientFixationService.fixClient).toHaveBeenCalledWith(
+      "broker-1",
+      withoutAgencyId,
       assertOwned,
     );
   });

@@ -69,7 +69,17 @@ describe("ClientFixationService amo broker attachment", () => {
         update: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      brokerAgency: { create: jest.fn().mockResolvedValue({}) },
+      brokerAgency: {
+        create: jest.fn().mockResolvedValue({}),
+        findFirst: jest.fn(async (args: any) => {
+          const inn = args?.where?.agency?.inn;
+          if (!inn) return null;
+          const agency = await prisma.agency.findUnique({ where: { inn } });
+          return agency
+            ? { id: "active-agency-link", agencyId: agency.id, endedAt: null, agency }
+            : null;
+        }),
+      },
       agency: {
         findUnique: jest.fn(),
         create: jest.fn(),
@@ -120,6 +130,47 @@ describe("ClientFixationService amo broker attachment", () => {
 
   afterEach(() => {
     consoleError.mockRestore();
+  });
+
+  it("rejects attribution to an agency outside the creator active links", async () => {
+    const ownAgency = {
+      id: "agency-own",
+      name: "Own Agency",
+      inn: "7700000000",
+    };
+    const broker = {
+      id: "broker-agency-boundary",
+      fullName: "Broker",
+      phone: "+79990000101",
+      amoContactId: BigInt(8101),
+      brokerAgencies: [
+        {
+          agencyId: ownAgency.id,
+          isPrimary: true,
+          endedAt: null,
+          agency: ownAgency,
+        },
+      ],
+    };
+    prisma.broker.findUnique.mockResolvedValue(broker);
+    (service as any).ensureBrokerAmoContact = jest.fn().mockResolvedValue(broker);
+
+    await expect(
+      service.fixClient(
+        broker.id,
+        {
+          phone: "+79991110101",
+          fullName: "Client",
+          project: "ZORGE9" as any,
+          agencyId: "32ece69a-29b3-4fc5-92f4-9d9bbb3b2418",
+          agencyInn: "7800000000",
+        },
+        assertAmoCreateLeaseOwned,
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+
+    expect(amo.checkUniqueness).not.toHaveBeenCalled();
+    expect(prisma.client.create).not.toHaveBeenCalled();
   });
 
   it("fails closed before lead creation when exact amo contacts are ambiguous", async () => {

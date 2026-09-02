@@ -680,7 +680,7 @@ export class LoyaltyWorkflowService {
               fullName: true,
               phone: true,
               brokerAgencies: {
-                where: { isPrimary: true },
+                where: { isPrimary: true, endedAt: null },
                 take: 1,
                 select: { agency: { select: { name: true } } },
               },

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -96,10 +96,26 @@ export default function FixationPage() {
     managers: { fullName: string; phone: string; telegram: string | null }[];
   } | null>(null);
 
-  // 2026-07-01: dropdown «Я фиксирую от агентства» убран. brokerAgency
-  // всегда = primary агентство брокера (или первое если primary нет).
-  const myAgencies = (broker?.agencies || []) as Array<{ id: string; name: string; inn: string; isPrimary?: boolean }>;
-  const brokerAgency = myAgencies.find((a) => a.isPrimary) || myAgencies[0];
+  // A broker can represent several agencies at the same time. Every fixation
+  // must therefore carry an explicit, immutable agency attribution.
+  const myAgencies = useMemo(
+    () => (broker?.agencies || []).filter((agency) => !agency.endedAt),
+    [broker?.agencies],
+  );
+  const [selectedAgencyId, setSelectedAgencyId] = useState('');
+  const defaultAgency = myAgencies.find((a) => a.isPrimary) || myAgencies[0];
+  const brokerAgency =
+    myAgencies.find((a) => a.id === selectedAgencyId) || defaultAgency;
+
+  useEffect(() => {
+    if (!myAgencies.length) {
+      setSelectedAgencyId('');
+      return;
+    }
+    if (!myAgencies.some((agency) => agency.id === selectedAgencyId)) {
+      setSelectedAgencyId(defaultAgency?.id || '');
+    }
+  }, [defaultAgency?.id, myAgencies, selectedAgencyId]);
 
   // 2026-06-29 (refactor): убрали флаг координатора. Теперь любой брокер
   // может фиксировать клиента на другого брокера (новый создаётся прямо
@@ -156,6 +172,7 @@ export default function FixationPage() {
         fullName,
         phone: '+7' + otherPhone,
         email: otherEmail.trim() || undefined,
+        agencyId: brokerAgency?.id,
       });
       if (r?.broker) {
         const created = { id: r.broker.id, fullName: r.broker.fullName, phone: r.broker.phone };
@@ -261,6 +278,7 @@ export default function FixationPage() {
       // пробелом падал в zod .email() → «Поле email: неверный формат».
       email: email.trim() || undefined,
       project,
+      agencyId: brokerAgency?.id,
       agencyInn: brokerAgency?.inn || '',
       propertyType,
       roomsCount: roomsCount || undefined,
@@ -526,8 +544,29 @@ export default function FixationPage() {
             <Plus className="w-4 h-4" /> Добавить участника (супруг и т.д.)
           </button>
 
-          {/* 2026-07-01: dropdown «Я фиксирую от агентства» убран.
-              brokerAgency автоматически = primary агентство (или первое). */}
+          <div>
+            <label className="label">Агентство фиксации *</label>
+            {myAgencies.length > 1 ? (
+              <select
+                className={`input ${attempted && !brokerAgency?.id ? 'border-error field-invalid' : ''}`}
+                value={brokerAgency?.id || ''}
+                onChange={(event) => setSelectedAgencyId(event.target.value)}
+              >
+                {myAgencies.map((agency) => (
+                  <option key={agency.id} value={agency.id}>
+                    {agency.name} · ИНН {agency.inn}{agency.isPrimary ? ' · основное' : ''}
+                  </option>
+                ))}
+              </select>
+            ) : brokerAgency ? (
+              <div className="input bg-surface-secondary">
+                {brokerAgency.name} · ИНН {brokerAgency.inn}
+              </div>
+            ) : null}
+            <div className="text-xs text-text-muted mt-1">
+              Эта компания навсегда сохранится у заявки для статистики. Выбор другого агентства не завершает остальные связи брокера.
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -745,10 +784,9 @@ export default function FixationPage() {
                     На email придёт приглашение для входа в кабинет.
                   </div>
                 </div>
-                {/* 2026-07-01: поля «ИНН агентства брокера» и «Агентство»
-                    убраны. Новый брокер автоматически привязывается к primary
-                    агентству того кто фиксирует (бэк сам возьмёт primary
-                    из creator.brokerAgencies). */}
+                <div className="text-xs text-text-muted">
+                  Новый брокер будет связан с выбранным выше агентством фиксации.
+                </div>
                 {otherError && (
                   <div className="p-2 bg-error/20 text-error rounded text-xs">{otherError.message}</div>
                 )}

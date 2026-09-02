@@ -881,7 +881,7 @@ export class SchedulerService {
               commAmt = amoCommissionAmt > 0 ? Math.round(amoCommissionAmt) : Math.round(amount * rate / 100);
             } else {
               const ba = await this.prisma.brokerAgency.findFirst({
-                where: { brokerId: broker.id, isPrimary: true },
+                where: { brokerId: broker.id, isPrimary: true, endedAt: null },
                 include: { agency: true },
               });
               const totalSqm = Number(ba?.agency?.totalSqmSold || 0);
@@ -987,7 +987,7 @@ export class SchedulerService {
         // Иначе level всегда = START. Правка 2026-05-12.
         try {
           const baFinal = await this.prisma.brokerAgency.findFirst({
-            where: { brokerId: broker.id, isPrimary: true },
+            where: { brokerId: broker.id, isPrimary: true, endedAt: null },
           });
           if (baFinal?.agencyId) {
             const agg = await this.prisma.deal.aggregate({
