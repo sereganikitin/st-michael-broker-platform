@@ -83,7 +83,7 @@ export class ClientFixationController {
   @ApiOperation({ summary: 'Create a new broker (auto-assigned to creator primary agency)' })
   async createNewBroker(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { fullName?: string; phone?: string; email?: string },
+    @Body() body: { fullName?: string; phone?: string; email?: string; agencyId?: string },
   ) {
     const fullName = String(body?.fullName || '').trim();
     const phone = String(body?.phone || '').trim();
@@ -97,9 +97,16 @@ export class ClientFixationController {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new BadRequestException({ message: 'Неверный формат email', field: 'email' });
     }
-    // 2026-07-01: agencyId и customInn убраны — бэк сам подставит primary
-    // агентство того кто фиксирует.
-    return this.clientFixationService.createBrokerByCreator(user.id, { fullName, phone, email });
+    const agencyId = String(body?.agencyId || '').trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(agencyId)) {
+      throw new BadRequestException({ message: 'Выберите агентство фиксации', field: 'agencyId' });
+    }
+    return this.clientFixationService.createBrokerByCreator(user.id, {
+      fullName,
+      phone,
+      email,
+      agencyId,
+    });
   }
 
   @Get()

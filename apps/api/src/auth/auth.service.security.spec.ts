@@ -27,7 +27,12 @@ function createHarness() {
       update: jest.fn(),
     },
     agency: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
-    brokerAgency: { findFirst: jest.fn(), create: jest.fn() },
+    brokerAgency: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     siteContent: { findUnique: jest.fn() },
     offerAcceptance: { create: jest.fn() },
     privacyAcceptance: { create: jest.fn() },
@@ -189,5 +194,52 @@ describe("AuthService active-account boundary", () => {
     await expect(
       service.resetPassword("reset-token", "new-safe-password"),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe("AuthService broker agency history", () => {
+  it("ends only a non-primary link and preserves the row", async () => {
+    const { prisma, service } = createHarness();
+    prisma.brokerAgency.findFirst.mockResolvedValue({
+      id: "link-2",
+      brokerId: "broker-1",
+      agencyId: "agency-2",
+      isPrimary: false,
+      endedAt: null,
+      agency: { id: "agency-2", name: "Бета", inn: "7700000002" },
+    });
+    prisma.brokerAgency.update.mockResolvedValue({});
+
+    await expect(
+      service.endAgencyMembership("broker-1", "agency-2"),
+    ).resolves.toMatchObject({
+      agency: { id: "agency-2", name: "Бета" },
+      endedAt: expect.any(Date),
+    });
+    expect(prisma.brokerAgency.update).toHaveBeenCalledWith({
+      where: { id: "link-2" },
+      data: expect.objectContaining({
+        isPrimary: false,
+        endedAt: expect.any(Date),
+        lastConfirmationSource: "PROFILE_EXPLICIT_END",
+      }),
+    });
+  });
+
+  it("does not end a primary link implicitly", async () => {
+    const { prisma, service } = createHarness();
+    prisma.brokerAgency.findFirst.mockResolvedValue({
+      id: "link-primary",
+      brokerId: "broker-1",
+      agencyId: "agency-1",
+      isPrimary: true,
+      endedAt: null,
+      agency: { id: "agency-1", name: "Альфа", inn: "7700000001" },
+    });
+
+    await expect(
+      service.endAgencyMembership("broker-1", "agency-1"),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.brokerAgency.update).not.toHaveBeenCalled();
   });
 });

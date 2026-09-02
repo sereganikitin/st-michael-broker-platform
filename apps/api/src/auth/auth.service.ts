@@ -275,11 +275,35 @@ export class AuthService {
       // создаём дубль через unique constraint (brokerId + agencyId).
       const existingLink = await this.prisma.brokerAgency.findFirst({
         where: { brokerId: broker.id, agencyId: agency.id },
+        select: { id: true, endedAt: true },
+      });
+      const hasActivePrimary = await this.prisma.brokerAgency.findFirst({
+        where: { brokerId: broker.id, isPrimary: true, endedAt: null },
         select: { id: true },
       });
       if (!existingLink) {
         await this.prisma.brokerAgency.create({
-          data: { brokerId: broker.id, agencyId: agency.id, isPrimary: true },
+          data: {
+            brokerId: broker.id,
+            agencyId: agency.id,
+            isPrimary: !hasActivePrimary,
+            linkedSource: "REGISTRATION",
+            lastConfirmedAt: new Date(),
+            lastConfirmationSource: "REGISTRATION",
+          },
+        });
+      } else {
+        await this.prisma.brokerAgency.update({
+          where: { id: existingLink.id },
+          data: {
+            endedAt: null,
+            isPrimary: !hasActivePrimary || hasActivePrimary.id === existingLink.id,
+            ...(existingLink.endedAt ? { joinedAt: new Date() } : {}),
+            lastConfirmedAt: new Date(),
+            lastConfirmationSource: existingLink.endedAt
+              ? "REGISTRATION_REACTIVATION"
+              : "REGISTRATION_CONFIRMATION",
+          },
         });
       }
     }
@@ -569,7 +593,7 @@ export class AuthService {
       include: {
         brokerAgencies: {
           include: { agency: true },
-          where: { isPrimary: true },
+          where: { isPrimary: true, endedAt: null },
           take: 1,
         },
       },
@@ -760,7 +784,7 @@ export class AuthService {
         // ставкой, даже если админ настроил FLAT/новую PROGRESSIVE политику.
         const amount = Number(lead.price || 0);
         const brokerAgency = await this.prisma.brokerAgency.findFirst({
-          where: { brokerId, isPrimary: true },
+          where: { brokerId, isPrimary: true, endedAt: null },
           include: { agency: true },
         });
         const totalSqm = Number(brokerAgency?.agency?.totalSqmSold || 0);
@@ -890,6 +914,7 @@ export class AuthService {
       include: {
         brokerAgencies: {
           include: { agency: true },
+          orderBy: [{ endedAt: "asc" }, { isPrimary: "desc" }, { joinedAt: "asc" }],
         },
       },
     });
@@ -897,6 +922,21 @@ export class AuthService {
     if (!broker) {
       throw new UnauthorizedException("Broker not found");
     }
+
+    const fixationCounts = await this.prisma.client.groupBy({
+      by: ["fixationAgencyId"],
+      where: {
+        fixationAgencyId: { not: null },
+        OR: [
+          { responsibleBrokerId: brokerId },
+          { responsibleBrokerId: null, brokerId },
+        ],
+      },
+      _count: { _all: true },
+    });
+    const fixationCountByAgency = new Map(
+      fixationCounts.map((row) => [row.fixationAgencyId, row._count._all]),
+    );
 
     return {
       id: broker.id,
@@ -926,6 +966,12 @@ export class AuthService {
         name: ba.agency.name,
         inn: ba.agency.inn,
         isPrimary: ba.isPrimary,
+        joinedAt: ba.joinedAt,
+        endedAt: ba.endedAt,
+        linkedSource: ba.linkedSource,
+        lastConfirmedAt: ba.lastConfirmedAt,
+        lastConfirmationSource: ba.lastConfirmationSource,
+        fixationCount: fixationCountByAgency.get(ba.agency.id) || 0,
         commissionLevel: ba.agency.commissionLevel,
         // 2026-07-02: полный набор реквизитов агентства.
         legalAddress: ba.agency.legalAddress,
@@ -1019,12 +1065,12 @@ export class AuthService {
       let agencyId = data.agency.id;
       if (!agencyId) {
         const primary = await this.prisma.brokerAgency.findFirst({
-          where: { brokerId, isPrimary: true },
+          where: { brokerId, isPrimary: true, endedAt: null },
         });
         agencyId = primary?.agencyId;
       } else {
         const link = await this.prisma.brokerAgency.findFirst({
-          where: { brokerId, agencyId },
+          where: { brokerId, agencyId, endedAt: null },
         });
         if (!link)
           throw new BadRequestException("Agency not linked to this broker");
@@ -1100,7 +1146,7 @@ export class AuthService {
           where: { id: brokerId },
           include: {
             brokerAgencies: {
-              where: { isPrimary: true },
+              where: { isPrimary: true, endedAt: null },
               include: { agency: true },
               take: 1,
             },
@@ -1328,13 +1374,28 @@ export class AuthService {
     });
     if (!existingLink) {
       const hasPrimary = await this.prisma.brokerAgency.findFirst({
-        where: { brokerId, isPrimary: true },
+        where: { brokerId, isPrimary: true, endedAt: null },
       });
       await this.prisma.brokerAgency.create({
         data: {
           brokerId,
           agencyId: agency.id,
           isPrimary: !hasPrimary, // первое агентство = primary
+          linkedSource: "PROFILE_ATTACH",
+          lastConfirmedAt: new Date(),
+          lastConfirmationSource: "PROFILE_ATTACH",
+        },
+      });
+    } else {
+      await this.prisma.brokerAgency.update({
+        where: { id: existingLink.id },
+        data: {
+          endedAt: null,
+          ...(existingLink.endedAt ? { joinedAt: new Date() } : {}),
+          lastConfirmedAt: new Date(),
+          lastConfirmationSource: existingLink.endedAt
+            ? "PROFILE_REACTIVATION"
+            : "PROFILE_CONFIRMATION",
         },
       });
     }
@@ -1388,7 +1449,7 @@ export class AuthService {
     }
 
     const existingPrimary = await this.prisma.brokerAgency.findFirst({
-      where: { brokerId, isPrimary: true },
+      where: { brokerId, isPrimary: true, endedAt: null },
       include: { agency: true },
     });
 
@@ -1399,23 +1460,46 @@ export class AuthService {
       };
     }
 
-    // Удаляем старую primary-связь(и).
-    await this.prisma.brokerAgency.deleteMany({
-      where: { brokerId, isPrimary: true },
-    });
+    // Смена primary не означает увольнение из предыдущего агентства. Старую
+    // связь сохраняем активной и только снимаем с неё флаг основной.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.brokerAgency.updateMany({
+        where: { brokerId, isPrimary: true },
+        data: {
+          isPrimary: false,
+          lastConfirmedAt: new Date(),
+          lastConfirmationSource: "PROFILE_PRIMARY_CHANGE",
+        },
+      });
 
-    // Удаляем неосновную связь с этим же агентством, чтобы не было дубля
-    // при создании ниже.
-    await this.prisma.brokerAgency.deleteMany({
-      where: { brokerId, agencyId: agency.id },
-    });
-
-    await this.prisma.brokerAgency.create({
-      data: {
-        brokerId,
-        agencyId: agency.id,
-        isPrimary: true,
-      },
+      const target = await tx.brokerAgency.findFirst({
+        where: { brokerId, agencyId: agency.id },
+      });
+      if (target) {
+        await tx.brokerAgency.update({
+          where: { id: target.id },
+          data: {
+            isPrimary: true,
+            endedAt: null,
+            ...(target.endedAt ? { joinedAt: new Date() } : {}),
+            lastConfirmedAt: new Date(),
+            lastConfirmationSource: target.endedAt
+              ? "PROFILE_PRIMARY_REACTIVATION"
+              : "PROFILE_PRIMARY_CHANGE",
+          },
+        });
+      } else {
+        await tx.brokerAgency.create({
+          data: {
+            brokerId,
+            agencyId: agency.id,
+            isPrimary: true,
+            linkedSource: "PROFILE_PRIMARY_CHANGE",
+            lastConfirmedAt: new Date(),
+            lastConfirmationSource: "PROFILE_PRIMARY_CHANGE",
+          },
+        });
+      }
     });
 
     // Sync в amoCRM: подтянем актуальный ИНН/название агентства в карточку.
@@ -1433,6 +1517,41 @@ export class AuthService {
           }
         : null,
       changed: true,
+    };
+  }
+
+  async endAgencyMembership(brokerId: string, agencyId: string) {
+    const link = await this.prisma.brokerAgency.findFirst({
+      where: { brokerId, agencyId, endedAt: null },
+      include: { agency: true },
+    });
+    if (!link) {
+      throw new BadRequestException("Активная связь с агентством не найдена");
+    }
+    if (link.isPrimary) {
+      throw new BadRequestException(
+        "Сначала назначьте другое агентство основным, затем завершите эту связь",
+      );
+    }
+
+    const endedAt = new Date();
+    await this.prisma.brokerAgency.update({
+      where: { id: link.id },
+      data: {
+        isPrimary: false,
+        endedAt,
+        lastConfirmedAt: endedAt,
+        lastConfirmationSource: "PROFILE_EXPLICIT_END",
+      },
+    });
+
+    return {
+      agency: {
+        id: link.agency.id,
+        name: link.agency.name,
+        inn: link.agency.inn,
+      },
+      endedAt,
     };
   }
 

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, Req, UseGuards, HttpCode, HttpStatus, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, Req, UseGuards, HttpCode, HttpStatus, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -180,5 +180,17 @@ export class AuthController {
     @Body() body: { inn: string },
   ) {
     return this.authService.replacePrimaryAgencyByInn(user.id, body.inn);
+  }
+
+  @Post('me/agency/:agencyId/end')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Явно завершить неосновную связь брокера с агентством' })
+  async endAgency(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('agencyId') agencyId: string,
+  ) {
+    return this.authService.endAgencyMembership(user.id, agencyId);
   }
 }

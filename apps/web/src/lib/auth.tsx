@@ -19,6 +19,11 @@ interface Broker {
     name: string;
     inn: string;
     isPrimary: boolean;
+    joinedAt?: string;
+    endedAt?: string | null;
+    linkedSource?: string;
+    lastConfirmedAt?: string | null;
+    lastConfirmationSource?: string | null;
     commissionLevel: string;
   }[];
   createdAt: string;

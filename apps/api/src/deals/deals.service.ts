@@ -127,7 +127,7 @@ export class DealsService {
 
     // Get broker's primary agency for commission calculation
     const brokerAgency = await this.prisma.brokerAgency.findFirst({
-      where: { brokerId, isPrimary: true },
+      where: { brokerId, isPrimary: true, endedAt: null },
       include: { agency: true },
     });
 
@@ -146,7 +146,9 @@ export class DealsService {
         clientId: data.clientId,
         brokerId,
         lotId: data.lotId,
-        agencyId: brokerAgency?.agencyId,
+        // A deal created from a cabinet fixation inherits the immutable
+        // fixation company. Current primary is only a legacy fallback.
+        agencyId: client.fixationAgencyId || brokerAgency?.agencyId,
         project: data.project as any,
         contractType: data.contractType as any,
         amount: data.amount,

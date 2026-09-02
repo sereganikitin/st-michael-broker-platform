@@ -21,7 +21,7 @@ export class AmocrmService {
   }
   private async getCommissionRate(brokerId: string, project: string, dealDate?: Date): Promise<number> {
     const brokerAgency = await this.prisma.brokerAgency.findFirst({
-      where: { brokerId, isPrimary: true },
+      where: { brokerId, isPrimary: true, endedAt: null },
       include: { agency: true },
     });
     const totalSqm = Number(brokerAgency?.agency?.totalSqmSold || 0);
@@ -197,7 +197,14 @@ export class AmocrmService {
       });
       if (!existingLink) {
         await this.prisma.brokerAgency.create({
-          data: { brokerId, agencyId: agency.id, isPrimary: true },
+          data: {
+            brokerId,
+            agencyId: agency.id,
+            isPrimary: true,
+            linkedSource: 'AMO_MANUAL_SYNC',
+            lastConfirmedAt: new Date(),
+            lastConfirmationSource: 'AMO_MANUAL_SYNC',
+          },
         });
       }
       // Save amo_contact_id to broker
@@ -535,7 +542,7 @@ export class AmocrmService {
    */
   private async recalcAgencyTotalSqm(brokerId: string): Promise<void> {
     const ba = await this.prisma.brokerAgency.findFirst({
-      where: { brokerId, isPrimary: true },
+      where: { brokerId, isPrimary: true, endedAt: null },
       include: { agency: true },
     });
     if (!ba?.agency) return;

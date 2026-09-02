@@ -46,6 +46,12 @@ interface FullProfile {
     name: string;
     inn: string;
     isPrimary: boolean;
+    joinedAt: string;
+    endedAt?: string | null;
+    linkedSource: string;
+    lastConfirmedAt?: string | null;
+    lastConfirmationSource?: string | null;
+    fixationCount: number;
     commissionLevel: string;
     legalAddress?: string | null;
     bankName?: string | null;
@@ -300,7 +306,8 @@ function ReplaceAgencyInnForm({ currentInn, onReplaced, onCancel }: { currentInn
       <div className="text-sm font-medium">Сменить ИНН агентства</div>
       <p className="text-xs text-text-muted">
         Если при регистрации вы ошибочно ввели не тот ИНН — введите правильный.
-        Старая привязка снимется, история фиксаций и сделок останется.
+        Новое агентство станет основным. Старая связь останется в истории и
+        не завершится автоматически; фиксации и сделки сохранят свою компанию.
         Текущий ИНН: <strong>{currentInn}</strong>.
       </p>
       <input
@@ -381,7 +388,8 @@ function AttachAgencyForm({ onAttached }: { onAttached: () => void }) {
 // ─── Agency section ─────────────────────────────────────────
 
 function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged: () => void }) {
-  const primary = profile.agencies.find((a) => a.isPrimary) || profile.agencies[0];
+  const activeAgencies = profile.agencies.filter((agency) => !agency.endedAt);
+  const primary = activeAgencies.find((a) => a.isPrimary) || activeAgencies[0];
   const [editing, setEditing] = useState(false);
   const [replacingInn, setReplacingInn] = useState(false);
   const [legalAddress, setLegalAddress] = useState('');
@@ -392,6 +400,7 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
+  const [endingAgencyId, setEndingAgencyId] = useState('');
 
   const startEdit = () => {
     if (!primary) return;
@@ -422,6 +431,24 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
     setSaving(false);
   };
 
+  const endMembership = async (agency: FullProfile['agencies'][number]) => {
+    if (!window.confirm(
+      `Завершить связь с «${agency.name}»? Старые фиксации и сделки останутся за этим агентством.`,
+    )) return;
+    setEndingAgencyId(agency.id);
+    setErr('');
+    try {
+      await apiPost(`/auth/me/agency/${agency.id}/end`, {});
+      setOk('Связь завершена. История фиксаций и сделок сохранена.');
+      onChanged();
+      setTimeout(() => setOk(''), 3000);
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось завершить связь');
+    } finally {
+      setEndingAgencyId('');
+    }
+  };
+
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
@@ -444,7 +471,7 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
       {err && <div className="mb-3 p-3 bg-error/20 text-error rounded text-sm">{err}</div>}
       {ok && <div className="mb-3 p-3 bg-success/20 text-success rounded text-sm">{ok}</div>}
 
-      {profile.agencies.length === 0 && (
+      {activeAgencies.length === 0 && (
         <AttachAgencyForm onAttached={onChanged} />
       )}
 
@@ -496,8 +523,14 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
             <div key={agency.id} className="p-4 bg-surface-secondary rounded-lg">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-medium">{agency.name}</h4>
-                {agency.isPrimary && (
+                {agency.endedAt ? (
+                  <span className="text-xs bg-surface px-2 py-1 rounded">
+                    Завершено {new Date(agency.endedAt).toLocaleDateString('ru-RU')}
+                  </span>
+                ) : agency.isPrimary ? (
                   <span className="text-xs bg-accent/20 text-accent px-2 py-1 rounded">Основное</span>
+                ) : (
+                  <span className="text-xs bg-success/20 text-success px-2 py-1 rounded">Активное</span>
                 )}
               </div>
               {/* 2026-07-02: «Уровень: Старт» убран — комиссия управляется через
@@ -506,6 +539,26 @@ function AgencySection({ profile, onChanged }: { profile: FullProfile; onChanged
               <div className="text-sm mb-2">
                 <span className="text-text-muted">ИНН: </span><span>{agency.inn}</span>
               </div>
+              <div className="text-xs text-text-muted space-y-1">
+                <div>
+                  Текущий период: с {new Date(agency.joinedAt).toLocaleDateString('ru-RU')}
+                  {agency.endedAt ? ` по ${new Date(agency.endedAt).toLocaleDateString('ru-RU')}` : ''}
+                </div>
+                <div>Точных фиксаций за этим агентством: <span className="text-text font-medium">{agency.fixationCount}</span></div>
+                {agency.lastConfirmedAt && (
+                  <div>Последнее подтверждение связи: {new Date(agency.lastConfirmedAt).toLocaleDateString('ru-RU')}</div>
+                )}
+              </div>
+              {!agency.endedAt && !agency.isPrimary && (
+                <button
+                  type="button"
+                  className="btn btn-secondary mt-3 text-xs"
+                  disabled={endingAgencyId === agency.id}
+                  onClick={() => endMembership(agency)}
+                >
+                  {endingAgencyId === agency.id ? 'Завершение…' : 'Завершить связь'}
+                </button>
+              )}
               {agency.isPrimary && (
                 <div className="text-xs text-text-muted space-y-1 mt-2 pt-2 border-t border-border">
                   <div>Юр. адрес: <span className="text-text">{agency.legalAddress || '—'}</span></div>

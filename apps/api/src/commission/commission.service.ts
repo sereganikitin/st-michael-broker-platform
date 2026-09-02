@@ -180,7 +180,7 @@ export class CommissionService {
       include: {
         brokerAgencies: {
           include: { agency: true },
-          where: { isPrimary: true },
+          where: { isPrimary: true, endedAt: null },
           take: 1,
         },
       },
@@ -326,7 +326,7 @@ export class CommissionService {
       include: {
         brokerAgencies: {
           include: { agency: true },
-          where: { isPrimary: true },
+          where: { isPrimary: true, endedAt: null },
           take: 1,
         },
       },

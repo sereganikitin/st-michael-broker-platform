@@ -421,16 +421,42 @@ model Agency {
 
 // M2M: Брокер ↔ Компании (неограниченное кол-во, не удаляются)
 model BrokerAgency {
-  id        String   @id @default(uuid())
-  brokerId  String   @map("broker_id")
-  broker    Broker   @relation(fields: [brokerId], references: [id])
-  agencyId  String   @map("agency_id")
-  agency    Agency   @relation(fields: [agencyId], references: [id])
-  isPrimary Boolean  @default(false) @map("is_primary") // Основная компания
-  joinedAt  DateTime @default(now()) @map("joined_at")
+  id                     String    @id @default(uuid())
+  brokerId               String    @map("broker_id")
+  broker                 Broker    @relation(fields: [brokerId], references: [id])
+  agencyId               String    @map("agency_id")
+  agency                 Agency    @relation(fields: [agencyId], references: [id])
+  isPrimary              Boolean   @default(false) @map("is_primary") // Основная компания для amoCRM
+  joinedAt               DateTime  @default(now()) @map("joined_at") // Начало текущего активного периода
+  endedAt                DateTime? @map("ended_at") // Только явное завершение; новая фиксация другие связи не закрывает
+  linkedSource           String    @default("LEGACY") @map("linked_source")
+  lastConfirmedAt        DateTime? @map("last_confirmed_at")
+  lastConfirmationSource String?   @map("last_confirmation_source")
 
   @@unique([brokerId, agencyId]) // Без повторов
+  @@index([brokerId, endedAt])
   @@map("broker_agencies")
+}
+
+// Неизменяемый журнал происхождения и изменений связи брокер ↔ агентство.
+// Он сохраняется отдельно от текущего состояния BrokerAgency, чтобы повторное
+// присоединение, смена primary и точная атрибуция фиксаций не затирали историю.
+model BrokerAgencyEvent {
+  id             String   @id @default(uuid())
+  brokerAgencyId String?  @map("broker_agency_id")
+  brokerId       String   @map("broker_id")
+  agencyId       String   @map("agency_id")
+  clientId       String?  @unique @map("client_id")
+  actorBrokerId  String?  @map("actor_broker_id")
+  eventType      String   @map("event_type")
+  source         String
+  metadata       Json?
+  occurredAt     DateTime @default(now()) @map("occurred_at")
+
+  @@index([brokerId, occurredAt])
+  @@index([agencyId, occurredAt])
+  @@index([brokerAgencyId, occurredAt])
+  @@map("broker_agency_events")
 }
 
 model Broker {
