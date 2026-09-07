@@ -1,0 +1,356 @@
+{
+  "generatedAt": "2026-09-07",
+  "decision": "владелец 07.09: склеить все пары; исключены пары 2 и 46 (тестовые карточки) и 21 (UINVEST — сомнительно)",
+  "clusters": [
+    {
+      "survivorName": "Wellside",
+      "finalName": "Веллсайд",
+      "mergeNames": [
+        "Веллсайд"
+      ],
+      "pairs": [
+        1
+      ]
+    },
+    {
+      "survivorName": "VSN Realty",
+      "finalName": "ВСН Риэлти",
+      "mergeNames": [
+        "ВСН Риэлти",
+        "ВСН Реалти",
+        "ВСН Реэлти"
+      ],
+      "pairs": [
+        3,
+        11,
+        29
+      ]
+    },
+    {
+      "survivorName": "Kalinka",
+      "finalName": "Калинка",
+      "mergeNames": [
+        "Калинка",
+        "Клинка"
+      ],
+      "pairs": [
+        4,
+        35
+      ]
+    },
+    {
+      "survivorName": "Домгоу",
+      "finalName": "Домгоу",
+      "mergeNames": [
+        "DomGo"
+      ],
+      "pairs": [
+        5
+      ]
+    },
+    {
+      "survivorName": "Инвест7",
+      "finalName": "Инвест7",
+      "mergeNames": [
+        "Invest7",
+        "Invest 7"
+      ],
+      "pairs": [
+        6,
+        17
+      ]
+    },
+    {
+      "survivorName": "ООО ЭС 5 ДЕВЕЛОПМЕНТ",
+      "finalName": "ООО ЭС 5 ДЕВЕЛОПМЕНТ",
+      "mergeNames": [
+        "s5 development",
+        "S5Development"
+      ],
+      "pairs": [
+        7,
+        19
+      ]
+    },
+    {
+      "survivorName": "Воробьева Эстейт",
+      "finalName": "Воробьева Эстейт",
+      "mergeNames": [
+        "Vorobyova Estate"
+      ],
+      "pairs": [
+        8
+      ]
+    },
+    {
+      "survivorName": "Akrium",
+      "finalName": "Акриум",
+      "mergeNames": [
+        "Акриум"
+      ],
+      "pairs": [
+        9
+      ]
+    },
+    {
+      "survivorName": "Бюро Эстейт",
+      "finalName": "Бюро Эстейт",
+      "mergeNames": [
+        "АН BURO estate",
+        "ооо \"Бюро-Эстейт"
+      ],
+      "pairs": [
+        10,
+        40
+      ]
+    },
+    {
+      "survivorName": "Nika Estate",
+      "finalName": "Ника Эстейт",
+      "mergeNames": [
+        "Ника Эстейт",
+        "Ника Эстэйт"
+      ],
+      "pairs": [
+        12,
+        39
+      ]
+    },
+    {
+      "survivorName": "ELSTATE",
+      "finalName": "Элстейт",
+      "mergeNames": [
+        "Элстейт"
+      ],
+      "pairs": [
+        13
+      ]
+    },
+    {
+      "survivorName": "Go Realty",
+      "finalName": "ООО Гоу Риэлти",
+      "mergeNames": [
+        "ООО Гоу Риэлти",
+        "GoRealty"
+      ],
+      "pairs": [
+        14,
+        15
+      ]
+    },
+    {
+      "survivorName": "ООО ГРЕАТ ПЕРСОН РЕАЛТИ",
+      "finalName": "ООО ГРЕАТ ПЕРСОН РЕАЛТИ",
+      "mergeNames": [
+        "Great Person Realty"
+      ],
+      "pairs": [
+        16
+      ]
+    },
+    {
+      "survivorName": "ИП Еремина",
+      "finalName": "ИП Еремина",
+      "mergeNames": [
+        "Remain"
+      ],
+      "pairs": [
+        18
+      ]
+    },
+    {
+      "survivorName": "Safari Home Holding",
+      "finalName": "Сафари Хоум Холдинг",
+      "mergeNames": [
+        "Сафари Хоум Холдинг"
+      ],
+      "pairs": [
+        20
+      ]
+    },
+    {
+      "survivorName": "Веста Дом",
+      "finalName": "Веста Дом",
+      "mergeNames": [
+        "Vesta Dom",
+        "Vesta-Dom"
+      ],
+      "pairs": [
+        22,
+        23
+      ]
+    },
+    {
+      "survivorName": "Вебстер",
+      "finalName": "Вебстер",
+      "mergeNames": [
+        "Webster"
+      ],
+      "pairs": [
+        24
+      ]
+    },
+    {
+      "survivorName": "Тренд",
+      "finalName": "Тренд",
+      "mergeNames": [
+        "АН TREND"
+      ],
+      "pairs": [
+        25
+      ]
+    },
+    {
+      "survivorName": "ProPrime",
+      "finalName": "АН ПРОПРАЙМ",
+      "mergeNames": [
+        "АН ПРОПРАЙМ"
+      ],
+      "pairs": [
+        26
+      ]
+    },
+    {
+      "survivorName": "ArtEstatet",
+      "finalName": "Арт Естате",
+      "mergeNames": [
+        "Арт Естате"
+      ],
+      "pairs": [
+        27
+      ]
+    },
+    {
+      "survivorName": "ASGARD",
+      "finalName": "Асгард",
+      "mergeNames": [
+        "Асгард"
+      ],
+      "pairs": [
+        28
+      ]
+    },
+    {
+      "survivorName": "DomGo Premium",
+      "finalName": "ДомГоПремиум",
+      "mergeNames": [
+        "ДомГоПремиум"
+      ],
+      "pairs": [
+        30
+      ]
+    },
+    {
+      "survivorName": "Интермарк",
+      "finalName": "Интермарк",
+      "mergeNames": [
+        "Intermark"
+      ],
+      "pairs": [
+        31
+      ]
+    },
+    {
+      "survivorName": "Калинка - Риэлти",
+      "finalName": "Калинка - Риэлти",
+      "mergeNames": [
+        "Kalinka realty",
+        "КАЛИНКА-РИЭЛТИ"
+      ],
+      "pairs": [
+        32,
+        34
+      ]
+    },
+    {
+      "survivorName": "Kalinka Group",
+      "finalName": "Калинка Групп",
+      "mergeNames": [
+        "Калинка Групп"
+      ],
+      "pairs": [
+        33
+      ]
+    },
+    {
+      "survivorName": "KNRU",
+      "finalName": "КНРУ",
+      "mergeNames": [
+        "КНРУ"
+      ],
+      "pairs": [
+        36
+      ]
+    },
+    {
+      "survivorName": "Малина Проперти",
+      "finalName": "Малина Проперти",
+      "mergeNames": [
+        "АН Malina Property"
+      ],
+      "pairs": [
+        37
+      ]
+    },
+    {
+      "survivorName": "монолит девелопмент",
+      "finalName": "монолит девелопмент",
+      "mergeNames": [
+        "Monolith development"
+      ],
+      "pairs": [
+        38
+      ]
+    },
+    {
+      "survivorName": "ООО IBFS GROUP",
+      "finalName": "ООО IBFS GROUP",
+      "mergeNames": [
+        "ООО \"ИБФС групп\""
+      ],
+      "pairs": [
+        41
+      ]
+    },
+    {
+      "survivorName": "Point Estate",
+      "finalName": "ООО «Пойнт Эстейт»",
+      "mergeNames": [
+        "ООО «Пойнт Эстейт»"
+      ],
+      "pairs": [
+        42
+      ]
+    },
+    {
+      "survivorName": "Praedium",
+      "finalName": "Праедиум",
+      "mergeNames": [
+        "Праедиум"
+      ],
+      "pairs": [
+        43
+      ]
+    },
+    {
+      "survivorName": "Estate FM",
+      "finalName": "Эстейт ФМ",
+      "mergeNames": [
+        "Эстейт ФМ"
+      ],
+      "pairs": [
+        44
+      ]
+    },
+    {
+      "survivorName": "СПН24",
+      "finalName": "СПН24",
+      "mergeNames": [
+        "Spn24"
+      ],
+      "pairs": [
+        45
+      ]
+    }
+  ]
+}
