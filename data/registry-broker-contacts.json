@@ -1,0 +1,130 @@
+{
+ "rows": [
+  {
+   "id": "a6058bdb-cd29-48b4-82ef-1ac29674ab14",
+   "contractNumber": "ЗГ1-7-3-64",
+   "brokerAmoContactId": "29522685",
+   "contactName": "Юлия",
+   "company": "UrbanProperty"
+  },
+  {
+   "id": "9e5b953a-3260-40ea-9e3e-3be6c0d5eeb9",
+   "contractNumber": "ЗГ2-9-1-086",
+   "brokerAmoContactId": "33386921",
+   "contactName": "брокер Сусанна Петровна Протопопова",
+   "company": "Микула Елена Витальевна"
+  },
+  {
+   "id": "c0841970-85a7-495d-bdc2-2972223482ed",
+   "contractNumber": "ЗГ3-4-1-037",
+   "brokerAmoContactId": "35529319",
+   "contactName": "Ольга брокер",
+   "company": "ИП Уcков"
+  },
+  {
+   "id": "2b8c0177-1866-49a9-84db-6a81837726f5",
+   "contractNumber": "ЗГ3-12-2-150",
+   "brokerAmoContactId": "34665379",
+   "contactName": "Андрей брокер",
+   "company": "Red Line"
+  },
+  {
+   "id": "5b1b499c-52cc-439e-98b7-aebacd9d404c",
+   "contractNumber": "ЗГ2-16-1-169",
+   "brokerAmoContactId": "35529319",
+   "contactName": "Ольга брокер",
+   "company": "ИП Уcков"
+  },
+  {
+   "id": "efdee96d-fb7e-4f4a-a99a-ec4298e83a27",
+   "contractNumber": "ЗГ2-17-1-182",
+   "brokerAmoContactId": "35529319",
+   "contactName": "Ольга брокер",
+   "company": "ИП Уcков"
+  },
+  {
+   "id": "d0a70e29-b5d4-4d4f-b2cf-a9364e24241f",
+   "contractNumber": "ЗГ1-11-1-110",
+   "brokerAmoContactId": "36650363",
+   "contactName": "Евгений (брокер Миэль)",
+   "company": "НМаркет.ПРО"
+  },
+  {
+   "id": "63cf8f63-d403-4c03-a3ab-82f0f823f77f",
+   "contractNumber": "СБ2-8-2е-219",
+   "brokerAmoContactId": "46195873",
+   "contactName": "Евгения",
+   "company": "СПН24"
+  },
+  {
+   "id": "d0d26916-2470-4d54-bb59-c0b9692757f5",
+   "contractNumber": "СБ3-4-1с-305",
+   "brokerAmoContactId": "38571979",
+   "contactName": "Ерашкина Екатерина Дмитриевна",
+   "company": "ЕГЦН"
+  },
+  {
+   "id": "272b5cf5-c68c-4250-a3a0-601dfbb90041",
+   "contractNumber": "ЗГ2-4-3-027",
+   "brokerAmoContactId": "38851311",
+   "contactName": "Акопов Петр Эдуардович",
+   "company": "Микула Елена Витальевна"
+  },
+  {
+   "id": "33f990fe-810a-43ff-af0d-1669b8472f2c",
+   "contractNumber": "ЗГ1-12-1-121",
+   "brokerAmoContactId": "39101963",
+   "contactName": "Алексеева Ольга Геннадьевна",
+   "company": "Микула Елена Витальевна"
+  },
+  {
+   "id": "1d991996-a06c-454d-bb91-95f7a7a785eb",
+   "contractNumber": "ЗГ2-7-1-067",
+   "brokerAmoContactId": "38675701",
+   "contactName": "Дыбля Оксана Юрьевна",
+   "company": "Firstly Estate"
+  },
+  {
+   "id": "12c98af8-59e3-478c-84e7-f95fd3e31a5c",
+   "contractNumber": "ММ-303",
+   "brokerAmoContactId": "39354921",
+   "contactName": "Парамонова Марина Рафаэлевна",
+   "company": "Capital Estate"
+  },
+  {
+   "id": "2cce536c-e497-49e1-b35c-27f2875f9435",
+   "contractNumber": "ММ-322",
+   "brokerAmoContactId": "39354921",
+   "contactName": "Парамонова Марина Рафаэлевна",
+   "company": "Capital Estate"
+  },
+  {
+   "id": "99ec0f99-6e9f-412b-8d63-e5c3360887a0",
+   "contractNumber": "ММ-320",
+   "brokerAmoContactId": "35643735",
+   "contactName": "Милевская Анна Анваровна",
+   "company": "ИП Арсенин"
+  },
+  {
+   "id": "b82a7d8d-ce73-4054-ab60-d8a956bc01e1",
+   "contractNumber": "КЛ-02.201",
+   "brokerAmoContactId": "42708103",
+   "contactName": "Кусик Михаил Владимирович",
+   "company": "ИП Воронкова"
+  },
+  {
+   "id": "21c98490-6145-4577-8b0b-fd78c268c655",
+   "contractNumber": "ЗГ3-14-1-178а",
+   "brokerAmoContactId": "46282368",
+   "contactName": "Тряничев Олег Сергеевич",
+   "company": "ИП Тряничев Олег Сергеевич"
+  },
+  {
+   "id": "565f3680-a555-43e2-9826-be41064fd9f8",
+   "contractNumber": "ЗГ3-14-1-179",
+   "brokerAmoContactId": "46282368",
+   "contactName": "Тряничев Олег Сергеевич",
+   "company": "ИП Тряничев Олег Сергеевич"
+  }
+ ]
+}
