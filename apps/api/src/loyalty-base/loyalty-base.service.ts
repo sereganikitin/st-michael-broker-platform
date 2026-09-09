@@ -672,6 +672,21 @@ function maskContact(type: string, value: string): string {
   return value.length > 3 ? `${value.slice(0, 1)}***${value.slice(-1)}` : "***";
 }
 
+/**
+ * 2026-09-09 (perf): когда брокеров больше одной пачки (например, вся база —
+ * 19 000), один groupBy по всей таблице дешевле 38 последовательных
+ * `brokerId in (500)`; лишние группы (архив, другие роли) отбрасываются при
+ * сопоставлении через Map. Для маленьких выборок — прежняя пачка с `in`.
+ */
+function brokerBatchesOrWholeTable(ids: string[]): Array<string[] | null> {
+  if (!ids.length) return [];
+  return ids.length > CANDIDATE_QUERY_BATCH_SIZE ? [null] : chunks(ids);
+}
+
+function brokerIdWhere(batch: string[] | null): Record<string, unknown> {
+  return batch ? { brokerId: { in: batch } } : {};
+}
+
 function uniqueSorted(values: Array<string | null | undefined>): string[] {
   return Array.from(
     new Set(values.map((value) => String(value || "").trim()).filter(Boolean)),
@@ -4828,19 +4843,14 @@ export class LoyaltyBaseService {
       records.map((record) => [String(record.id), record]),
     );
     const ids = uniqueSorted([...byId.keys()]);
-    for (
-      let offset = 0;
-      offset < ids.length;
-      offset += CANDIDATE_QUERY_BATCH_SIZE
-    ) {
-      const batch = ids.slice(offset, offset + CANDIDATE_QUERY_BATCH_SIZE);
+    for (const batch of brokerBatchesOrWholeTable(ids)) {
       const groups = await this.registryDealModel.groupBy({
         by: ["brokerId"],
-        where: { brokerId: { in: batch }, ...this.registrySignedAtWhere() },
+        where: { ...brokerIdWhere(batch), ...this.registrySignedAtWhere() },
         _count: { _all: true },
         _max: { paidAt: true },
       });
-      for (const group of groups as any[]) {
+      for (const group of (Array.isArray(groups) ? groups : []) as any[]) {
         const record = byId.get(String(group.brokerId));
         if (!record) continue;
         const count = finiteNumber(group._count?._all) || 0;
@@ -5159,40 +5169,78 @@ export class LoyaltyBaseService {
     let meetings = 0;
     let deals = 0;
     let dealCents = 0n;
-    for (
-      let offset = 0;
-      offset < brokerIds.length;
-      offset += CANDIDATE_QUERY_BATCH_SIZE
-    ) {
-      const batch = brokerIds.slice(offset, offset + CANDIDATE_QUERY_BATCH_SIZE);
-      const [fixationCount, meetingCount, dealAgg] = await Promise.all([
-        this.prisma.client.count({
-          where: {
-            brokerId: { in: batch },
-            ...fixationClientWhere(cabinetSource),
-            createdAt: periodWhere,
-          },
+    const prismaAny = this.prisma as any;
+    const canGroup = [prismaAny.client, prismaAny.meeting, prismaAny.deal].every(
+      (delegate) => typeof delegate?.groupBy === "function",
+    );
+    if (brokerIds.length > CANDIDATE_QUERY_BATCH_SIZE && canGroup) {
+      // 2026-09-09 (perf): для больших выборок (вся база без фильтров —
+      // 19 000 брокеров) вместо 38 × 3 запросов «in (пачка)» — три groupBy по
+      // таблице за период, суммируем только по брокерам выборки.
+      const [fixationGroups, meetingGroups, dealGroups] = await Promise.all([
+        prismaAny.client.groupBy({
+          by: ["brokerId"],
+          where: { ...fixationClientWhere(cabinetSource), createdAt: periodWhere },
+          _count: { _all: true },
         }),
-        this.prisma.meeting.count({
+        prismaAny.meeting.groupBy({
+          by: ["brokerId"],
           where: {
-            brokerId: { in: batch },
             status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" },
             date: periodWhere,
           },
+          _count: { _all: true },
         }),
-        this.prisma.deal.aggregate({
-          where: {
-            brokerId: { in: batch },
-            ...this.ourConfirmedDealWhere({ from: period.from, to: period.to }),
-          },
+        prismaAny.deal.groupBy({
+          by: ["brokerId"],
+          where: this.ourConfirmedDealWhere({ from: period.from, to: period.to }),
           _count: { _all: true },
           _sum: { amount: true },
         }),
       ]);
-      fixations += Number(fixationCount || 0);
-      meetings += Number(meetingCount || 0);
-      deals += Number((dealAgg as any)?._count?._all || 0);
-      dealCents += moneyToCents(String((dealAgg as any)?._sum?.amount || "0"));
+      const inSelection = (groups: unknown) =>
+        (Array.isArray(groups) ? (groups as any[]) : []).filter(
+          (group) => group?.brokerId && brokerSet.has(String(group.brokerId)),
+        );
+      for (const group of inSelection(fixationGroups))
+        fixations += Number(group._count?._all || 0);
+      for (const group of inSelection(meetingGroups))
+        meetings += Number(group._count?._all || 0);
+      for (const group of inSelection(dealGroups)) {
+        deals += Number(group._count?._all || 0);
+        dealCents += moneyToCents(String(group._sum?.amount || "0"));
+      }
+    } else {
+      for (const batch of chunks(brokerIds)) {
+        const [fixationCount, meetingCount, dealAgg] = await Promise.all([
+          this.prisma.client.count({
+            where: {
+              brokerId: { in: batch },
+              ...fixationClientWhere(cabinetSource),
+              createdAt: periodWhere,
+            },
+          }),
+          this.prisma.meeting.count({
+            where: {
+              brokerId: { in: batch },
+              status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" },
+              date: periodWhere,
+            },
+          }),
+          this.prisma.deal.aggregate({
+            where: {
+              brokerId: { in: batch },
+              ...this.ourConfirmedDealWhere({ from: period.from, to: period.to }),
+            },
+            _count: { _all: true },
+            _sum: { amount: true },
+          }),
+        ]);
+        fixations += Number(fixationCount || 0);
+        meetings += Number(meetingCount || 0);
+        deals += Number((dealAgg as any)?._count?._all || 0);
+        dealCents += moneyToCents(String((dealAgg as any)?._sum?.amount || "0"));
+      }
     }
     let paidBookings = 0;
     let registryDeals = 0;
@@ -8377,44 +8425,17 @@ export class LoyaltyBaseService {
               nextCallAt: true,
             },
           },
-          clients: {
-            where: fixationClientWhere(filter.cabinetSource),
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            select: { createdAt: true },
-          },
-          meetings: {
-            where: { status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" } },
-            orderBy: { date: "desc" },
-            take: 1,
-            select: { date: true },
-          },
-          deals: {
-            where: this.ourConfirmedDealWhere(),
-            orderBy: { signedAt: "desc" },
-            take: 1,
-            select: { signedAt: true },
-          },
-          _count: {
-            select: {
-              clients: { where: fixationClientWhere(filter.cabinetSource) },
-              deals: { where: this.ourConfirmedDealWhere() },
-              meetings: {
-                where: { status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" } },
-              },
-              callLogs: true,
-            },
-          },
+          // 2026-09-09 (perf): счётчики фиксаций/встреч/сделок/звонков и их
+          // последние даты больше не грузятся вложенными take:1 и _count
+          // (Prisma раскладывал их в оконные запросы по всем дочерним
+          // таблицам) — см. attachOurBrokerLifetimeAggregates ниже.
         },
       });
-      await this.attachOurBrokerRegistryDeals(loaded as any[]);
-      // 2026-09-04 (задача D): callLogWhere сузил загруженные callLogs под
-      // «период звонков»/кампанию, но статус DORMANT, lastActivity и staleDays
-      // считаются по последнему звонку ЗА ВСЁ ВРЕМЯ — подгружаем его отдельно.
-      await this.attachOurBrokerLifetimeLastCall(
+      await this.attachOurBrokerLifetimeAggregates(
         loaded as any[],
-        Boolean(filter.callPeriod || filter.campaignIds.length),
+        filter.cabinetSource,
       );
+      await this.attachOurBrokerRegistryDeals(loaded as any[]);
       const workflowCalls = await this.workflowCallReadModels(
         "ours",
         "BROKER",
@@ -8534,18 +8555,14 @@ export class LoyaltyBaseService {
     });
     for (const id of ids) result.set(id, empty());
 
-    for (
-      let offset = 0;
-      offset < ids.length;
-      offset += CANDIDATE_QUERY_BATCH_SIZE
-    ) {
-      const batch = ids.slice(offset, offset + CANDIDATE_QUERY_BATCH_SIZE);
+    // 2026-09-09 (perf): для всей базы — один groupBy на таблицу вместо пачек.
+    for (const batch of brokerBatchesOrWholeTable(ids)) {
       const [fixationGroups, meetingGroups, dealGroups, registryGroups] =
         await Promise.all([
           (this.prisma.client as any).groupBy({
           by: ["brokerId"],
           where: {
-            brokerId: { in: batch },
+            ...brokerIdWhere(batch),
             ...fixationClientWhere(cabinetSource),
             createdAt: { gte: period.from, lte: period.to },
           },
@@ -8555,7 +8572,7 @@ export class LoyaltyBaseService {
         (this.prisma.meeting as any).groupBy({
           by: ["brokerId"],
           where: {
-            brokerId: { in: batch },
+            ...brokerIdWhere(batch),
             status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" },
             date: { gte: period.from, lte: period.to },
           },
@@ -8565,7 +8582,7 @@ export class LoyaltyBaseService {
         (this.prisma.deal as any).groupBy({
           by: ["brokerId"],
           where: {
-            brokerId: { in: batch },
+            ...brokerIdWhere(batch),
             ...this.ourConfirmedDealWhere({ from: period.from, to: period.to }),
           },
           _count: { _all: true },
@@ -8576,7 +8593,7 @@ export class LoyaltyBaseService {
           ? this.registryDealModel.groupBy({
               by: ["brokerId"],
               where: {
-                brokerId: { in: batch },
+                ...brokerIdWhere(batch),
                 ...this.registrySignedAtWhere({
                   from: period.from,
                   to: period.to,
@@ -8589,7 +8606,7 @@ export class LoyaltyBaseService {
           : Promise.resolve([]),
       ]);
 
-      for (const group of fixationGroups as any[]) {
+      for (const group of (Array.isArray(fixationGroups) ? fixationGroups : []) as any[]) {
         const target = result.get(String(group.brokerId));
         if (!target) continue;
         target.fixations = finiteNumber(
@@ -8597,7 +8614,7 @@ export class LoyaltyBaseService {
         );
         target.lastFixationAt = dateOnly(group._max?.createdAt);
       }
-      for (const group of meetingGroups as any[]) {
+      for (const group of (Array.isArray(meetingGroups) ? meetingGroups : []) as any[]) {
         const target = result.get(String(group.brokerId));
         if (!target) continue;
         target.meetings = finiteNumber(
@@ -8605,7 +8622,7 @@ export class LoyaltyBaseService {
         );
         target.lastMeetingAt = dateOnly(group._max?.date);
       }
-      for (const group of dealGroups as any[]) {
+      for (const group of (Array.isArray(dealGroups) ? dealGroups : []) as any[]) {
         const target = result.get(String(group.brokerId));
         if (!target) continue;
         target.deals = finiteNumber(
@@ -8619,7 +8636,7 @@ export class LoyaltyBaseService {
       }
       // «Реестр сделок»: добавляется к Deal-счётчику (после цикла выше,
       // который перезаписывает target.deals значением из Deal-таблицы).
-      for (const group of registryGroups as any[]) {
+      for (const group of (Array.isArray(registryGroups) ? registryGroups : []) as any[]) {
         const target = result.get(String(group.brokerId));
         if (!target) continue;
         const count = finiteNumber(group._count?._all) || 0;
@@ -9041,39 +9058,86 @@ export class LoyaltyBaseService {
   }
 
   /**
-   * Задача D (аудит 04.09): когда callLogs загружены с where по периоду /
-   * кампании, последний звонок за всё время подгружается отдельным groupBy
-   * и прикрепляется как record.__lifetimeLastCallAt.
+   * 2026-09-09 (perf): lifetime-счётчики списка «наша база» — фиксации,
+   * встречи (без брокер-туров), подтверждённые сделки ДДУ, звонки — и их
+   * последние даты одним groupBy на таблицу по всей базе (4 запроса вместо
+   * вложенных связей take:1 + _count у 19 000 брокеров). Заполняет те же
+   * поля, что раньше отдавал findMany: record._count.{clients,meetings,
+   * deals,callLogs}, record.clients[0].createdAt, record.meetings[0].date,
+   * record.deals[0].signedAt, а также record.__lifetimeLastCallAt (задача D:
+   * последний звонок за всё время не зависит от фильтра периода звонков).
+   * В тестовых моках без groupBy оставляет данные фикстуры как есть.
    */
-  private async attachOurBrokerLifetimeLastCall(
+  private async attachOurBrokerLifetimeAggregates(
     records: any[],
-    callLogsAreFiltered: boolean,
+    cabinetSource: CabinetSource | undefined,
   ): Promise<void> {
-    if (!callLogsAreFiltered || !records.length) return;
-    const delegate = (this.prisma as any).callLog;
-    if (typeof delegate?.groupBy !== "function") return;
-    const ids = uniqueSorted(records.map((record) => String(record.id)));
-    const lastByBroker = new Map<string, unknown>();
-    for (
-      let offset = 0;
-      offset < ids.length;
-      offset += CANDIDATE_QUERY_BATCH_SIZE
-    ) {
-      const batch = ids.slice(offset, offset + CANDIDATE_QUERY_BATCH_SIZE);
-      const groups = await delegate.groupBy({
-        by: ["brokerId"],
-        where: { brokerId: { in: batch } },
-        _max: { createdAt: true },
-      });
-      for (const group of groups as any[]) {
-        if (group?._max?.createdAt) {
-          lastByBroker.set(String(group.brokerId), group._max.createdAt);
-        }
-      }
+    if (!records.length) return;
+    const prisma = this.prisma as any;
+    const delegates = [prisma.client, prisma.meeting, prisma.deal, prisma.callLog];
+    if (delegates.some((delegate) => typeof delegate?.groupBy !== "function")) {
+      return;
     }
+    const [clientGroups, meetingGroups, dealGroups, callGroups] =
+      await Promise.all([
+        prisma.client.groupBy({
+          by: ["brokerId"],
+          where: fixationClientWhere(cabinetSource),
+          _count: { _all: true },
+          _max: { createdAt: true },
+        }),
+        prisma.meeting.groupBy({
+          by: ["brokerId"],
+          where: { status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" } },
+          _count: { _all: true },
+          _max: { date: true },
+        }),
+        prisma.deal.groupBy({
+          by: ["brokerId"],
+          where: this.ourConfirmedDealWhere(),
+          _count: { _all: true },
+          _max: { signedAt: true },
+        }),
+        prisma.callLog.groupBy({
+          by: ["brokerId"],
+          _count: { _all: true },
+          _max: { createdAt: true },
+        }),
+      ]);
+    const asList = (value: unknown) => (Array.isArray(value) ? (value as any[]) : null);
+    const lists = [clientGroups, meetingGroups, dealGroups, callGroups].map(asList);
+    // Мок вернул не массив — фикстура уже содержит _count/связи, не трогаем.
+    if (lists.some((list) => list === null)) return;
+    const index = (groups: any[]) =>
+      new Map<string, any>(
+        groups
+          .filter((group) => group && group.brokerId)
+          .map((group) => [String(group.brokerId), group]),
+      );
+    const [byClient, byMeeting, byDeal, byCall] = lists.map((list) => index(list!));
+    const count = (group: any) =>
+      finiteNumber(group?._count?._all ?? group?._count?.brokerId) || 0;
     for (const record of records) {
-      record.__lifetimeLastCallAt =
-        lastByBroker.get(String(record.id)) || null;
+      const id = String(record.id);
+      const client = byClient.get(id);
+      const meeting = byMeeting.get(id);
+      const deal = byDeal.get(id);
+      const call = byCall.get(id);
+      record._count = {
+        ...(record._count || {}),
+        clients: count(client),
+        meetings: count(meeting),
+        deals: count(deal),
+        callLogs: count(call),
+      };
+      record.clients = client?._max?.createdAt
+        ? [{ createdAt: client._max.createdAt }]
+        : [];
+      record.meetings = meeting?._max?.date ? [{ date: meeting._max.date }] : [];
+      record.deals = deal?._max?.signedAt
+        ? [{ signedAt: deal._max.signedAt }]
+        : [];
+      record.__lifetimeLastCallAt = call?._max?.createdAt || null;
     }
   }
 

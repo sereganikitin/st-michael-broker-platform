@@ -6021,10 +6021,65 @@ describe("LoyaltyBaseService", () => {
     });
 
     expect(result.size).toBe(501);
-    expect(prisma.client.groupBy).toHaveBeenCalledTimes(2);
-    for (const [args] of prisma.client.groupBy.mock.calls) {
-      expect(args.where.brokerId.in.length).toBeLessThanOrEqual(500);
-    }
+    // 2026-09-09 (perf): больше одной пачки → один groupBy по всей таблице
+    // без `brokerId in`, лишние группы отбрасываются через Map.
+    expect(prisma.client.groupBy).toHaveBeenCalledTimes(1);
+    expect(prisma.client.groupBy.mock.calls[0][0].where.brokerId).toBeUndefined();
+  });
+
+  it("keeps OUR broker period aggregate `in` batches for small selections", async () => {
+    const prisma = prismaMock();
+    const service = new LoyaltyBaseService(prisma);
+    prisma.client.groupBy.mockResolvedValue([]);
+    prisma.meeting.groupBy.mockResolvedValue([]);
+    prisma.deal.groupBy.mockResolvedValue([]);
+    const ids = Array.from({ length: 12 }, (_, index) => `broker-${index}`);
+
+    const result: Map<string, any> = await (
+      service as any
+    ).ourBrokerPeriodMetrics(ids, {
+      from: new Date("2026-08-01T00:00:00.000Z"),
+      to: new Date("2026-08-31T23:59:59.999Z"),
+      fromIso: "2026-08-01",
+      toIso: "2026-08-31",
+    });
+
+    expect(result.size).toBe(12);
+    expect(prisma.client.groupBy).toHaveBeenCalledTimes(1);
+    expect(prisma.client.groupBy.mock.calls[0][0].where.brokerId.in).toHaveLength(12);
+  });
+
+  it("sums OUR activity summary from whole-table groupBy for large selections, ignoring brokers outside it", async () => {
+    const prisma = prismaMock();
+    const service = new LoyaltyBaseService(prisma);
+    prisma.client.groupBy.mockResolvedValue([
+      { brokerId: "broker-1", _count: { _all: 3 } },
+      { brokerId: "outside", _count: { _all: 100 } },
+    ]);
+    prisma.meeting.groupBy.mockResolvedValue([
+      { brokerId: "broker-2", _count: { _all: 2 } },
+    ]);
+    prisma.deal.groupBy.mockResolvedValue([
+      { brokerId: "broker-3", _count: { _all: 1 }, _sum: { amount: "1000.50" } },
+      { brokerId: "outside", _count: { _all: 5 }, _sum: { amount: "99999" } },
+    ]);
+    const ids = Array.from({ length: 501 }, (_, index) => `broker-${index}`);
+
+    const agg = await (service as any).ourActivityAggregates(
+      "BROKER",
+      ids,
+      {
+        from: new Date("2026-08-01T00:00:00.000Z"),
+        to: new Date("2026-08-31T23:59:59.999Z"),
+      },
+      undefined,
+    );
+
+    expect(prisma.client.count).not.toHaveBeenCalled();
+    expect(agg.fixations).toBe(3);
+    expect(agg.meetings).toBe(2);
+    expect(agg.deals).toBe(1);
+    expect(agg.dealCents).toBe(100050n);
   });
 
   it("marks OUR broker activity evidence truncated when only 200 of 250 rows are loaded", () => {
