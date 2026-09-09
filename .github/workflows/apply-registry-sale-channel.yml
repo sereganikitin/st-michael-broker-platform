@@ -1,0 +1,64 @@
+name: Apply registry sale channel (прямые продажи, prepared list)
+
+# 2026-09-09: пометка канала продажи (DIRECT) по списку из data-ветки
+# (data/registry-direct-sales.json); строки с брокером — BROKER. Только пустой канал.
+
+on:
+  workflow_dispatch:
+    inputs:
+      data_branch:
+        description: Ветка с data/registry-direct-sales.json
+        required: true
+        default: data/registry-direct-sales-20260909
+        type: string
+      dry_run:
+        description: 'Dry-run (только отчёт)'
+        required: true
+        default: true
+        type: boolean
+      confirm_apply:
+        description: 'Подтверждаю запись (нужно вместе с dry_run=false)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: apply-registry-sale-channel
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: SSH and run
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DATA_BRANCH: ${{ inputs.data_branch }}
+          DRY_INPUT: ${{ inputs.dry_run }}
+          CONFIRM_INPUT: ${{ inputs.confirm_apply }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          command_timeout: 8m
+          envs: DATA_BRANCH,DRY_INPUT,CONFIRM_INPUT
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+            git fetch origin "$DATA_BRANCH"
+            git fetch origin master
+            git show "origin/$DATA_BRANCH:data/registry-direct-sales.json" > /tmp/registry-direct-sales.json
+            git show origin/master:scripts/apply-registry-sale-channel.js > /tmp/apply-registry-sale-channel.js
+            git show origin/master:scripts/apply-registry-deal-links.js > /tmp/apply-registry-deal-links.js
+            docker cp /tmp/apply-registry-deal-links.js st-michael-api:/app/scripts/apply-registry-deal-links.js
+            docker cp /tmp/registry-direct-sales.json st-michael-api:/app/registry-direct-sales.json
+            docker cp /tmp/apply-registry-sale-channel.js st-michael-api:/app/scripts/apply-registry-sale-channel.js
+            DRY=1
+            if [ "$DRY_INPUT" = "false" ]; then
+              if [ "$CONFIRM_INPUT" != "true" ]; then echo "dry_run=false требует confirm_apply=true"; exit 1; fi
+              DRY=0
+            fi
+            docker compose exec -T -e DRY_RUN=$DRY api node /app/scripts/apply-registry-sale-channel.js /app/registry-direct-sales.json
