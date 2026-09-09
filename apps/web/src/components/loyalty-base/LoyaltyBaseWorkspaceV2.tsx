@@ -1056,7 +1056,8 @@ export function LoyaltyBaseWorkspaceV2() {
         columns,
         // 2026-09-08: «Контрольные показатели» приходят вместе со списком
         // (одним проходом по базе) — отдельный запрос убран.
-        withActivitySummary: base === "ours",
+        // 2026-09-09: и для базы Анны — по сцепленным карточкам кабинета.
+        withActivitySummary: true,
         summaryPeriod: ratingRange,
       });
       if (request === listRequest.current) {
@@ -1396,7 +1397,6 @@ export function LoyaltyBaseWorkspaceV2() {
       onClick: () => {
         const name = overview?.topBroker?.name;
         if (name) applyEntityPatch("brokers", { search: name });
-        else if (base === "anna") applyEntityPatch("brokers", {});
         else openPeriodRanking("brokers");
       },
     },
@@ -1412,7 +1412,6 @@ export function LoyaltyBaseWorkspaceV2() {
       onClick: () => {
         const name = overview?.topAgency?.name;
         if (name) applyEntityPatch("agencies", { search: name });
-        else if (base === "anna") applyEntityPatch("agencies", {});
         else openPeriodRanking("agencies");
       },
     },
@@ -1728,7 +1727,7 @@ export function LoyaltyBaseWorkspaceV2() {
           </button>
         </div>
       )}
-      {mode === "base" && canReadAll && base !== "anna" && (
+      {mode === "base" && canReadAll && (
         <LoyaltySavedViews
           base={base}
           entityType={entityType}
@@ -1914,7 +1913,6 @@ export function LoyaltyBaseWorkspaceV2() {
               );
             })}
           </section>
-          {base !== "anna" && (
           <section className="card">
             <div className="flex flex-wrap justify-between gap-3">
               <div>
@@ -1923,7 +1921,9 @@ export function LoyaltyBaseWorkspaceV2() {
                 </h2>
                 <p className="text-xs text-text-muted">
                   {activitySummary?.supported
-                    ? `По текущим фильтрам списка: ${entityType === "brokers" ? "брокеров" : "агентств"} ${activitySummary.selectionCount.toLocaleString("ru-RU")}${entityType === "agencies" ? `, их брокеров ${activitySummary.brokers.toLocaleString("ru-RU")}` : ""} · период: ${ratingLabel}. Нажмите число, чтобы открыть карточки-основания.`
+                    ? base === "anna"
+                      ? `По сцепленным карточкам кабинета: записей в списке ${activitySummary.selectionCount.toLocaleString("ru-RU")}, из них сцеплено ${(activitySummary.linkedRecords ?? 0).toLocaleString("ru-RU")}${entityType === "agencies" ? `, их брокеров ${activitySummary.brokers.toLocaleString("ru-RU")}` : ""} · период: ${ratingLabel}. Записи без сцепки в цифры не входят.`
+                      : `По текущим фильтрам списка: ${entityType === "brokers" ? "брокеров" : "агентств"} ${activitySummary.selectionCount.toLocaleString("ru-RU")}${entityType === "agencies" ? `, их брокеров ${activitySummary.brokers.toLocaleString("ru-RU")}` : ""} · период: ${ratingLabel}. Нажмите число, чтобы открыть карточки-основания.`
                     : "Не входят в шесть KPI. Нажмите число для детализации в карточках-основаниях."}
                 </p>
               </div>
@@ -1934,7 +1934,7 @@ export function LoyaltyBaseWorkspaceV2() {
             <dl className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
               <Metric
                 label="Фиксации"
-                onClick={() => openActivityDrilldown("fixations")}
+                onClick={base === "ours" ? () => openActivityDrilldown("fixations") : undefined}
                 explanation={metricExplanation(
                   "activities.fixations",
                   withSelectionNote("Количество подтверждённых фиксаций за выбранный период"),
@@ -1944,7 +1944,7 @@ export function LoyaltyBaseWorkspaceV2() {
               </Metric>
               <Metric
                 label="Встречи"
-                onClick={() => openActivityDrilldown("meetings")}
+                onClick={base === "ours" ? () => openActivityDrilldown("meetings") : undefined}
                 explanation={metricExplanation(
                   "activities.meetings",
                   withSelectionNote("Количество подтверждённых встреч с клиентами за выбранный период (брокер-туры не считаются)"),
@@ -1963,7 +1963,7 @@ export function LoyaltyBaseWorkspaceV2() {
               </Metric>
               <Metric
                 label="Сделки"
-                onClick={() => openActivityDrilldown("deals")}
+                onClick={base === "ours" ? () => openActivityDrilldown("deals") : undefined}
                 explanation={metricExplanation(
                   "activities.deals",
                   withSelectionNote("Оплаченные ДДУ за выбранный период (по «Дате оплаты ДДУ»)"),
@@ -1973,7 +1973,7 @@ export function LoyaltyBaseWorkspaceV2() {
               </Metric>
               <Metric
                 label="Сумма ДДУ"
-                onClick={() => openActivityDrilldown("dealAmount")}
+                onClick={base === "ours" ? () => openActivityDrilldown("dealAmount") : undefined}
                 explanation={metricExplanation(
                   "dealAmount",
                   withSelectionNote("Сумма подтверждённых ДДУ за выбранный период"),
@@ -1983,7 +1983,6 @@ export function LoyaltyBaseWorkspaceV2() {
               </Metric>
             </dl>
           </section>
-          )}
           {base === "anna" && overview?.cabinetLinks && (
             <section className="card">
               <div className="flex flex-wrap justify-between gap-3">
@@ -2093,8 +2092,9 @@ export function LoyaltyBaseWorkspaceV2() {
               </dl>
             </section>
           )}
-          {base === "ours" && canReadAll && (
+          {canReadAll && (
             <BrokerFunnelPanel
+              base={base}
               cabinetSource={filters.cabinetSource}
               onOpen={() => setFunnelOpen(true)}
             />
@@ -2305,13 +2305,14 @@ export function LoyaltyBaseWorkspaceV2() {
             active={filters.status}
             sourceStatusesUnconfirmed={!hasActivityEvidence}
             onSelect={(status) => applyEntityPatch("brokers", { status })}
-            onOpenFunnel={base === "ours" ? () => setFunnelOpen(true) : undefined}
+            onOpenFunnel={() => setFunnelOpen(true)}
           />
-          {funnelOpen && base === "ours" && (
+          {funnelOpen && (
             <BrokerFunnelModal
+              base={base}
               initialCabinetSource={filters.cabinetSource}
               onClose={() => setFunnelOpen(false)}
-              onDrill={openFunnelDrill}
+              onDrill={base === "ours" ? openFunnelDrill : undefined}
             />
           )}
           <section className="card scroll-mt-4" id="loyalty-list">
