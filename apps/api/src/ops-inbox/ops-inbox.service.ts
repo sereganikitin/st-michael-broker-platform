@@ -213,16 +213,58 @@ export class OpsInboxService {
   async reply(chatId: string, text: string) {
     const token = this.botToken();
     if (!token) throw new ServiceUnavailableException('Telegram bot token не настроен');
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: text.slice(0, 4000), disable_web_page_preview: true }),
-    });
-    const payload: any = await response.json().catch(() => null);
-    if (!response.ok || !payload?.ok) {
-      throw new ServiceUnavailableException(`Telegram sendMessage: ${JSON.stringify(payload).slice(0, 200)}`);
+    const body = JSON.stringify({ chat_id: chatId, text: text.slice(0, 4000), disable_web_page_preview: true });
+    // 2026-09-08: из контейнера fetch на sendMessage падал «fetch failed»
+    // (getUpdates при этом работает). Логируем причину и пробуем запасной
+    // путь через node:https (другой сетевой стек, IPv4 first).
+    let payload: any = null;
+    let status = 0;
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      });
+      status = response.status;
+      payload = await response.json().catch(() => null);
+    } catch (error) {
+      const cause = (error as any)?.cause;
+      this.logger.warn(`[OpsInbox] sendMessage fetch failed: ${(error as Error)?.message}; cause=${cause?.code || ''} ${cause?.message || ''}`);
+      const fallback = await this.postJsonViaHttps(`/bot${token}/sendMessage`, body);
+      status = fallback.status;
+      payload = fallback.payload;
+    }
+    if (status < 200 || status >= 300 || !payload?.ok) {
+      throw new ServiceUnavailableException(`Telegram sendMessage: HTTP ${status} ${JSON.stringify(payload).slice(0, 200)}`);
     }
     return { ok: true, messageId: payload.result?.message_id };
+  }
+
+  private postJsonViaHttps(path: string, body: string): Promise<{ status: number; payload: any }> {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const https = require('node:https');
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        { host: 'api.telegram.org', family: 4, method: 'POST', path, headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) }, timeout: 15_000 },
+        (res: any) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => {
+            const raw = Buffer.concat(chunks).toString('utf8');
+            let payload: any = null;
+            try { payload = JSON.parse(raw); } catch { payload = { raw: raw.slice(0, 200) }; }
+            resolve({ status: Number(res.statusCode || 0), payload });
+          });
+        },
+      );
+      req.on('timeout', () => { req.destroy(new Error('timeout')); });
+      req.on('error', (error: Error) => {
+        this.logger.warn(`[OpsInbox] sendMessage https fallback failed: ${error.message}`);
+        reject(new ServiceUnavailableException(`Telegram sendMessage (https): ${error.message}`));
+      });
+      req.write(body);
+      req.end();
+    });
   }
 
   /** Скачивание файла из Telegram (документ/фото/голос) по записи входящих. */
