@@ -1,0 +1,30 @@
+name: Inspect summary diff (read-only)
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: inspect-summary-diff
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: SSH and inspect
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+            git fetch origin master
+            git show origin/master:scripts/inspect-summary-diff.js > /tmp/inspect-summary-diff.js
+            docker cp /tmp/inspect-summary-diff.js st-michael-api:/app/scripts/inspect-summary-diff.js
+            docker compose exec -T api node /app/scripts/inspect-summary-diff.js
