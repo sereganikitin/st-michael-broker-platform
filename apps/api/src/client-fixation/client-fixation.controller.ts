@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Patch, Body, Param, UseGuards, Query, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { audienceForRole } from '../common/safe-messages';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -99,7 +100,12 @@ export class ClientFixationController {
     }
     // 2026-07-01: agencyId и customInn убраны — бэк сам подставит primary
     // агентство того кто фиксирует.
-    return this.clientFixationService.createBrokerByCreator(user.id, { fullName, phone, email });
+    // 2026-09-09: аудитория сообщения — сотрудник видит подробности, брокер нет.
+    return this.clientFixationService.createBrokerByCreator(
+      user.id,
+      { fullName, phone, email },
+      { audience: audienceForRole(user.role) },
+    );
   }
 
   @Get()

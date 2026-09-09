@@ -124,6 +124,8 @@ export default function FixationPage() {
   // автоматически привязывается к primary агентству того кто фиксирует.
   const [otherError, setOtherError] = useState<{ field?: string; message: string } | null>(null);
   const [otherCreating, setOtherCreating] = useState(false);
+  // 2026-09-09: нейтральная подсказка «номер уже зарегистрирован» без чужих данных.
+  const [otherNote, setOtherNote] = useState<string | null>(null);
 
   // Сбросить выбранного брокера при переключении на «на себя».
   useEffect(() => {
@@ -161,9 +163,12 @@ export default function FixationPage() {
         phone: '+7' + otherPhone,
         email: otherEmail.trim() || undefined,
       });
-      if (r?.broker) {
-        const created = { id: r.broker.id, fullName: r.broker.fullName, phone: r.broker.phone };
+      if (r?.broker?.id) {
+        // 2026-09-09: сервер возвращает только id существующей карточки —
+        // показываем то, что ввёл сам пользователь, чужие данные не выводим.
+        const created = { id: r.broker.id, fullName, phone: '+7' + otherPhone };
         setRespSelected(created);
+        setOtherNote(r?.existed ? 'Брокер с этим номером уже зарегистрирован — заявка уйдёт ему.' : null);
         return created;
       }
       setOtherError({ message: 'Не удалось создать брокера' });
@@ -293,16 +298,14 @@ export default function FixationPage() {
       // 2026-05-26: если бэк говорит «уже есть твой клиент» — спрашиваем
       // подтверждение и при OK повторяем с confirmDuplicate=true.
       if (result?.status === 'REQUIRES_CONFIRMATION') {
+        // 2026-09-09 (владелец): в подтверждении не показываем карточку
+        // существующей фиксации целиком — только то, что она есть, и срок.
         const fmt = (s: any) => s ? new Date(s).toLocaleDateString('ru-RU') : '—';
         const ec = result.existingClient || {};
         const ok = window.confirm(
           `${result.message}\n\n` +
-          `Существующая фиксация:\n` +
-          `• ${ec.fullName} (${ec.phone})\n` +
-          `• Статус: ${ec.uniquenessStatus}\n` +
-          `• Создана: ${fmt(ec.createdAt)}\n` +
-          `• Активна до: ${fmt(ec.uniquenessExpiresAt)}\n` +
-          `• Сделок: ${ec.dealsCount}\n\n` +
+          `У вас уже есть фиксация на этот номер` +
+          (ec.uniquenessExpiresAt ? ` (активна до ${fmt(ec.uniquenessExpiresAt)})` : '') + `.\n\n` +
           `Создать новую фиксацию всё равно?`
         );
         if (!ok) return;
@@ -761,6 +764,9 @@ export default function FixationPage() {
                     убраны. Новый брокер автоматически привязывается к primary
                     агентству того кто фиксирует (бэк сам возьмёт primary
                     из creator.brokerAgencies). */}
+                {otherNote && !otherError && (
+                  <div className="p-2 bg-info/15 text-text rounded text-xs">{otherNote}</div>
+                )}
                 {otherError && (
                   <div className="p-2 bg-error/20 text-error rounded text-xs">{otherError.message}</div>
                 )}
