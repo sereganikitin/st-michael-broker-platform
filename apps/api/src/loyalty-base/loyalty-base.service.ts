@@ -11575,39 +11575,16 @@ export class LoyaltyBaseService {
             assignedManager: { select: { id: true, fullName: true } },
             phones: true,
             brokerAgencies: { include: { agency: true } },
-            clients: {
-              where: fixationClientWhere(cabinetSource),
-              orderBy: { createdAt: "desc" },
-              take: 1,
-              select: { createdAt: true },
-            },
-            meetings: {
-              where: { status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" } },
-              orderBy: { date: "desc" },
-              take: 1,
-              select: { date: true },
-            },
-            deals: {
-              where: this.ourConfirmedDealWhere(),
-              orderBy: { signedAt: "desc" },
-              take: 1,
-              select: { signedAt: true },
-            },
-            _count: {
-              select: {
-                clients: { where: fixationClientWhere(cabinetSource) },
-                deals: { where: this.ourConfirmedDealWhere() },
-                meetings: {
-                  where: { status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" } },
-                },
-                callLogs: true,
-              },
-            },
+            // 2026-09-09 (perf): счётчики и последние даты — быстрыми
+            // агрегатами ниже, как в списке «Нашей базы» (вложенные take:1 и
+            // _count делали холодный запрос базы Анны ~14 с).
           },
         });
         loaded.push(...((Array.isArray(rows) ? rows : []) as any[]));
       }
       if (!loaded.length) return loaded;
+      await this.attachOurBrokerLastCalls(loaded);
+      await this.attachOurBrokerLifetimeAggregates(loaded, cabinetSource);
       await this.attachOurBrokerRegistryDeals(loaded);
         return loaded;
       },
