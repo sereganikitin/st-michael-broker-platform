@@ -889,7 +889,9 @@ describe("ClientFixationService amo broker attachment", () => {
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    expect(result).toEqual({ broker: existing, created: false });
+    // 2026-09-09 (владелец): брокеру возвращается только id существующей
+    // карточки — ФИО, телефон и email чужого брокера наружу не уходят.
+    expect(result).toEqual({ broker: { id: existing.id }, created: false, existed: true });
     expect(amo.findContactByPhone).toHaveBeenCalledWith(existing.phone, {
       strict: true,
     });

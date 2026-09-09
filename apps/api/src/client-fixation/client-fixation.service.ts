@@ -4,6 +4,11 @@ import {
   notHistoricalClientWhere,
 } from "../common/historical-client";
 import {
+  SAFE_MESSAGES,
+  maskPhone,
+  type MessageAudience,
+} from "../common/safe-messages";
+import {
   Injectable,
   Inject,
   Optional,
@@ -167,35 +172,41 @@ function amoCreateOutcomeWrite(
  * ФИО есть общее слово длиной ≥ 3 (порядок/склонение не важны). Экспорт для
  * тестов.
  */
+/**
+ * 2026-09-09 (владелец): номер уже принадлежит другой карточке.
+ *
+ * Раньше здесь собирался текст с ФИО и статусом чужого брокера, и он уходил
+ * прямо в форму брокера — утечка персональных данных (скриншот владельца
+ * 09.09). Теперь функция возвращает КОД и два текста: обобщённый для брокера
+ * и подробный для сотрудников и журнала. Расхождение в написании ФИО больше
+ * не конфликт: по решению владельца заявка молча уходит брокеру с этим
+ * номером — ровно как обещает подсказка под формой.
+ */
+export type BrokerPhoneConflict = {
+  code: "BROKER_PHONE_CONFLICT";
+  safeMessage: string;
+  staffMessage: string;
+};
+
 export function brokerPhoneConflict(
   existing: { fullName?: string | null; status?: string | null; mergedIntoId?: string | null },
   requestedName: string,
-): string | null {
-  const words = (v: string | null | undefined) =>
-    new Set(
-      String(v || "")
-        .toLowerCase()
-        .replace(/ё/g, "е")
-        .split(/[^a-zа-я]+/i)
-        .filter((w) => w.length >= 3),
-    );
-  const a = words(existing.fullName);
-  const b = words(requestedName);
-  const samePerson = [...a].some((w) => b.has(w));
+): BrokerPhoneConflict | null {
   const statusLabel =
     existing.status === "PENDING"
       ? "ожидает активации"
       : existing.status === "BLOCKED"
         ? "заблокирован"
         : "активен";
-  if (existing.mergedIntoId) {
-    return `Этот номер принадлежит карточке «${existing.fullName}», объединённой с другой. Уточните номер или обратитесь в поддержку.`;
-  }
+  const conflict = (staffMessage: string): BrokerPhoneConflict => ({
+    code: "BROKER_PHONE_CONFLICT",
+    safeMessage: SAFE_MESSAGES.BROKER_PHONE_UNAVAILABLE,
+    staffMessage,
+  });
   if (existing.status === "BLOCKED") {
-    return `Этот номер принадлежит заблокированному брокеру «${existing.fullName}». Обратитесь в поддержку.`;
-  }
-  if (!samePerson) {
-    return `Этот номер уже зарегистрирован на брокера «${existing.fullName}» (${statusLabel}). Заявка привязывается к брокеру по телефону — проверьте номер. Если это тот же человек с другим написанием ФИО, обратитесь в поддержку.`;
+    return conflict(
+      `Номер принадлежит заблокированной карточке «${existing.fullName}» (${statusLabel}). Запрошено ФИО: «${requestedName}».`,
+    );
   }
   return null;
 }
@@ -687,10 +698,14 @@ export class ClientFixationService {
           }
         }
 
+        // 2026-09-09 (владелец): брокеру не сообщаем, у кого именно клиент на
+        // уникальности. Подробная причина остаётся в карточке для админов
+        // (страница «Конфликты уникальности») и в журнале, но из ответа
+        // брокеру вычищается.
         return {
-          client,
+          client: { ...client, uniquenessReason: SAFE_MESSAGES.CLIENT_UNIQUENESS_CONFLICT },
           status: "UNDER_REVIEW",
-          message: `Клиент уже на уникальности у брокера ${conflictingClient.broker.fullName}. Менеджер уведомлён и проверит фиксацию.`,
+          message: SAFE_MESSAGES.CLIENT_UNIQUENESS_CONFLICT,
           ...(agencyWarning ? { agencyWarning } : {}),
         };
       }
@@ -1818,19 +1833,29 @@ export class ClientFixationService {
       // Сам себя в списке тоже показываем — координатор может зафиксировать
       // и на себя через тот же интерфейс. Фронт сам помечает «это вы».
     };
-    if (searchTrim.length >= 2) {
+    // 2026-09-09 (владелец): поиск отдаёт чужие карточки, поэтому минимум
+    // три символа — чтобы базу нельзя было выгрузить перебором двух букв.
+    if (searchTrim.length >= 3) {
       where.OR = [
         { fullName: { contains: searchTrim, mode: "insensitive" } },
         // 2026-06-29: используем единый helper (см. brokers-import.helper).
         ...buildPhoneSearchConditions(searchTrim),
       ];
     }
-    const brokers = await this.prisma.broker.findMany({
+    const rows = await this.prisma.broker.findMany({
       where,
       select: { id: true, fullName: true, phone: true, isCoordinator: true },
       orderBy: { fullName: "asc" },
-      take: 50,
+      take: 20,
     });
+    // 2026-09-09: телефон коллеги маскируется — видно только последние две
+    // цифры, чтобы узнать нужного человека, но не собрать базу контактов.
+    const brokers = (Array.isArray(rows) ? rows : []).map((row: any) => ({
+      id: row.id,
+      fullName: row.fullName,
+      isCoordinator: row.isCoordinator,
+      phone: maskPhone(row.phone),
+    }));
     return { brokers };
   }
 
@@ -2082,7 +2107,10 @@ export class ClientFixationService {
   async createBrokerByCreator(
     creatorId: string,
     data: { fullName: string; phone: string; email?: string },
+    // 2026-09-09: аудитория — брокеру обобщённо, сотруднику подробно.
+    options?: { audience?: MessageAudience },
   ) {
+    const audience: MessageAudience = options?.audience || "BROKER";
     // 2026-07-01: agencyId и customInn убраны — новый брокер автоматически
     // привязывается к PRIMARY агентству того кто фиксирует.
     const creator = await this.prisma.broker.findUnique({
@@ -2116,30 +2144,41 @@ export class ClientFixationService {
       },
     });
     if (existingByPhone) {
-      // 2026-09-07 (кейс Кравченко/Климшина, решение владельца): номер уже
-      // зарегистрирован на ДРУГОГО человека или карточка заблокирована/слита —
-      // не «молча уходим на него», а возвращаем понятный конфликт. Тот же
-      // человек с другим написанием ФИО (есть общее слово) — как раньше.
+      // 2026-09-09 (владелец): номер уже занят другой карточкой. Брокеру не
+      // сообщаем, чьей именно, — заявка просто уходит брокеру с этим номером
+      // (расхождение в написании ФИО конфликтом не считается). Блокированная
+      // карточка — обобщённая ошибка; подробности только сотрудникам и в
+      // журнал. Слитая карточка — используем «выжившую».
       const conflict = brokerPhoneConflict(existingByPhone, data.fullName);
       if (conflict) {
+        await this.logAudit(
+          creatorId,
+          "BROKER_PHONE_CONFLICT",
+          "Broker",
+          existingByPhone.id,
+          { staffMessage: conflict.staffMessage, requestedName: data.fullName },
+        ).catch(() => undefined);
         throw new BadRequestException({
-          message: conflict,
+          message: audience === "STAFF" ? conflict.staffMessage : conflict.safeMessage,
           field: "phone",
-          code: "BROKER_PHONE_CONFLICT",
-          existing: {
-            fullName: existingByPhone.fullName,
-            status: existingByPhone.status,
-          },
+          code: conflict.code,
         });
       }
-      await this.ensureBrokerAmoContact(existingByPhone.id).catch((e: any) => {
+      const targetId = existingByPhone.mergedIntoId || existingByPhone.id;
+      await this.ensureBrokerAmoContact(targetId).catch((e: any) => {
         console.error(
           "[createBrokerByCreator] existing broker amo sync failed:",
           e?.message || e,
         );
       });
-      const { status, mergedIntoId, ...publicBroker } = existingByPhone;
-      return { broker: publicBroker, created: false, status };
+      // Наружу — только id (он нужен форме, чтобы привязать заявку) и признак
+      // «карточка уже была». ФИО, телефон, email и статус чужой карточки
+      // брокеру не возвращаем; сотрудникам отдаём как раньше.
+      if (audience === "STAFF") {
+        const { status, mergedIntoId, ...publicBroker } = existingByPhone;
+        return { broker: { ...publicBroker, id: targetId }, created: false, existed: true, status };
+      }
+      return { broker: { id: targetId }, created: false, existed: true };
     }
     if (data.email) {
       const existingByEmail = await this.prisma.broker.findFirst({
@@ -2161,7 +2200,10 @@ export class ClientFixationService {
             );
           },
         );
-        return { broker: existingByEmail, created: false };
+        // 2026-09-09: та же причина — брокеру только id существующей карточки.
+        return audience === "STAFF"
+          ? { broker: existingByEmail, created: false, existed: true }
+          : { broker: { id: existingByEmail.id }, created: false, existed: true };
       }
     }
 
@@ -2510,9 +2552,9 @@ export class ClientFixationService {
       where: { phone: brokerPhone },
     });
     if (!broker) {
-      throw new BadRequestException(
-        "Брокер с таким телефоном не найден. Зарегистрируйтесь в кабинете.",
-      );
+      // 2026-09-09: публичная форма не подтверждает существование брокера —
+      // ответ одинаковый во всех случаях (иначе номера перебираются).
+      return { status: "ACCEPTED", message: SAFE_MESSAGES.QUICK_FIX_ACCEPTED };
     }
 
     // Check if client already exists for this broker
@@ -2520,11 +2562,7 @@ export class ClientFixationService {
       where: { phone: clientPhone, brokerId: broker.id },
     });
     if (existing) {
-      return {
-        status: "EXISTS",
-        message: "Клиент уже зафиксирован за вами",
-        clientId: existing.id,
-      };
+      return { status: "ACCEPTED", message: SAFE_MESSAGES.QUICK_FIX_ACCEPTED };
     }
 
     // Create client with conditional uniqueness
@@ -2548,11 +2586,7 @@ export class ClientFixationService {
       });
     } catch {}
 
-    return {
-      status: "CONDITIONALLY_UNIQUE",
-      message: "Клиент условно зафиксирован на 30 дней",
-      clientId: client.id,
-    };
+    return { status: "ACCEPTED", message: SAFE_MESSAGES.QUICK_FIX_ACCEPTED };
   }
 
   async importClients(brokerId: string, fileBuffer: Buffer) {

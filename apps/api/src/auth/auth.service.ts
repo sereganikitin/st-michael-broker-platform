@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
   BadRequestException,
 } from "@nestjs/common";
+import { SAFE_MESSAGES } from "../common/safe-messages";
 import { JwtService } from "@nestjs/jwt";
 import { PrismaClient, UserStatus } from "@st-michael/database";
 import { InjectQueue } from "@nestjs/bull";
@@ -223,8 +224,6 @@ export class AuthService {
     let phoneTaken: null | {
       code: "PHONE_TAKEN";
       recovery: "forgot_password" | "await_admin" | "support";
-      existingName: string;
-      emailHint: string | null;
     } = null;
     if (existingByPhone && !isActivation) {
       const existingName = maskPersonName(existingByPhone.fullName);
@@ -243,16 +242,15 @@ export class AuthService {
         : awaitsAdmin
           ? "await_admin"
           : "support";
-      phoneTaken = { code: "PHONE_TAKEN", recovery, existingName, emailHint };
-      errors.push({
-        field: "phone",
-        message:
-          recovery === "forgot_password"
-            ? `Этот номер уже зарегистрирован на «${existingName}». Если это вы — восстановите доступ по email (${emailHint}). Если номер занят другим человеком — напишите в поддержку, указав ваш номер телефона.`
-            : recovery === "await_admin"
-              ? `Аккаунт с этим номером («${existingName}») уже создан и ожидает активации администратором. Если это не вы — напишите в поддержку, указав ваш номер телефона.`
-              : `Этот номер уже закреплён за карточкой «${existingName}». Напишите в поддержку, указав ваш номер телефона — мы восстановим доступ или освободим номер.`,
-      });
+      // 2026-09-09 (владелец): публичная форма регистрации не раскрывает, кто
+      // владеет номером. Ни ФИО (даже маской), ни подсказки по email, ни
+      // статуса карточки — иначе по чужому номеру узнают человека. Ветку
+      // восстановления (recovery) оставляем: она управляет только кнопкой в
+      // интерфейсе и не содержит персональных данных.
+      void existingName;
+      void emailHint;
+      phoneTaken = { code: "PHONE_TAKEN", recovery };
+      errors.push({ field: "phone", message: SAFE_MESSAGES.PHONE_TAKEN });
     }
     // 2026-07-02: email-конфликт больше не блокирует регистрацию.
     // Ксения: у некоторых агентств (например СДМ) один общий email на всё

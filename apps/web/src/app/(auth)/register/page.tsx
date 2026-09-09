@@ -89,9 +89,11 @@ function RegisterForm() {
         // Раскидываем ВСЕ ошибки по полям сразу — пользователь видит каждое
         // невалидное поле подсвеченным с пояснением, не по одной.
         const raw = await res.json().catch(() => null);
+        // 2026-09-09 (владелец): форма не показывает, чья карточка занимает
+        // номер, — только вариант восстановления доступа.
         setRecovery(
           raw?.code === 'PHONE_TAKEN'
-            ? { kind: raw.recovery || 'support', name: raw.existingName || '', emailHint: raw.emailHint || null }
+            ? { kind: raw.recovery || 'support', name: '', emailHint: null }
             : null,
         );
         const valid: Array<keyof FieldErrors> = ['fullName','phone','email','inn','password','passwordConfirm','offer','privacy'];
@@ -155,11 +157,11 @@ function RegisterForm() {
         )}
         {recovery && (
           <div className="mb-4 p-3 rounded-lg border border-border bg-surface-secondary text-sm" data-testid="phone-taken-recovery">
-            <div className="font-medium mb-2">Номер уже закреплён за карточкой «{recovery.name}»</div>
+            <div className="font-medium mb-2">Этот номер уже используется</div>
             {recovery.kind === 'forgot_password' && (
               <>
                 <p className="text-text-muted mb-2">
-                  Если это вы — восстановите доступ: ссылка для нового пароля придёт на {recovery.emailHint || 'ваш email'}.
+                  Если это вы — восстановите доступ: ссылка для нового пароля придёт на почту, указанную в вашей учётной записи.
                 </p>
                 <a href="/forgot-password" className="btn btn-primary inline-block">Восстановить доступ по email</a>
               </>
