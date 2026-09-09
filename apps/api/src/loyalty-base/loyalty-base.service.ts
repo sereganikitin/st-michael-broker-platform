@@ -55,7 +55,7 @@ const CANDIDATE_QUERY_BATCH_SIZE = 500;
 // источник кабинета, период звонков/кампания). Фильтры, сортировка и страница
 // применяются поверх кэша. Максимум FULL_SCAN_MAX_ENTRIES записей — сервер с
 // 2 ГБ памяти.
-const FULL_SCAN_TTL_MS = Number(process.env.LOYALTY_FULL_SCAN_TTL_MS || 45_000);
+const FULL_SCAN_TTL_MS = Number(process.env.LOYALTY_FULL_SCAN_TTL_MS || 90_000);
 const FULL_SCAN_MAX_ENTRIES = 4;
 const FULL_SCAN_CACHE = new Map<string, { at: number; value: unknown }>();
 
@@ -7855,24 +7855,34 @@ export class LoyaltyBaseService {
       const field = key[filter.sortBy];
       return field ? activityMetric(item, field) : null;
     };
-    candidates.sort((leftCandidate, rightCandidate) => {
-      const left = value(leftCandidate.item);
-      const right = value(rightCandidate.item);
+    // 2026-09-09 (perf): ключ сортировки считается один раз на строку, а
+    // сравнение строк — через Intl.Collator (localeCompare на каждое сравнение
+    // 19 000 строк стоил ~2,3 с на запрос).
+    const collator = new Intl.Collator("ru", {
+      numeric: true,
+      sensitivity: "base",
+    });
+    const keyed = candidates.map((candidate) => ({
+      candidate,
+      value: value(candidate.item),
+      id: String(candidate.item.id),
+    }));
+    keyed.sort((leftEntry, rightEntry) => {
+      const left = leftEntry.value;
+      const right = rightEntry.value;
       if (left === null && right === null)
-        return String(leftCandidate.item.id).localeCompare(
-          String(rightCandidate.item.id),
-        );
+        return leftEntry.id < rightEntry.id ? -1 : leftEntry.id > rightEntry.id ? 1 : 0;
       if (left === null) return 1;
       if (right === null) return -1;
       const comparison =
         typeof left === "number" && typeof right === "number"
           ? left - right
-          : String(left).localeCompare(String(right), "ru", {
-              numeric: true,
-              sensitivity: "base",
-            });
+          : collator.compare(String(left), String(right));
       return filter.sortOrder === "desc" ? -comparison : comparison;
     });
+    for (let index = 0; index < keyed.length; index += 1) {
+      candidates[index] = keyed[index].candidate;
+    }
   }
 
   private loyaltyFacets(items: any[]) {
@@ -8589,11 +8599,14 @@ export class LoyaltyBaseService {
         : {}),
     };
     // 2026-09-08: тяжёлое чтение — через кэш полного чтения (см. cachedFullScan).
+    const callLogsFiltered = Boolean(
+      filter.callPeriod || filter.campaignIds.length,
+    );
     const scanKey = fullScanCacheKey("ours-brokers", {
       where,
       callLogWhere,
       cabinetSource: filter.cabinetSource || null,
-      lifetimeLastCall: Boolean(filter.callPeriod || filter.campaignIds.length),
+      lifetimeLastCall: callLogsFiltered,
     });
     const records = await cachedFullScan(scanKey, async () => {
       const loaded = await this.prisma.broker.findMany({
@@ -8623,25 +8636,37 @@ export class LoyaltyBaseService {
           assignedManager: { select: { id: true, fullName: true } },
           phones: true,
           brokerAgencies: { include: { agency: true } },
-          callLogs: {
-            where: callLogWhere,
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            select: {
-              createdAt: true,
-              campaign: true,
-              result: true,
-              operatorId: true,
-              comment: true,
-              nextCallAt: true,
-            },
-          },
+          // 2026-09-09 (perf, профиль на проде): вложенный callLogs take:1 —
+          // оконный запрос по всем 477 тыс. звонков (~17 с холодный). Без
+          // фильтра периода/кампании последний звонок берётся одним
+          // DISTINCT ON по индексу (broker_id, created_at) — см.
+          // attachOurBrokerLastCalls ниже; с фильтром — как раньше.
+          ...(callLogsFiltered
+            ? {
+                callLogs: {
+                  where: callLogWhere,
+                  orderBy: { createdAt: "desc" as const },
+                  take: 1,
+                  select: {
+                    createdAt: true,
+                    campaign: true,
+                    result: true,
+                    operatorId: true,
+                    comment: true,
+                    nextCallAt: true,
+                  },
+                },
+              }
+            : {}),
           // 2026-09-09 (perf): счётчики фиксаций/встреч/сделок/звонков и их
           // последние даты больше не грузятся вложенными take:1 и _count
           // (Prisma раскладывал их в оконные запросы по всем дочерним
           // таблицам) — см. attachOurBrokerLifetimeAggregates ниже.
         },
       });
+      if (!callLogsFiltered) {
+        await this.attachOurBrokerLastCalls(loaded as any[]);
+      }
       await this.attachOurBrokerLifetimeAggregates(
         loaded as any[],
         filter.cabinetSource,
@@ -9283,6 +9308,55 @@ export class LoyaltyBaseService {
    * последний звонок за всё время не зависит от фильтра периода звонков).
    * В тестовых моках без groupBy оставляет данные фикстуры как есть.
    */
+  /**
+   * 2026-09-09 (perf): последний звонок каждого брокера одним запросом
+   * `DISTINCT ON (broker_id) … ORDER BY broker_id, created_at DESC` по индексу
+   * (broker_id, created_at) — вместо вложенного `callLogs: { take: 1 }`, который
+   * Prisma раскладывал в оконный запрос по всей таблице звонков. Заполняет
+   * record.callLogs так же, как раньше делал findMany (массив из ≤ 1 записи).
+   * В окружениях без $queryRawUnsafe (моки) ничего не трогает.
+   */
+  private async attachOurBrokerLastCalls(records: any[]): Promise<void> {
+    if (!records.length) return;
+    const raw = (this.prisma as any).$queryRawUnsafe;
+    if (typeof raw !== "function") return;
+    let rows: any[] = [];
+    try {
+      rows = await raw.call(
+        this.prisma,
+        `SELECT DISTINCT ON (broker_id)
+           broker_id AS "brokerId", created_at AS "createdAt", campaign, result,
+           operator_id AS "operatorId", comment, next_call_at AS "nextCallAt"
+         FROM call_logs
+         ORDER BY broker_id, created_at DESC`,
+      );
+    } catch (error) {
+      console.warn(
+        `[loyalty] последний звонок по брокерам не загружен: ${(error as Error)?.message}`,
+      );
+      return;
+    }
+    const byBroker = new Map<string, any>();
+    for (const row of (Array.isArray(rows) ? rows : []) as any[]) {
+      if (row?.brokerId) byBroker.set(String(row.brokerId), row);
+    }
+    for (const record of records) {
+      const last = byBroker.get(String(record.id));
+      record.callLogs = last
+        ? [
+            {
+              createdAt: last.createdAt,
+              campaign: last.campaign ?? null,
+              result: last.result,
+              operatorId: last.operatorId ?? null,
+              comment: last.comment ?? null,
+              nextCallAt: last.nextCallAt ?? null,
+            },
+          ]
+        : [];
+    }
+  }
+
   private async attachOurBrokerLifetimeAggregates(
     records: any[],
     cabinetSource: CabinetSource | undefined,
