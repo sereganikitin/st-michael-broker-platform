@@ -462,7 +462,9 @@ export function loyaltyFilterCapabilities(
     projectsOnSite: agencyWithSourceFields,
     doNotCall: ourBroker,
     activeFixation: ourBroker,
-    cabinetSource: base === "ours",
+    // 2026-09-09 (паритет): источник фиксаций действует и в базе Анны — на
+    // цифры сцепленных карточек кабинета.
+    cabinetSource: true,
     linkedOurs: base === "anna",
     archivedModes: ourAgency ? OUR_AGENCY_ARCHIVE_MODES : ALL_ARCHIVE_MODES,
     scenarios:

@@ -687,6 +687,41 @@ function brokerIdWhere(batch: string[] | null): Record<string, unknown> {
   return batch ? { brokerId: { in: batch } } : {};
 }
 
+/**
+ * 2026-09-09 (паритет базы Анны): фильтр «Город» сравнивает города как люди —
+ * без регистра, «г.», лишних пробелов и с синонимами (Москва/МСК/Moscow,
+ * Санкт-Петербург/СПб/Питер). Раньше у Анны было строгое сравнение строк.
+ */
+function normalizeCityName(value: unknown): string {
+  const text = String(value ?? "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/^\s*(г\.|г\s|город\s)/, "")
+    .replace(/[^a-zа-я0-9]+/g, " ")
+    .trim();
+  if (!text) return "";
+  if (["москва", "мск", "moscow", "msk"].includes(text)) return "москва";
+  if (
+    [
+      "санкт петербург",
+      "спб",
+      "питер",
+      "петербург",
+      "saint petersburg",
+      "st petersburg",
+      "spb",
+    ].includes(text)
+  )
+    return "санкт петербург";
+  return text;
+}
+
+export function sameCity(a: unknown, b: unknown): boolean {
+  const left = normalizeCityName(a);
+  const right = normalizeCityName(b);
+  return Boolean(left) && left === right;
+}
+
 function uniqueSorted(values: Array<string | null | undefined>): string[] {
   return Array.from(
     new Set(values.map((value) => String(value || "").trim()).filter(Boolean)),
@@ -5104,6 +5139,37 @@ export class LoyaltyBaseService {
       from: period.from.toISOString(),
       to: period.to.toISOString(),
     };
+    const cabinetSource = dto.filter?.cabinetSource as CabinetSource | undefined;
+    if (base === "anna") {
+      // 2026-09-09 (паритет базы Анны): считаем по карточкам кабинета,
+      // сцепленным с записями Анны из текущей выборки.
+      const query = Object.assign(
+        new LoyaltyListQueryDto(),
+        dto,
+        (dto as any).filters || {},
+        { page: 1, pageSize: 1 },
+      );
+      const result: any = await this.list(
+        base,
+        entityType,
+        query,
+        dto.search?.trim() || undefined,
+        dto.filter,
+        true,
+      );
+      const linked = this.annaLinkedSelection(result._selectionLinked);
+      const agg = await this.ourActivityAggregates(entityType, linked.ids, period, cabinetSource);
+      return this.activitySummaryPayload(
+        base,
+        entityType,
+        periodDto,
+        cabinetSource,
+        Number(result.total || 0),
+        result.filterHash || null,
+        agg,
+        { linkedRecords: linked.records },
+      );
+    }
     if (base !== "ours") {
       return {
         base,
@@ -5116,9 +5182,50 @@ export class LoyaltyBaseService {
       };
     }
     const selection = await this.resolveSelection(base, entityType, dto);
-    const cabinetSource = dto.filter?.cabinetSource as CabinetSource | undefined;
     const agg = await this.ourActivityAggregates(entityType, selection.ids, period, cabinetSource);
     return this.activitySummaryPayload(base, entityType, periodDto, cabinetSource, selection.total, selection.filterHash, agg);
+  }
+
+  /** Сцепки записей Анны из выборки списка → id карточек кабинета. */
+  private annaLinkedSelection(value: unknown): { ids: string[]; records: number } {
+    const pairs = (Array.isArray(value) ? value : []) as Array<{ id: string; linkedId: string | null }>;
+    const ids = uniqueSorted(pairs.map((pair) => pair.linkedId));
+    return { ids, records: pairs.filter((pair) => pair.linkedId).length };
+  }
+
+  /** Сводка для списка базы Анны (withActivitySummary): по сцепленным карточкам. */
+  private async annaListActivitySummary(
+    entityType: EntityType,
+    query: LoyaltyListQueryDto,
+    filter: CanonicalLoyaltyFilter,
+    items: any[],
+    filterHash: string,
+  ) {
+    if (!(query as any).withActivitySummary) return null;
+    const sp = (query as any).summaryPeriod as { from?: string; to?: string } | undefined;
+    const period = this.parsePeriod({ from: sp?.from, to: sp?.to } as LoyaltyOverviewQueryDto);
+    const periodDto = { from: period.from.toISOString(), to: period.to.toISOString() };
+    const linked = this.annaLinkedSelection(
+      items.map((item) => ({ id: String(item.id), linkedId: this.annaLinkedOurId(item, entityType) })),
+    );
+    const agg = await this.ourActivityAggregates(entityType, linked.ids, period, filter.cabinetSource);
+    return this.activitySummaryPayload(
+      "anna",
+      entityType,
+      periodDto,
+      filter.cabinetSource,
+      items.length,
+      filterHash,
+      agg,
+      { linkedRecords: linked.records },
+    );
+  }
+
+  private annaLinkedOurId(item: any, entityType: EntityType): string | null {
+    const link = item?.linkedOurs;
+    if (!link || !link.id) return null;
+    if (link.type !== entityType) return null;
+    return String(link.id);
   }
 
   /** Агрегаты активности по набору id (брокеров или агентств) за период. */
@@ -5293,8 +5400,34 @@ export class LoyaltyBaseService {
     selectionCount: number,
     filterHash: string | null,
     agg: Awaited<ReturnType<LoyaltyBaseService["ourActivityAggregates"]>>,
+    extra?: { linkedRecords?: number },
   ) {
     const { brokerIds, fixations, meetings, deals, dealCents, paidBookings, registryDeals, registryCents } = agg;
+    if (base === "anna") {
+      const linkedRecords = Number(extra?.linkedRecords || 0);
+      return {
+        base,
+        entityType,
+        supported: true,
+        period: periodDto,
+        cabinetSource: cabinetSource || "all",
+        selection: {
+          count: selectionCount,
+          brokers: brokerIds.length,
+          linkedRecords,
+          filterHash,
+        },
+        activities: {
+          fixations,
+          meetings,
+          paidBookings,
+          deals: deals + registryDeals,
+        },
+        dealAmount: centsToMoney(dealCents + registryCents),
+        exactness: "VERIFIED",
+        methodology: `Считается по карточкам кабинета, сцепленным с записями Анны из текущего списка (сцеплено ${linkedRecords.toLocaleString("ru-RU")} из ${Number(selectionCount || 0).toLocaleString("ru-RU")}); события — фиксации (подача заявки), встречи с клиентами, платные брони (оплата ДВОУ), сделки (оплата ДДУ) за период. Записи без сцепки в цифры не входят.`,
+      };
+    }
     return {
       base,
       entityType,
@@ -5351,9 +5484,35 @@ export class LoyaltyBaseService {
    */
   async brokerFunnel(baseInput: string, query: LoyaltyFunnelQueryDto) {
     const base = this.parseBase(baseInput);
-    if (base !== "ours") {
+    if (base !== "ours" && base !== "anna") {
       throw new BadRequestException(
-        "Воронка по событиям доступна только для «Нашей базы»",
+        "Воронка по событиям доступна для «Нашей базы» и «Базы Анны»",
+      );
+    }
+    // 2026-09-09 (паритет): для базы Анны когорта — карточки кабинета,
+    // подтверждённо сцепленные с её записями (события берутся из кабинета).
+    let annaLinkedBrokerIds: string[] | null = null;
+    if (base === "anna") {
+      const active = await this.activeAnnaSnapshot();
+      const datasetId = active?.dataset?.id;
+      let links: any[] = [];
+      if (datasetId) {
+        try {
+          links = await this.prisma.loyaltyEntityLink.findMany({
+            where: {
+              status: "CONFIRMED",
+              revokedAt: null,
+              targetType: "BROKER",
+              person: { is: { datasetId, archivedAt: null } },
+            },
+            select: { targetId: true },
+          });
+        } catch {
+          links = [];
+        }
+      }
+      annaLinkedBrokerIds = uniqueSorted(
+        (Array.isArray(links) ? links : []).map((link) => String(link.targetId)),
       );
     }
     const mode: "strict" | "all" = query.mode === "all" ? "all" : "strict";
@@ -5363,19 +5522,25 @@ export class LoyaltyBaseService {
     if ((from && !Number.isFinite(from.getTime())) || (to && !Number.isFinite(to.getTime())) || (from && to && from > to)) {
       throw new BadRequestException("Invalid funnel period");
     }
-    const brokers = await this.prisma.broker.findMany({
-      where: { role: "BROKER", mergedIntoId: null },
-      select: {
-        id: true,
-        brokerTourVisited: true,
-        brokerTourDate: true,
-        brokerAgencies: {
-          where: { isPrimary: true },
-          take: 1,
-          select: { agency: { select: { id: true, name: true } } },
-        },
-      },
-    });
+    const brokers = annaLinkedBrokerIds && !annaLinkedBrokerIds.length
+      ? []
+      : await this.prisma.broker.findMany({
+          where: {
+            role: "BROKER",
+            mergedIntoId: null,
+            ...(annaLinkedBrokerIds ? { id: { in: annaLinkedBrokerIds } } : {}),
+          },
+          select: {
+            id: true,
+            brokerTourVisited: true,
+            brokerTourDate: true,
+            brokerAgencies: {
+              where: { isPrimary: true },
+              take: 1,
+              select: { agency: { select: { id: true, name: true } } },
+            },
+          },
+        });
     const ids = brokers.map((b) => b.id);
     const firstFix = new Map<string, Date>();
     const firstMeet = new Map<string, Date>();
@@ -5587,6 +5752,9 @@ export class LoyaltyBaseService {
       noTourFunnel,
       methodology: {
         cohort:
+          (base === "anna"
+            ? "База Анны: берутся только карточки кабинета, подтверждённо сцепленные с её записями; события (фиксации, встречи, брони, сделки) — из кабинета. "
+            : "") +
           "Когорта — брокеры с отметкой «Был на брокер-туре» из amoCRM; период отбирает по дате тура. Даты туров в amo есть только с 2026 года, поэтому для более ранних туров доступен только режим «за всё время».",
         strict:
           "«Строго после тура»: ступень засчитывается, только если первое событие брокера не раньше даты тура. Брокеры без даты тура в этот режим не входят (показаны отдельно).",
@@ -5950,6 +6118,16 @@ export class LoyaltyBaseService {
       pageCandidates.map(({ item }) => item),
       filter,
     );
+    const annaFilterHash = this.listFilterHash("anna", entityType, filter, search);
+    // 2026-09-09 (паритет): «Контрольные показатели» для базы Анны — по
+    // сцепленным карточкам кабинета всей выборки (как у «Нашей базы»).
+    const activitySummary = await this.annaListActivitySummary(
+      entityType,
+      query,
+      filter,
+      candidates.map(({ item }) => item),
+      annaFilterHash,
+    );
     const fullActivityCoverage = Boolean(trustedActivityCoverage);
     const exactThrough = (period?: LoyaltyFilterPeriod) =>
       Boolean(
@@ -5968,7 +6146,8 @@ export class LoyaltyBaseService {
       total,
       totalPages: Math.ceil(total / pageSize),
       selectionCount: total,
-      filterHash: this.listFilterHash("anna", entityType, filter, search),
+      filterHash: annaFilterHash,
+      ...(activitySummary ? { activitySummary } : {}),
       facets: this.loyaltyFacets(candidates.map(({ item }) => item)),
       dataAvailability: {
         exactActivities: fullActivityCoverage,
@@ -5985,7 +6164,13 @@ export class LoyaltyBaseService {
         unknownValuesRemainNull: true,
       },
       ...(includeSelectionIds
-        ? { _selectionIds: candidates.map(({ item }) => item.id) }
+        ? {
+            _selectionIds: candidates.map(({ item }) => item.id),
+            _selectionLinked: candidates.map(({ item }) => ({
+              id: String(item.id),
+              linkedId: this.annaLinkedOurId(item, entityType),
+            })),
+          }
         : {}),
     };
   }
@@ -6955,9 +7140,18 @@ export class LoyaltyBaseService {
     entityType: EntityType,
     record?: any,
   ): string[] {
-    const fixations = this.annaMetricValue(item, "fixations");
-    const meetings = this.annaMetricValue(item, "meetings");
-    const deals = this.annaMetricValue(item, "deals");
+    // 2026-09-09 (паритет): если у среза Анны своих метрик нет (aggregate-
+    // снимок → null), статус считается по сцепленной карточке кабинета —
+    // иначе колонка «Статус» и фильтр по статусу у Анны пустые.
+    const linkedMetrics = item?.linkedOurRecord?.metrics || null;
+    const metricOrLinked = (key: string): number | null => {
+      const own = this.annaMetricValue(item, key);
+      if (own !== null && own !== undefined) return own;
+      return linkedMetrics ? finiteNumber(linkedMetrics[key]) : null;
+    };
+    const fixations = metricOrLinked("fixations");
+    const meetings = metricOrLinked("meetings");
+    const deals = metricOrLinked("deals");
     const bt = this.annaBrokerTour(item, entityType);
     const calls = this.annaCalls(item, record);
     const lastCall = this.lastCall(calls);
@@ -7196,7 +7390,7 @@ export class LoyaltyBaseService {
     item.normalizedWorkFormat = workFormat;
     item.normalizedStage = stage;
 
-    if (filter.city && lower(item.city) !== lower(filter.city)) return false;
+    if (filter.city && !sameCity(item.city, filter.city)) return false;
     if (search) {
       const normalizedPhone = normalizeLoyaltyContactPoint("PHONE", search);
       const haystack = [
@@ -10944,6 +11138,12 @@ export class LoyaltyBaseService {
       "Период среза Анны",
       "Ответственный",
       "Последняя активность",
+      // 2026-09-09 (паритет): сцепка база Анны ↔ кабинет.
+      "Сцепка",
+      "Кабинет: фиксации",
+      "Кабинет: встречи",
+      "Кабинет: сделки",
+      "Кабинет: сумма ДДУ",
     ];
     const rows = function* () {
       yield Buffer.from("\uFEFF", "utf8");
@@ -11057,6 +11257,19 @@ export class LoyaltyBaseService {
             sourcePeriod,
             item.assignee?.name || item.attributes?.assignee,
             item.lastActivityAt,
+            result.base === "anna"
+              ? item.linkedOurRecord
+                ? `в кабинете: ${item.linkedOurRecord.displayName || item.linkedOurRecord.name || item.linkedOurs?.id || ""}`
+                : item.linkedOurs
+                  ? "в кабинете"
+                  : "нет в кабинете"
+              : item.linkedAnna
+                ? `в базе Анны: ${item.linkedAnna.displayName || item.linkedAnna.name || ""}`
+                : "нет в базе Анны",
+            result.base === "anna" ? item.linkedOurRecord?.metrics?.fixations ?? null : null,
+            result.base === "anna" ? item.linkedOurRecord?.metrics?.meetings ?? null : null,
+            result.base === "anna" ? item.linkedOurRecord?.metrics?.deals ?? null : null,
+            result.base === "anna" ? item.linkedOurRecord?.metrics?.dealAmount ?? null : null,
           ]),
           "utf8",
         );
@@ -11726,6 +11939,31 @@ export class LoyaltyBaseService {
         annaItem.periodMetrics = this.unavailablePeriodMetrics(activityPeriod);
       }
       await this.attachLinkedOurRecord(annaItem, periodDto);
+      // 2026-09-09 (паритет): период и статусы — из сцепленной карточки
+      // кабинета, если у среза Анны их нет.
+      const linkedRecord = annaItem.linkedOurRecord;
+      if (
+        activityPeriod &&
+        linkedRecord?.periodMetrics &&
+        linkedRecord.periodMetrics.availability !== "UNAVAILABLE" &&
+        (!annaItem.periodMetrics ||
+          annaItem.periodMetrics.availability === "UNAVAILABLE")
+      ) {
+        annaItem.periodMetrics = {
+          ...linkedRecord.periodMetrics,
+          source: "LINKED_CABINET_RECORD",
+          methodology: `По сцепленной карточке кабинета. ${linkedRecord.periodMetrics.methodology || ""}`.trim(),
+        };
+      }
+      if (
+        linkedRecord &&
+        !(annaItem.computedStatuses || []).length &&
+        Array.isArray(linkedRecord.computedStatuses) &&
+        linkedRecord.computedStatuses.length
+      ) {
+        annaItem.computedStatuses = [...linkedRecord.computedStatuses];
+        annaItem.statusSource = "LINKED_CABINET_RECORD";
+      }
       return {
         base: "anna",
         entityType,

@@ -1464,7 +1464,8 @@ test("keeps Anna's dashboard filters and hides Codex extras", () => {
   );
   assert.match(
     workspace,
-    /base !== "anna" && \([\s\S]*Контрольные показатели активности/,
+    // 2026-09-09 (владелец: база Анны в том же виде, что наша): сводка есть и у Анны — по сцепленным карточкам кабинета.
+    /По сцепленным карточкам кабинета: записей в списке/,
   );
   const filterPanelAt = workspace.indexOf("<LoyaltyFilterPanel");
   const legendAt = workspace.indexOf("<LoyaltyStatusLegend");
@@ -1476,11 +1477,11 @@ test("keeps Anna's dashboard filters and hides Codex extras", () => {
   );
   assert.match(
     workspace,
-    /else if \(base === "anna"\) applyEntityPatch\("brokers", \{\}\)/,
+    /else openPeriodRanking\("brokers"\)/,
   );
   assert.match(
     workspace,
-    /else if \(base === "anna"\) applyEntityPatch\("agencies", \{\}\)/,
+    /else openPeriodRanking\("agencies"\)/,
   );
 });
 

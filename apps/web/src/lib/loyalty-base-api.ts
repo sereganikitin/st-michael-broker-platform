@@ -2821,6 +2821,8 @@ export interface LoyaltyActivitySummary {
   period: { from: string; to: string } | null;
   selectionCount: number;
   brokers: number;
+  // 2026-09-09: база Анны — сколько записей выборки сцеплены с кабинетом.
+  linkedRecords: number | null;
   activities: {
     fixations: number | null;
     meetings: number | null;
@@ -2876,6 +2878,7 @@ export function normalizeActivitySummary(value: unknown): LoyaltyActivitySummary
       : null,
     selectionCount: numberValue(selection.count),
     brokers: numberValue(selection.brokers),
+    linkedRecords: nullableNumberValue(selection.linkedRecords),
     activities: {
       fixations: nullableNumberValue(activities.fixations),
       meetings: nullableNumberValue(activities.meetings),

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Download, Loader2, RefreshCcw, X } from "lucide-react";
 import {
+  type LoyaltyBaseKey,
   getLoyaltyFunnel,
   type LoyaltyFunnelResponse,
   type LoyaltyFunnelStep,
@@ -159,9 +160,11 @@ function FunnelBars({
 }
 
 export function BrokerFunnelPanel({
+  base = "ours",
   cabinetSource,
   onOpen,
 }: {
+  base?: LoyaltyBaseKey;
   cabinetSource: "" | "old" | "new";
   onOpen: () => void;
 }) {
@@ -173,7 +176,7 @@ export function BrokerFunnelPanel({
     setError("");
     try {
       setData(
-        await getLoyaltyFunnel("ours", {
+        await getLoyaltyFunnel(base, {
           mode: "strict",
           cabinetSource: cabinetSource || undefined,
         }),
@@ -184,7 +187,7 @@ export function BrokerFunnelPanel({
     } finally {
       setLoading(false);
     }
-  }, [cabinetSource]);
+  }, [base, cabinetSource]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -233,10 +236,12 @@ export function BrokerFunnelPanel({
 }
 
 export function BrokerFunnelModal({
+  base = "ours",
   initialCabinetSource,
   onClose,
   onDrill,
 }: {
+  base?: LoyaltyBaseKey;
   initialCabinetSource: "" | "old" | "new";
   onClose: () => void;
   onDrill?: (step: FunnelDrillStep, mode: Mode) => void;
@@ -259,7 +264,7 @@ export function BrokerFunnelModal({
     setError("");
     try {
       setData(
-        await getLoyaltyFunnel("ours", {
+        await getLoyaltyFunnel(base, {
           mode,
           from: range ? dayStartIso(range.from) : undefined,
           to: range ? dayEndIso(range.to) : undefined,
