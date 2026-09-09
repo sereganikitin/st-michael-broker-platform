@@ -18,10 +18,10 @@ async function main() {
   const { PrismaClient } = require("@st-michael/database"); const prisma = new PrismaClient();
   try {
     const to = new Date(); const from = new Date(to.getTime() - 30 * 86400000);
-    const reg = await prisma.registryDeal.findMany({ where: { OR: [{ paidAt: { gte: new Date(from.getTime() - 3 * 86400000), lte: to } }, { dvouPaidAt: { gte: from, lte: to } }] }, select: { id: true, contractNumber: true, brokerId: true, amount: true, paidAt: true, dvouPaidAt: true, signedAt: true, agencyCanonical: true, agencyNameRaw: true, broker: { select: { role: true, mergedIntoId: true, status: true, archivedAt: true, fullName: true } } } });
+    const reg = await prisma.registryDeal.findMany({ where: { OR: [{ paidAt: { gte: new Date(from.getTime() - 3 * 86400000), lte: to } }, { dvouPaidAt: { gte: from, lte: to } }] }, select: { id: true, contractNumber: true, brokerId: true, amount: true, paidAt: true, dvouPaidAt: true, signedAt: true, agencyCanonical: true, agencyNameRaw: true, broker: { select: { role: true, mergedIntoId: true, status: true, fullName: true } } } });
     console.log(`Период QA: ${from.toISOString()} — ${to.toISOString()}`);
     console.log(`Реестр (paidAt за 33 дн. или dvouPaidAt за 30 дн.): ${reg.length}`);
-    for (const r of reg) console.log(`  ${r.contractNumber} broker=${r.brokerId ? r.brokerId.slice(0, 8) : "—"} ${r.broker ? `${r.broker.role}/${r.broker.status}/merged=${r.broker.mergedIntoId ? "yes" : "no"}/archived=${r.broker.archivedAt ? "yes" : "no"}` : ""} amount=${r.amount} paidAt=${r.paidAt?.toISOString()} dvou=${r.dvouPaidAt?.toISOString()} signed=${r.signedAt?.toISOString()} inQA=${r.paidAt && r.paidAt >= from && r.paidAt <= to}`);
+    for (const r of reg) console.log(`  ${r.contractNumber} broker=${r.brokerId ? r.brokerId.slice(0, 8) : "—"} ${r.broker ? `${r.broker.role}/${r.broker.status}/merged=${r.broker.mergedIntoId ? "yes" : "no"}` : ""} amount=${r.amount} paidAt=${r.paidAt?.toISOString()} dvou=${r.dvouPaidAt?.toISOString()} signed=${r.signedAt?.toISOString()} inQA=${r.paidAt && r.paidAt >= from && r.paidAt <= to}`);
     const secret = process.env.JWT_SECRET; if (!secret) throw new Error("нет JWT_SECRET");
     const admin = await prisma.broker.findFirst({ where: { role: "ADMIN" }, select: { id: true, phone: true }, orderBy: { createdAt: "asc" } });
     const token = signJwt({ sub: admin.id, phone: admin.phone, role: "ADMIN" }, secret);
@@ -34,10 +34,10 @@ async function main() {
     await summary("archived=include", { archived: "include" });
     const brokerIds = [...new Set(reg.map((r) => r.brokerId).filter(Boolean))];
     for (const id of brokerIds) {
-      const b = await prisma.broker.findUnique({ where: { id }, select: { id: true, fullName: true, role: true, status: true, mergedIntoId: true, archivedAt: true, phone: true } });
+      const b = await prisma.broker.findUnique({ where: { id }, select: { id: true, fullName: true, role: true, status: true, mergedIntoId: true, phone: true } });
       const s = await http("POST", `/loyalty-base/ours/brokers/search`, { page: 1, pageSize: 5, archived: "exclude", sortBy: "name", sortOrder: "asc", filter: { search: b.phone || b.fullName }, columns: {} });
       const found = (s.body?.items || []).find((i) => i.id === id);
-      console.log(`Брокер ${id.slice(0, 8)} «${b.fullName}» ${b.role}/${b.status}/archived=${b.archivedAt ? "yes" : "no"}: в списке (поиск по телефону) — ${found ? "да" : "НЕТ"}; metrics.deals=${found?.metrics?.deals} dealAmount=${found?.metrics?.dealAmount}`);
+      console.log(`Брокер ${id.slice(0, 8)} «${b.fullName}» ${b.role}/${b.status}: в списке (поиск по телефону) — ${found ? "да" : "НЕТ"}; metrics.deals=${found?.metrics?.deals} dealAmount=${found?.metrics?.dealAmount}`);
       await summary(`только брокер ${id.slice(0, 8)}`, { filter: { search: b.phone || b.fullName } });
     }
   } finally { await prisma.$disconnect(); }
