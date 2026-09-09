@@ -478,6 +478,27 @@ export function LoyaltyFilterPanel({
             </Field>
           )}
 
+          {/* 2026-09-09 (владелец): работать только с проверенными у Анны —
+              6 621 брокер и 137 агентств сцеплены с её базой. */}
+          {capabilities.linkedAnna && (
+            <Field label="В базе Анны">
+              <select
+                className="input"
+                value={draft.linkedAnna}
+                onChange={(event) =>
+                  update(
+                    "linkedAnna",
+                    event.target.value as LoyaltyFilterFormState["linkedAnna"],
+                  )
+                }
+              >
+                <option value="">Все карточки</option>
+                <option value="linked">Только из базы Анны</option>
+                <option value="unlinked">Нет в базе Анны</option>
+              </select>
+            </Field>
+          )}
+
           <Field label={isBroker ? "Статус брокера" : "Уровень партнёрства"}>
             <select
               className="input"

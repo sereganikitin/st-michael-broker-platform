@@ -258,6 +258,11 @@ export class LoyaltyOverviewQueryDto {
   @IsOptional()
   @IsIn(["linked", "unlinked"])
   linkedOurs?: "linked" | "unlinked";
+
+  // 2026-09-09 (владелец): «Наша база» — сцепка с базой Анны: linked / unlinked.
+  @IsOptional()
+  @IsIn(["linked", "unlinked"])
+  linkedAnna?: "linked" | "unlinked";
 }
 
 // 2026-09-08: воронка брокера (БТ → фиксация → встреча → бронь → сделка).
@@ -313,6 +318,11 @@ export class LoyaltyListFiltersDto {
   @IsOptional()
   @IsIn(["linked", "unlinked"])
   linkedOurs?: "linked" | "unlinked";
+
+  // 2026-09-09 (владелец): «Наша база» — сцепка с базой Анны: linked / unlinked.
+  @IsOptional()
+  @IsIn(["linked", "unlinked"])
+  linkedAnna?: "linked" | "unlinked";
 
   @IsOptional()
   @IsISO8601({ strict: true })
@@ -588,6 +598,11 @@ export class LoyaltyCanonicalFilterDto {
   @IsOptional()
   @IsIn(["linked", "unlinked"])
   linkedOurs?: "linked" | "unlinked";
+
+  // 2026-09-09 (владелец): «Наша база» — сцепка с базой Анны: linked / unlinked.
+  @IsOptional()
+  @IsIn(["linked", "unlinked"])
+  linkedAnna?: "linked" | "unlinked";
 
   @IsOptional()
   @ValidateNested()

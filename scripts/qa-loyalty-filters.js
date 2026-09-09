@@ -178,6 +178,13 @@ async function main() {
       const cl = ovAnna.body?.cabinetLinks;
       check("Анна: обзор содержит cabinetLinks", (ovAnna.status === 200 || ovAnna.status === 201) && cl && typeof cl.brokersLinked === "number", `HTTP ${ovAnna.status}, brokersLinked ${cl?.brokersLinked}, fixations ${cl?.fixations}, deals ${cl?.deals}`);
       const dbLinkedBrokers = await prisma.loyaltyEntityLink.findMany({ where: { status: "CONFIRMED", revokedAt: null, targetType: "BROKER" }, select: { targetId: true }, distinct: ["targetId"] });
+      // 2026-09-09 (владелец): фильтр «В базе Анны» в «Нашей базе».
+      const linkedOnly = await search("brokers", { linkedAnna: "linked" });
+      const notLinked = await search("brokers", { linkedAnna: "unlinked" });
+      const dbLinkedActive = await prisma.broker.count({ where: { id: { in: dbLinkedBrokers.map((l) => l.targetId) }, role: "BROKER", mergedIntoId: null } });
+      check("Наша база: фильтр «В базе Анны: только сцепленные» = БД", linkedOnly.total === dbLinkedActive, `API ${linkedOnly.total} vs БД ${dbLinkedActive}`);
+      check("Наша база: сцепленные + без сцепки = все", linkedOnly.total + notLinked.total === all.total, `${linkedOnly.total} + ${notLinked.total} vs ${all.total}`);
+      check("Наша база: у строк «только сцепленные» есть linkedAnna", linkedOnly.items.every((i) => i.linkedAnna), `проверено ${linkedOnly.items.length}`);
       check("Анна: cabinetLinks.brokersLinked = БД (уникальные брокеры со сцепкой)", Number(cl?.brokersLinked) === dbLinkedBrokers.length, `API ${cl?.brokersLinked} vs БД ${dbLinkedBrokers.length}`);
       check("Анна: KPI-подсказки cabinetLinks по-русски", /[А-Яа-я]/.test(String(ovAnna.body?.kpiMetadata?.["cabinetLinks.brokersLinked"]?.formula || "")), String(ovAnna.body?.kpiMetadata?.["cabinetLinks.brokersLinked"]?.formula || "").slice(0, 60));
       check("Анна: подсказки KPI среза по-русски (activities.fixations)", /[А-Яа-я]/.test(String(ovAnna.body?.kpiMetadata?.["activities.fixations"]?.formula || "")), String(ovAnna.body?.kpiMetadata?.["activities.fixations"]?.formula || "").slice(0, 60));

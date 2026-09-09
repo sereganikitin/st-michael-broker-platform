@@ -148,6 +148,9 @@ interface CanonicalLoyaltyFilter {
   // 2026-09-08: база Анны — «сцепка с кабинетом»: linked — только записи,
   // подтверждённо сцепленные с нашей карточкой; unlinked — только без сцепки.
   linkedOurs?: "linked" | "unlinked";
+  // 2026-09-09 (владелец): «Наша база» — «В базе Анны»: linked — только карточки,
+  // подтверждённо сцепленные с записями Анны; unlinked — только без сцепки.
+  linkedAnna?: "linked" | "unlinked";
   columns: {
     contact?: string;
     statusStage?: string;
@@ -1151,6 +1154,8 @@ export class LoyaltyBaseService {
         canonical?.cabinetSource ?? (query as any).cabinetSource ?? undefined,
       linkedOurs:
         canonical?.linkedOurs ?? (query as any).linkedOurs ?? undefined,
+      linkedAnna:
+        canonical?.linkedAnna ?? (query as any).linkedAnna ?? undefined,
       columns: {
         contact: columnInput.contact,
         statusStage: columnInput.statusStage,
@@ -5928,6 +5933,18 @@ export class LoyaltyBaseService {
         unknownValuesRemainNull: true,
       });
     }
+    // 2026-09-09: «В базе Анны» — только для «Нашей базы» (у базы Анны есть
+    // обратный фильтр «Сцепка с кабинетом»).
+    if (base !== "ours" && filter.linkedAnna !== undefined) {
+      throw new BadRequestException({
+        code: "LOYALTY_FILTER_UNAVAILABLE",
+        message: "The linkedAnna filter is only available for OUR base",
+        base,
+        entityType,
+        fields: ["linkedAnna"],
+        unknownValuesRemainNull: true,
+      });
+    }
     if (base !== "ours") return;
 
     const unavailableFields = uniqueSorted(
@@ -8657,6 +8674,7 @@ export class LoyaltyBaseService {
       filter.activityPeriod,
       filter.cabinetSource,
     );
+    const linkedAnnaIds = await this.linkedAnnaTargetIds("BROKER", filter);
     const candidates = (records as any[])
       .map((record) => {
         const item = this.mapOurBroker(record, null);
@@ -8667,7 +8685,8 @@ export class LoyaltyBaseService {
       })
       .filter(({ record, item }) =>
         this.matchesOurBroker(record, item, filter),
-      );
+      )
+      .filter(this.linkedAnnaPredicate(linkedAnnaIds, filter));
     await this.attachOurDealAmounts(
       candidates,
       "brokerId",
@@ -8963,11 +8982,13 @@ export class LoyaltyBaseService {
       );
       return loaded as any[];
     });
+    const linkedAnnaIds = await this.linkedAnnaTargetIds("AGENCY", filter);
     const candidates = (records as any[])
       .map((record) => ({ record, item: this.mapOurAgency(record, null) }))
       .filter(({ record, item }) =>
         this.matchesOurAgency(record, item, filter),
-      );
+      )
+      .filter(this.linkedAnnaPredicate(linkedAnnaIds, filter));
     this.sortLoyaltyCandidates(candidates, filter);
     const total = candidates.length;
     const pageCandidates = candidates.slice(
@@ -11507,6 +11528,43 @@ export class LoyaltyBaseService {
     item.linkedAnna = null;
     if (!item?.id) return;
     await this.attachOurLinkedAnna([item], type);
+  }
+
+  /**
+   * 2026-09-09 (владелец: «работать с проверенными у Анны»): id наших карточек
+   * с подтверждённой сцепкой с записями Анны — один запрос по всей базе,
+   * только когда задан фильтр «В базе Анны». null — фильтр не задан.
+   */
+  private async linkedAnnaTargetIds(
+    type: EntityType,
+    filter: CanonicalLoyaltyFilter,
+  ): Promise<Set<string> | null> {
+    if (filter.linkedAnna !== "linked" && filter.linkedAnna !== "unlinked") {
+      return null;
+    }
+    const delegate = (this.prisma as any).loyaltyEntityLink;
+    if (typeof delegate?.findMany !== "function") return new Set();
+    let links: any[] = [];
+    try {
+      links = await delegate.findMany({
+        where: { targetType: type, status: "CONFIRMED", revokedAt: null },
+        select: { targetId: true },
+      });
+    } catch {
+      links = [];
+    }
+    return new Set(
+      (Array.isArray(links) ? links : []).map((link) => String(link.targetId)),
+    );
+  }
+
+  private linkedAnnaPredicate(
+    linkedIds: Set<string> | null,
+    filter: CanonicalLoyaltyFilter,
+  ): (candidate: { item: any }) => boolean {
+    if (!linkedIds) return () => true;
+    const wantLinked = filter.linkedAnna === "linked";
+    return ({ item }) => linkedIds.has(String(item?.id)) === wantLinked;
   }
 
   private async attachOurLinkedAnna(items: any[], type: EntityType) {
