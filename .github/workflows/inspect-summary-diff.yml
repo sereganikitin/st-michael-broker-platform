@@ -1,7 +1,13 @@
 name: Inspect summary diff (read-only)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      script:
+        description: 'Скрипт из scripts/ (только inspect-*.js)'
+        required: false
+        default: 'inspect-summary-diff.js'
+        type: string
 
 concurrency:
   group: inspect-summary-diff
@@ -25,6 +31,8 @@ jobs:
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
             git fetch origin master
-            git show origin/master:scripts/inspect-summary-diff.js > /tmp/inspect-summary-diff.js
-            docker cp /tmp/inspect-summary-diff.js st-michael-api:/app/scripts/inspect-summary-diff.js
-            docker compose exec -T api node /app/scripts/inspect-summary-diff.js
+            SCRIPT="${{ inputs.script }}"
+            echo "$SCRIPT" | grep -qE '^inspect-[a-z0-9-]+\.js$' || { echo "недопустимое имя скрипта"; exit 2; }
+            git show "origin/master:scripts/$SCRIPT" > "/tmp/$SCRIPT"
+            docker cp "/tmp/$SCRIPT" "st-michael-api:/app/scripts/$SCRIPT"
+            docker compose exec -T api node "/app/scripts/$SCRIPT"
