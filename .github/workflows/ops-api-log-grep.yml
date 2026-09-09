@@ -40,12 +40,9 @@ jobs:
             set -eu
             cd "${{ secrets.DEPLOY_PATH }}"
             echo "=== с хоста: api.telegram.org ==="
-            curl -s -o /dev/null -w "host GET https://api.telegram.org/ -> %{http_code} %{time_total}s
-" --max-time 15 https://api.telegram.org/ || echo "host: не удалось"
-            curl -s -o /dev/null -w "host GET -4 -> %{http_code} %{time_total}s
-" --max-time 15 -4 https://api.telegram.org/ || echo "host -4: не удалось"
-            curl -s -o /dev/null -w "host GET -6 -> %{http_code} %{time_total}s
-" --max-time 15 -6 https://api.telegram.org/ || echo "host -6: не удалось"
+            curl -s -o /dev/null -w "host GET https://api.telegram.org/ -> %{http_code} %{time_total}s\n" --max-time 15 https://api.telegram.org/ || echo "host: не удалось"
+            curl -s -o /dev/null -w "host GET -4 -> %{http_code} %{time_total}s\n" --max-time 15 -4 https://api.telegram.org/ || echo "host -4: не удалось"
+            curl -s -o /dev/null -w "host GET -6 -> %{http_code} %{time_total}s\n" --max-time 15 -6 https://api.telegram.org/ || echo "host -6: не удалось"
             echo "маршруты хоста:"; ip route 2>/dev/null | head -5 || true; ip -6 route 2>/dev/null | head -3 || true
             echo "=== логи api ==="
             docker logs st-michael-api --since "${SINCE_H:-2}h" 2>&1 | grep -E "$PATTERN" | sed 's/[0-9]\{7,\}/#######/g' | tail -60 | cut -c1-300 || echo "(совпадений нет)"
