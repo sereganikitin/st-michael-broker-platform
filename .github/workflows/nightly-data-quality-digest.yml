@@ -8,7 +8,8 @@ name: Ночная сводка качества данных
 
 on:
   schedule:
-    - cron: "0 5 * * *"
+    # 2026-09-09: не в :00 — GitHub задерживает запуски в начале часа на часы (05:00 → 09:20 UTC).
+    - cron: "50 4 * * *"
   workflow_dispatch:
     inputs:
       send_to:

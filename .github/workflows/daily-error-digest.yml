@@ -13,7 +13,8 @@ name: Ежедневный дайджест ошибок
 
 on:
   schedule:
-    - cron: '0 7 * * *'
+    # 2026-09-09: не в :00 — GitHub задерживает запуски в начале часа.
+    - cron: '41 6 * * *'
   workflow_dispatch: {}
 
 concurrency:

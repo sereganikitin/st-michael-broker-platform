@@ -56,8 +56,20 @@ const CANDIDATE_QUERY_BATCH_SIZE = 500;
 // применяются поверх кэша. Максимум FULL_SCAN_MAX_ENTRIES записей — сервер с
 // 2 ГБ памяти.
 const FULL_SCAN_TTL_MS = Number(process.env.LOYALTY_FULL_SCAN_TTL_MS || 90_000);
+// 2026-09-09 (perf): stale-while-revalidate — после FULL_SCAN_TTL_MS запись
+// по-прежнему отдаётся мгновенно, а свежее чтение запускается в фоне (одно
+// на ключ); совсем устаревшая (старше HARD_TTL) — читается заново с ожиданием.
+// Так активный пользователь не ждёт холодные 9 с после каждых 90 с.
+const FULL_SCAN_HARD_TTL_MS = Number(
+  process.env.LOYALTY_FULL_SCAN_HARD_TTL_MS || 10 * 60_000,
+);
 const FULL_SCAN_MAX_ENTRIES = 4;
-const FULL_SCAN_CACHE = new Map<string, { at: number; value: unknown }>();
+type FullScanEntry = {
+  at: number;
+  value: unknown;
+  refreshing: Promise<void> | null;
+};
+const FULL_SCAN_CACHE = new Map<string, FullScanEntry>();
 
 function fullScanCacheKey(prefix: string, parts: unknown): string {
   return `${prefix}:${JSON.stringify(parts, (_key, value) =>
@@ -71,19 +83,43 @@ function fullScanCacheEnabled(): boolean {
   return FULL_SCAN_TTL_MS > 0;
 }
 
+function storeFullScan(key: string, value: unknown): void {
+  if (!FULL_SCAN_CACHE.has(key) && FULL_SCAN_CACHE.size >= FULL_SCAN_MAX_ENTRIES) {
+    const oldest = [...FULL_SCAN_CACHE.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) FULL_SCAN_CACHE.delete(oldest[0]);
+  }
+  FULL_SCAN_CACHE.set(key, { at: Date.now(), value, refreshing: null });
+}
+
 async function cachedFullScan<T>(key: string, loader: () => Promise<T>): Promise<T> {
   if (!fullScanCacheEnabled()) return loader();
   const now = Date.now();
   const hit = FULL_SCAN_CACHE.get(key);
-  if (hit && now - hit.at < FULL_SCAN_TTL_MS) return hit.value as T;
-  const value = await loader();
-  if (FULL_SCAN_CACHE.size >= FULL_SCAN_MAX_ENTRIES) {
-    const oldest = [...FULL_SCAN_CACHE.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-    if (oldest) FULL_SCAN_CACHE.delete(oldest[0]);
+  if (hit && now - hit.at < FULL_SCAN_HARD_TTL_MS) {
+    if (now - hit.at >= FULL_SCAN_TTL_MS && !hit.refreshing) {
+      hit.refreshing = loader()
+        .then((value) => storeFullScan(key, value))
+        .catch((error) => {
+          console.warn(
+            `[loyalty] фоновое обновление кэша не удалось (${key.slice(0, 40)}…): ${(error as Error)?.message}`,
+          );
+        })
+        .finally(() => {
+          const current = FULL_SCAN_CACHE.get(key);
+          if (current) current.refreshing = null;
+        });
+    }
+    return hit.value as T;
   }
-  FULL_SCAN_CACHE.set(key, { at: now, value });
+  const value = await loader();
+  storeFullScan(key, value);
   return value;
 }
+
+// 2026-09-09 (perf): метрики агентства по графу брокеров считаются один раз на
+// запись (список считал их в map и ещё раз в matches — 1,6 мс × 1 360 × 2).
+// В тестах кэш выключен, чтобы фикстуры не переиспользовали результат.
+const AGENCY_RELATION_METRICS_MEMO = new WeakMap<object, unknown>();
 
 /** Сброс кэша полного чтения (после массовых правок данных). */
 export function clearLoyaltyFullScanCache(): void {
@@ -9573,6 +9609,18 @@ export class LoyaltyBaseService {
    * not a historically effective agency attribution.
    */
   private ourAgencyRelationMetrics(record: any) {
+    const memoize = fullScanCacheEnabled() && record && typeof record === "object";
+    if (memoize && AGENCY_RELATION_METRICS_MEMO.has(record)) {
+      return AGENCY_RELATION_METRICS_MEMO.get(record) as ReturnType<
+        LoyaltyBaseService["computeOurAgencyRelationMetrics"]
+      >;
+    }
+    const metrics = this.computeOurAgencyRelationMetrics(record);
+    if (memoize) AGENCY_RELATION_METRICS_MEMO.set(record, metrics);
+    return metrics;
+  }
+
+  private computeOurAgencyRelationMetrics(record: any) {
     const relationsLoaded = Array.isArray(record?.brokerAgencies);
     const relations = relationsLoaded ? record.brokerAgencies : [];
     const brokers = relations
