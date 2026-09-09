@@ -309,6 +309,8 @@ export interface LoyaltyCanonicalFilter {
   cabinetSource?: "old" | "new" | "all";
   // 2026-09-08: база Анны — сцепка с кабинетом: linked / unlinked.
   linkedOurs?: "linked" | "unlinked";
+  // 2026-09-09: «Наша база» — сцепка с базой Анны: linked / unlinked.
+  linkedAnna?: "linked" | "unlinked";
 }
 
 export interface LoyaltyColumnFilters {
