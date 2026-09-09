@@ -4274,6 +4274,7 @@ export class LoyaltyBaseService {
       agencyTop,
       paidBookings,
       paidBookingsTotal,
+      directRegistryDeals,
     ] = await Promise.all([
       this.prisma.broker.count({
         where: { role: "BROKER", mergedIntoId: null },
@@ -4389,6 +4390,17 @@ export class LoyaltyBaseService {
             where: { dvouPaidAt: { gte: period.from, lte: period.to } },
           })
         : Promise.resolve(0),
+      // 2026-09-09 (владелец): прямые продажи — строки реестра без брокера с
+      // каналом DIRECT (709 договоров подтверждены 09.09).
+      this.registryDealModel
+        ? this.registryDealModel.count({
+            where: {
+              ...this.registrySignedAtWhere(period),
+              brokerId: null,
+              saleChannel: "DIRECT",
+            },
+          })
+        : Promise.resolve(0),
     ]);
     const unattributedPaidBookings = Math.max(
       0,
@@ -4488,6 +4500,7 @@ export class LoyaltyBaseService {
         unattributedRegistryDeals,
         unattributedRegistryAmount,
         unattributedPaidBookings,
+        directRegistryDeals: Number(directRegistryDeals || 0),
       }),
     };
   }
@@ -4498,6 +4511,7 @@ export class LoyaltyBaseService {
       unattributedRegistryDeals: number;
       unattributedRegistryAmount: string | null;
       unattributedPaidBookings?: number;
+      directRegistryDeals?: number;
     } = { unattributedRegistryDeals: 0, unattributedRegistryAmount: null },
   ) {
     // 2026-09-08 (просьба владельца): подсказки к KPI написаны простым языком —
@@ -4513,6 +4527,9 @@ export class LoyaltyBaseService {
       excludedSemantics:
         "Данные базы Анны, неподтверждённые статусы и пустые значения не учитываются; «нет данных» не превращается в ноль",
     };
+    const directNote = registryGap.directRegistryDeals
+      ? ` Из них прямые продажи без брокера (канал подтверждён владельцем): ${registryGap.directRegistryDeals}.`
+      : "";
     const gapDeals = registryGap.unattributedRegistryDeals
       ? ` Ещё ${registryGap.unattributedRegistryDeals} договор(ов) из реестра не привязаны к брокеру и в это число не входят${registryGap.unattributedRegistryAmount ? ` (на сумму ${registryGap.unattributedRegistryAmount} ₽)` : ""}.`
       : "";
@@ -4534,9 +4551,10 @@ export class LoyaltyBaseService {
       },
       "activities.deals": {
         ...shared,
-        formula: `Считаем договоры с оплатой: строки реестра сделок с «Датой оплаты ДДУ» в выбранном периоде, привязанные к действующему брокеру, плюс сделки кабинета со статусом «подписана», «оплачена» или «комиссия выплачена». Договор без даты оплаты сделкой не считается.${gapDeals}`,
-        provenance: "Реестр сделок (дата оплаты ДДУ, брокер) · сделки кабинета",
+        formula: `Считаем договоры с оплатой: строки реестра сделок с «Датой оплаты ДДУ» в выбранном периоде, привязанные к действующему брокеру, плюс сделки кабинета со статусом «подписана», «оплачена» или «комиссия выплачена». Договор без даты оплаты сделкой не считается.${gapDeals}${directNote}`,
+        provenance: "Реестр сделок (дата оплаты ДДУ, брокер, канал) · сделки кабинета",
         unattributedRegistryDeals: registryGap.unattributedRegistryDeals,
+        directRegistryDeals: registryGap.directRegistryDeals || 0,
       },
       "activities.paidBookings": {
         ...shared,
@@ -4764,6 +4782,7 @@ export class LoyaltyBaseService {
               id: true,
               agencyCanonical: true,
               agencyNameRaw: true,
+          saleChannel: true,
               amount: true,
               paidAt: true,
             },
@@ -5024,6 +5043,8 @@ export class LoyaltyBaseService {
         apartmentNumber: row.apartmentNumber
           ? String(row.apartmentNumber)
           : null,
+        // 2026-09-09: канал продажи (DIRECT / BROKER / null).
+        saleChannel: row.saleChannel ? String(row.saleChannel) : null,
         attribution,
       });
     };
@@ -5081,6 +5102,7 @@ export class LoyaltyBaseService {
         ...registrySelect,
         agencyCanonical: true,
         agencyNameRaw: true,
+          saleChannel: true,
       },
     });
     for (const row of namedRows as any[]) {
@@ -5405,6 +5427,7 @@ export class LoyaltyBaseService {
           brokerId: true,
           agencyCanonical: true,
           agencyNameRaw: true,
+          saleChannel: true,
           amount: true,
           paidAt: true,
           dvouPaidAt: true,

@@ -2042,6 +2042,9 @@ model RegistryDeal {
   dvouDate           DateTime? @map("dvou_date") @db.Date
   dvouPaidAt         DateTime? @map("dvou_paid_at") @db.Date
   dvouAmount         Decimal?  @map("dvou_amount") @db.Decimal(14, 2)
+  // 2026-09-09 (владелец): канал продажи — DIRECT (прямая продажа, без брокера;
+  // 709 договоров подтверждены 09.09), BROKER (есть брокер), NULL — не определён.
+  saleChannel        String?   @map("sale_channel")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
@@ -2050,5 +2053,6 @@ model RegistryDeal {
   @@index([project, signedAt])
   @@index([paidAt])
   @@index([dvouPaidAt])
+  @@index([saleChannel])
   @@map("registry_deals")
 }

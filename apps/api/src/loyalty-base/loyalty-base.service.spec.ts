@@ -5058,7 +5058,7 @@ describe("LoyaltyBaseService", () => {
     expect(result.kpiMetadata["activities.deals"]).toMatchObject({
       source: "LOCAL_PRELIMINARY",
       exactness: "APPROXIMATE",
-      provenance: "Реестр сделок (дата оплаты ДДУ, брокер) · сделки кабинета",
+      provenance: "Реестр сделок (дата оплаты ДДУ, брокер, канал) · сделки кабинета",
     });
     expect(result.kpiMetadata["agencies.top"].formula).toContain(
       "explicit Deal.agencyId",
