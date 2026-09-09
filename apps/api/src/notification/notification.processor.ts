@@ -1,4 +1,5 @@
 import { Process, Processor } from '@nestjs/bull';
+import { telegramApiBase } from '../common/telegram-api-base';
 import { Logger, Inject } from '@nestjs/common';
 import { Job } from 'bull';
 import { PrismaClient } from '@st-michael/database';
@@ -146,7 +147,7 @@ export class NotificationProcessor {
       Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : DEFAULT_TELEGRAM_TIMEOUT_MS;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const url = `${telegramApiBase()}/bot${botToken}/sendMessage`;
     try {
       let response: Response;
       try {

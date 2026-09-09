@@ -74,6 +74,10 @@ services:
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
       API_PORT: 4000
+      # 2026-09-09: Telegram с сервера доступен только по IPv6, у compose-сети
+      # IPv6 нет — запросы идут через ретранслятор tg-relay (host network,
+      # слушает шлюз compose-сети). Пусто → прямой https://api.telegram.org.
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-http://172.18.0.1:8081}
       WEB_URL: ${WEB_URL:-http://localhost}
       PROFITBASE_API_KEY: ${PROFITBASE_API_KEY:-}
       PROFITBASE_BASE_URL: ${PROFITBASE_BASE_URL:-}
@@ -149,6 +153,22 @@ services:
       - api
     networks:
       - st-michael-network
+    restart: unless-stopped
+
+  # 2026-09-09: ретранслятор к Telegram Bot API через IPv6 хоста (см.
+  # ops/tg-relay.js). network_mode: host — чтобы видеть IPv6 хоста; слушает
+  # только адрес шлюза compose-сети (172.18.0.1), наружу не виден.
+  tg-relay:
+    image: node:20-alpine
+    container_name: st-michael-tg-relay
+    logging: *default-logging
+    network_mode: host
+    command: ["node", "/relay/tg-relay.js"]
+    environment:
+      RELAY_BIND: ${TG_RELAY_BIND:-172.18.0.1}
+      RELAY_PORT: ${TG_RELAY_PORT:-8081}
+    volumes:
+      - ./ops/tg-relay.js:/relay/tg-relay.js:ro
     restart: unless-stopped
 
   nginx:
