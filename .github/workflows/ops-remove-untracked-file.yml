@@ -1,0 +1,44 @@
+name: Ops remove untracked file in deploy checkout
+
+# 2026-09-09: deploy.yml отказывается выкатывать при неотслеживаемых файлах в
+# рабочей папке (например ops-autoheal.sh, оставшийся от первой попытки
+# автоперезапуска). Удаляет ОДИН файл по имени строго внутри DEPLOY_PATH.
+
+on:
+  workflow_dispatch:
+    inputs:
+      filename:
+        description: 'Имя файла в корне DEPLOY_PATH (без слэшей)'
+        required: true
+        type: string
+
+concurrency:
+  group: ops-remove-untracked-file
+  cancel-in-progress: false
+
+jobs:
+  remove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: SSH and remove
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          FILENAME: ${{ inputs.filename }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          command_timeout: 2m
+          envs: FILENAME
+          script: |
+            set -eu
+            cd "${{ secrets.DEPLOY_PATH }}"
+            case "$FILENAME" in *"/"*|""|"."|"..") echo "недопустимое имя"; exit 1;; esac
+            if git ls-files --error-unmatch "$FILENAME" >/dev/null 2>&1; then echo "файл отслеживается git — не трогаем"; exit 1; fi
+            ls -la "$FILENAME" || { echo "файла нет"; exit 0; }
+            rm -f "$FILENAME"
+            echo "удалён: $FILENAME"
+            echo "неотслеживаемые сейчас:"; git status --porcelain --untracked-files=all | grep '^??' || echo "(нет)"
