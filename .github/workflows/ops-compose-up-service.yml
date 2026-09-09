@@ -39,10 +39,7 @@ jobs:
           script: |
             set -eu
             cd "${{ secrets.DEPLOY_PATH }}"
-            case "$SERVICE" in
-              tg-relay|autoheal) ;;
-              *) echo "сервис $SERVICE не в списке разрешённых"; exit 2 ;;
-            esac
+            echo "$SERVICE" | grep -qxE 'tg-relay|autoheal' || { echo "сервис $SERVICE не в списке разрешённых"; exit 2; }
             PROJECT=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' st-michael-postgres)
             echo "проект: $PROJECT; сервис: $SERVICE; HEAD: $(git rev-parse --short HEAD)"
             docker compose --project-name "$PROJECT" --env-file .env config --services | grep -qx "$SERVICE" || { echo "в compose нет сервиса $SERVICE (обновите checkout деплоем)"; exit 3; }
