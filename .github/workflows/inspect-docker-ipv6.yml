@@ -1,0 +1,35 @@
+name: Inspect docker IPv6 / Telegram path (read-only)
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: inspect-docker-ipv6
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: SSH and inspect
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: false
+          command_timeout: 5m
+          script: |
+            cd "${{ secrets.DEPLOY_PATH }}"
+            echo "=== docker ==="; docker version --format '{{.Server.Version}}' 2>/dev/null
+            echo "=== daemon.json ==="; cat /etc/docker/daemon.json 2>/dev/null || echo "(нет)"
+            echo "=== ipv6 на хосте ==="; ip -6 addr show scope global 2>/dev/null | grep -E "inet6" | head -5; ip -6 route 2>/dev/null | grep default | head -2
+            echo "=== compose-сеть ==="; docker network ls --format '{{.Name}} {{.Driver}}' | grep -i michael; for n in $(docker network ls --format '{{.Name}}' | grep -i michael); do docker network inspect "$n" --format "$n EnableIPv6={{.EnableIPv6}} subnets={{range .IPAM.Config}}{{.Subnet}} {{end}}"; done
+            echo "=== контейнер api: адреса и резолв ==="; docker compose exec -T api sh -c 'ip -6 addr 2>/dev/null | grep inet6 | head -3; getent ahosts api.telegram.org | head -6' || true
+            echo "=== host-network контейнер: IPv6 к Telegram ==="; docker run --rm --network host curlimages/curl:8.10.1 -s -o /dev/null -w "host-net -6 %{http_code} %{time_total}s\n" -6 --max-time 15 https://api.telegram.org/ || echo "host-net -6: не удалось"
+            docker run --rm --network host curlimages/curl:8.10.1 -s -o /dev/null -w "host-net auto %{http_code} %{time_total}s\n" --max-time 15 https://api.telegram.org/ || echo "host-net auto: не удалось"
+            echo "=== bridge-контейнер: IPv4 к Telegram ==="; docker run --rm curlimages/curl:8.10.1 -s -o /dev/null -w "bridge -4 %{http_code} %{time_total}s\n" -4 --max-time 15 https://api.telegram.org/ || echo "bridge -4: не удалось"
+            echo "=== nginx слушает ==="; ss -ltnp 2>/dev/null | grep -E ":443|:80 |:8443|:8081" | head -5
+            echo "=== compose api: extra_hosts/networks ==="; docker inspect st-michael-api --format '{{json .HostConfig.ExtraHosts}} {{json .HostConfig.NetworkMode}}' 2>/dev/null
