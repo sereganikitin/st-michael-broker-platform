@@ -56,13 +56,12 @@ jobs:
             if [ "$SEND_TO" = "none" ]; then echo "(без отправки)"; exit 0; fi
             test -n "$BOT" || { echo "нет OPS_TELEGRAM_BOT_TOKEN"; exit 1; }
             server_ids=$(grep -hE 'OPS_ALERT_CHAT_IDS?=' .env 2>/dev/null | sed -e 's/^[^=]*=//' -e "s/[\"']//g" -e 's/\r//g' | tr ',;' '\n' | tr -d ' \t' | grep -E '^-?[0-9]+$' || true)
-            if [ "$SEND_TO" = "server_only" ]; then
-              all=$(printf '%s\n' "$server_ids" | grep -vFx "$GH_CHAT" | grep -E '^-?[0-9]+$' | sort -u || true)
-            elif [ "$SEND_TO" = "gh_only" ]; then
-              all=$(printf '%s\n' "$GH_CHAT" | grep -E '^-?[0-9]+$' || true)
-            else
-              all=$(printf '%s\n%s\n' "$GH_CHAT" "$server_ids" | grep -E '^-?[0-9]+$' | sort -u)
-            fi
+            # 2026-09-09: ветка all падала молча под set -e (как в note-all до PR 526) —
+            # список чатов собираем без ветвлений.
+            gh_part=""; srv_part=""
+            [ "${SEND_TO:-all}" != "server_only" ] && gh_part="$GH_CHAT" || true
+            [ "${SEND_TO:-all}" != "gh_only" ] && srv_part="$server_ids" || true
+            all=$(printf '%s\n%s\n' "$gh_part" "$srv_part" | grep -E '^-?[0-9]+$' | sort -u || true)
             test -n "$all" || { echo "не найдено ни одного chat_id"; exit 1; }
             echo "чатов к отправке: $(printf '%s\n' "$all" | wc -l)"
             fail=0
