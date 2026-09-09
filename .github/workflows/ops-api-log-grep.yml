@@ -38,8 +38,20 @@ jobs:
           envs: PATTERN,SINCE_H
           script: |
             set -eu
+            cd "${{ secrets.DEPLOY_PATH }}"
+            echo "=== с хоста: api.telegram.org ==="
+            curl -s -o /dev/null -w "host GET https://api.telegram.org/ -> %{http_code} %{time_total}s
+" --max-time 15 https://api.telegram.org/ || echo "host: не удалось"
+            curl -s -o /dev/null -w "host GET -4 -> %{http_code} %{time_total}s
+" --max-time 15 -4 https://api.telegram.org/ || echo "host -4: не удалось"
+            curl -s -o /dev/null -w "host GET -6 -> %{http_code} %{time_total}s
+" --max-time 15 -6 https://api.telegram.org/ || echo "host -6: не удалось"
+            echo "маршруты хоста:"; ip route 2>/dev/null | head -5 || true; ip -6 route 2>/dev/null | head -3 || true
+            echo "=== логи api ==="
             docker logs st-michael-api --since "${SINCE_H:-2}h" 2>&1 | grep -E "$PATTERN" | sed 's/[0-9]\{7,\}/#######/g' | tail -60 | cut -c1-300 || echo "(совпадений нет)"
             echo "=== исходящая сеть из контейнера api к api.telegram.org ==="
             docker compose exec -T api node -e "const t=Date.now();fetch('https://api.telegram.org/',{method:'POST',body:'{}',headers:{'content-type':'application/json'}}).then(r=>console.log('POST /', r.status, Date.now()-t,'ms')).catch(e=>console.log('POST / failed:', e.message, e.cause&&e.cause.code, e.cause&&e.cause.message));" || true
             docker compose exec -T api node -e "const t=Date.now();fetch('https://api.telegram.org/').then(r=>console.log('GET /', r.status, Date.now()-t,'ms')).catch(e=>console.log('GET / failed:', e.message, e.cause&&e.cause.code));" || true
             docker compose exec -T api node -e "const d=require('node:dns');d.lookup('api.telegram.org',{all:true},(e,a)=>console.log('dns', e?e.message:JSON.stringify(a)))" || true
+            docker compose exec -T api sh -c "ip route 2>/dev/null | head -3; ip -6 route 2>/dev/null | head -3" || true
+            docker compose exec -T api node -e "const t=Date.now();fetch('https://www.amocrm.ru/').then(r=>console.log('amocrm GET', r.status, Date.now()-t,'ms')).catch(e=>console.log('amocrm failed:', e.message, e.cause&&e.cause.code));" || true
