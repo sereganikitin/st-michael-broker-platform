@@ -1,0 +1,54 @@
+name: Ops compose up service (apply)
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Имя сервиса из docker-compose.yml (например tg-relay)'
+        required: true
+        default: 'tg-relay'
+        type: string
+      confirm_apply:
+        description: 'Поднять сервис (true) — иначе только показать план'
+        required: false
+        default: 'false'
+        type: string
+
+concurrency:
+  group: ops-compose-up-service
+  cancel-in-progress: false
+
+jobs:
+  up:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: SSH and compose up
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SERVICE: ${{ inputs.service }}
+          CONFIRM: ${{ inputs.confirm_apply }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          command_timeout: 7m
+          envs: SERVICE,CONFIRM
+          script: |
+            set -eu
+            cd "${{ secrets.DEPLOY_PATH }}"
+            case "$SERVICE" in
+              tg-relay|autoheal) ;;
+              *) echo "сервис $SERVICE не в списке разрешённых"; exit 2 ;;
+            esac
+            PROJECT=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' st-michael-postgres)
+            echo "проект: $PROJECT; сервис: $SERVICE; HEAD: $(git rev-parse --short HEAD)"
+            docker compose --project-name "$PROJECT" --env-file .env config --services | grep -qx "$SERVICE" || { echo "в compose нет сервиса $SERVICE (обновите checkout деплоем)"; exit 3; }
+            docker compose --project-name "$PROJECT" --env-file .env config | sed -n "/^  $SERVICE:/,/^  [a-z]/p" | head -30
+            if [ "$CONFIRM" != "true" ]; then echo "план показан, confirm_apply=false"; exit 0; fi
+            docker compose --project-name "$PROJECT" --env-file .env up -d --no-deps --pull missing "$SERVICE"
+            sleep 5
+            docker compose --project-name "$PROJECT" --env-file .env ps "$SERVICE"
+            docker compose --project-name "$PROJECT" --env-file .env logs --tail 20 "$SERVICE" 2>&1 | sed 's/bot[0-9]*:[A-Za-z0-9_-]*/bot***/g'
