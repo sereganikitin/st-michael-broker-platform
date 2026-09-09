@@ -83,6 +83,19 @@ async function main() {
   const second = await service.list("ours", "BROKER", makeQuery(), undefined, undefined, false);
   report(`тёплый запрос (кэш; total ${second.total})`, Date.now() - started);
   console.log("память после тёплого:", mem());
+  // Отдельный эндпоинт сводки (POST activity-summary) — probe показывает 17 с.
+  for (const name of ["activitySummary", "resolveSelection", "list", "listOurAgencies", "activitySummaryPayload", "ourAgencyPeriodMetrics", "attachOurAgencyRegistryDeals", "mapOurAgency", "matchesOurAgency"]) wrap(name);
+  const { LoyaltySearchDto } = require(dtoPath);
+  const makeSummaryDto = () => Object.assign(new LoyaltySearchDto(), {
+    page: 1, pageSize: 1, archived: "exclude", sortBy: "name", sortOrder: "asc", filter: {}, columns: {},
+    summaryPeriod: { from: from.toISOString(), to: to.toISOString() },
+  });
+  started = Date.now();
+  const s1 = await service.activitySummary("ours", "BROKER", makeSummaryDto());
+  report(`activity-summary брокеры без фильтров (выборка ${s1?.selection?.count})`, Date.now() - started);
+  started = Date.now();
+  const s2 = await service.activitySummary("ours", "AGENCY", makeSummaryDto());
+  report(`activity-summary агентства без фильтров (выборка ${s2?.selection?.count}, брокеров ${s2?.selection?.brokers})`, Date.now() - started);
   await prisma.$disconnect();
 }
 main().catch((e) => { console.error("FATAL:", e?.stack || e?.message || e); process.exit(1); });
