@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { telegramApiBase } from '../common/telegram-api-base';
 import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { PrismaClient } from '@st-michael/database';
@@ -101,7 +102,7 @@ export class OpsInboxService {
       let payload: any;
       try {
         const response = await fetch(
-          `https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&timeout=0&allowed_updates=${encodeURIComponent('["message"]')}`,
+          `${telegramApiBase()}/bot${token}/getUpdates?offset=${offset}&timeout=0&allowed_updates=${encodeURIComponent('["message"]')}`,
           { signal: controller.signal },
         );
         payload = await response.json().catch(() => null);
@@ -220,7 +221,7 @@ export class OpsInboxService {
     let payload: any = null;
     let status = 0;
     try {
-      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      const response = await fetch(`${telegramApiBase()}/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body,
@@ -273,12 +274,12 @@ export class OpsInboxService {
     if (!token) throw new ServiceUnavailableException('Telegram bot token не настроен');
     const row = await this.inbox.findUnique({ where: { id } });
     if (!row?.fileId) throw new ServiceUnavailableException('У сообщения нет файла');
-    const meta = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(row.fileId)}`);
+    const meta = await fetch(`${telegramApiBase()}/bot${token}/getFile?file_id=${encodeURIComponent(row.fileId)}`);
     const metaJson: any = await meta.json().catch(() => null);
     if (!meta.ok || !metaJson?.ok || !metaJson.result?.file_path) {
       throw new ServiceUnavailableException(`Telegram getFile: ${JSON.stringify(metaJson).slice(0, 200)}`);
     }
-    const download = await fetch(`https://api.telegram.org/file/bot${token}/${metaJson.result.file_path}`);
+    const download = await fetch(`${telegramApiBase()}/file/bot${token}/${metaJson.result.file_path}`);
     if (!download.ok) throw new ServiceUnavailableException(`Telegram file download HTTP ${download.status}`);
     const buffer = Buffer.from(await download.arrayBuffer());
     return {

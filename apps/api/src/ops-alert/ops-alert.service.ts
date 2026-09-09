@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { telegramApiBase } from '../common/telegram-api-base';
 import { ConfigService } from '@nestjs/config';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -139,7 +140,7 @@ export class OpsAlertService {
     try {
       let response: Response;
       try {
-        response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        response = await fetch(`${telegramApiBase()}/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text }),
