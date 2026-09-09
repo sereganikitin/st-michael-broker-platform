@@ -43,6 +43,8 @@ jobs:
           envs: BOT,GH_CHAT,SEND_TO
           script: |
             set -eu
+            # 2026-09-09: Telegram с хоста доступен только по IPv6 — сначала -6, потом как получится.
+            tg_curl() { curl -sS -6 --max-time 20 "$@" 2>/dev/null || curl -sS --max-time 25 "$@"; }
             cd "${{ secrets.DEPLOY_PATH }}"
             git fetch origin master
             git show origin/master:scripts/data-quality-digest.js > /tmp/data-quality-digest.js
@@ -66,7 +68,7 @@ jobs:
             echo "чатов к отправке: $(printf '%s\n' "$all" | wc -l)"
             fail=0
             for chat in $all; do
-              ok=$(curl -sS --max-time 30 -X POST "https://api.telegram.org/bot${BOT}/sendMessage" --data-urlencode chat_id="$chat" --data-urlencode text="$TEXT" | head -c 120)
+              ok=$(tg_curl -X POST "https://api.telegram.org/bot${BOT}/sendMessage" --data-urlencode chat_id="$chat" --data-urlencode text="$TEXT" | head -c 120)
               tail4=$(printf '%s' "$chat" | tail -c 4)
               if printf '%s' "$ok" | grep -q '"ok":true'; then echo "chat ...$tail4: отправлено"; else echo "chat ...$tail4: ОШИБКА: $ok"; fail=1; fi
             done
