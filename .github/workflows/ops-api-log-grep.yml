@@ -1,0 +1,45 @@
+name: Ops api log grep (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pattern:
+        description: 'Регулярное выражение для grep -E по docker logs api'
+        required: true
+        default: 'OpsInbox'
+        type: string
+      since_hours:
+        description: 'За сколько часов'
+        required: false
+        default: "2"
+        type: string
+
+concurrency:
+  group: ops-api-log-grep
+  cancel-in-progress: false
+
+jobs:
+  grep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: SSH and grep
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          PATTERN: ${{ inputs.pattern }}
+          SINCE_H: ${{ inputs.since_hours }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          command_timeout: 3m
+          envs: PATTERN,SINCE_H
+          script: |
+            set -eu
+            docker logs st-michael-api --since "${SINCE_H:-2}h" 2>&1 | grep -E "$PATTERN" | sed 's/[0-9]\{7,\}/#######/g' | tail -60 | cut -c1-300 || echo "(совпадений нет)"
+            echo "=== исходящая сеть из контейнера api к api.telegram.org ==="
+            docker compose exec -T api node -e "const t=Date.now();fetch('https://api.telegram.org/',{method:'POST',body:'{}',headers:{'content-type':'application/json'}}).then(r=>console.log('POST /', r.status, Date.now()-t,'ms')).catch(e=>console.log('POST / failed:', e.message, e.cause&&e.cause.code, e.cause&&e.cause.message));" || true
+            docker compose exec -T api node -e "const t=Date.now();fetch('https://api.telegram.org/').then(r=>console.log('GET /', r.status, Date.now()-t,'ms')).catch(e=>console.log('GET / failed:', e.message, e.cause&&e.cause.code));" || true
+            docker compose exec -T api node -e "const d=require('node:dns');d.lookup('api.telegram.org',{all:true},(e,a)=>console.log('dns', e?e.message:JSON.stringify(a)))" || true
