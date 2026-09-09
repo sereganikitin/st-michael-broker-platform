@@ -706,6 +706,27 @@ function dateOnly(value: unknown): string | null {
     : null;
 }
 
+/**
+ * 2026-09-09: попадание даты-без-времени (колонки реестра `@db.Date`:
+ * paidAt, dvouPaidAt) в период. Postgres сравнивает колонку DATE с границей
+ * периода, отбросив время (`paid_at >= '2026-08-10T04:48Z'` → `>= 2026-08-10`),
+ * то есть весь календарный день границы входит в период. Сравнение в JS по
+ * миллисекундам считало иначе: сводка «Контрольных показателей» теряла сделку,
+ * оплаченную в день начала периода, а обзор (запрос в БД) её видел.
+ * Здесь та же семантика, что в БД: сравниваем календарные дни (UTC).
+ */
+export function dateOnlyInPeriod(
+  value: unknown,
+  period: { from: Date; to: Date },
+): boolean {
+  const day = dateOnly(value);
+  if (!day) return false;
+  return (
+    day >= period.from.toISOString().slice(0, 10) &&
+    day <= period.to.toISOString().slice(0, 10)
+  );
+}
+
 function moscowDateOnly(value: unknown): string | null {
   if (!value) return null;
   const parsed = value instanceof Date ? value : new Date(String(value).trim());
@@ -5193,11 +5214,9 @@ export class LoyaltyBaseService {
           dvouPaidAt: true,
         },
       });
-      const inPeriod = (value: unknown) => {
-        if (!value) return false;
-        const time = new Date(value as any).getTime();
-        return time >= period.from.getTime() && time <= period.to.getTime();
-      };
+      // Колонки paidAt/dvouPaidAt — DATE: границы периода сравниваем по дням,
+      // как это делает БД в запросе выше и в обзоре (см. dateOnlyInPeriod).
+      const inPeriod = (value: unknown) => dateOnlyInPeriod(value, period);
       const attributed = (row: any) =>
         (row.brokerId && brokerSet.has(String(row.brokerId))) ||
         (entityType === "AGENCY" &&
