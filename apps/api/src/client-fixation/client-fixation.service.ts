@@ -2104,6 +2104,40 @@ export class ClientFixationService {
   // Новый привязывается к выбранному агентству создателя. Если брокер
   // с этим номером уже существует — молча возвращаем его (вариант
   // согласованный с заказчиком).
+  /**
+   * 2026-09-10: под одним номером телефона со временем может работать другой
+   * человек (или то же лицо с другим написанием ФИО). Имя из свежей фиксации
+   * становится «именем для работы» в «Нашей базе», прежнее уходит в журнал.
+   * fullName — самоназвание брокера в его кабинете — не трогаем.
+   */
+  private async rememberBrokerNameFromFixation(
+    broker: { id: string; fullName?: string | null; displayName?: string | null },
+    submittedName: string,
+    creatorId: string,
+  ): Promise<void> {
+    const nextName = String(submittedName || "").trim();
+    const currentName = String(broker.displayName || broker.fullName || "").trim();
+    if (nextName.length < 3 || !/[A-Za-zА-Яа-яЁё]/.test(nextName)) return;
+    if (nextName.toLowerCase() === currentName.toLowerCase()) return;
+    try {
+      await this.prisma.broker.update({
+        where: { id: broker.id },
+        data: { displayName: nextName, displayNameSource: "fixation_form" },
+      });
+      await this.logAudit(creatorId, "BROKER_NAME_UPDATED", "Broker", broker.id, {
+        previousName: currentName || null,
+        submittedName: nextName,
+        source: "fixation_form",
+      });
+    } catch (error: any) {
+      // Имя — не повод ронять фиксацию.
+      console.error(
+        "[createBrokerByCreator] не удалось запомнить новое ФИО:",
+        error?.message || error,
+      );
+    }
+  }
+
   async createBrokerByCreator(
     creatorId: string,
     data: { fullName: string; phone: string; email?: string },
@@ -2136,6 +2170,7 @@ export class ClientFixationService {
       select: {
         id: true,
         fullName: true,
+        displayName: true,
         phone: true,
         email: true,
         isCoordinator: true,
@@ -2165,6 +2200,16 @@ export class ClientFixationService {
         });
       }
       const targetId = existingByPhone.mergedIntoId || existingByPhone.id;
+      // 2026-09-10 (правило владельца): фиксация идёт по номеру телефона,
+      // расхождение в ФИО значения не имеет. Новое написание запоминаем:
+      // в «Нашей базе» показывается последнее присланное имя, прежнее
+      // остаётся в журнале — видно, с какого числа под этим номером работает
+      // человек с таким ФИО.
+      await this.rememberBrokerNameFromFixation(
+        { id: targetId, fullName: existingByPhone.fullName, displayName: existingByPhone.displayName },
+        data.fullName,
+        creatorId,
+      );
       await this.ensureBrokerAmoContact(targetId).catch((e: any) => {
         console.error(
           "[createBrokerByCreator] existing broker amo sync failed:",
@@ -2175,7 +2220,7 @@ export class ClientFixationService {
       // «карточка уже была». ФИО, телефон, email и статус чужой карточки
       // брокеру не возвращаем; сотрудникам отдаём как раньше.
       if (audience === "STAFF") {
-        const { status, mergedIntoId, ...publicBroker } = existingByPhone;
+        const { status, mergedIntoId, displayName, ...publicBroker } = existingByPhone;
         return { broker: { ...publicBroker, id: targetId }, created: false, existed: true, status };
       }
       return { broker: { id: targetId }, created: false, existed: true };
