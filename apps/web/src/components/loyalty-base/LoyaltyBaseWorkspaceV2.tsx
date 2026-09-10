@@ -903,6 +903,54 @@ function AddContactModal({
   );
 }
 
+// 2026-09-10: подписи фильтров колонок — их показываем, когда список пуст.
+const COLUMN_FILTER_LABELS: Record<string, string> = {
+  HAS_PHONE: "с телефоном",
+  NO_PHONE: "без телефона",
+  BT_VISITED: "был на брокер-туре",
+  BT_NOT_VISITED: "не был на брокер-туре",
+  HAS_FIXATIONS: "есть фиксации",
+  HAS_ACTIVE_FIXATIONS: "есть действующие фиксации",
+  NO_FIXATIONS: "нет фиксаций",
+  HAS_MEETINGS: "есть встречи",
+  NO_MEETINGS: "нет встреч",
+  CALLED_IN_PERIOD: "звонили в период",
+  NOT_CALLED_IN_PERIOD: "не звонили в период",
+  UNASSIGNED: "без ответственного",
+  HAS_DEALS: "есть сделки",
+  NO_DEALS: "нет сделок",
+  ONE_TO_TWO: "1–2 сделки",
+  THREE_TO_FOUR: "3–4 сделки",
+  FIVE_TO_NINE: "5–9 сделок",
+  TEN_PLUS: "10+ сделок",
+};
+
+function columnFilterLabels(columns: LoyaltyColumnFilters | undefined): string[] {
+  return Object.values(columns || {})
+    .filter((value): value is string => Boolean(value))
+    .map((value) => COLUMN_FILTER_LABELS[value] || value);
+}
+
+/**
+ * 2026-09-10: снимаем фильтры колонок, которыми теперь управляет панель.
+ * Возвращает тот же объект, если снимать нечего, — лишний ререндер не нужен.
+ */
+function dropConflictingColumns(
+  columns: LoyaltyColumnFilters | undefined,
+  dealsTouched: boolean,
+  meetingsTouched: boolean,
+): LoyaltyColumnFilters {
+  const current = columns || {};
+  const activityConflicts =
+    meetingsTouched &&
+    (current.activity === "HAS_MEETINGS" || current.activity === "NO_MEETINGS");
+  if (!(dealsTouched && current.deals) && !activityConflicts) return current;
+  const next: LoyaltyColumnFilters = { ...current };
+  if (dealsTouched) delete next.deals;
+  if (activityConflicts) delete next.activity;
+  return next;
+}
+
 export function LoyaltyBaseWorkspaceV2() {
   const { broker: me } = useAuth();
   const [base, setBase] = useState<LoyaltyBaseKey>("anna");
@@ -919,6 +967,8 @@ export function LoyaltyBaseWorkspaceV2() {
   const segment = segmentState[key];
   const columnDraft = columnDrafts[key];
   const columns = columnApplied[key];
+  // 2026-09-10: что стоит в шапке таблицы — показываем при пустом списке.
+  const activeColumnLabels = columnFilterLabels(columns);
   const [mode, setMode] = useState<"base" | "reconciliation">("base");
   const [importOpen, setImportOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
@@ -1225,6 +1275,22 @@ export function LoyaltyBaseWorkspaceV2() {
     options?: { scroll?: boolean },
   ) => {
     const next = sanitizeLoyaltyFilterState(base, entityType, explicit ?? draft);
+    // 2026-09-10 (владелец: «поставил „Нет сделок“ — ноль записей»): фильтры
+    // колонок остаются от прошлого клика по карточке KPI или по воронке и
+    // молча противоречат панели («Есть сделки» в колонке + «Нет сделок» в
+    // панели = пустой список). Панель — то, что человек нажал только что,
+    // поэтому она снимает противоречащий фильтр колонки.
+    const dealsTouched =
+      Boolean(next.dealsMin) || Boolean(next.dealsMax) || Boolean(next.dealsInPeriod);
+    const meetingsTouched = Boolean(next.meetingsMin) || Boolean(next.meetingsMax);
+    setColumnDrafts((current) => ({
+      ...current,
+      [key]: dropConflictingColumns(current[key], dealsTouched, meetingsTouched),
+    }));
+    setColumnApplied((current) => ({
+      ...current,
+      [key]: dropConflictingColumns(current[key], dealsTouched, meetingsTouched),
+    }));
     setDrafts((current) => ({ ...current, [key]: next }));
     setApplied((current) => ({ ...current, [key]: next }));
     setSegmentState((current) => ({ ...current, [key]: "" }));
@@ -2350,6 +2416,15 @@ export function LoyaltyBaseWorkspaceV2() {
                   Проверьте применённые фильтры. Неизвестные значения не
                   превращаются в нули.
                 </p>
+                {/* 2026-09-10 (владелец): фильтры колонок задаются в шапке
+                    таблицы и раньше не были видны при пустом списке — человек
+                    не понимал, почему выборка нулевая. */}
+                {activeColumnLabels.length > 0 && (
+                  <p className="mt-2 text-sm text-warning">
+                    В шапке таблицы стоят фильтры: {activeColumnLabels.join(", ")}.
+                    Снимите их, если искали не это.
+                  </p>
+                )}
               </div>
             ) : (
               <LoyaltyTable
