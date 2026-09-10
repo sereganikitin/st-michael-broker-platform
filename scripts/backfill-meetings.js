@@ -1026,12 +1026,249 @@ async function runMarkLayer(prisma, dryRun) {
   printSamples(samples);
 }
 
+// ─── LAYER=ambiguous ─────────────────────────────────────────────────────────
+
+// 2026-09-10 (владелец согласовал порядок правил): спорные карточки КЦ —
+// телефон клиента совпал с несколькими заявками разных брокеров. Брокера
+// выбираем ТОЛЬКО по прямому указанию:
+//   правило 1 — брокер прикреплён к карточке КЦ вторым контактом;
+//   правило 2 — брокер указан в строке реестра ДДУ по дочерней сделке
+//               (cc_id_daughter → «№ договора» → registry_deals).
+// Правило «единственная действующая фиксация на дату встречи» СОЗНАТЕЛЬНО не
+// применяется: на сверке с фактом сделки оно ошибалось примерно в одном
+// случае из пяти, а давало всего 12 карточек из 767.
+
+const IMPORT_COMMENT_AMBIGUOUS = 'Импорт из amoCRM (КЦ, спорный телефон)';
+const CONTRACT_FIELD_ID = 558577; // «№ договора» в лиде воронки продаж
+
+/** Номер договора без различий латиница/кириллица, регистра и пробелов. */
+function contractKeyForRegistry(value) {
+  const map = { a: 'а', b: 'в', c: 'с', e: 'е', k: 'к', m: 'м', h: 'н', o: 'о', p: 'р', x: 'х', y: 'у', t: 'т' };
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[abcekmhopxyt]/g, (ch) => map[ch] || ch)
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+const leadFieldById = (lead, id) => {
+  const f = (lead?.custom_fields_values || []).find((x) => Number(x.field_id) === id);
+  return f?.values?.[0]?.value ?? null;
+};
+
+async function runAmbiguousLayer(prisma, dryRun) {
+  const amo = await initAmo(prisma, 'backfill-meetings');
+
+  const counters = {
+    kc_leads_scanned: 0,
+    kc_success_142: 0,
+    without_contact: 0,
+    single_candidate_skipped: 0,
+    ambiguous_total: 0,
+    no_meeting_date: 0,
+    by_broker_contact: 0,
+    by_registry_deal: 0,
+    unresolved: 0,
+    dedup_existing: 0,
+    to_create: 0,
+    created: 0,
+  };
+  const samples = {};
+
+  const successLeads = await fetchKcSuccessLeads(amo, counters);
+
+  // Контакты: берём ВСЕ, а не только основной — брокер живёт вторым контактом.
+  const mainContactByLead = mainContactIdByLead(successLeads, counters);
+  const allContactsByLead = new Map();
+  const everyContactId = new Set();
+  for (const lead of successLeads) {
+    const ids = (lead?._embedded?.contacts || []).map((c) => Number(c.id)).filter(Boolean);
+    allContactsByLead.set(lead.id, ids);
+    for (const id of ids) everyContactId.add(id);
+  }
+  const contactMap = await amo.getContactsByIds([...everyContactId]);
+
+  // Дочерние сделки воронки продаж → номер договора.
+  const daughterByLead = new Map();
+  for (const lead of successLeads) {
+    const raw = String(leadCustomField(lead, 'cc_id_daughter') || '').replace(/[^0-9]/g, '');
+    if (raw) daughterByLead.set(lead.id, raw);
+  }
+  const daughters = new Map();
+  const uniqueDaughters = [...new Set(daughterByLead.values())];
+  for (let i = 0; i < uniqueDaughters.length; i += 200) {
+    const query = uniqueDaughters.slice(i, i + 200).map((id) => `filter[id][]=${id}`).join('&');
+    try {
+      const res = await amo['request'](`/leads?${query}&limit=250`);
+      for (const l of res?._embedded?.leads || []) daughters.set(String(l.id), l);
+    } catch (e) {
+      console.error(`дочерние сделки ${i}: ${e?.message || e}`);
+    }
+    await sleep(AMO_PAUSE_MS);
+  }
+
+  // База: клиенты по телефону, брокеры по телефону, реестр по договору.
+  const clients = await prisma.client.findMany({
+    select: { id: true, phone: true, brokerId: true },
+  });
+  const clientsByPhone = new Map();
+  for (const c of clients) {
+    for (const key of phoneKeyCandidates(c.phone).keys) {
+      if (!clientsByPhone.has(key)) clientsByPhone.set(key, []);
+      clientsByPhone.get(key).push(c);
+    }
+  }
+  const brokers = await prisma.broker.findMany({
+    where: { mergedIntoId: null },
+    select: { id: true, phone: true },
+  });
+  const extraPhones = await prisma.brokerPhone.findMany({ select: { brokerId: true, phone: true } });
+  const brokerByPhone = new Map();
+  for (const b of brokers) for (const key of phoneKeyCandidates(b.phone).keys) brokerByPhone.set(key, b.id);
+  for (const ph of extraPhones) {
+    for (const key of phoneKeyCandidates(ph.phone).keys) if (!brokerByPhone.has(key)) brokerByPhone.set(key, ph.brokerId);
+  }
+  const registry = await prisma.registryDeal.findMany({
+    select: { contractNumber: true, brokerId: true, amoLeadId: true },
+  });
+  const registryByContract = new Map();
+  const registryByLead = new Map();
+  for (const r of registry) {
+    const key = contractKeyForRegistry(r.contractNumber);
+    if (key && !registryByContract.has(key)) registryByContract.set(key, r);
+    if (r.amoLeadId !== null && r.amoLeadId !== undefined) registryByLead.set(String(r.amoLeadId), r);
+  }
+
+  const plan = [];
+  const unresolvedRows = [];
+  for (const lead of successLeads) {
+    const mainId = mainContactByLead.get(lead.id);
+    const mainContact = mainId ? contactMap.get(mainId) : null;
+    if (!mainContact) continue;
+    const keys = contactPhoneCandidates(mainContact).keys;
+    const candidates = [];
+    for (const key of keys) {
+      for (const c of clientsByPhone.get(key) || []) if (!candidates.some((x) => x.id === c.id)) candidates.push(c);
+    }
+    if (candidates.length <= 1) {
+      counters.single_candidate_skipped++;
+      continue;
+    }
+    counters.ambiguous_total++;
+    const date = leadMeetingDate(lead);
+    if (!date) {
+      counters.no_meeting_date++;
+      continue;
+    }
+
+    // правило 1 — брокер прикреплён к карточке
+    const brokerIdsOnLead = new Set();
+    for (const cid of allContactsByLead.get(lead.id) || []) {
+      const c = contactMap.get(cid);
+      if (!c) continue;
+      for (const key of contactPhoneCandidates(c).keys) {
+        const bid = brokerByPhone.get(key);
+        if (bid) brokerIdsOnLead.add(bid);
+      }
+    }
+    let chosen = candidates.find((c) => c.brokerId && brokerIdsOnLead.has(c.brokerId));
+    let rule = chosen ? 'broker_contact' : null;
+
+    // правило 2 — брокер строки реестра
+    if (!chosen) {
+      const daughterId = daughterByLead.get(lead.id);
+      const daughter = daughterId ? daughters.get(daughterId) : null;
+      const contractRaw = daughter ? leadFieldById(daughter, CONTRACT_FIELD_ID) : null;
+      let deal = daughterId ? registryByLead.get(daughterId) : null;
+      if (!deal && contractRaw) deal = registryByContract.get(contractKeyForRegistry(contractRaw)) || null;
+      if (deal?.brokerId) {
+        chosen = candidates.find((c) => c.brokerId === deal.brokerId);
+        if (chosen) rule = 'registry_deal';
+      }
+    }
+
+    if (!chosen || !chosen.brokerId) {
+      counters.unresolved++;
+      unresolvedRows.push(`UNRESOLVED\t${lead.id}\t${dayKey(date)}\t${candidates.length}\t${candidates.map((c) => c.brokerId || '-').join(',')}`);
+      continue;
+    }
+    if (rule === 'broker_contact') counters.by_broker_contact++;
+    else counters.by_registry_deal++;
+    plan.push({ lead, client: chosen, date, type: leadMeetingType(lead), rule });
+  }
+
+  // Дедуп: (client_id, день) и (broker_id, день) — как в остальных слоях.
+  const planClientIds = [...new Set(plan.map((p) => p.client.id))];
+  const existingDays = new Set();
+  const BATCH = 500;
+  for (let i = 0; i < planClientIds.length; i += BATCH) {
+    const rows = await prisma.meeting.findMany({
+      where: { clientId: { in: planClientIds.slice(i, i + BATCH) } },
+      select: { clientId: true, date: true },
+    });
+    for (const row of rows) existingDays.add(`c:${row.clientId}:${dayKey(row.date)}`);
+  }
+  const planBrokerIds = [...new Set(plan.map((p) => p.client.brokerId).filter(Boolean))];
+  for (let i = 0; i < planBrokerIds.length; i += BATCH) {
+    const rows = await prisma.meeting.findMany({
+      where: { brokerId: { in: planBrokerIds.slice(i, i + BATCH) } },
+      select: { brokerId: true, date: true },
+    });
+    for (const row of rows) existingDays.add(`b:${row.brokerId}:${dayKey(row.date)}`);
+  }
+
+  const toCreate = [];
+  const monthCounts = new Map();
+  for (const item of plan) {
+    const ck = `c:${item.client.id}:${dayKey(item.date)}`;
+    const bk = `b:${item.client.brokerId}:${dayKey(item.date)}`;
+    if (existingDays.has(ck) || existingDays.has(bk)) {
+      counters.dedup_existing++;
+      continue;
+    }
+    existingDays.add(ck);
+    existingDays.add(bk);
+    toCreate.push(item);
+    const mk = monthKey(item.date);
+    monthCounts.set(mk, (monthCounts.get(mk) || 0) + 1);
+  }
+  counters.to_create = toCreate.length;
+
+  if (!dryRun) {
+    for (const item of toCreate) {
+      await prisma.meeting.create({
+        data: {
+          clientId: item.client.id,
+          brokerId: item.client.brokerId,
+          type: item.type,
+          date: item.date,
+          status: 'COMPLETED',
+          comment: appendAmoMark(IMPORT_COMMENT_AMBIGUOUS, `[amo:kc-lead:${item.lead.id}]`),
+        },
+      });
+      counters.created++;
+    }
+  }
+
+  printCounters(`LAYER=ambiguous (${dryRun ? 'DRY-RUN' : 'APPLY'})`, counters);
+  const months = [...monthCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  console.log('  топ-месяцы создаваемых встреч:');
+  for (const [mk, count] of months) console.log(`    ${mk}: ${count}`);
+  console.log(`  брокеров, которых коснётся: ${new Set(toCreate.map((i) => i.client.brokerId)).size}`);
+  for (const item of toCreate.slice(0, SAMPLE_LIMIT)) {
+    console.log(`  пример to_create: lead=${item.lead.id} client=${item.client.id} date=${dayKey(item.date)} rule=${item.rule}`);
+  }
+  printSamples(samples);
+  console.log(`  --- нераспределённые карточки (${unresolvedRows.length}) ---`);
+  for (const row of unresolvedRows) console.log(`  ${row}`);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
   const layer = String(process.env.LAYER || '').toLowerCase();
-  if (!['status', 'history', 'history_brokers', 'tours', 'mark'].includes(layer)) {
-    console.error('Задайте LAYER=status|history|history_brokers|tours|mark');
+  if (!['status', 'history', 'history_brokers', 'tours', 'mark', 'ambiguous'].includes(layer)) {
+    console.error('Задайте LAYER=status|history|history_brokers|tours|mark|ambiguous');
     process.exit(2);
   }
   // Боевой режим ТОЛЬКО при DRY_RUN=0; всё остальное — dry-run.
@@ -1045,6 +1282,7 @@ async function main() {
     else if (layer === 'history') await runHistoryLayer(prisma, dryRun);
     else if (layer === 'history_brokers') await runHistoryBrokersLayer(prisma, dryRun);
     else if (layer === 'tours') await runToursLayer(prisma, dryRun);
+    else if (layer === 'ambiguous') await runAmbiguousLayer(prisma, dryRun);
     else await runMarkLayer(prisma, dryRun);
     console.log('=== Готово ===');
   } finally {
