@@ -721,6 +721,92 @@ export class WebhooksService {
   // UNDER_REVIEW при отсутствии брокера остаётся — потому что это
   // дефолтное состояние ALARM-фиксации (брокер ещё не прикреплён).
   // EXPIRED не трогаем — авто-timeout, не должен перетираться.
+  /**
+   * 2026-09-10 (владелец): карточка колл-центра дошла до «успешно
+   * реализовано» (статус 142 воронки 7600542) — значит встреча проведена.
+   * Раньше вебхук менял только уникальность, а встреча в кабинете не
+   * появлялась: у брокера оставалось «0 встр.» при реальных встречах и
+   * сделках. Метка в комментарии — та же, что у разового восстановления,
+   * чтобы записи не задваивались и легко отличались.
+   */
+  private async upsertKcMeeting(params: {
+    clientId: string;
+    brokerId: string;
+    leadId: number;
+    when: Date;
+  }): Promise<'created' | 'exists'> {
+    const marker = `[amo:kc-lead:${params.leadId}]`;
+    const existing = await this.prisma.meeting.findFirst({
+      where: {
+        brokerId: params.brokerId,
+        comment: { contains: marker },
+      },
+      select: { id: true, status: true },
+    });
+    if (existing) {
+      if (existing.status !== 'COMPLETED') {
+        await this.prisma.meeting.update({
+          where: { id: existing.id },
+          data: { status: 'COMPLETED' as any },
+        });
+      }
+      return 'exists';
+    }
+    await this.prisma.meeting.create({
+      data: {
+        clientId: params.clientId,
+        brokerId: params.brokerId,
+        type: 'OFFICE_VISIT' as any,
+        status: 'COMPLETED' as any,
+        date: params.when,
+        comment: `Импорт из amoCRM (КЦ, встреча проведена) ${marker}`,
+      },
+    });
+    return 'created';
+  }
+
+  /** Встреча по закрытому лиду КЦ (143) — помечаем отменённой. */
+  private async cancelKcMeeting(brokerId: string, leadId: number): Promise<void> {
+    const marker = `[amo:kc-lead:${leadId}]`;
+    await this.prisma.meeting.updateMany({
+      where: { brokerId, comment: { contains: marker }, status: { not: 'CANCELLED' as any } },
+      data: { status: 'CANCELLED' as any },
+    });
+  }
+
+  /** Заводит встречу «состоялась» по КЦ-лиду и пишет это в журнал. */
+  private async recordKcMeetingHeld(
+    client: { id: string },
+    broker: { id: string } | null | undefined,
+    leadId: number,
+  ): Promise<void> {
+    if (!broker?.id) return;
+    try {
+      const result = await this.upsertKcMeeting({
+        clientId: client.id,
+        brokerId: broker.id,
+        leadId,
+        when: new Date(),
+      });
+      if (result === 'created') {
+        this.logger.log(`Лид ${leadId}: КЦ «встреча проведена» → создана встреча брокеру ${broker.id}`);
+        await this.prisma.auditLog
+          .create({
+            data: {
+              action: 'MEETING_CREATED',
+              entity: 'Client',
+              entityId: client.id,
+              payload: { trigger: 'KC_LEAD_MEETING_HELD_142', amoLeadId: leadId, brokerId: broker.id },
+            },
+          })
+          .catch(() => undefined);
+      }
+    } catch (error: any) {
+      // Встреча не должна ронять обработку вебхука уникальности.
+      this.logger.warn(`Не удалось завести встречу по лиду ${leadId}: ${error?.message || error}`);
+    }
+  }
+
   private async syncBrokerAttachmentFromLead(leadId: number): Promise<void> {
     if (!leadId) return;
 
@@ -771,7 +857,17 @@ export class WebhooksService {
       // Раньше условие было !meetingHeld — attached-брокер с проведённой
       // встречей оставался CONDITIONALLY_UNIQUE вечно, что неправильно
       // если КЦ потом закрыл лид без перехода в воронку продаж.
+      // 2026-09-10: встреча проведена — заводим её независимо от того, какая
+      // ветка уникальности сработает ниже.
+      if (leadStatusId === 142 && leadPipelineId === 7600542) {
+        await this.recordKcMeetingHeld(client, effectiveBroker, leadId);
+      }
       if (leadStatusId === 143 && leadPipelineId === 7600542) {
+        if (effectiveBroker?.id) {
+          await this.cancelKcMeeting(effectiveBroker.id, leadId).catch((error: any) =>
+            this.logger.warn(`Не удалось отменить встречу по лиду ${leadId}: ${error?.message || error}`),
+          );
+        }
         if (client.uniquenessStatus !== UniquenessStatus.REJECTED) {
           await this.prisma.client.update({
             where: { id: client.id },
@@ -816,6 +912,7 @@ export class WebhooksService {
 
       if (attached && isRule2KcPending && client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW) {
         if (leadStatusId === 142 && leadPipelineId === 7600542) {
+          await this.recordKcMeetingHeld(client, effectiveBroker, leadId);
           await this.prisma.client.update({
             where: { id: client.id },
             data: {
