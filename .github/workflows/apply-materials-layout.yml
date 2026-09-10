@@ -1,0 +1,66 @@
+name: Apply materials layout (обложки и подпапки)
+
+# 2026-09-10: точечное обновление раскладки материалов
+# (SystemSetting MATERIALS_FOLDER_LAYOUT) по файлу из data-ветки
+# (data/materials-layout-patch.json): обложки папок и виртуальные подпапки
+# для файлов, лежащих без подпапки. Группы и правила не трогаются.
+#
+# Боевой режим требует dry_run=false И confirm_apply=true.
+
+on:
+  workflow_dispatch:
+    inputs:
+      data_branch:
+        description: Ветка с data/materials-layout-patch.json
+        required: true
+        default: data/materials-layout-20260910
+        type: string
+      dry_run:
+        description: 'Dry-run (только отчёт)'
+        required: true
+        default: true
+        type: boolean
+      confirm_apply:
+        description: 'Подтверждаю запись (нужно вместе с dry_run=false)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: apply-materials-layout
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: SSH and run
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DATA_BRANCH: ${{ inputs.data_branch }}
+          DRY_INPUT: ${{ inputs.dry_run }}
+          CONFIRM_INPUT: ${{ inputs.confirm_apply }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          command_timeout: 8m
+          envs: DATA_BRANCH,DRY_INPUT,CONFIRM_INPUT
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+            git fetch origin "$DATA_BRANCH"
+            git fetch origin master
+            git show "origin/$DATA_BRANCH:data/materials-layout-patch.json" > /tmp/materials-layout-patch.json
+            git show origin/master:scripts/apply-materials-layout.js > /tmp/apply-materials-layout.js
+            docker cp /tmp/materials-layout-patch.json st-michael-api:/app/materials-layout-patch.json
+            docker cp /tmp/apply-materials-layout.js st-michael-api:/app/scripts/apply-materials-layout.js
+            DRY=1
+            if [ "$DRY_INPUT" = "false" ]; then
+              if [ "$CONFIRM_INPUT" != "true" ]; then echo "dry_run=false требует confirm_apply=true"; exit 1; fi
+              DRY=0
+            fi
+            docker compose exec -T -e DRY_RUN=$DRY api node /app/scripts/apply-materials-layout.js /app/materials-layout-patch.json
