@@ -14,6 +14,10 @@ name: Apply meetings backfill (amoCRM)
 #             (broker_id, день, type);
 #   tours   — брокер-туры из Broker.brokerTourDate → Meeting BROKER_TOUR
 #             c client_id=NULL (та же миграция), дедуп тот же;
+#   ambiguous — 2026-09-10: спорные карточки КЦ (телефон совпал с заявками
+#             нескольких брокеров): брокер только по прямому указанию —
+#             контакт брокера на карточке, иначе брокер строки реестра ДДУ;
+#             правило «единственная действующая фиксация» не применяется.
 #   mark    — идемпотентная метка «[amo:статус не подтверждён]» для
 #             вечных PENDING без amo-лида (для оранжевого бейджа в UI).
 #
@@ -32,7 +36,7 @@ on:
   workflow_dispatch:
     inputs:
       layer:
-        description: 'Слой (status | history | history_brokers | tours | mark)'
+        description: 'Слой (status | history | history_brokers | tours | ambiguous | mark)'
         required: true
         default: status
         type: choice
@@ -41,6 +45,7 @@ on:
           - history
           - history_brokers
           - tours
+          - ambiguous
           - mark
       dry_run:
         description: 'Dry-run (только отчёт, ничего не пишется)'
