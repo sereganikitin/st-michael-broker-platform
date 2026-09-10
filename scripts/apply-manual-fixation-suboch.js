@@ -8,8 +8,9 @@
  *      в журнал;
  *   2) заводим заявку на клиента Андрей +7 963 975 82 74 (Квартал
  *      Серебряный Бор) со статусом «уникален» на 30 дней.
- * Карточка в amoCRM создаётся штатной пятиминутной синхронизацией
- * (amo_sync_status = PENDING, amo_lead_id пустой) — руками в amo не лезем.
+ * Карточка в amoCRM пока не создаётся: у карточки брокера не привязано
+ * агентство, а без него повторная отправка в amo падает и шлёт ops-алерт.
+ * Заявка встаёт на паузу (amo_sync_attempts = 10), очередь её не берёт.
  *
  * DRY_RUN=1 по умолчанию: только отчёт.
  */
@@ -124,10 +125,14 @@ async function main() {
         uniquenessExpiresAt: expiresAt,
         uniquenessReason: "Заведено вручную 10.09.2026 по обращению: форма падала из-за ошибки кабинета",
         comment: "Заявка восстановлена вручную (обращение от 10.09.2026)",
-        // Пусть карточку в amoCRM создаст штатная синхронизация (каждые 5 минут).
+        // Карточку в amoCRM пока не создаём: у карточки брокера не привязано
+        // агентство, а без него повторная отправка в amo падает и шлёт алерт.
+        // Ставим счётчик попыток на максимум — очередь эту заявку не берёт.
+        // Как только агентство известно: проставить fixation_agency_id и
+        // сбросить amo_sync_attempts в 0 — синхронизация подхватит сама.
         amoSyncStatus: "PENDING",
-        amoSyncAttempts: 0,
-        amoSyncError: null,
+        amoSyncAttempts: 10,
+        amoSyncError: "MANUAL_HOLD_AGENCY_UNKNOWN",
       },
       select: { id: true, uniquenessStatus: true, uniquenessExpiresAt: true },
     });
@@ -140,7 +145,8 @@ async function main() {
       },
     });
     console.log(`\nГотово: заявка ${client.id} · ${client.uniquenessStatus} · до ${new Date(client.uniquenessExpiresAt).toISOString().slice(0, 10)}`);
-    console.log("Карточка в amoCRM появится в ближайшие 5 минут (штатная синхронизация).");
+    console.log("Карточка в amoCRM пока не создаётся: у карточки брокера нет агентства.");
+    console.log("Как узнаете агентство — проставим его и синхронизация отправит заявку в amo.");
   } finally {
     await prisma.$disconnect();
   }
