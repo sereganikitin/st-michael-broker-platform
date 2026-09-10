@@ -348,8 +348,41 @@ function AgencyProfile({ record }: { record: LoyaltyRecord }) {
 function ActivityMetrics({ record }: { record: LoyaltyRecord }) {
   const source = record.sourceReportedMetrics;
   const period = record.periodMetrics;
+  // 2026-09-10 (владелец: «есть сделки и встречи тоже были», а карточка
+  // показывала «Нет данных»): показываем итоги за всё время. Раньше карточка
+  // рисовала только период и срез источника — у нашей базы среза нет, а период
+  // без выбранных дат недоступен, поэтому все плитки были пустыми.
+  const lifetimeKnown =
+    record.fixations !== null ||
+    record.meetings !== null ||
+    record.deals !== null ||
+    record.dealAmount !== null;
+  const sourceKnown =
+    source !== null &&
+    (source.fixations !== null ||
+      source.meetings !== null ||
+      source.deals !== null ||
+      source.dealAmount !== null);
   return (
     <div className="space-y-4">
+      {lifetimeKnown && (
+        <section>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold">За всё время</h3>
+            <span className="text-xs text-text-muted">
+              {record.metricSource?.label || "Данные кабинета"}
+            </span>
+          </div>
+          <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Фиксации">{count(record.fixations)}</Metric>
+            <Metric label="Встречи">{count(record.meetings)}</Metric>
+            <Metric label="Сделки">{count(record.deals)}</Metric>
+            <Metric label="Сумма ДДУ">
+              {formatRubles(record.dealAmount).replace("—", "Нет данных")}
+            </Metric>
+          </dl>
+        </section>
+      )}
       <section>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold">
@@ -388,6 +421,7 @@ function ActivityMetrics({ record }: { record: LoyaltyRecord }) {
           </Metric>
         </dl>
       </section>
+      {sourceKnown && (
       <section>
         <h3 className="mb-2 font-semibold">
           Срез источника · не подтверждено событиями кабинета
@@ -404,6 +438,7 @@ function ActivityMetrics({ record }: { record: LoyaltyRecord }) {
           </Metric>
         </dl>
       </section>
+      )}
     </div>
   );
 }
