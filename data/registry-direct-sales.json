@@ -1,0 +1,720 @@
+{
+ "generatedAt": "2026-09-10",
+ "decision": "разбор 197 неразмеченных по гугл-таблице (комиссия и источник)",
+ "contracts": [
+  {
+   "contractNumber": "1-18-2-198",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "3-5-С-45",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "3-7-С-72",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ДА 48-02/2026",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:ИП Ивашкина"
+  },
+  {
+   "contractNumber": "ДА14-01/2025",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:ИП Чернов"
+  },
+  {
+   "contractNumber": "ДА17-12/2024",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ДА18-01/2025",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "lead_source_broker"
+  },
+  {
+   "contractNumber": "ДА19-02/2025",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ДА20-02/2025",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ДА27-06/2025",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:ИП Чернов"
+  },
+  {
+   "contractNumber": "ДА44-02/2026",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Eniqma Group(ИП Тимченко И.И.)"
+  },
+  {
+   "contractNumber": "ДА45-12/2025",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Colliers"
+  },
+  {
+   "contractNumber": "ДА46-01/2025",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ1-1-1-038",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ1-1-1-042",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ1-10-2-102",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Red Line"
+  },
+  {
+   "contractNumber": "ЗГ1-11-2-114",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Этажи"
+  },
+  {
+   "contractNumber": "ЗГ1-11-3-112",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Red Line"
+  },
+  {
+   "contractNumber": "ЗГ1-13-3-135",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ1-16-2-174",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ1-18-3-201",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:бест"
+  },
+  {
+   "contractNumber": "ЗГ1-19-3-213",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ1-22-1-241",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:FB lead"
+  },
+  {
+   "contractNumber": "ЗГ1-22-1-281/3",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ1-23-2-284/1",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ1-3-2-019",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ1-3-3-30/3",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ1-5-3-046",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ1-7-2-066",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:НМаркет.ПРО"
+  },
+  {
+   "contractNumber": "ЗГ1-8-3-076",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ1-9-2-090",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-1-1.4.11 (К2П2)",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ2-12-1-121",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-12-3-129",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:Cian"
+  },
+  {
+   "contractNumber": "ЗГ2-14-1-146",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:НМаркет.ПРО"
+  },
+  {
+   "contractNumber": "ЗГ2-15-1-158",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-15-1-168а",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:Cian"
+  },
+  {
+   "contractNumber": "ЗГ2-17-1-188",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Art Estate"
+  },
+  {
+   "contractNumber": "ЗГ2-17-3-190",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-197а",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Объединение Новостроек"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-203-285",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-006",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-025",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-206",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-20-1-318",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ2-21 п.1-ст-338/2",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:Прямой номер"
+  },
+  {
+   "contractNumber": "ЗГ2-21-1-231",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ2-21-1-232",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ2-21-3-230",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ2-21-3-230а",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ2-3-1-013",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:ИП Гильман"
+  },
+  {
+   "contractNumber": "ЗГ2-4-2-26",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-5-1-047а",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Summus Estate"
+  },
+  {
+   "contractNumber": "ЗГ2-5-1-37",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-5-3-046",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:ИП Соломон"
+  },
+  {
+   "contractNumber": "ЗГ2-6-1-050",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:100 домов"
+  },
+  {
+   "contractNumber": "ЗГ2-6-1-49",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-6-3-057",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ2-7-1-068",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-073",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:100 домов"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-084",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-089",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Ника Естейт"
+  },
+  {
+   "contractNumber": "ЗГ2-9-2-090",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-10-1-115",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ3-10-1-122",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-143",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ3-12-3-153",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:Cian"
+  },
+  {
+   "contractNumber": "ЗГ3-14-3-177",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:yandex maps"
+  },
+  {
+   "contractNumber": "ЗГ3-14-3-183-235/3",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-14-3-236/1",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-18-3-303/3",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-19-1-257",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:Cian"
+  },
+  {
+   "contractNumber": "ЗГ3-19-1-264",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:Cian"
+  },
+  {
+   "contractNumber": "ЗГ3-2-1-015",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Этажи"
+  },
+  {
+   "contractNumber": "ЗГ3-20-1-340/2",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-21-2-351/4",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-22-1-300-360/3",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-22-2-362/2",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-22-2-362/4",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-23-2-365/1",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-030",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-086",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-23",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ3-4-1-029",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Этажи"
+  },
+  {
+   "contractNumber": "ЗГ3-4-1-042",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Этажи"
+  },
+  {
+   "contractNumber": "ЗГ3-4-2-36 (ЗР.АП.3.4.8.10)",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:бест"
+  },
+  {
+   "contractNumber": "ЗГ3-6-1-060",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ3-7-1-079",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ЗГ3-7-1-083",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "ЗГ3-8-1-093",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:ИП Манаконова"
+  },
+  {
+   "contractNumber": "КЛ-02.42-104К",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:ООО \"Офис на Петровке\""
+  },
+  {
+   "contractNumber": "КЛ-02.66",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "КЛ-02.68",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "КЛ-02.85",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:UrbanPr"
+  },
+  {
+   "contractNumber": "КЛ-02.85",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:UrbanPr"
+  },
+  {
+   "contractNumber": "КЛ-02.95",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:ya agm"
+  },
+  {
+   "contractNumber": "ММ-232 (мм-63)",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Red Line"
+  },
+  {
+   "contractNumber": "ММ-242",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "lead_source_broker"
+  },
+  {
+   "contractNumber": "ММ-242а",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "lead_source_broker"
+  },
+  {
+   "contractNumber": "ММ-243",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "lead_source_broker"
+  },
+  {
+   "contractNumber": "ММ-243а",
+   "project": "ZORGE9",
+   "saleChannel": "BROKER",
+   "basis": "lead_source_broker"
+  },
+  {
+   "contractNumber": "ММ-276",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:no_source"
+  },
+  {
+   "contractNumber": "ММ-285",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:yandex maps"
+  },
+  {
+   "contractNumber": "ММ-285а",
+   "project": "ZORGE9",
+   "saleChannel": "DIRECT",
+   "basis": "ad_channel:yandex maps"
+  },
+  {
+   "contractNumber": "СБ1-12-2е-108",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "lead_source_broker"
+  },
+  {
+   "contractNumber": "СБ1-3-2е-021",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ1-7-2е-055",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ2-15-2е-133",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ2-4-2е-183",
+   "project": "SILVER_BOR",
+   "saleChannel": "DIRECT",
+   "basis": "no_commission:Реклама"
+  },
+  {
+   "contractNumber": "СБ2-7-3е-213",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ2-8-2е-216",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "agency_no_commission:Trend Agent"
+  },
+  {
+   "contractNumber": "СБ3-13-3е-419",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ3-15-1с-437",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ3-16-4е-447",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ3-20-4е-484",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ3-21-4е-488",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ3-5-3е-326",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ3-7-3е-347",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  },
+  {
+   "contractNumber": "СБ3-7-3е-348",
+   "project": "SILVER_BOR",
+   "saleChannel": "BROKER",
+   "basis": "commission_in_sheet"
+  }
+ ]
+}
