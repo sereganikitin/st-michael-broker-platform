@@ -1143,9 +1143,11 @@ test("maps evidence rows to readable Russian titles with details", () => {
   // Без имени клиента главным именем становится проект.
   assert.equal(deal.title, "Сделка — Серебряный Бор");
   assert.match(deal.description, /подписана/);
+  // 2026-09-10 (владелец спросил, что это за сумма): у сделки подпись
+  // «Стоимость по ДДУ», у остальных записей остаётся «Сумма».
   assert.deepEqual(
-    deal.details?.find((row) => row.label === "Сумма"),
-    { label: "Сумма", value: "35 684 619,08 ₽" },
+    deal.details?.find((row) => row.label === "Стоимость по ДДУ"),
+    { label: "Стоимость по ДДУ", value: "35 684 619,08 ₽" },
   );
   // 2026-09-07: объект сделки и ссылка на сделку amoCRM.
   const dealRows = Object.fromEntries(

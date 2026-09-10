@@ -32,6 +32,7 @@ import {
   Sparkles,
   Copy,
   Check,
+  ExternalLink,
   GitBranch,
   Trophy,
   UserPlus,
@@ -720,6 +721,20 @@ function LoyaltyTable({
                     ) : null}
                   </button>
                   {item.phone ? <PhoneWithCopy phone={String(item.phone)} /> : null}
+                  {/* 2026-09-10 (владелец): ссылка в amoCRM прямо из строки —
+                      раньше карточку приходилось открывать ради одной ссылки. */}
+                  {item.amoContactUrl ? (
+                    <a
+                      className="mt-0.5 inline-flex items-center gap-1 text-xs text-text-muted transition hover:text-accent"
+                      href={item.amoContactUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Открыть карточку в amoCRM"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      amoCRM <ExternalLink className="h-3 w-3" />
+                    </a>
+                  ) : null}
                 </td>
                 <td className="py-2 pr-3 align-top">
                   <LoyaltyStatusBadges record={item} />
@@ -1430,18 +1445,6 @@ export function LoyaltyBaseWorkspaceV2() {
       },
     },
   ];
-  // 2026-09-08: блок «Контрольные показатели» берёт цифры по текущей выборке
-  // списка (activitySummary); если её нет (база Анны, ошибка) — цифры обзора.
-  const kpiActivities = activitySummary?.supported
-    ? activitySummary.activities
-    : (overview?.activities ?? null);
-  const kpiDealAmount = activitySummary?.supported
-    ? activitySummary.dealAmount
-    : (overview?.dealAmount ?? null);
-  const withSelectionNote = (text: string) =>
-    activitySummary?.supported
-      ? `${text}. Считаем только по ${entityType === "brokers" ? "брокерам" : "агентствам (их брокерам и строкам реестра с их названием)"}, попавшим под текущие фильтры списка`
-      : text;
   const metricExplanation = (
     key: string,
     fallbackFormula: string,
@@ -1939,76 +1942,9 @@ export function LoyaltyBaseWorkspaceV2() {
               );
             })}
           </section>
-          <section className="card">
-            <div className="flex flex-wrap justify-between gap-3">
-              <div>
-                <h2 className="font-semibold">
-                  Контрольные показатели активности
-                </h2>
-                <p className="text-xs text-text-muted">
-                  {activitySummary?.supported
-                    ? base === "anna"
-                      ? `По сцепленным карточкам кабинета: записей в списке ${activitySummary.selectionCount.toLocaleString("ru-RU")}, из них сцеплено ${(activitySummary.linkedRecords ?? 0).toLocaleString("ru-RU")}${entityType === "agencies" ? `, их брокеров ${activitySummary.brokers.toLocaleString("ru-RU")}` : ""} · период: ${ratingLabel}. Записи без сцепки в цифры не входят.`
-                      : `По текущим фильтрам списка: ${entityType === "brokers" ? "брокеров" : "агентств"} ${activitySummary.selectionCount.toLocaleString("ru-RU")}${entityType === "agencies" ? `, их брокеров ${activitySummary.brokers.toLocaleString("ru-RU")}` : ""} · период: ${ratingLabel}. Нажмите число, чтобы открыть карточки-основания.`
-                    : "Не входят в шесть KPI. Нажмите число для детализации в карточках-основаниях."}
-                </p>
-              </div>
-              <span className="rounded-full bg-accent/10 px-3 py-1 text-xs text-accent">
-                {exactness}
-              </span>
-            </div>
-            <dl className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-              <Metric
-                label="Фиксации"
-                onClick={base === "ours" ? () => openActivityDrilldown("fixations") : undefined}
-                explanation={metricExplanation(
-                  "activities.fixations",
-                  withSelectionNote("Количество подтверждённых фиксаций за выбранный период"),
-                )}
-              >
-                {number(kpiActivities?.fixations ?? null)}
-              </Metric>
-              <Metric
-                label="Встречи"
-                onClick={base === "ours" ? () => openActivityDrilldown("meetings") : undefined}
-                explanation={metricExplanation(
-                  "activities.meetings",
-                  withSelectionNote("Количество подтверждённых встреч с клиентами за выбранный период (брокер-туры не считаются)"),
-                )}
-              >
-                {number(kpiActivities?.meetings ?? null)}
-              </Metric>
-              <Metric
-                label="Платные брони"
-                explanation={metricExplanation(
-                  "activities.paidBookings",
-                  withSelectionNote("Оплаченные ДВОУ из «Реестра сделок» за выбранный период (по дате оплаты ДВОУ)"),
-                )}
-              >
-                {number(kpiActivities?.paidBookings ?? null)}
-              </Metric>
-              <Metric
-                label="Сделки"
-                onClick={base === "ours" ? () => openActivityDrilldown("deals") : undefined}
-                explanation={metricExplanation(
-                  "activities.deals",
-                  withSelectionNote("Оплаченные ДДУ за выбранный период (по «Дате оплаты ДДУ»)"),
-                )}
-              >
-                {number(kpiActivities?.deals ?? null)}
-              </Metric>
-              <Metric
-                label="Сумма ДДУ"
-                onClick={base === "ours" ? () => openActivityDrilldown("dealAmount") : undefined}
-                explanation={metricExplanation(
-                  "dealAmount",
-                  withSelectionNote("Сумма подтверждённых ДДУ за выбранный период"),
-                )}
-              >
-                {money(kpiDealAmount)}
-              </Metric>
-            </dl>
-          </section>
+          {/* 2026-09-10 (владелец): блок «Контрольные показатели активности»
+              убран со страницы — эти же цифры видны в карточках и в
+              шести KPI выше. */}
           {base === "anna" && overview?.cabinetLinks && (
             <section className="card">
               <div className="flex flex-wrap justify-between gap-3">
