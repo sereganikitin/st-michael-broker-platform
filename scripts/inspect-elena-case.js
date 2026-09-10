@@ -99,6 +99,34 @@ async function main() {
       );
       if (c.uniquenessReason) console.log(`      причина: ${String(c.uniquenessReason).slice(0, 160)}`);
     }
+
+    console.log("");
+    console.log("=== Карточки брокеров, участвующих в деле ===");
+    const brokers = await prisma.broker.findMany({
+      where: { fullName: { in: ["Екатерина брокер", "Работяева Лилия", "Кшнякин Денис"] } },
+      select: { id: true, fullName: true, phone: true, status: true, amoContactId: true, mergedIntoId: true },
+    });
+    for (const b of brokers) {
+      console.log(
+        `  ${b.id} · «${b.fullName}» · ${b.phone} · статус ${b.status} · amo-контакт ${b.amoContactId ?? "НЕТ"}${b.mergedIntoId ? " · объединён" : ""}`,
+      );
+    }
+
+    console.log("");
+    console.log("=== Журнал по заявке (последние 20 записей) ===");
+    const ids = clients.map((c) => c.id);
+    const audit = await prisma.auditLog.findMany({
+      where: { entity: "Client", entityId: { in: ids } },
+      select: { createdAt: true, action: true, entityId: true, payload: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    for (const row of audit) {
+      console.log(
+        `  ${new Date(row.createdAt).toISOString().slice(0, 16).replace("T", " ")} · ${row.action} · ${row.entityId.slice(0, 8)} · ${JSON.stringify(row.payload).slice(0, 120)}`,
+      );
+    }
+    if (!audit.length) console.log("  (записей нет)");
   } finally {
     await prisma.$disconnect();
   }
