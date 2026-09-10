@@ -168,13 +168,25 @@ async function main() {
       }
     }
 
+    // телефоны брокеров: сама карточка + дополнительные номера
+    const brokers = await prisma.broker.findMany({ where: { mergedIntoId: null }, select: { id: true, phone: true } });
+    const extraPhones = await prisma.brokerPhone.findMany({ select: { brokerId: true, phone: true } });
+    const brokerByPhone = new Map();
+    for (const b of brokers) for (const key of phoneKeyCandidates(b.phone)) brokerByPhone.set(key, b.id);
+    for (const ph of extraPhones) for (const key of phoneKeyCandidates(ph.phone)) if (!brokerByPhone.has(key)) brokerByPhone.set(key, ph.brokerId);
+
     const contactIdByLead = new Map();
+    const allContactIdsByLead = new Map();
     for (const lead of leads) {
       const contacts = lead?._embedded?.contacts || [];
       const main = contacts.find((c) => c.is_main) || contacts[0];
       if (main?.id) contactIdByLead.set(lead.id, Number(main.id));
+      allContactIdsByLead.set(lead.id, contacts.map((c) => Number(c.id)).filter(Boolean));
     }
-    const contactMap = await amo.getContactsByIds([...new Set(contactIdByLead.values())]);
+    const everyContactId = new Set();
+    for (const ids of allContactIdsByLead.values()) for (const id of ids) everyContactId.add(id);
+    const contactMap = await amo.getContactsByIds([...everyContactId]);
+    console.log(`Контактов у карточек: ${everyContactId.size} (главных ${contactIdByLead.size})`);
 
     const isActiveOn = (client, when) => {
       if (!when) return false;
@@ -192,7 +204,9 @@ async function main() {
       withDaughter: 0, daughterFound: 0, withContract: 0,
       registryByContract: 0, registryByLead: 0, registryAny: 0,
     };
-    const noneActive = { total: 0, deal: 0, direct: 0, broker: 0, unmarked: 0, brokerMatchesCandidate: 0, brokerOther: 0 };
+    const noneActive = { total: 0, deal: 0, direct: 0, broker: 0, unmarked: 0, brokerMatchesCandidate: 0, brokerOther: 0,
+      contactBroker: 0, contactBrokerAmongCandidates: 0, contactBrokerOther: 0 };
+    const brokerContactStats = { leadsWithBrokerContact: 0, leadsWithClientAndBroker: 0 };
     const unmatched = { total: 0, deal: 0, direct: 0, broker: 0, unmarked: 0 };
     const ambiguousActive1 = { total: 0, deal: 0, agreeWithActive: 0, disagree: 0 };
     const contractShapes = new Map();
@@ -204,6 +218,19 @@ async function main() {
       const candidates = [];
       for (const key of keys) for (const c of byPhone.get(key) || []) if (!candidates.some((x) => x.id === c.id)) candidates.push(c);
       const active = candidates.filter((c) => isActiveOn(c, when));
+
+      // брокер, прикреплённый к карточке вторым контактом
+      const brokerIdsOnLead = new Set();
+      for (const cid of allContactIdsByLead.get(lead.id) || []) {
+        const c = contactMap.get(cid);
+        if (!c) continue;
+        for (const key of contactPhoneKeys(c)) {
+          const bid = brokerByPhone.get(key);
+          if (bid) brokerIdsOnLead.add(bid);
+        }
+      }
+      if (brokerIdsOnLead.size) brokerContactStats.leadsWithBrokerContact++;
+      if (brokerIdsOnLead.size && candidates.length) brokerContactStats.leadsWithClientAndBroker++;
 
       const group = !candidates.length ? "нет клиента с таким телефоном"
         : candidates.length === 1 ? "один клиент — привязано"
@@ -234,6 +261,11 @@ async function main() {
 
       if (group === "спорно, действующих нет") {
         noneActive.total++;
+        if (brokerIdsOnLead.size) {
+          noneActive.contactBroker++;
+          if ([...brokerIdsOnLead].some((bid) => candidates.some((c) => c.brokerId === bid))) noneActive.contactBrokerAmongCandidates++;
+          else noneActive.contactBrokerOther++;
+        }
         if (deal) {
           noneActive.deal++;
           noneActive[channelOf(deal)]++;
@@ -276,7 +308,15 @@ async function main() {
       ["  канал не размечен", noneActive.unmarked],
       ["  брокер сделки есть среди кандидатов", noneActive.brokerMatchesCandidate, "ответ найден фактом сделки"],
       ["  брокер сделки не из кандидатов", noneActive.brokerOther],
+      ["К карточке прикреплён брокер вторым контактом", noneActive.contactBroker, "прямое указание"],
+      ["  этот брокер есть среди кандидатов", noneActive.contactBrokerAmongCandidates, "ответ найден"],
+      ["  брокер не из кандидатов по телефону", noneActive.contactBrokerOther],
     ], noneActive.total);
+
+    table("3б. Брокер вторым контактом — по всем карточкам КЦ", [
+      ["Карточек, где среди контактов есть брокер", brokerContactStats.leadsWithBrokerContact],
+      ["Из них есть и клиент кабинета", brokerContactStats.leadsWithClientAndBroker],
+    ], leads.length);
 
     table("4. Карточки без клиента в кабинете", [
       ["Таких карточек", unmatched.total],
