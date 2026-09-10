@@ -30,6 +30,9 @@ import {
   RefreshCcw,
   ShieldCheck,
   Sparkles,
+  Copy,
+  Check,
+  GitBranch,
   Trophy,
   UserPlus,
   Users,
@@ -100,7 +103,6 @@ import { LoyaltySavedViews } from "./LoyaltySavedViews";
 import { LoyaltyStatusLegend } from "./LoyaltyStatusLegend";
 import {
   BrokerFunnelModal,
-  BrokerFunnelPanel,
   type FunnelDrillStep,
 } from "./BrokerFunnel";
 import { LoyaltyStatusBadges } from "./LoyaltyStatusBadges";
@@ -110,6 +112,53 @@ type ContextKey = `${LoyaltyBaseKey}:${LoyaltyEntityType}`;
 type PeriodPreset = "month" | "quarter" | "custom";
 const baseLabels = { anna: "База Анны Скибицкой", ours: "Наша база" } as const;
 const entityLabels = { brokers: "Брокеры", agencies: "Агентства" } as const;
+
+/**
+ * 2026-09-10 (владелец): телефон в строке списка виден всегда и копируется
+ * одним нажатием. Раньше строка показывала либо агентство, либо телефон —
+ * у брокера с агентством номер вообще не отображался.
+ */
+function PhoneWithCopy({ phone }: { phone: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="mt-0.5 flex items-center gap-1 text-xs text-text-muted">
+      <span className="truncate">{phone}</span>
+      <button
+        type="button"
+        className="rounded p-0.5 text-text-muted transition hover:bg-surface-secondary hover:text-accent"
+        title={copied ? "Скопировано" : "Скопировать номер"}
+        aria-label={copied ? "Номер скопирован" : `Скопировать номер ${phone}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          const done = () => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          };
+          if (navigator.clipboard?.writeText) {
+            void navigator.clipboard.writeText(phone).then(done).catch(() => undefined);
+            return;
+          }
+          // запасной путь для браузеров без доступа к буферу обмена
+          const field = document.createElement("textarea");
+          field.value = phone;
+          field.setAttribute("readonly", "");
+          field.style.position = "absolute";
+          field.style.left = "-9999px";
+          document.body.appendChild(field);
+          field.select();
+          try {
+            document.execCommand("copy");
+            done();
+          } finally {
+            field.remove();
+          }
+        }}
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </span>
+  );
+}
 const SEGMENT_LABELS: Record<LoyaltySegment, string> = {
   NOT_CALLED_CURRENT_MONTH: ANNA_KPI_CHIP_LABELS[0],
   NEW_BROKER: ANNA_KPI_CHIP_LABELS[1],
@@ -300,20 +349,7 @@ function Metric({
   );
 }
 
-const availabilityLabels: Record<string, string> = {
-  localPreliminary: "Локальные предварительные данные",
-  exactness: "Точность",
-  defaultVisibilityApplied: "Базовое правило видимости",
-  visibilityRule: "Правило видимости",
-  unavailableFilters: "Фильтры без данных в Нашей базе",
-  methodology: "Методика",
-  exactActivities: "Событийные активности",
-  sourceReportedAggregates: "Агрегаты исходной таблицы",
-  callPeriod: "Период звонков",
-  activityPeriod: "Период встреч и сделок",
-  unknownValuesRemainNull: "Неизвестные значения",
-};
-
+// 2026-09-10: подписи значений доступности данных нужны подсказкам KPI.
 const availabilityValue = (key: string, value: unknown) => {
   if (key === "unknownValuesRemainNull")
     return value === true
@@ -340,48 +376,9 @@ const availabilityValue = (key: string, value: unknown) => {
   return labels[String(value)] || String(value || "Нет данных");
 };
 
-function DataAvailabilityNotice({
-  values,
-}: {
-  values: Record<string, unknown>;
-}) {
-  const entries = Object.entries(values);
-  if (!entries.length) return null;
-  return (
-    <aside
-      className="mb-3 rounded-xl border border-border bg-surface-secondary p-3"
-      aria-label="Доступность данных"
-    >
-      <div className="flex items-start gap-2">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
-        <div>
-          <b className="text-sm">Доступность данных</b>
-          <p className="text-xs text-text-muted">
-            Это характеристика источника и периода, а не подтверждение наличия
-            событий. Нулевые значения не объявляются точными без событийного
-            основания.
-          </p>
-        </div>
-      </div>
-      <dl className="mt-2 flex flex-wrap gap-2">
-        {entries.map(([key, value]) => (
-          <div
-            className="rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs"
-            key={key}
-          >
-            <dt className="inline text-text-muted">
-              {availabilityLabels[key] || key}:{" "}
-            </dt>
-            <dd className="inline font-medium">
-              {availabilityValue(key, value)}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </aside>
-  );
-}
-
+// 2026-09-10 (владелец): блок «Доступность данных» убран из списка —
+// он занимал место над таблицей и ничего не сообщал о самих записях.
+// Разметка блока осталась в истории git (коммит правок 10.09).
 function LoyaltyTable({
   data,
   entityType,
@@ -675,7 +672,7 @@ function LoyaltyTable({
                     aria-label={`Выбрать ${item.name}`}
                   />
                 </td>
-                <td className="py-3 pr-3">
+                <td className="py-2 pr-3 align-top">
                   <button
                     className="max-w-64 text-left hover:text-accent"
                     onClick={() => onOpen(item.id)}
@@ -711,18 +708,26 @@ function LoyaltyTable({
                         не звонить
                       </span>
                     )}
-                    <span className="block truncate text-xs text-text-muted">
-                      {item.company || item.phone || "Нет контактных данных"}
-                    </span>
+                    {item.company ? (
+                      <span className="block truncate text-xs text-text-muted">
+                        {item.company}
+                      </span>
+                    ) : null}
+                    {!item.company && !item.phone ? (
+                      <span className="block truncate text-xs text-text-muted">
+                        Нет контактных данных
+                      </span>
+                    ) : null}
                   </button>
+                  {item.phone ? <PhoneWithCopy phone={String(item.phone)} /> : null}
                 </td>
-                <td className="py-3 pr-3">
+                <td className="py-2 pr-3 align-top">
                   <LoyaltyStatusBadges record={item} />
                   <span className="mt-1 block text-xs text-text-muted">
                     {item.stage || "Нет данных"}
                   </span>
                 </td>
-                <td className="py-3 pr-3">
+                <td className="py-2 pr-3 align-top">
                   <span>
                     {number(displayedMetrics.fixations)} фикс. ·{" "}
                     {number(displayedMetrics.meetings)} встр.
@@ -730,21 +735,30 @@ function LoyaltyTable({
                   <small className="block text-text-muted">
                     {displayedMetrics.label}
                   </small>
-                  {hasSourceMetrics && sourceMetrics && (
-                    <small className="mt-1 block text-warning">
-                      Срез источника · не подтверждено:{" "}
-                      {number(sourceMetrics.fixations)} фикс. ·{" "}
-                      {number(sourceMetrics.meetings)} встр.
-                    </small>
-                  )}
-                  {data.base === "anna" && linkedMetrics && (
-                    <small className="mt-1 block text-accent">
-                      Кабинет: {number(linkedMetrics.fixations)} фикс. ·{" "}
-                      {number(linkedMetrics.meetings)} встр.
-                    </small>
-                  )}
+                  {/* 2026-09-10 (владелец: «карточки поуже»): служебные строки
+                      показываем только когда в них есть цифры — «0 фикс. · 0 встр.»
+                      ничего не сообщает, но добавляет высоту каждой строке. */}
+                  {hasSourceMetrics &&
+                    sourceMetrics &&
+                    (Number(sourceMetrics.fixations) > 0 ||
+                      Number(sourceMetrics.meetings) > 0) && (
+                      <small className="block text-warning">
+                        Срез источника · не подтверждено:{" "}
+                        {number(sourceMetrics.fixations)} фикс. ·{" "}
+                        {number(sourceMetrics.meetings)} встр.
+                      </small>
+                    )}
+                  {data.base === "anna" &&
+                    linkedMetrics &&
+                    (Number(linkedMetrics.fixations) > 0 ||
+                      Number(linkedMetrics.meetings) > 0) && (
+                      <small className="block text-accent">
+                        Кабинет: {number(linkedMetrics.fixations)} фикс. ·{" "}
+                        {number(linkedMetrics.meetings)} встр.
+                      </small>
+                    )}
                 </td>
-                <td className="py-3 pr-3">
+                <td className="py-2 pr-3 align-top">
                   {date(item.lastCallAt)}
                   <div className="mt-1">
                     <LoyaltyCallResultBadge
@@ -754,8 +768,8 @@ function LoyaltyTable({
                     />
                   </div>
                 </td>
-                <td className="py-3 pr-3">{item.assignee || "Не назначен"}</td>
-                <td className="py-3 text-right">
+                <td className="py-2 pr-3 align-top">{item.assignee || "Не назначен"}</td>
+                <td className="py-2 text-right align-top">
                   <b>{number(displayedMetrics.deals)}</b>
                   {/* 2026-09-08 (просьба владельца): сумма тем же размером, что соседние столбцы */}
                   <span className="block whitespace-nowrap text-sm text-text-muted">
@@ -1807,6 +1821,18 @@ export function LoyaltyBaseWorkspaceV2() {
                 </button>
               ))}
             </nav>
+            {/* 2026-09-10 (владелец): воронка не раскрыта карточкой в обзоре —
+                кнопка рядом с «Брокеры / Агентства», диаграммы во всплывающем окне. */}
+            {canReadAll && (
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                onClick={() => setFunnelOpen(true)}
+                title="Тур → фиксация → встреча → бронь → сделка"
+              >
+                <GitBranch className="h-4 w-4" /> Воронка брокера
+              </button>
+            )}
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="text-text-muted">Период рейтинга</span>
               {base === "anna" ? (
@@ -2092,13 +2118,6 @@ export function LoyaltyBaseWorkspaceV2() {
               </dl>
             </section>
           )}
-          {canReadAll && (
-            <BrokerFunnelPanel
-              base={base}
-              cabinetSource={filters.cabinetSource}
-              onOpen={() => setFunnelOpen(true)}
-            />
-          )}
           {base === "ours" && canReadAll && (
             <RegistrySeriesPanel
               compact
@@ -2376,7 +2395,9 @@ export function LoyaltyBaseWorkspaceV2() {
                 </div>
               </div>
             )}
-            {list && <DataAvailabilityNotice values={list.dataAvailability} />}
+            {/* 2026-09-10 (владелец): блок «Доступность данных» скрыт —
+                он занимал место над списком и ничего не сообщал о самих записях.
+                Компонент оставлен на случай возврата. */}
             {listError ? (
               <div className="rounded-lg bg-error/10 p-4 text-error">
                 {listError}
