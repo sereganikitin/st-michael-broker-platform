@@ -1281,6 +1281,73 @@ describe("ClientFixationService amo broker attachment", () => {
     });
   });
 
+  // 2026-09-10 (владелец, боевая ошибка): брокер повторно подавал заявку на
+  // тот же лид amoCRM и получал «Internal server error» — падало уникальное
+  // ограничение (broker_id, amo_lead_id). Повтор должен возвращать заявку,
+  // которая уже есть, а не 500.
+  it("returns the earlier fixation instead of failing on the (broker, amo lead) unique constraint", async () => {
+    const broker = {
+      id: "broker-duplicate-lead",
+      fullName: "Broker",
+      phone: "+79990000041",
+      email: null,
+      amoContactId: BigInt(841),
+      funnelStage: "FIXATION",
+      brokerAgencies: [],
+    };
+    const agency = {
+      id: "agency-duplicate-lead",
+      name: "Agency",
+      inn: "7700000041",
+    };
+    const previousClient = {
+      id: "client-first-attempt",
+      brokerId: broker.id,
+      uniquenessStatus: "UNDER_REVIEW",
+      amoLeadId: BigInt(9911),
+      createdAt: new Date("2026-09-09T10:00:00.000Z"),
+      deals: [],
+      broker,
+    };
+    const uniqueViolation: any = new Error(
+      "Unique constraint failed on the fields: (`broker_id`,`amo_lead_id`)",
+    );
+    uniqueViolation.code = "P2002";
+    uniqueViolation.meta = { target: ["broker_id", "amo_lead_id"] };
+
+    prisma.broker.findUnique.mockResolvedValue(broker);
+    prisma.agency.findUnique.mockResolvedValue(agency);
+    prisma.client.findFirst.mockResolvedValue(previousClient);
+    prisma.client.create.mockRejectedValue(uniqueViolation);
+    amo.checkUniqueness.mockResolvedValue({
+      rule: "RULE_2",
+      verdict: "ALARM",
+      reason: "Лид уже в работе КЦ",
+      contactId: 1041,
+      triggerLeadId: 9911,
+      leads: [{ id: 9911, pipeline_id: 7600542, status_id: 62907286 }],
+    });
+
+    const result = await service.fixClient(
+      broker.id,
+      {
+        phone: "+79991112266",
+        fullName: "Client",
+        project: "ZORGE9" as any,
+        agencyInn: agency.inn,
+      },
+      assertAmoCreateLeaseOwned,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        client: previousClient,
+        status: "UNDER_REVIEW",
+        message: expect.stringContaining("уже отправлена"),
+      }),
+    );
+  });
+
   it("does not classify a successful sales-meeting exception as REFIX_AMO_DOWN", async () => {
     const broker = {
       id: "broker-sales-exception",
