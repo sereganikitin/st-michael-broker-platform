@@ -413,8 +413,13 @@ function ActivityEvidenceCompleteness({
   evidence: LoyaltyRecord["activityEvidence"];
 }) {
   const completeness = loyaltyActivityEvidenceCompleteness(evidence);
+  // 2026-09-10 (владелец): про лимит пишем только когда он действительно
+  // сработал — раньше подпись «Лимит сервера: 200» появлялась даже при двух
+  // событиях и сбивала с толку.
   const limit =
-    evidence.limit === null ? "" : ` Лимит сервера: ${evidence.limit}.`;
+    evidence.limit !== null && Number(evidence.count ?? 0) > evidence.limit
+      ? ` Лимит сервера: ${evidence.limit}.`
+      : "";
   const summary =
     completeness === "complete"
       ? `История загружена полностью: ${evidence.loadedCount} из ${evidence.count} событий.`

@@ -10163,11 +10163,42 @@ export class LoyaltyBaseService {
         exactness: "VERIFIED",
         provenance: "Current local broker-owned confirmed deal row",
       })),
+      // 2026-09-10 (владелец: «история загружена частично: 0 из 2»): сделки
+      // реестра ДДУ раньше увеличивали счётчик событий, но в саму ленту не
+      // попадали — карточка писала «0 из 2». Теперь они такие же события, как
+      // у агентства (см. attachOurAgencyRegistryDeals).
+      ...(Array.isArray(item.__registryDeals) ? item.__registryDeals : []).map((row: any) => ({
+        id: `REGISTRY_DEAL:${String(row.id)}`,
+        sourceId: String(row.id),
+        type: "DEAL",
+        date: this.isoDateTime(row.paidAt || row.signedAt),
+        occurredAt: this.isoDateTime(row.paidAt || row.signedAt),
+        status: row.paidAt ? "PAID" : "SIGNED",
+        clientName: null,
+        project: row.project ? String(row.project) : null,
+        contractNumber: row.contractNumber ? String(row.contractNumber) : null,
+        amoLeadId:
+          row.amoLeadId === null || row.amoLeadId === undefined
+            ? null
+            : String(row.amoLeadId),
+        amoDealId: null,
+        amount:
+          row.amount === null || row.amount === undefined
+            ? null
+            : String(row.amount),
+        source: "REGISTRY_DEAL",
+        exactness: "VERIFIED",
+        provenance: "Строка реестра сделок (дата оплаты ДДУ, стоимость по ДДУ)",
+      })),
     ].sort((left, right) =>
       String(right.occurredAt || "").localeCompare(
         String(left.occurredAt || ""),
       ),
     );
+    // 2026-09-10: счётчик событий остаётся суммой _count.* — он нужен, чтобы
+    // честно показывать обрезку длинной истории (загружено 200 из 250).
+    // Расхождение «0 из 2» лечится не здесь: раньше в _count.deals входили
+    // сделки реестра, которых не было в ленте; теперь они в ленте есть.
     const counts = [
       finiteNumber(item._count?.clients),
       finiteNumber(item._count?.meetings),
@@ -10186,7 +10217,7 @@ export class LoyaltyBaseService {
       availability: known ? "LOCAL_PRELIMINARY" : "UNAVAILABLE",
       exactness: known ? "VERIFIED" : "UNKNOWN",
       methodology:
-        "События кабинета этого брокера: фиксации клиентов (по правилам фиксации), подтверждённые и состоявшиеся встречи (плюс встречи с пометкой «статус не подтверждён — нет ответа из amo»), подтверждённые сделки. Это данные кабинета, а не полный аудит amoCRM.",
+        "События кабинета этого брокера: фиксации клиентов (по правилам фиксации), подтверждённые и состоявшиеся встречи (плюс встречи с пометкой «статус не подтверждён — нет ответа из amo»), подтверждённые сделки кабинета и строки реестра ДДУ по дате оплаты. Это данные кабинета, а не полный аудит amoCRM.",
     };
   }
 
@@ -12230,7 +12261,16 @@ export class LoyaltyBaseService {
               clients: { where: fixationClientWhere(cabinetSource) },
               deals: { where: this.ourConfirmedDealWhere() },
               meetings: {
-                where: { status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" } },
+                // 2026-09-10: счётчик встреч считает ровно то же, что и
+                // загрузка встреч выше (включая встречи с неподтверждённым
+                // статусом из amo), иначе карточка сообщала «полнота истории
+                // не подтверждена» на полностью загруженной ленте.
+                where: {
+                  OR: [
+                    { status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" } },
+                    { status: "PENDING", comment: { contains: "[amo:" } },
+                  ],
+                },
               },
               // Задача E: карточка считает звонки как список — легаси
               // CallLog (+ workflow в mapOurBroker), а не телефонию (calls).
@@ -12259,6 +12299,24 @@ export class LoyaltyBaseService {
             ...((broker as any)._count || {}),
             deals: Number((broker as any)._count?.deals || 0) + registryCount,
           };
+          // 2026-09-10: сами строки реестра нужны ленте событий карточки.
+          const registryRows = await this.registryDealModel.findMany({
+            where: { brokerId: id, ...this.registrySignedAtWhere() },
+            select: {
+              id: true,
+              contractNumber: true,
+              project: true,
+              signedAt: true,
+              paidAt: true,
+              amount: true,
+              amoLeadId: true,
+            },
+            orderBy: { paidAt: "desc" },
+            take: OUR_ACTIVITY_EVIDENCE_LIMIT,
+          });
+          (broker as any).__registryDeals = Array.isArray(registryRows)
+            ? registryRows
+            : [];
         }
         if (
           registry?._sum?.amount !== null &&
