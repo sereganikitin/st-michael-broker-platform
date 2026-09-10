@@ -1,0 +1,4727 @@
+{
+ "generatedAt": "2026-09-10",
+ "decision": "нет комиссии брокера в гугл-таблице реестра",
+ "saleChannel": "DIRECT",
+ "contracts": [
+  {
+   "contractNumber": "СБ2-3-1с-170",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-4-2е-031",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-9-1с-230",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-3-2е-018",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-7-2е-209",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-7-2е-207",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ2-8-3е-215",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-4-1с-180",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-4-2е-182",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-4-2е-031",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-4-2е-179",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-6-2е-048",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-6-2е-051",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-9-2е-366 (2-189)",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-16-4е-135",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-17-4е-457",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-109",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-110",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-11-3е-398",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-099",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-100",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-49",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-13-2к-422",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-097",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-023",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-9-2е-364",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-4-1с-027",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-17-1с-458",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ3-14-3е-427",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-1-3е-278",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-5-1с-037",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-8-2е-360 (3-361)",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-15-3е-131",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-14-2е-127",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-6-2е-199",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-3-2е-300",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-12-2е-109",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ3-3-1с-301",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-4-1с-313",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-18-4е-469",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-12-2е-402",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-4-1с-305",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ2-5-2е-187",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-19-4е-473",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-7-2е-060",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-10-3е-386",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-18-2е-471",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-12-1с-409",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-14-1с-425",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-11-1с-393",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-4-1с-308",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-23-6е-498",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-17-3е-463",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-3-2е-299 (СБ1-7-2е-060)",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-105",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ2-10-2е-243",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-4-2е-030",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ММ-048",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ3-9-1с-369",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-091",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ1-11-3е-102",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-12-1с-401",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-5-2е-035",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-16-1с-452",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-14-1с-270",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-5-2е-192",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-9-1с-368",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-15-1с-440",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ2-9-2е-232",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-14-3е-128",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-12-2е-258",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-6-1с-047",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ2-5-2е-193 (СБ3-9-1с-368)",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ2-14-2е-269",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-18-4е-147",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-031",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-18-5е-148",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-030",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-6-3е-204",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-15-2е-438",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-14-2е-122",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-13-1с-416",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ1-5-2е-034",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-6-2е-044",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-13-3е-116",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-17-3е-142",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-029",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ1-8-2е-065",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-8-2е-216",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ2-6-2е-202",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-8-3е-355",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-084",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-16-4е-138",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-16-2е-139",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-14-2е-126",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-038",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "СБ3-11-2е-390",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ1-9-2е-075",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ3-21-4е-487",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-093",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ1-4-2е-024",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ММ-107",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ММ-108",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "СБ3-20-2е-483",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "СБ3-20-4е-482",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "СБ3-20-4е-481",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "СБ2-11-2е-250",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "СБ3-11-3е-387",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "СБ3-12-3е-403",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ММ-052",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ2-1-4е-154",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "СБ2-8-2е-222",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "СБ2-4-2е-183",
+   "project": "SILVER_BOR",
+   "basis": "no_commission:Реклама"
+  },
+  {
+   "contractNumber": "1-18-2-198",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-1-1-038",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-030",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "3-7-С-72",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-1-1-042",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-307 (ММ-26)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-206",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-006",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-086",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "3-5-С-45",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "3-3-С-16",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-025",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-1-49",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-017",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-2-26",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-044",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-9-2-090",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-6-1-060",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-10-1-115",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-15-1-158",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-23",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-276",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-7-1-079",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-1-37",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-1-073",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-143",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-6-1-065",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-17-2-186",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-60",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-3-2-018",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-2-1-013",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-027",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "мм-61",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-10-1-121",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-11-2-135",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-5-1-051",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-1-13",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-2-1-001",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-085",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-18-3-195",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-8-1-094",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-1-110",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-11-2-115",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-72",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-19",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-024",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-2-078",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-1-107",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-6-2-056",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-15-2-162",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-10-1-113",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-7-2-065",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-6-2-055",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-3-082",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-3-123",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-3-124",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-1-101",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-2-2-005",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-17-3-184",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-2-2-006",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-1-133",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-10-1-098",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-2-3-010",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-10-3-100",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-4-2-031",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-3-112",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-15-1-200",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-2-030",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-2-138",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-2-054",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-16-1-170",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-1-145",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-1-146",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-3-147",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-3-148",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-2-149",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-2-150",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-2-151",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-2-152",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-3-153",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-3-154",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-1-157",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-1-158",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-3-159",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-3-160",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-2-161",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-2-162",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-2-163",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-2-164",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-3-165",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-3-166",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-17-3-189",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-16-1-215",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-1-041",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-2-2-007",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-5-1-055",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-5-2-044",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-1-099",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-9-1-085",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-12-1-121",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-10-3-099",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-3-3-015",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-10-2-103",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-3-088",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-7-1-084",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-11-2-116",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-1-133",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-2-1-002",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-7-2-066",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-3-141",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-3-147",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-3-009",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-3-010",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-2-080",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-2-140",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-3-076",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-1-112",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-4-3-034",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-10-1-114",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-2-126",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-3-051",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-002",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-2-079",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-2-077",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-5-1-056",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-14-1-174",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-7-1-062",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-2-042",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-3-033",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-3-2-020",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-18-2-197",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-6-2-064",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-7-2-078",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-16-2-176",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-7-3-064",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-9-2-092",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-9-3-088",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-3-094",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-3-076",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-2-127",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-3-136",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-2-137",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-10-1-126",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-074",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-9-3-093",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-10-3-123",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-3-026",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-11-1-109",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-3-135",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-12-2-126",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-10-2-101",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-7-2-067",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-3-141",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-3-142",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-2-114",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-8-2-092",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-1-134",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-3-111",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-3-110",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-14-1-172",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-8-3-095",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-3-136",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-3-2-019",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-3-117",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-3-081",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-2-138",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-16-1-216",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-18-1-194",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-151",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-3-040",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-3-045",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-10-2-120",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-156",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-3-202",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-3-052",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-3-082",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-15-1-187",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-10-3-117",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-1-159",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-193",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-1-170",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-2-198",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-2-087",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-16-1-202",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-11-1-140",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-1-171",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-15-2-195",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-10-2-106",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-2-118",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-11-1-141",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-15-1-197",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-1-111",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-11-2-135",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-3-093",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-3-148",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-3-045",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-16-3-172",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-8-1-097",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-1-110",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-16-2-174",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-3-1-019",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-1-055",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-16-2-174",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-10-1-104",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-15-3-165",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-3-1-020",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-020м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-3-1-023",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-148",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-7-1-076м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-077",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-079",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-3-153",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-10-3-105",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-9-1-095",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-6-1-059",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-3-045",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-7-1-067",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-7-1-072",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-1-035",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-7-1-076ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-138",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-216",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.154",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-083",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-11-1-119а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-1-168",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-1-167а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-15-1-167",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-1-156",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-1-155а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-14-1-155",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-219",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-323",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-269а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-269",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-321",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.159",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-215",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.158",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-148а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-149",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-188",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-077а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-191",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-164",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-164а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-218",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-217",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-172",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-173",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.69",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-221",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-250а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-250",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-204",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-10-3-105",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-2-1-007ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-3-019м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-18-3-196",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-229",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-1-036а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-324",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-16-1-180",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-3-196",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-17-1-191",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-16-3-171",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-1-036",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-3-033м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-1-034м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-18-1-238",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-16-2-175",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-1-164",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-12-1-132",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-1-149",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.151",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-213",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-2-139",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-1-131а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-15-1-194",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-12-1-125а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-1-122",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-012а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-11-3-117",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-096",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-1-060",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-304",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-3-034",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-15-1-194а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-18-2-197",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-18-2-200",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-1-149а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-3-130",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-186",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-293 (ММ-310)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-3-103м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-200",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-2-080",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-313",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-15-1-161",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-1-137",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-319",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.133",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-16-2-176",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-4-2-032",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-197а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-204",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-204а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-203а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-200",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-3-201",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ЗГ2-10-1-101",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-3-057",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-228",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-19-3-208",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-19-3-207",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-096",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-2-139",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.14",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-326",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.153",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-251",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-251а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-264а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-264",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-139",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-17-1-187а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-11-3-117",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-3-003",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-15-1-167",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-279",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-202",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-2-1-006м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-1-139",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-16-2-176",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-2-078",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-7-3-069",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-3-028",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-1-029",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-17-1-217",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-15-1-167а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-1-144",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-16-3-206",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-247",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-17-3-190",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-226",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-9-1-095а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-2-080",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-10-3-100",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-10-3-099",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.157",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-141",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-1-132",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-5-3-046",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-16-3-177",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-18-1-238",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-4-1-035а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-095",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.61",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-241",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-241а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-145",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-328",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.160",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-1-143а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-146",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.155",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-317",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-2-128",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-207",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-220",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-178",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-211",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-210",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.196",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-17-3-183",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-238",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-237",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-206",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.47",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-225",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.64",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-292 (ММ-311)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-281",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-223",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-305",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-17-2-185",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-3-111",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-249а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-249",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-199",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.163",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.165",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.166",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-214",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-189",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.22",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-5-3-053м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-5-3-054м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-176",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.79",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.71",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-18-1-238",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-1-034ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-3-1-024а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-284 (было 163)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-230",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.152",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.187",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.161",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-16-1-173а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-3-162",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-7-1-071",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-16-1-176",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.67",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-3-039м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-197",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-302",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.39",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-17-2-185",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-193",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-1-083",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.45",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-261",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-261а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-273",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.213",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-1-034м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-3-1-024",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-2-2-007",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-021ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-18-3-202",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-181а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-181",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.93",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-4-1-035а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-095",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.103",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-17-1-185а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-3-146",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-145",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-3-147",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-6-1-062ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.88",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.140",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.145",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-17-1-191а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-275",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-8-1-098м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-089",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-011а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-2-2-008см",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-301",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-17-1-192",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-203",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.44",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-7-3-070",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-1-041",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.54",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-10-1-101а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-089",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-089а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.137",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-203",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-3-1-019а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.143",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-309",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-194",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.96",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.87",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-1-041а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-260а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-260",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-303",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-322",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-5-1-048м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-6-1-062м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-148",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-3-2-018",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-1-043",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-2-1-006ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-1-060а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-1-047а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-1-034м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-6-3-068м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-11-1-133м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-5-3-040",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-6-1-059а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-1-083а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-8-1-084",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-3-033м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-1-059а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-7-1-077м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-16-3-214",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-1-105ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-184а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-184",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-7-1-067а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-10-1-118ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-1-115",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-3-3-021",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-095",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-11-1-134м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-1-116",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-227",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-008",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-151",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-284а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-284",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-2-1-011а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-3-3-016",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-1-115а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-1-105м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-12-1-127",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-12-1-127а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-19-3-208",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-170",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-11-1-119",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-185",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.144",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-19-2-212",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-19-3-213",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-4-1-032ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-143",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-163",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-3-1-018ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-2-1-012",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-16-1-205",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-14-1-175",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-177",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.149",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-1-160",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-084",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-6-1-063м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-1-152",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-084а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-2-1-004ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-7-1-071",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.145",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-1-102ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-9-2-089",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-007",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-15-1-190",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-18-2-200",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.138",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-274",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.183",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.156",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-280",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-320",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.127",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-261",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-261а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-091а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.127",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-092",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-11-1-133ам",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.205",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.31",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-3-3-022",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-5-1-044",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-12-1-128",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-190",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-318",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-272",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.174",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.57",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.129",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.73",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-314",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.68",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-20-1-224",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.24",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-19-2-209",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-1-053",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.200",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-212",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-005а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-3-2-018",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-8-1-098м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-17-1-220",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.72",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-3-142",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-20-2-222-253",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-11-1-110",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-12-1-131",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.84",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-19-2-211",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-308",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-22-3-244",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.178",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.33",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-2-2-008см",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-23-1-249",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-149а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-267",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-267а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-306",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-16-1-211",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.201",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-1-163а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.7",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-7-3-063",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-20-2-224",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.70",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.199",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-291",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.63",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-239",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.86",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-19-3-213",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.77",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-175",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.29",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-160 (ММ-312)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.204",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.195",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-20-2-221",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-174",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.85",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-198",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-228",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-2-1-005",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-236",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-179",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-2-165с",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-12-1-149а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.88",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-246",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.58",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.55",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.75",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.23",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-2-150",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.134",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-325",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-17-2-186",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-1-163",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-17-3-189",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-3-135",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.162",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.43",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-1-151",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-6-1-053а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-224",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.38",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.35",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-15-1-163а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-1-151а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-15-1-193",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-13-1-143",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-16-1-208",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-16-1-209 (13-1-164а)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.41",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-14-2-180с",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-10-1-108",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-9-1-095а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-17-1-188",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-14-1-151а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-19-1-255",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-18-1-238",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-16-1-175а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-20-1-223а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-258",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-258а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-12-1-131а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-199",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-199а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-315",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-316",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-283",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-283а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.46",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-3-109м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-15-1-163",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-16-1-175а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-12-1-132а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-18-1-244",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-14-1-178а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-14-1-179",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-16-1-179",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-6-3-057",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-1-339 (К3П7)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-17-1-226",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-9-3-087",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-1-164",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-187",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-1-295 (К1П6)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-195",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.74",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.118",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.24",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.99",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.76",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-15-1-161а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-13-1-144а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-154",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-154а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.2",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.37",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.44-106К",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.53-101К",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.141-34К",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.101",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-13-1-164а",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-16-2-174",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-20-1-221 (ЗГ2-16-1-173а)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-20-3-220",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-2-3-009 (ЗГ2-2-3-004)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.106",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-9-3-109м",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "МТ-159",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-169",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.171",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "КЛ-02.66",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-1-1.4.12 (К2П1)",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ДА17-12/2024",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-329",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ММ-327",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-16-1-180",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-5-3-046м",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-21-1-233",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ2-1-3-258",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-02.105-86K",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "КЛ-02.89",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ДА20-02/2025",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ДА19-02/2025",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ1-20-3-220",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ3-1-1-324",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "КЛ-02.62",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ3-17-1-223а",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-17-2-225с",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ММ-125",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "МТ-15",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ2-1-1-260",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ЗГ2-6-3-057",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-89",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ2-1-3-259",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ2-1-1-271",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ3-1-1-320",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-1-1-319 / ЗГ2-1-1-265",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-263а",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-263",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ2-20-1-223",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-240",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-240а",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ2-1-1-261",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ1-21-1-234",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ2-20-1-224",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ЗГ2-1-1.4.2 (К2П11)",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-326",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-271",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "КЛ-02.11-92К",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-1-1-322",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-87",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-127",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-17-1-230",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ2-19-3-213-299",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-142",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ЗГ3-1-331-2Н (К3П2)",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-20-1-277",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ3-11-3-132м",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-02.114-84К",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-88",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-90",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-02.91-130К",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-93",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "КЛ-02.5-120К",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-168",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-16-1-208а-263 (2-168а)",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ1-21-3-235",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-257",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-257а",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-256",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-256а",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-92",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-91",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ2-1-1-264",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-02.50-139К",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-02.173-140К",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ3-18-1-243",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-255",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-255а",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-02.95-66К",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "КЛ-02.28",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ1-22-3-239а",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-02.104-85К",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-16-1-209а",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-166-138",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "КЛ-02.182",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-14-3-176",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ММ-259а",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-259",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "КЛ-02.102-98К",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "КЛ-02.94",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-153",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-153а",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ММ-254",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-254а",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-253",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ММ-253а",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-02.164-138К",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ3-12-3-147",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ЗГ1-13-3-135",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ММ-55-54",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ММ-54-53",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ММ-58-57",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ЗГ1-4-3-027",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ЗГ1-4-3-028",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ЗГ1-22-1-240",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "КЛ-02.13-91К",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-19-1-252",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ1-2-3-003",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ЗГ2-16-1-179а",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "КЛ-02.36-65К",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ1-19-1-206",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ1-18-1-193с",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ЗГ2-15-3-160",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-080",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ЗГ3-4-3-032м",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ЗГ3-17-1-223а",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  },
+  {
+   "contractNumber": "ЗГ1-20-1-217с",
+   "project": "ZORGE9",
+   "basis": "no_commission:LYNX"
+  },
+  {
+   "contractNumber": "ЗГ2-8-1-080",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ДА31-10/2026",
+   "project": "ZORGE9",
+   "basis": "no_commission:(пусто)"
+  },
+  {
+   "contractNumber": "ЗГ3-11-3-138м",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ2-18-1-203-285",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "ЗГ3-20-1-273",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ДА46-01/2025",
+   "project": "ZORGE9",
+   "basis": "no_commission:AGM"
+  },
+  {
+   "contractNumber": "КЛ-02.89-68К",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ЗГ3-21-1-283-341/1",
+   "project": "ZORGE9",
+   "basis": "no_commission:Купивший"
+  },
+  {
+   "contractNumber": "ДА 53-06/2026",
+   "project": "ZORGE9",
+   "basis": "no_commission:Самоход"
+  }
+ ]
+}
