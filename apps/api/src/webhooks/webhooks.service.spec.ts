@@ -707,21 +707,24 @@ describe("WebhooksService: уникальность до проведённой 
     });
   });
 
-  it("пока к лиду прикреплён ещё один брокер — заявка остаётся на проверке", async () => {
+  // 2026-09-11 (правило владельца): «пока оба брокера есть в карточке, они
+  // уникальны». Лишнего снимает колл-центр — открепил, значит не уникален.
+  it("второй прикреплённый брокер не мешает: уникальность выдаётся", async () => {
     const { prisma, service } = makeService(pendingClient(), 1);
 
     await (service as any).syncBrokerAttachmentFromLead(123);
 
-    expect(prisma.client.update).not.toHaveBeenCalled();
-    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(prisma.client.update).toHaveBeenCalledWith({
+      where: { id: "client-kc" },
+      data: expect.objectContaining({ uniquenessStatus: "CONDITIONALLY_UNIQUE" }),
+    });
   });
 
-  it("на «Встреча проведена» уникальность подтверждается даже при втором брокере", async () => {
+  it("на «Встреча проведена» уникальность подтверждается, причина своя", async () => {
     const { prisma, service } = makeService(pendingClient(), 1, 142);
 
     await (service as any).syncBrokerAttachmentFromLead(123);
 
-    expect(prisma.broker.count).not.toHaveBeenCalled();
     expect(prisma.client.update).toHaveBeenCalledWith({
       where: { id: "client-kc" },
       data: expect.objectContaining({

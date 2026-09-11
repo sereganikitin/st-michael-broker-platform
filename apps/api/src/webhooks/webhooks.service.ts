@@ -807,33 +807,6 @@ export class WebhooksService {
     }
   }
 
-  /**
-   * Сколько ЧУЖИХ карточек брокеров прикреплено к тому же лиду. Нужно, чтобы
-   * до проведённой встречи не выдать уникальность сразу двоим претендентам.
-   * При любой ошибке возвращаем 1 («считаем, что претенденты есть») —
-   * безопаснее оставить заявку на проверке, чем выдать лишнюю уникальность.
-   */
-  private async countRivalBrokerContacts(
-    leadContactIds: number[],
-    selfAmoContactId: number,
-  ): Promise<number> {
-    const others = leadContactIds.filter((id) => id !== selfAmoContactId);
-    if (!others.length) return 0;
-    try {
-      return await this.prisma.broker.count({
-        where: {
-          amoContactId: { in: others.map((id) => BigInt(id)) },
-          mergedIntoId: null,
-        },
-      });
-    } catch (error: any) {
-      this.logger.warn(
-        `Не удалось посчитать брокеров на лиде: ${error?.message || error}`,
-      );
-      return 1;
-    }
-  }
-
   private async syncBrokerAttachmentFromLead(leadId: number): Promise<void> {
     if (!leadId) return;
 
@@ -949,21 +922,12 @@ export class WebhooksService {
       //   • откреплённый брокер сюда не попадает (attached === false) и
       //     уходит в REJECTED стандартной веткой ниже;
       //   • сделка (PAID/COMMISSION_PAID) отсечена в начале цикла;
-      //   • до проведённой встречи уникальность выдаётся, только если к лиду
-      //     прикреплён ОДИН брокер: пока претендентов несколько, победителя
-      //     выбирает колл-центр, и раздавать уникальность обоим нельзя.
-      //     На 142 это ограничение снимается — КЦ уже выбрал.
+      //   • если к лиду прикреплены несколько брокеров — уникальны ВСЕ
+      //     прикреплённые (правило владельца 11.09.2026: «пока оба есть в
+      //     карточке, они уникальны»). Лишнего снимает колл-центр: как
+      //     только его открепят, ветка ниже поставит ему «не уникален».
       if (attached && isRule2KcPending && client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW) {
         const meetingHeld = leadStatusId === 142 && leadPipelineId === 7600542;
-        const rivals = meetingHeld
-          ? 0
-          : await this.countRivalBrokerContacts(leadContactIds, brokerAmoId);
-        if (rivals > 0) {
-          this.logger.log(
-            `Client ${client.id}: RULE_2_KC остаётся UNDER_REVIEW — к лиду ${leadId} прикреплено ещё ${rivals} брокер(ов), победителя выбирает КЦ`,
-          );
-          continue;
-        }
         await this.prisma.client.update({
           where: { id: client.id },
           data: {
