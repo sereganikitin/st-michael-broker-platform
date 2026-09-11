@@ -61,6 +61,17 @@ class FakeRedis {
     const current = this.values.get(key);
     if (!current) return 0;
 
+    // 2026-09-11: перехват завершённого замка сверяет всё значение целиком,
+    // а не владельца — у завершённой записи владельца нет.
+    if (script.includes("client-fixation:take-over-completed")) {
+      if (current.value !== args[0]) return 0;
+      this.values.set(key, {
+        value: args[1],
+        expiresAt: this.now + Number(args[2]),
+      });
+      return 1;
+    }
+
     let parsed: { owner?: string };
     try {
       parsed = JSON.parse(current.value) as { owner?: string };
@@ -126,6 +137,91 @@ describe("ClientFixationSafetyService", () => {
     expect(left).toBe(right);
     expect(left).toMatch(/^[a-f0-9]{64}$/);
     expect(left).not.toContain(payload.phone);
+  });
+
+  // 2026-09-11 (аудит обращения владельца): одного клиента законно фиксируют
+  // разные брокеры. Раньше пять минут после успешной заявки любая другая на
+  // тот же номер падала с «Ключ повторного запроса уже использован».
+  it("другая заявка на тот же номер после завершённой — проходит, а не падает", async () => {
+    const { redis, service } = createService();
+
+    const first = await service.execute(
+      { actorId: "broker-1", payload, idempotencyKey: "11111111-1111-4111-8111-111111111111" },
+      async () => ({ clientId: "client-1" }),
+    );
+    expect(first).toEqual({ clientId: "client-1" });
+
+    const action = jest.fn(async () => ({ clientId: "client-2" }));
+    const second = await service.execute(
+      {
+        actorId: "broker-2",
+        payload: { ...payload, fullName: "Другой клиент на тот же номер" },
+        idempotencyKey: "22222222-2222-4222-8222-222222222222",
+      },
+      action,
+    );
+
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(second).toEqual({ clientId: "client-2" });
+    void redis;
+  });
+
+  it("пока чужая заявка на этот номер обрабатывается — человеческий отказ", async () => {
+    const { service } = createService();
+    const gate = deferred<{ clientId: string }>();
+
+    const inFlight = service.execute(
+      { actorId: "broker-1", payload },
+      () => gate.promise,
+    );
+
+    const action = jest.fn(async () => ({ clientId: "client-2" }));
+    await expect(
+      service.execute(
+        { actorId: "broker-2", payload: { ...payload, fullName: "Второй брокер" } },
+        action,
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message: "По этому номеру сейчас обрабатывается другая заявка. Повторите через минуту.",
+      }),
+      fixationGuardConflict: true,
+    });
+    expect(action).not.toHaveBeenCalled();
+
+    gate.resolve({ clientId: "client-1" });
+    await inFlight;
+  });
+
+  it("повтор той же заявки по-прежнему отдаётся из кэша без второго прогона", async () => {
+    const { service } = createService();
+    const action = jest.fn(async () => ({ clientId: "client-1" }));
+    const key = "33333333-3333-4333-8333-333333333333";
+
+    const first = await service.execute({ actorId: "broker-1", payload, idempotencyKey: key }, action);
+    const second = await service.execute({ actorId: "broker-1", payload, idempotencyKey: key }, action);
+
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  it("тот же ключ с другими данными — понятный текст, без технических слов", async () => {
+    const { service } = createService();
+    const key = "44444444-4444-4444-8444-444444444444";
+
+    await service.execute({ actorId: "broker-1", payload, idempotencyKey: key }, async () => ({ clientId: "client-1" }));
+
+    await expect(
+      service.execute(
+        { actorId: "broker-1", payload: { ...payload, amount: 19_000_000 }, idempotencyKey: key },
+        async () => ({ clientId: "client-2" }),
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message: "Эта заявка уже отправлялась с другими данными. Обновите страницу и заполните форму заново.",
+      }),
+      fixationGuardConflict: true,
+    });
   });
 
   it("uses canonical phone for the global semantic lock", () => {
@@ -289,11 +385,14 @@ describe("ClientFixationSafetyService", () => {
 
     releaseAmo.resolve({ id: 32310587 });
     await expect(first).resolves.toEqual({ id: 32310587 });
+    // 2026-09-11: после завершения первой заявки второй брокер больше не
+    // упирается в замок — он идёт в обычные правила уникальности. Чужой
+    // результат ему при этом не отдаётся: у него свой прогон и свой ответ.
     await expect(
       service.execute({ actorId: "broker-2", payload }, secondAction),
-    ).rejects.toMatchObject({ status: 409 });
+    ).resolves.toEqual({ id: 32310589 });
     expect(firstAction).toHaveBeenCalledTimes(1);
-    expect(secondAction).not.toHaveBeenCalled();
+    expect(secondAction).toHaveBeenCalledTimes(1);
   });
 
   it("replays a completed response for the same UUID without another amo lead", async () => {
