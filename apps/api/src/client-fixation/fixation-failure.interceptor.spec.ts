@@ -21,7 +21,7 @@ describe('FixationFailureInterceptor', () => {
 
     expect(opsAlerts.sendSafely).toHaveBeenCalledTimes(1);
     const message = opsAlerts.sendSafely.mock.calls[0][0] as string;
-    expect(message).toContain('Номер брокера: broker-1');
+    expect(message).toContain('Карточка брокера: broker-1');
     expect(message).toContain('Причина: непредвиденная техническая ошибка');
     expect(message).not.toContain('category:');
     expect(message).not.toContain('sensitive details');
@@ -52,7 +52,7 @@ describe('FixationFailureInterceptor', () => {
     expect(opsAlerts.sendSafely).toHaveBeenCalledTimes(1);
     const message = opsAlerts.sendSafely.mock.calls[0][0] as string;
     expect(message).toContain('защита от двойной отправки остановила заявку');
-    expect(message).toContain('Номер брокера: broker-1');
+    expect(message).toContain('Карточка брокера: broker-1');
     expect(message).toContain('Код ответа сайта: 409');
   });
 
@@ -64,5 +64,52 @@ describe('FixationFailureInterceptor', () => {
 
     await expect(firstValueFrom(interceptor.intercept(context, next))).rejects.toBe(error);
     expect(opsAlerts.sendSafely).not.toHaveBeenCalled();
+  });
+
+  // 2026-09-11 (просьба владельца): в алерте видно телефон брокера и агентство.
+  it('подставляет телефон брокера и агентство', async () => {
+    const opsAlerts = { sendSafely: jest.fn().mockResolvedValue(true) };
+    const prisma = {
+      broker: {
+        findUnique: jest.fn().mockResolvedValue({
+          phone: '+79255724183',
+          brokerAgencies: [
+            { isPrimary: true, agency: { name: 'Агентство 1111111111', inn: '1111111111' } },
+          ],
+        }),
+      },
+    };
+    const interceptor = new FixationFailureInterceptor(
+      opsAlerts as unknown as OpsAlertService,
+      prisma as any,
+    );
+    const error = new Error('boom');
+    const next = { handle: () => throwError(() => error) } as CallHandler;
+
+    await expect(firstValueFrom(interceptor.intercept(context, next))).rejects.toBe(error);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(opsAlerts.sendSafely).toHaveBeenCalledTimes(1);
+    const message = opsAlerts.sendSafely.mock.calls[0][0] as string;
+    expect(message).toContain('Телефон брокера: +79255724183');
+    expect(message).toContain('Агентство: Агентство 1111111111 (ИНН 1111111111)');
+    expect(message).toContain('Карточка брокера: broker-1');
+  });
+
+  it('если брокера не нашли — алерт всё равно уходит', async () => {
+    const opsAlerts = { sendSafely: jest.fn().mockResolvedValue(true) };
+    const prisma = { broker: { findUnique: jest.fn().mockRejectedValue(new Error('db down')) } };
+    const interceptor = new FixationFailureInterceptor(
+      opsAlerts as unknown as OpsAlertService,
+      prisma as any,
+    );
+    const error = new Error('boom');
+    const next = { handle: () => throwError(() => error) } as CallHandler;
+
+    await expect(firstValueFrom(interceptor.intercept(context, next))).rejects.toBe(error);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(opsAlerts.sendSafely).toHaveBeenCalledTimes(1);
+    expect(opsAlerts.sendSafely.mock.calls[0][0]).toContain('Карточка брокера: broker-1');
   });
 });
