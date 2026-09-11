@@ -15,6 +15,36 @@ const PROCESSING_TTL_MS = AMO_FIXATION_PHONE_LOCK_TTL_MS;
 const COMPLETED_TTL_MS = 5 * 60_000;
 const LEASE_RENEW_INTERVAL_MS = 30_000;
 
+// 2026-09-11 (аудит обращения владельца): тексты видит брокер — внешний
+// человек, поэтому без технических формулировок. См. правило «ошибки базы
+// не должны доходить до брокера».
+const REPLAY_KEY_REUSED_MESSAGE =
+  "Эта заявка уже отправлялась с другими данными. Обновите страницу и заполните форму заново.";
+const SAME_REQUEST_IN_FLIGHT_MESSAGE =
+  "Заявка уже отправляется. Подождите несколько секунд и не отправляйте её повторно.";
+const SAME_REQUEST_UNCERTAIN_MESSAGE =
+  "Предыдущая отправка этой заявки завершилась неоднозначно. Подождите минуту и повторите — если повторится, напишите в поддержку.";
+const OTHER_REQUEST_IN_FLIGHT_MESSAGE =
+  "По этому номеру сейчас обрабатывается другая заявка. Повторите через минуту.";
+const OTHER_REQUEST_UNCERTAIN_MESSAGE =
+  "По этому номеру предыдущая заявка завершилась неоднозначно. Подождите минуту и повторите — если повторится, напишите в поддержку.";
+const STORED_STATE_BROKEN_MESSAGE =
+  "Не удалось проверить предыдущую отправку заявки. Обновите страницу и попробуйте снова.";
+
+/**
+ * Перехват завершённого замка по номеру: меняем значение только если оно в
+ * точности то, которое мы прочитали. Гонка двух заявок на один номер
+ * заканчивается тем, что перехват удаётся ровно одной.
+ */
+const TAKE_OVER_COMPLETED_SCRIPT = `
+-- client-fixation:take-over-completed
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  redis.call("SET", KEYS[1], ARGV[2], "PX", tonumber(ARGV[3]))
+  return 1
+end
+return 0
+`;
+
 type StoredFixation<T = unknown> = {
   fingerprint: string;
   status: "processing" | "completed" | "uncertain";
@@ -88,6 +118,24 @@ export function clientFixationSemanticFingerprint(payload: unknown): string {
  * different payload. Redis is a readiness dependency, so the guard fails
  * closed instead of creating an amoCRM lead without distributed protection.
  */
+/**
+ * Признак «заявку остановила защита от двойной отправки». Ошибка выглядит для
+ * брокера как отказ сайта, поэтому о ней нужно узнавать сразу: перехватчик
+ * FixationFailureInterceptor шлёт по этой метке алерт в Telegram и пишет
+ * строку в лог (409-е ответы сами в лог не попадают).
+ */
+export const FIXATION_GUARD_CONFLICT = "fixationGuardConflict";
+
+export function isFixationGuardConflict(error: unknown): boolean {
+  return Boolean((error as Record<string, unknown> | null)?.[FIXATION_GUARD_CONFLICT]);
+}
+
+function guardConflict(message: string): ConflictException {
+  const conflict = new ConflictException(message);
+  Object.assign(conflict, { [FIXATION_GUARD_CONFLICT]: true });
+  return conflict;
+}
+
 @Injectable()
 export class ClientFixationSafetyService {
   private readonly logger = new Logger(ClientFixationSafetyService.name);
@@ -138,67 +186,69 @@ export class ClientFixationSafetyService {
           if (racedReplay) {
             return this.readStoredResult<T>(racedReplay, fingerprint);
           }
-          throw new ConflictException(
+          throw guardConflict(
             "Повторный запрос фиксации уже обрабатывается",
           );
         }
         ownsReplay = true;
       }
 
-      const existingSemantic = await this.phoneLock.readKey(semanticKey);
-      if (existingSemantic) {
-        const stored = this.parseStored<T>(existingSemantic, fingerprint);
-        if (stored.status === "completed") {
+      const applySemantic = async (
+        raw: string,
+      ): Promise<{ replay: true; result: T } | { replay: false }> => {
+        const resolved = await this.resolveSemantic<T>(
+          redis,
+          raw,
+          fingerprint,
+          semanticKey,
+          processing,
+        );
+        if (resolved.kind === "replay") {
           if (replayKey && ownsReplay) {
             await this.cacheCompleted(
               redis,
               replayKey,
               owner,
               fingerprint,
-              stored.result,
+              resolved.result,
             );
           }
-          return stored.result as T;
+          return { replay: true, result: resolved.result as T };
+        }
+        if (resolved.kind === "takeover") {
+          ownsSemantic = true;
+          return { replay: false };
         }
         if (replayKey && ownsReplay) {
           await this.releaseOwned(redis, replayKey, owner);
           ownsReplay = false;
         }
-        throw this.processingConflict(stored.status);
+        throw resolved.conflict;
+      };
+
+      const existingSemantic = await this.phoneLock.readKey(semanticKey);
+      if (existingSemantic) {
+        const outcome = await applySemantic(existingSemantic);
+        if (outcome.replay) return outcome.result;
       }
 
-      const acquiredSemantic = await this.phoneLock.tryAcquireKey(
-        semanticKey,
-        processing,
-        PROCESSING_TTL_MS,
-      );
-      if (!acquiredSemantic) {
-        const racedSemantic = await this.phoneLock.readKey(semanticKey);
-        if (racedSemantic) {
-          const stored = this.parseStored<T>(racedSemantic, fingerprint);
-          if (stored.status === "completed") {
-            if (replayKey && ownsReplay) {
-              await this.cacheCompleted(
-                redis,
-                replayKey,
-                owner,
-                fingerprint,
-                stored.result,
-              );
-            }
-            return stored.result as T;
-          }
-          if (replayKey && ownsReplay) {
-            await this.releaseOwned(redis, replayKey, owner);
-            ownsReplay = false;
-          }
-          throw this.processingConflict(stored.status);
-        }
-        throw new ConflictException(
-          "Повторный запрос фиксации уже обрабатывается",
+      if (!ownsSemantic) {
+        const acquiredSemantic = await this.phoneLock.tryAcquireKey(
+          semanticKey,
+          processing,
+          PROCESSING_TTL_MS,
         );
+        if (acquiredSemantic) {
+          ownsSemantic = true;
+        } else {
+          const racedSemantic = await this.phoneLock.readKey(semanticKey);
+          if (!racedSemantic) {
+            throw guardConflict(SAME_REQUEST_IN_FLIGHT_MESSAGE);
+          }
+          const outcome = await applySemantic(racedSemantic);
+          if (outcome.replay) return outcome.result;
+        }
       }
-      ownsSemantic = true;
     } catch (error) {
       if (ownsSemantic) await this.releaseOwned(redis, semanticKey, owner);
       if (ownsReplay) await this.releaseOwned(redis, replayKey!, owner);
@@ -217,7 +267,7 @@ export class ClientFixationSafetyService {
       const result = await action({ assertOwned: lease.assertOwned });
       await lease.stop();
       if (lease.hasLostOwnership()) {
-        throw new ConflictException(
+        throw guardConflict(
           "Защита фиксации потеряла владение запросом; результат требует сверки, повтор заблокирован",
         );
       }
@@ -239,7 +289,7 @@ export class ClientFixationSafetyService {
         );
       }
       if (!semanticCached || !replayCached) {
-        throw new ConflictException(
+        throw guardConflict(
           "Результат фиксации не удалось безопасно закэшировать; повтор заблокирован до сверки",
         );
       }
@@ -259,26 +309,108 @@ export class ClientFixationSafetyService {
     }
   }
 
-  private parseStored<T>(raw: string, fingerprint: string): StoredFixation<T> {
+  private parseStored<T>(raw: string, fingerprint?: string): StoredFixation<T> {
     let stored: StoredFixation<T>;
     try {
       stored = JSON.parse(raw) as StoredFixation<T>;
     } catch {
-      throw new ConflictException(
-        "Состояние повторного запроса фиксации повреждено",
-      );
+      throw guardConflict(STORED_STATE_BROKEN_MESSAGE);
     }
-    if (stored.fingerprint !== fingerprint) {
-      throw new ConflictException(
-        "Ключ повторного запроса уже использован для другой фиксации",
-      );
+    // Отпечаток сверяем только для браузерного ключа: там несовпадение
+    // действительно означает «тот же ключ, другие данные». Для замка по
+    // номеру клиента чужой отпечаток — норма (одного клиента фиксируют
+    // разные брокеры), решение принимает resolveSemantic.
+    if (fingerprint !== undefined && stored.fingerprint !== fingerprint) {
+      throw guardConflict(REPLAY_KEY_REUSED_MESSAGE);
     }
     if (!["processing", "completed", "uncertain"].includes(stored.status)) {
-      throw new ConflictException(
-        "Состояние повторного запроса фиксации повреждено",
-      );
+      throw guardConflict(STORED_STATE_BROKEN_MESSAGE);
     }
     return stored;
+  }
+
+  /**
+   * 2026-09-11: что делать с уже существующим замком по номеру клиента.
+   * Раньше здесь падало «Ключ повторного запроса уже использован для другой
+   * фиксации»: сравнивался отпечаток чужой заявки, и пять минут после каждой
+   * успешной фиксации номер был заблокирован для всех остальных брокеров.
+   */
+  private async resolveSemantic<T>(
+    redis: any,
+    raw: string,
+    fingerprint: string,
+    semanticKey: string,
+    processing: string,
+  ): Promise<
+    | { kind: "replay"; result: T }
+    | { kind: "takeover" }
+    | { kind: "conflict"; conflict: ConflictException }
+  > {
+    const stored = this.parseStored<T>(raw);
+    if (stored.fingerprint === fingerprint) {
+      // Та же самая заявка: повтор отдаём из кэша, обработку не дублируем.
+      if (stored.status === "completed") {
+        return { kind: "replay", result: stored.result as T };
+      }
+      return {
+        kind: "conflict",
+        conflict: this.processingConflict(stored.status),
+      };
+    }
+    if (stored.status === "completed") {
+      // Другая заявка на тот же номер, предыдущая уже завершена — замок
+      // держит только кэш её ответа. Перехватываем и идём дальше, в обычные
+      // правила уникальности.
+      const takenOver = await this.takeOverCompleted(
+        redis,
+        semanticKey,
+        raw,
+        processing,
+      );
+      return takenOver
+        ? { kind: "takeover" }
+        : {
+            kind: "conflict",
+            conflict: guardConflict(OTHER_REQUEST_IN_FLIGHT_MESSAGE),
+          };
+    }
+    // Чужая заявка ещё обрабатывается (или завершилась неоднозначно) —
+    // ждём: две одновременные записи по одному номеру создадут дубль в amoCRM.
+    return {
+      kind: "conflict",
+      conflict: guardConflict(
+        stored.status === "uncertain"
+          ? OTHER_REQUEST_UNCERTAIN_MESSAGE
+          : OTHER_REQUEST_IN_FLIGHT_MESSAGE,
+      ),
+    };
+  }
+
+  private async takeOverCompleted(
+    redis: any,
+    key: string,
+    expectedRaw: string,
+    value: string,
+  ): Promise<boolean> {
+    try {
+      return (
+        Number(
+          await redis.eval(
+            TAKE_OVER_COMPLETED_SCRIPT,
+            1,
+            key,
+            expectedRaw,
+            value,
+            String(PROCESSING_TTL_MS),
+          ),
+        ) === 1
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `Не удалось перехватить замок по номеру клиента: ${error?.message || error}`,
+      );
+      return false;
+    }
   }
 
   private readStoredResult<T>(raw: string, fingerprint: string): T {
@@ -292,10 +424,10 @@ export class ClientFixationSafetyService {
   private processingConflict(
     status: StoredFixation["status"],
   ): ConflictException {
-    return new ConflictException(
+    return guardConflict(
       status === "uncertain"
-        ? "Предыдущая фиксация завершилась неоднозначно; повтор временно заблокирован"
-        : "Повторный запрос фиксации уже обрабатывается",
+        ? SAME_REQUEST_UNCERTAIN_MESSAGE
+        : SAME_REQUEST_IN_FLIGHT_MESSAGE,
     );
   }
 
@@ -409,7 +541,7 @@ export class ClientFixationSafetyService {
         await inFlight;
         if (stopped || lostOwnership) {
           lostOwnership = true;
-          throw new ConflictException(
+          throw guardConflict(
             "CLIENT_FIXATION_PHONE_LOCK_LOST",
           );
         }

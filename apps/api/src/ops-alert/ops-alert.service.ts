@@ -15,6 +15,7 @@ const ALERT_CATEGORY_LABELS: Record<string, string> = {
   DATABASE_ERROR: 'ошибка базы данных кабинета',
   TIMEOUT: 'операция не завершилась вовремя',
   DEPENDENCY_UNAVAILABLE: 'внешний сервис временно недоступен',
+  FIXATION_GUARD_BLOCKED: 'защита от двойной отправки остановила заявку',
   UNEXPECTED_ERROR: 'непредвиденная техническая ошибка',
 };
 
