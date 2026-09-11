@@ -26,12 +26,6 @@ export default function LoginPage() {
     phoneDigits.length > 0 && phoneDigits.length < 10
       ? `Введено ${phoneDigits.length} из 10 цифр — не хватает ${digitsLeft}`
       : '';
-  // Пароль короче 8 символов не блокируем: у части брокеров пароли заданы
-  // до введения этого правила. Показываем подсказку, вход разрешаем.
-  const passwordHint =
-    password.length > 0 && password.length < 8
-      ? 'Обычно пароль не короче 8 символов'
-      : '';
 
   const handleLogin = async () => {
     if (phoneDigits.length !== 10) {
@@ -118,9 +112,6 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
             />
-            {passwordHint && (
-              <p className="mt-1 text-xs text-text-muted">{passwordHint}</p>
-            )}
           </div>
 
           <button
