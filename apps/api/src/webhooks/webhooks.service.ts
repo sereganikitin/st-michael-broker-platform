@@ -807,6 +807,33 @@ export class WebhooksService {
     }
   }
 
+  /**
+   * Сколько ЧУЖИХ карточек брокеров прикреплено к тому же лиду. Нужно, чтобы
+   * до проведённой встречи не выдать уникальность сразу двоим претендентам.
+   * При любой ошибке возвращаем 1 («считаем, что претенденты есть») —
+   * безопаснее оставить заявку на проверке, чем выдать лишнюю уникальность.
+   */
+  private async countRivalBrokerContacts(
+    leadContactIds: number[],
+    selfAmoContactId: number,
+  ): Promise<number> {
+    const others = leadContactIds.filter((id) => id !== selfAmoContactId);
+    if (!others.length) return 0;
+    try {
+      return await this.prisma.broker.count({
+        where: {
+          amoContactId: { in: others.map((id) => BigInt(id)) },
+          mergedIntoId: null,
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Не удалось посчитать брокеров на лиде: ${error?.message || error}`,
+      );
+      return 1;
+    }
+  }
+
   private async syncBrokerAttachmentFromLead(leadId: number): Promise<void> {
     if (!leadId) return;
 
@@ -910,28 +937,60 @@ export class WebhooksService {
       // отдетачены, идут в REJECTED через стандартный путь).
       const isRule2KcPending = !!client.uniquenessReason?.startsWith('RULE_2_KC_PENDING:');
 
+      // 2026-09-11 (правило владельца): «брокер уникален всю дорогу до того
+      // момента, пока встреча не проведена». Раньше лифт срабатывал ТОЛЬКО
+      // на 142 «Встреча проведена», и брокер, уже прикреплённый к активной
+      // карточке КЦ (например, «Встреча назначена»), неделями висел «на
+      // проверке». Теперь достаточно быть прикреплённым к НЕ закрытому лиду.
+      //
+      // Границы правила, их важно держать:
+      //   • 143 «Закрыто и не реализовано» сюда не доходит — ветка выше
+      //     отклоняет уникальность и делает continue;
+      //   • откреплённый брокер сюда не попадает (attached === false) и
+      //     уходит в REJECTED стандартной веткой ниже;
+      //   • сделка (PAID/COMMISSION_PAID) отсечена в начале цикла;
+      //   • до проведённой встречи уникальность выдаётся, только если к лиду
+      //     прикреплён ОДИН брокер: пока претендентов несколько, победителя
+      //     выбирает колл-центр, и раздавать уникальность обоим нельзя.
+      //     На 142 это ограничение снимается — КЦ уже выбрал.
       if (attached && isRule2KcPending && client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW) {
-        if (leadStatusId === 142 && leadPipelineId === 7600542) {
-          await this.recordKcMeetingHeld(client, effectiveBroker, leadId);
-          await this.prisma.client.update({
-            where: { id: client.id },
-            data: {
-              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
-              uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
-              uniquenessReason: `КЦ продвинул лид к «Встреча проведена», вы остались прикреплённым — уникальность подтверждена`,
-            },
-          });
-          await this.prisma.auditLog.create({
-            data: {
-              action: 'UNIQUENESS_RESOLVED',
-              entity: 'Client',
-              entityId: client.id,
-              payload: { trigger: 'RULE_2_KC_LIFTED_AT_MEETING_HELD', amoLeadId: leadId },
-            },
-          });
-          this.logger.log(`Client ${client.id}: RULE_2_KC UNDER_REVIEW → CONDITIONALLY_UNIQUE (лид ${leadId} → 142 «Встреча проведена»)`);
+        const meetingHeld = leadStatusId === 142 && leadPipelineId === 7600542;
+        const rivals = meetingHeld
+          ? 0
+          : await this.countRivalBrokerContacts(leadContactIds, brokerAmoId);
+        if (rivals > 0) {
+          this.logger.log(
+            `Client ${client.id}: RULE_2_KC остаётся UNDER_REVIEW — к лиду ${leadId} прикреплено ещё ${rivals} брокер(ов), победителя выбирает КЦ`,
+          );
+          continue;
         }
-        // Иначе остаёмся в UNDER_REVIEW (КЦ ещё не выбрал победителя)
+        await this.prisma.client.update({
+          where: { id: client.id },
+          data: {
+            uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
+            uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+            uniquenessReason: meetingHeld
+              ? `КЦ продвинул лид к «Встреча проведена», вы остались прикреплённым — уникальность подтверждена`
+              : `Вы прикреплены к карточке колл-центра — уникальность действует, пока встреча не проведена`,
+          },
+        });
+        await this.prisma.auditLog.create({
+          data: {
+            action: 'UNIQUENESS_RESOLVED',
+            entity: 'Client',
+            entityId: client.id,
+            payload: {
+              trigger: meetingHeld
+                ? 'RULE_2_KC_LIFTED_AT_MEETING_HELD'
+                : 'RULE_2_KC_LIFTED_WHILE_ATTACHED',
+              amoLeadId: leadId,
+              leadStatusId,
+            },
+          },
+        });
+        this.logger.log(
+          `Client ${client.id}: RULE_2_KC UNDER_REVIEW → CONDITIONALLY_UNIQUE (лид ${leadId}, статус ${leadStatusId}${meetingHeld ? ' «Встреча проведена»' : ''})`,
+        );
         continue;
       }
 

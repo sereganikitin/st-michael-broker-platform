@@ -643,3 +643,130 @@ describe("WebhooksService Mango authentication and call status", () => {
     expect(prisma.call.create).not.toHaveBeenCalled();
   });
 });
+
+// 2026-09-11 (правило владельца): «брокер уникален всю дорогу до того
+// момента, пока встреча не проведена».
+describe("WebhooksService: уникальность до проведённой встречи", () => {
+  const pendingClient = (overrides: Record<string, unknown> = {}) => ({
+    id: "client-kc",
+    brokerId: "broker-1",
+    responsibleBrokerId: null,
+    uniquenessStatus: "UNDER_REVIEW",
+    uniquenessReason:
+      "RULE_2_KC_PENDING:123 АЛАРМ из amoCRM: Лид 123 в активной стадии (pipeline=7600542, status=62907286). Требуется подтверждение уникальности от КЦ.",
+    broker: { id: "broker-1", fullName: "Тест Брокер100", amoContactId: 701n },
+    responsibleBroker: null,
+    deals: [],
+    meetings: [],
+    ...overrides,
+  });
+
+  const makeService = (client: any, rivals = 0, statusId = 62907286) => {
+    const prisma = {
+      client: {
+        findMany: jest.fn().mockResolvedValue([client]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      broker: { count: jest.fn().mockResolvedValue(rivals) },
+      auditLog: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const service = new WebhooksService(prisma as any);
+    (service as any).amo = {
+      getLead: jest.fn().mockResolvedValue({
+        id: 123,
+        pipeline_id: 7600542,
+        status_id: statusId,
+        _embedded: { contacts: [{ id: 900 }, { id: 701 }] },
+      }),
+    };
+    (service as any).recordKcMeetingHeld = jest.fn().mockResolvedValue(undefined);
+    jest.spyOn((service as any).logger, "log").mockImplementation(() => undefined);
+    return { prisma, service };
+  };
+
+  it("«Встреча назначена» + брокер прикреплён → уникальность выдаётся, не дожидаясь встречи", async () => {
+    const { prisma, service } = makeService(pendingClient());
+
+    await (service as any).syncBrokerAttachmentFromLead(123);
+
+    expect(prisma.client.update).toHaveBeenCalledWith({
+      where: { id: "client-kc" },
+      data: expect.objectContaining({
+        uniquenessStatus: "CONDITIONALLY_UNIQUE",
+        uniquenessReason:
+          "Вы прикреплены к карточке колл-центра — уникальность действует, пока встреча не проведена",
+      }),
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        payload: expect.objectContaining({
+          trigger: "RULE_2_KC_LIFTED_WHILE_ATTACHED",
+          leadStatusId: 62907286,
+        }),
+      }),
+    });
+  });
+
+  it("пока к лиду прикреплён ещё один брокер — заявка остаётся на проверке", async () => {
+    const { prisma, service } = makeService(pendingClient(), 1);
+
+    await (service as any).syncBrokerAttachmentFromLead(123);
+
+    expect(prisma.client.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("на «Встреча проведена» уникальность подтверждается даже при втором брокере", async () => {
+    const { prisma, service } = makeService(pendingClient(), 1, 142);
+
+    await (service as any).syncBrokerAttachmentFromLead(123);
+
+    expect(prisma.broker.count).not.toHaveBeenCalled();
+    expect(prisma.client.update).toHaveBeenCalledWith({
+      where: { id: "client-kc" },
+      data: expect.objectContaining({
+        uniquenessStatus: "CONDITIONALLY_UNIQUE",
+        uniquenessReason:
+          "КЦ продвинул лид к «Встреча проведена», вы остались прикреплённым — уникальность подтверждена",
+      }),
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        payload: expect.objectContaining({
+          trigger: "RULE_2_KC_LIFTED_AT_MEETING_HELD",
+        }),
+      }),
+    });
+  });
+
+  it("закрытый лид (143) по-прежнему отклоняет уникальность, а не выдаёт её", async () => {
+    const { prisma, service } = makeService(pendingClient(), 0, 143);
+
+    await (service as any).syncBrokerAttachmentFromLead(123);
+
+    expect(prisma.client.update).toHaveBeenCalledWith({
+      where: { id: "client-kc" },
+      data: expect.objectContaining({
+        uniquenessStatus: "REJECTED",
+        uniquenessReason: "КЦ закрыл лид (Закрыто и не реализовано)",
+      }),
+    });
+  });
+
+  it("откреплённый брокер уникальности не получает", async () => {
+    const { prisma, service } = makeService(pendingClient());
+    (service as any).amo.getLead = jest.fn().mockResolvedValue({
+      id: 123,
+      pipeline_id: 7600542,
+      status_id: 62907286,
+      _embedded: { contacts: [{ id: 900 }] },
+    });
+
+    await (service as any).syncBrokerAttachmentFromLead(123);
+
+    const lifted = prisma.client.update.mock.calls.some(
+      (call: any[]) => call[0]?.data?.uniquenessStatus === "CONDITIONALLY_UNIQUE",
+    );
+    expect(lifted).toBe(false);
+  });
+});
