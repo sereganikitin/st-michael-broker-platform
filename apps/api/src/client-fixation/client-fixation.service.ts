@@ -1342,6 +1342,28 @@ export class ClientFixationService {
    *     • RULE_1: прикрепить нового брокера контактом (POST /leads/{id}/link)
    *     • Обоим правилам: длинная нота с заявкой + alarm-задача на ответственного триггер-лида
    */
+  /**
+   * 2026-09-10: повтор заявки от того же брокера на тот же лид amoCRM.
+   * Ограничение @@unique([brokerId, amoLeadId]) роняло запрос в 500 —
+   * здесь распознаём именно его и возвращаем уже созданную заявку.
+   */
+  private async findClientByBrokerAndLead(
+    error: any,
+    brokerId: string,
+    amoLeadId: number,
+  ) {
+    if (error?.code !== "P2002") return null;
+    const target = error?.meta?.target;
+    const fields = Array.isArray(target)
+      ? target.map((value: unknown) => String(value))
+      : [String(target ?? "")];
+    if (!fields.some((field) => field.includes("amo_lead"))) return null;
+    return this.prisma.client.findFirst({
+      where: { brokerId, amoLeadId: BigInt(amoLeadId) },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
   private async handleRule1Or2Alarm(params: {
     amoVerdict: {
       rule:
@@ -1414,27 +1436,60 @@ export class ClientFixationService {
     const reasonWithMarker = isRule2Kc
       ? `RULE_2_KC_PENDING:${triggerLeadIdNum || ""} ${baseReason}`
       : baseReason;
-    const client = await this.prisma.client.create({
-      data: {
-        brokerId,
-        responsibleBrokerId: responsibleBroker.id,
-        phone: data.phone,
-        fullName: data.fullName,
-        email: data.email || null,
-        comment: data.comment,
-        project: data.project as any,
-        fixationAgencyId: agency?.id,
-        uniquenessStatus: isRule1
-          ? UniquenessStatus.CONDITIONALLY_UNIQUE
-          : UniquenessStatus.UNDER_REVIEW,
-        ...(isRule1 && {
-          uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
-        }),
-        ...(triggerLeadIdNum && { amoLeadId: BigInt(triggerLeadIdNum) }),
-        uniquenessReason: reasonWithMarker,
-        ...fixationFormFields,
-      },
-    });
+    // 2026-09-10: у clients есть @@unique([brokerId, amoLeadId]). Брокер,
+    // повторно подающий заявку на тот же лид amoCRM (нажал «Отправить»
+    // второй раз или пришёл на следующий день), получал
+    // PrismaClientKnownRequestError P2002 и «Internal server error» на
+    // экране. Теперь повтор возвращает уже созданную заявку.
+    let client: any;
+    try {
+      client = await this.prisma.client.create({
+        data: {
+          brokerId,
+          responsibleBrokerId: responsibleBroker.id,
+          phone: data.phone,
+          fullName: data.fullName,
+          email: data.email || null,
+          comment: data.comment,
+          project: data.project as any,
+          fixationAgencyId: agency?.id,
+          uniquenessStatus: isRule1
+            ? UniquenessStatus.CONDITIONALLY_UNIQUE
+            : UniquenessStatus.UNDER_REVIEW,
+          ...(isRule1 && {
+            uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
+          }),
+          ...(triggerLeadIdNum && { amoLeadId: BigInt(triggerLeadIdNum) }),
+          uniquenessReason: reasonWithMarker,
+          ...fixationFormFields,
+        },
+      });
+    } catch (error: any) {
+      const previous = triggerLeadIdNum
+        ? await this.findClientByBrokerAndLead(error, brokerId, triggerLeadIdNum)
+        : null;
+      if (!previous) throw error;
+      try {
+        await this.logAudit(
+          brokerId,
+          "CLIENT_FIXATION_DUPLICATE_LEAD",
+          "Client",
+          previous.id,
+          { amoLeadId: triggerLeadIdNum, scenario: "AMO_UNIQUENESS_ALARM" },
+        );
+      } catch (auditError: any) {
+        console.error(
+          "[handleRule1Or2Alarm] audit duplicate failed:",
+          auditError?.message || auditError,
+        );
+      }
+      return {
+        client: previous,
+        status: String(previous.uniquenessStatus),
+        message:
+          "Заявка на этого клиента от вас уже отправлена — она на проверке у колл-центра.",
+      };
+    }
 
     try {
       await this.logAudit(
