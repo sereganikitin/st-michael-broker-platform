@@ -19,7 +19,27 @@ export default function LoginPage() {
     setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10));
   };
 
+  // 2026-09-11 (владелец): если введено слишком мало символов — человек должен
+  // понимать, чего не хватает, а не смотреть на неактивную кнопку.
+  const digitsLeft = 10 - phoneDigits.length;
+  const phoneHint =
+    phoneDigits.length > 0 && phoneDigits.length < 10
+      ? `Введено ${phoneDigits.length} из 10 цифр — не хватает ${digitsLeft}`
+      : '';
+
   const handleLogin = async () => {
+    if (phoneDigits.length !== 10) {
+      setError(
+        phoneDigits.length === 0
+          ? 'Введите номер телефона — 10 цифр после +7'
+          : `Номер введён не полностью: ${phoneDigits.length} из 10 цифр, не хватает ${digitsLeft}`,
+      );
+      return;
+    }
+    if (!password) {
+      setError('Введите пароль');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -73,9 +93,13 @@ export default function LoginPage() {
                 placeholder="9991234567"
                 value={phoneDigits}
                 onChange={handlePhoneChange}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                 maxLength={10}
               />
             </div>
+            {phoneHint && (
+              <p className="mt-1 text-xs text-text-muted">{phoneHint}</p>
+            )}
           </div>
 
           <div>
@@ -93,7 +117,7 @@ export default function LoginPage() {
           <button
             className="btn btn-primary w-full"
             onClick={handleLogin}
-            disabled={loading || phoneDigits.length !== 10 || !password}
+            disabled={loading}
           >
             {loading ? 'Вход...' : 'Войти'}
           </button>
