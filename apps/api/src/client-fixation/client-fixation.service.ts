@@ -2107,27 +2107,71 @@ export class ClientFixationService {
   /**
    * 2026-09-10: под одним номером телефона со временем может работать другой
    * человек (или то же лицо с другим написанием ФИО). Имя из свежей фиксации
-   * становится «именем для работы» в «Нашей базе», прежнее уходит в журнал.
+   * запоминается как «имя для работы» в «Нашей базе», прежнее уходит в журнал.
    * fullName — самоназвание брокера в его кабинете — не трогаем.
+   *
+   * 2026-09-11 (уточнение владельца): приоритет у ФИО, которое брокер задал
+   * себе САМ — «брокеру виднее его ФИО, а колл-центр далеко не всегда может
+   * определить, как зовут брокера». Поэтому имя из чужой формы фиксации
+   * заполняет только пустоту:
+   *   • карточка с паролем (человек зарегистрировался сам) или имя с
+   *     источником 'self' — в «Нашей базе» показываем его самоназвание;
+   *   • имя, поставленное руками КЦ ('manual'), не трогаем автоматом;
+   *   • во всех остальных случаях (импорт из amo, старого кабинета, карточка
+   *     заведена коллегой) присланное написание становится именем для работы.
+   * Присланное ФИО в любом случае уходит в журнал BROKER_NAME_UPDATED —
+   * админ видит, как брокера назвали в заявке, даже если имя не поменялось.
    */
   private async rememberBrokerNameFromFixation(
-    broker: { id: string; fullName?: string | null; displayName?: string | null },
+    broker: {
+      id: string;
+      fullName?: string | null;
+      displayName?: string | null;
+      displayNameSource?: string | null;
+      hasPassword?: boolean;
+    },
     submittedName: string,
     creatorId: string,
   ): Promise<void> {
     const nextName = String(submittedName || "").trim();
+    const selfName = String(broker.fullName || "").trim();
     const currentName = String(broker.displayName || broker.fullName || "").trim();
     if (nextName.length < 3 || !/[A-Za-zА-Яа-яЁё]/.test(nextName)) return;
     if (nextName.toLowerCase() === currentName.toLowerCase()) return;
+
+    // Имя брокера принадлежит ему самому: он зарегистрирован в кабинете либо
+    // имя уже взято из его же самоназвания.
+    const selfOwned =
+      Boolean(broker.hasPassword) || broker.displayNameSource === "self";
+    const keptByStaff = broker.displayNameSource === "manual";
+
+    // Что показываем в «Нашей базе» после этой заявки.
+    const appliedName = selfOwned ? selfName : nextName;
+    const appliedSource = selfOwned ? "self" : "fixation_form";
+    const changes =
+      !keptByStaff &&
+      appliedName.length >= 3 &&
+      appliedName.toLowerCase() !== currentName.toLowerCase();
+
     try {
-      await this.prisma.broker.update({
-        where: { id: broker.id },
-        data: { displayName: nextName, displayNameSource: "fixation_form" },
-      });
+      if (changes) {
+        await this.prisma.broker.update({
+          where: { id: broker.id },
+          data: { displayName: appliedName, displayNameSource: appliedSource },
+        });
+      }
       await this.logAudit(creatorId, "BROKER_NAME_UPDATED", "Broker", broker.id, {
         previousName: currentName || null,
         submittedName: nextName,
-        source: "fixation_form",
+        appliedName: changes ? appliedName : currentName || null,
+        source: changes ? appliedSource : broker.displayNameSource || null,
+        outcome: changes
+          ? "applied"
+          : keptByStaff
+            ? "kept_manual"
+            : selfOwned
+              ? "kept_self"
+              : "unchanged",
       });
     } catch (error: any) {
       // Имя — не повод ронять фиксацию.
@@ -2171,6 +2215,8 @@ export class ClientFixationService {
         id: true,
         fullName: true,
         displayName: true,
+        displayNameSource: true,
+        passwordHash: true,
         phone: true,
         email: true,
         isCoordinator: true,
@@ -2206,7 +2252,13 @@ export class ClientFixationService {
       // остаётся в журнале — видно, с какого числа под этим номером работает
       // человек с таким ФИО.
       await this.rememberBrokerNameFromFixation(
-        { id: targetId, fullName: existingByPhone.fullName, displayName: existingByPhone.displayName },
+        {
+          id: targetId,
+          fullName: existingByPhone.fullName,
+          displayName: existingByPhone.displayName,
+          displayNameSource: existingByPhone.displayNameSource,
+          hasPassword: Boolean(existingByPhone.passwordHash),
+        },
         data.fullName,
         creatorId,
       );
@@ -2220,7 +2272,16 @@ export class ClientFixationService {
       // «карточка уже была». ФИО, телефон, email и статус чужой карточки
       // брокеру не возвращаем; сотрудникам отдаём как раньше.
       if (audience === "STAFF") {
-        const { status, mergedIntoId, displayName, ...publicBroker } = existingByPhone;
+        const {
+          status,
+          mergedIntoId,
+          displayName,
+          displayNameSource,
+          passwordHash,
+          ...publicBroker
+        } = existingByPhone;
+        void displayNameSource;
+        void passwordHash;
         return { broker: { ...publicBroker, id: targetId }, created: false, existed: true, status };
       }
       return { broker: { id: targetId }, created: false, existed: true };

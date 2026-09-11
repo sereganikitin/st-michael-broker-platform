@@ -115,6 +115,89 @@ describe("ClientFixationService.createBrokerByCreator", () => {
     expect(prisma.broker.update).not.toHaveBeenCalled();
   });
 
+  // 2026-09-11 (уточнение владельца): приоритет у ФИО, которое брокер задал
+  // себе сам — «брокеру виднее его ФИО, а колл-центр далеко не всегда может
+  // определить, как зовут брокера».
+  it("брокер зарегистрирован сам → присланное ФИО не перетирает его самоназвание", async () => {
+    const { service, prisma } = mkService({
+      id: "b6",
+      fullName: "Ковалева Анастасия Андреевна",
+      displayName: null,
+      displayNameSource: null,
+      passwordHash: "hash",
+      phone: "+79252212178",
+      email: null,
+      isCoordinator: false,
+      status: "ACTIVE",
+      mergedIntoId: null,
+    });
+    await service.createBrokerByCreator("coord-1", {
+      fullName: "Субоч Евгений",
+      phone: "+79252212178",
+    } as any);
+    expect(prisma.broker.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "BROKER_NAME_UPDATED",
+          payload: expect.objectContaining({
+            submittedName: "Субоч Евгений",
+            outcome: "kept_self",
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("у зарегистрированного брокера имя для работы подтягивается к самоназванию", async () => {
+    const { service, prisma } = mkService({
+      id: "b7",
+      fullName: "Петров Пётр Петрович",
+      displayName: "Петров П.",
+      displayNameSource: "amo",
+      passwordHash: "hash",
+      phone: "+79252212179",
+      email: null,
+      isCoordinator: false,
+      status: "ACTIVE",
+      mergedIntoId: null,
+    });
+    await service.createBrokerByCreator("coord-1", {
+      fullName: "Петров Петя",
+      phone: "+79252212179",
+    } as any);
+    expect(prisma.broker.update).toHaveBeenCalledWith({
+      where: { id: "b7" },
+      data: { displayName: "Петров Пётр Петрович", displayNameSource: "self" },
+    });
+  });
+
+  it("имя, поставленное руками КЦ, автоматом не меняется", async () => {
+    const { service, prisma } = mkService({
+      id: "b8",
+      fullName: "Сидоров Сидор",
+      displayName: "Сидоров С. С.",
+      displayNameSource: "manual",
+      phone: "+79252212180",
+      email: null,
+      isCoordinator: false,
+      status: "PENDING",
+      mergedIntoId: null,
+    });
+    await service.createBrokerByCreator("coord-1", {
+      fullName: "Сидоров Сидор Сидорович",
+      phone: "+79252212180",
+    } as any);
+    expect(prisma.broker.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          payload: expect.objectContaining({ outcome: "kept_manual" }),
+        }),
+      }),
+    );
+  });
+
   it("сотруднику отдаёт подробности карточки", async () => {
     const { service } = mkService({ id: "b3", fullName: "Кравченко Наталья", phone: "+79253181468", email: null, isCoordinator: false, status: "PENDING", mergedIntoId: null });
     const res: any = await service.createBrokerByCreator(
