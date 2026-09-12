@@ -8,6 +8,7 @@
  */
 const https = require("https");
 const tls = require("tls");
+const dns = require("dns");
 
 const HOST = "stmichael.ru";
 
@@ -16,7 +17,7 @@ function chain() {
     const socket = tls.connect(
       { host: HOST, port: 443, servername: HOST, rejectUnauthorized: false, timeout: 15000 },
       () => {
-        const out = [];
+        const out = [{ note: `подключились к ${socket.remoteAddress}` }];
         let cert = socket.getPeerCertificate(true);
         const seen = new Set();
         while (cert && cert.subject && !seen.has(cert.fingerprint)) {
@@ -66,7 +67,8 @@ async function main() {
 
   console.log("\n=== цепочка сертификатов, как её видит контейнер ===");
   for (const c of await chain()) {
-    if (c.error) console.log("  ошибка:", c.error);
+    if (c.note) console.log(" ", c.note);
+    else if (c.error) console.log("  ошибка:", c.error);
     else console.log(`  ${c.subject} ← ${c.issuer} | с ${c.valid_from} по ${c.valid_to}`);
   }
 
