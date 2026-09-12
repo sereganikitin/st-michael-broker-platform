@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException } from "@nestjs/common";
+import { Injectable, Inject, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaClient } from "@st-michael/database";
 import {
   AmoCrmAdapter,
@@ -200,6 +200,7 @@ const DEFAULT_CONTENT: Record<string, any> = {
 
 @Injectable()
 export class CmsService {
+  private readonly logger = new Logger(CmsService.name);
   // 2026-05-26: AmoCrmAdapter не зарегистрирован в DI этого модуля, создаём
   // напрямую. Использует env AMO_ACCESS_TOKEN.
   private amo = new AmoCrmAdapter();
@@ -500,7 +501,7 @@ export class CmsService {
     return { created, updated, total: items.length };
   }
 
-  private fetchStmNewsHtml(): Promise<string> {
+  private requestStmNewsHtml(extraOptions: Record<string, unknown> = {}): Promise<string> {
     return new Promise((resolve, reject) => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const https = require("https");
@@ -511,6 +512,7 @@ export class CmsService {
             "User-Agent": "Mozilla/5.0 (compatible; STMBrokerBot/1.0)",
           },
           timeout: 15000,
+          ...extraOptions,
         },
         (res: any) => {
           const chunks: Buffer[] = [];
@@ -525,6 +527,33 @@ export class CmsService {
       });
       req.on("error", reject);
     });
+  }
+
+  /**
+   * 2026-09-12: синк новостей падал каждый день в 08:00 с «certificate has
+   * expired». Разбор: у stmichael.ru два сертификата — RSA (действует до
+   * 15.11.2026) и ECDSA, истёкший 03.09.2026. Клиент, который предпочитает
+   * ECDSA (наш node на сервере), получает просроченный и законно отказывает.
+   * Корень — на стороне сайта: просроченный ECDSA-сертификат надо обновить
+   * или убрать, часть посетителей тоже может видеть предупреждение.
+   *
+   * Пока это не сделано — повторяем запрос, прямо попросив RSA-цепочку.
+   * Проверку сертификата НЕ отключаем: сертификат по-прежнему сверяется,
+   * просто выбираем ту из двух цепочек, которая действительна.
+   */
+  private async fetchStmNewsHtml(): Promise<string> {
+    try {
+      return await this.requestStmNewsHtml();
+    } catch (error: any) {
+      if (error?.code !== "CERT_HAS_EXPIRED") throw error;
+      this.logger.warn(
+        "[stm-news] сайт отдал просроченный сертификат (ECDSA истёк 03.09.2026) — повторяю запрос по RSA-цепочке; корень надо починить на стороне stmichael.ru",
+      );
+      return this.requestStmNewsHtml({
+        sigalgs:
+          "rsa_pss_rsae_sha256:rsa_pkcs1_sha256:rsa_pss_rsae_sha384:rsa_pkcs1_sha384:rsa_pss_rsae_sha512:rsa_pkcs1_sha512",
+      });
+    }
   }
 
   private parseStmNewsHtml(html: string): any[] {
