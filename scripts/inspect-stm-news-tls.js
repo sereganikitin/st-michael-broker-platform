@@ -39,11 +39,11 @@ function chain() {
   });
 }
 
-function request(rejectUnauthorized) {
+function request(rejectUnauthorized, extra = {}) {
   return new Promise((resolve) => {
     const req = https.get(
       `https://${HOST}/news`,
-      { rejectUnauthorized, timeout: 15000, headers: { "User-Agent": "STMBrokerBot/1.0" } },
+      { rejectUnauthorized, timeout: 15000, headers: { "User-Agent": "STMBrokerBot/1.0" }, ...extra },
       (res) => {
         let size = 0;
         res.on("data", (c) => { size += c.length; });
@@ -73,7 +73,18 @@ async function main() {
   }
 
   console.log("\n=== запрос новостей ===");
-  console.log("  с проверкой сертификата:", JSON.stringify(await request(true)));
+  console.log("  как раньше (по умолчанию):", JSON.stringify(await request(true)));
+  // 2026-09-12: так теперь делает кабинет после правки 606 — просим
+  // RSA-цепочку, проверку сертификата НЕ отключаем.
+  console.log(
+    "  с просьбой RSA-цепочки (как в правке):",
+    JSON.stringify(
+      await request(true, {
+        sigalgs:
+          "rsa_pss_rsae_sha256:rsa_pkcs1_sha256:rsa_pss_rsae_sha384:rsa_pkcs1_sha384:rsa_pss_rsae_sha512:rsa_pkcs1_sha512",
+      }),
+    ),
+  );
   console.log("  без проверки (для сравнения):", JSON.stringify(await request(false)));
 }
 
