@@ -2058,6 +2058,9 @@ model RegistryDeal {
   commissionPaidRaw     String?  @map("commission_paid_raw")
   commissionPaidAmount  Decimal? @map("commission_paid_amount") @db.Decimal(14, 2)
   commissionSheetAt     DateTime? @map("commission_sheet_at")
+  // Номер строки листа — чтобы при незаметном сдвиге колонок можно было
+  // восстановить, что откуда взялось (просьба ценового агента 14.09).
+  commissionSheetRow    Int?     @map("commission_sheet_row")
   leadSourceRaw         String?  @map("lead_source_raw")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
