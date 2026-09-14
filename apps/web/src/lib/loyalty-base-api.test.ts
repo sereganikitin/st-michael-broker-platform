@@ -2705,3 +2705,41 @@ test("marks unconfirmed backfilled meetings with amoMark for the orange badge", 
   assert.match(componentSource, /item\.amoMark/);
   assert.match(componentSource, /meetingAmoMarkLabel\(item\.amoMark\)/);
 });
+
+// 2026-09-14 (две просьбы владельца): фильтр по датам должен работать и с
+// одной заполненной границей, а у фиксаций, встреч и сделок должны быть
+// свои даты, не мешающие друг другу.
+test("одна дата вместо двух всё равно даёт период", () => {
+  const onlyFrom = { ...emptyLoyaltyFilters(), callFrom: "2026-09-01" };
+  const canonical = toCanonicalFilter(onlyFrom, "brokers", "ours");
+  assert.deepEqual(canonical.callPeriod, { from: "2026-09-01", to: undefined });
+
+  const onlyTo = { ...emptyLoyaltyFilters(), activityTo: "2026-09-10" };
+  const second = toCanonicalFilter(onlyTo, "brokers", "ours");
+  assert.deepEqual(second.activityPeriod, { from: undefined, to: "2026-09-10" });
+});
+
+test("у фиксаций, встреч и сделок свои даты", () => {
+  const state = {
+    ...emptyLoyaltyFilters(),
+    fixationFrom: "2026-08-01",
+    fixationTo: "2026-08-31",
+    meetingFrom: "2026-09-01",
+    dealTo: "2026-07-31",
+  };
+  const canonical = toCanonicalFilter(state, "brokers", "ours");
+  assert.deepEqual(canonical.fixationPeriod, { from: "2026-08-01", to: "2026-08-31" });
+  assert.deepEqual(canonical.meetingPeriod, { from: "2026-09-01", to: undefined });
+  assert.deepEqual(canonical.dealPeriod, { from: undefined, to: "2026-07-31" });
+  assert.equal(canonical.activityPeriod, undefined);
+});
+
+test("«сделка в периоде» опирается на период сделок, если он задан", () => {
+  const state = {
+    ...emptyLoyaltyFilters(),
+    dealFrom: "2026-09-01",
+    dealsInPeriod: "true" as const,
+  };
+  const canonical = toCanonicalFilter(state, "brokers", "ours");
+  assert.equal(canonical.dealsInPeriod, true);
+});

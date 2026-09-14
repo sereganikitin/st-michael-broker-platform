@@ -277,8 +277,12 @@ export type LoyaltySortField =
 
 export interface LoyaltyCanonicalFilter {
   includeLowSignal?: boolean;
-  callPeriod?: { from: string; to: string };
-  activityPeriod?: { from: string; to: string };
+  callPeriod?: { from?: string; to?: string };
+  activityPeriod?: { from?: string; to?: string };
+  // 2026-09-14: свои даты у фиксаций, встреч и сделок; достаточно одной границы.
+  fixationPeriod?: { from?: string; to?: string };
+  meetingPeriod?: { from?: string; to?: string };
+  dealPeriod?: { from?: string; to?: string };
   campaignIds?: string[];
   lastCallResults?: LoyaltyCallResult[];
   scenario?: LoyaltyCallScenario;
