@@ -8,6 +8,7 @@ import {
   BROKER_CALL_RESULTS,
   LOYALTY_CALL_RESULT_CATALOG,
   getLoyaltyCallResultPresentation,
+  getLoyaltyDetail,
   getLoyaltyList,
   getActiveLoyaltyLinks,
   formatRubles,
@@ -2742,4 +2743,34 @@ test("«сделка в периоде» опирается на период с
   };
   const canonical = toCanonicalFilter(state, "brokers", "ours");
   assert.equal(canonical.dealsInPeriod, true);
+});
+
+// 2026-09-15: карточка по одной дате. Раньше тип требовал обе границы —
+// сборка next build падала на этом вызове (jest её не ловил).
+test("карточка принимает период с одной датой", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    calls.push(String(input));
+    return new Response(JSON.stringify({ id: "b-1", entityType: "BROKER" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    await getLoyaltyDetail("ours", "brokers", "b-1", {
+      activityPeriod: { from: "2026-09-01" },
+    });
+    await getLoyaltyDetail("ours", "brokers", "b-1", {
+      activityPeriod: { to: "2026-09-10" },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.ok(calls[0].includes("from=2026-09-01"), calls[0]);
+  assert.ok(!calls[0].includes("to="), calls[0]);
+  assert.ok(calls[1].includes("to=2026-09-10"), calls[1]);
+  assert.ok(!calls[1].includes("from="), calls[1]);
 });

@@ -3074,8 +3074,11 @@ export async function getLoyaltyDetail(
   entityType: LoyaltyEntityType,
   id: string,
   // 2026-09-07: выбранный «Период встреч и сделок» применяется и к карточке.
+  // 2026-09-15: границы стали необязательными — период может быть задан одной
+  // датой («с» или «по»). Пустое значение queryString отбрасывает, сервер
+  // достраивает недостающую границу сам (parseOptionalFilterPeriod).
   options?: {
-    activityPeriod?: { from: string; to: string };
+    activityPeriod?: { from?: string; to?: string };
     cabinetSource?: "old" | "new" | "all";
   },
 ) {
