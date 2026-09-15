@@ -21,6 +21,10 @@ const rejectedTriggers = new Set([
 
 const approvedTriggers = new Set([
   'RULE_2_KC_LIFTED_AT_MEETING_HELD',
+  // 2026-09-15: причина появилась 11.09 вместе с правилом владельца
+  // «пока брокер прикреплён к незакрытой карточке — он уникален».
+  // Без неё брокер видел обезличенное «Конфликт разрешён».
+  'RULE_2_KC_LIFTED_WHILE_ATTACHED',
   'EXCEPTION_LIFTED_BY_KC_STATUS',
   'AMO_KC_APPROVED',
   'AMO_BROKER_REATTACHED',

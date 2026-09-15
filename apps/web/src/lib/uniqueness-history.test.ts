@@ -17,3 +17,14 @@ test('approval and unrelated actions keep accurate labels', () => {
   assert.equal(uniquenessHistoryLabel({ action: 'UNIQUENESS_RESOLVED', payload: { trigger: 'AMO_KC_APPROVED' } }), '✅ Уникальность подтверждена');
   assert.equal(uniquenessHistoryLabel({ action: 'CLIENT_FIXATION' }), '🆕 Создана фиксация');
 });
+
+// 2026-09-15: правило владельца от 11.09 — брокер уникален, пока прикреплён
+// к незакрытой карточке колл-центра. Сервер пишет отдельную причину.
+test('uniqueness granted while attached to an open call-centre lead', () => {
+  const event = {
+    action: 'UNIQUENESS_RESOLVED',
+    payload: { trigger: 'RULE_2_KC_LIFTED_WHILE_ATTACHED' },
+  };
+  assert.equal(uniquenessHistoryLabel(event), '✅ Уникальность подтверждена');
+  assert.equal(uniquenessHistoryResult(event), 'Уникален');
+});
