@@ -55,6 +55,10 @@ async function main() {
     assert.ok(publishedCooperation.some(d => /Условия сотрудничества сентябрь/i.test(d.name)));
     assert.ok(publishedCooperation.some(d => /Калькулятор рассрочки/i.test(d.name) && /\.html$/i.test(d.fileUrl)));
     for (const d of publishedCooperation) await request(d.fileUrl, { method: 'HEAD' });
+    for (const url of new Set(Object.values(layout.covers || {}))) {
+      const coverUrl = url.startsWith('/files/yandex/') ? url.replace('/files/yandex/', '/files/yandex-thumbs/') + '.thumb.jpg' : url;
+      await request(coverUrl, { method: 'HEAD' });
+    }
     assert.equal(errors.length, 0, errors.join('\n'));
     console.log(JSON.stringify({ result: 'PASS', materials: docs.length, originalsHttpVerified: verified, thumbnailsHttpVerified: verified, identicalHierarchy: true, cooperationDocuments: publishedCooperation.map(d => d.name), videoCover: layout.covers['Зорге 9/Видео'] }));
   } finally { await db.$disconnect(); }

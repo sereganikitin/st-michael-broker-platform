@@ -42,3 +42,9 @@ test('retirement scoped to old project media, not cooperation or calculator', ()
   assert.ok(!replaceable({ category: 'materials', name: 'Условия.pdf', project: 'ZORGE9' }, saved));
   assert.ok(!replaceable({ category: 'materials', name: 'calculator.html', project: 'SILVER_BOR' }, saved));
 });
+test('document-folder covers do not reference retired project media', () => {
+  const f = make('Лобби*.jpg');
+  const before = { ...saved, covers: { 'Условия сотрудничества': '/files/yandex/ЗОРГЕ 9/old.jpg' } };
+  const after = buildLayout(before, [f]);
+  assert.equal(after.covers['Условия сотрудничества'], f.fileUrl);
+});

@@ -86,6 +86,15 @@ function buildLayout(saved, files) {
       next.covers[key] ||= f.fileUrl;
     }
   }
+  // Separate document folders can use a retired project photograph as cover.
+  // Keep those folders/documents, but point their covers at the new media too.
+  const newUrls = new Set(files.map(f => f.fileUrl));
+  for (const [folder, url] of Object.entries(next.covers)) {
+    if (!url.startsWith('/files/yandex/') || newUrls.has(url)) continue;
+    const decoded = decodeURIComponent(url);
+    const title = /ксб|серебрян/i.test(decoded) ? 'Квартал Серебряный бор' : /зорг/i.test(decoded) ? 'Зорге 9' : null;
+    if (title && next.covers[title]) next.covers[folder] = next.covers[title];
+  }
   return next;
 }
 
@@ -255,7 +264,7 @@ async function main() {
     // Recoverable retirement: only files referenced by retired media, never PDFs,
     // calculator or still-referenced files. No recursive delete or global sweep.
     const remaining = await prisma.document.findMany({ select: { fileUrl: true } });
-    const keep = new Set(remaining.map(d => d.fileUrl));
+    const keep = new Set([...remaining.map(d => d.fileUrl), ...Object.values(next.covers || {})]);
     let retired = 0;
     for (const d of remove) {
       if (keep.has(d.fileUrl) || !d.fileUrl.startsWith('/files/yandex/')) continue;
