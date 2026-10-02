@@ -1,8 +1,9 @@
-/* Real mobile layout; desktop keeps the approved 1360px canvas. Header is
-   shared with materials and is deliberately outside that canvas's zoom. */
-@media (max-width: 767px) {
+/* Fluid mobile/tablet layout through 1024px: readable text and actual touch
+   sizes without shrinking the page. Above 1024px, desktop keeps the approved
+   1360px canvas. The shared public header is always outside that canvas. */
+@media (max-width: 1024px) {
   .v2:not(.v2-tour-portal) { width: 100%; zoom: 1; }
-  .v2 .v2-container { width: calc(100% - 32px); max-width: 600px; }
+  .v2 .v2-container { width: calc(100% - 32px); max-width: 960px; }
   .v2 main > section { scroll-margin-top: 144px; }
   .v2 .v2-section, .v2 .v2-section--first { padding-top: 64px; }
   .v2 #promos.v2-section { padding-top: 24px; }
@@ -99,6 +100,23 @@
   .v2:not(.v2-tour-portal) .v2-modal { width: min(460px, 100%); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 52px 24px 28px; border-radius: 20px; }
   .v2:not(.v2-tour-portal) .v2-modal-close { min-width: 44px; min-height: 44px; top: 8px; right: 8px; }
   .v2 .v2-doclist a { overflow-wrap: anywhere; min-height: 44px; }
+}
+
+/* Wider phones in landscape and tablets have room for two readable cards,
+   not three miniature cards. Contacts remain one column below 900px. */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .v2 .v2-projects, .v2 .v2-materials { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .v2 .v2-promo { height: 420px; }
+  .v2 .v2-footer-btns { flex-direction: row; flex-wrap: wrap; }
+}
+
+@media (min-width: 768px) and (max-width: 1024px) {
+  .v2 main > section { scroll-margin-top: 120px; }
+}
+
+@media (min-width: 900px) and (max-width: 1024px) {
+  .v2 .v2-cta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .v2 .v2-cta-left { height: 100%; min-height: 400px; }
 }
 
 @media (max-width: 359px) {

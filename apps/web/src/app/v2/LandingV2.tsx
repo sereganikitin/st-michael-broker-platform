@@ -580,9 +580,10 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
   const [motion, setMotion] = useState(false);
 
   useEffect(() => {
-    // Mobile has its own fluid layout. Only the legacy tablet/desktop canvas
-    // retains its zoom; the shared header is outside this canvas altogether.
-    const apply = () => setZoom(window.innerWidth > 767 && window.innerWidth < 1440 ? window.innerWidth / 1440 : 1);
+    // Mobile and tablet use a fluid layout up to 1024px. Only the legacy
+    // desktop canvas above that width retains its zoom; the shared header
+    // is always outside this canvas and stays at its real accessible size.
+    const apply = () => setZoom(window.innerWidth > 1024 && window.innerWidth < 1440 ? window.innerWidth / 1440 : 1);
     apply();
     window.addEventListener('resize', apply);
     return () => window.removeEventListener('resize', apply);
