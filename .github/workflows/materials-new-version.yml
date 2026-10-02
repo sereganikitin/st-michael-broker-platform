@@ -6,12 +6,12 @@ on:
       mode:
         description: 'inspect: только аудит; apply: проверенная замена с резервной копией'
         type: choice
-        options: [inspect, apply, status]
+        options: [inspect, apply, status, verify]
         default: inspect
         required: true
 
 concurrency:
-  group: ${{ inputs.mode == 'status' && 'materials-transfer-status' || 'sync-yandex-files' }}
+  group: ${{ (inputs.mode == 'status' || inputs.mode == 'verify') && 'materials-transfer-status' || 'sync-yandex-files' }}
   cancel-in-progress: false
 permissions:
   contents: read
@@ -50,6 +50,12 @@ jobs:
               git show "$SCRIPT_SHA:scripts/materials-transfer-status.js" > /tmp/materials-transfer-status.js
               docker cp /tmp/materials-transfer-status.js st-michael-api:/app/scripts/materials-transfer-status.js
               docker compose exec -T api node /app/scripts/materials-transfer-status.js
+              exit 0
+            fi
+            if [ "$MATERIALS_MODE" = verify ]; then
+              git show "$SCRIPT_SHA:scripts/verify-materials-new-version.js" > /tmp/verify-materials-new-version.js
+              docker cp /tmp/verify-materials-new-version.js st-michael-api:/app/scripts/verify-materials-new-version.js
+              docker compose exec -T api node /app/scripts/verify-materials-new-version.js
               exit 0
             fi
             case "$MATERIALS_MODE" in inspect|apply) ;; *) exit 1 ;; esac
