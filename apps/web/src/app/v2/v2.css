@@ -179,6 +179,11 @@
 .v2-day-date { font-size: 16px; line-height: 18px; color: var(--v2-gray); }
 .v2-day--today .v2-day-date { color: #fff; font-weight: 500; }
 .v2-slot { margin-top: 20px; }
+.v2 .v2-slot { display: block; width: 100%; text-align: left; border-radius: 8px; }
+.v2 .v2-slot:focus-visible { outline: 2px solid var(--v2-gold); outline-offset: 5px; }
+.v2 .v2-slot:disabled { opacity: .45; cursor: not-allowed; }
+.v2 .v2-slot:not(:disabled):hover .v2-slot-time { color: var(--v2-gold); }
+.v2-slot-time, .v2-slot-list, .v2-slot-list > span { display: block; }
 .v2-slot + .v2-slot { margin-top: 20px; }
 .v2-slot-time { font-size: 24px; line-height: 28px; }
 .v2-slot-list { margin-top: 8px; font-size: 16px; line-height: 18px; }
@@ -325,6 +330,7 @@
 .v2 .v2-cal-slot b { font-weight: 500; }
 .v2 .v2-cal-slot:hover { color: var(--v2-gold); }
 .v2-cal-cell--today .v2-cal-slot:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.v2 .v2-cal-slot:disabled { opacity: .4; cursor: not-allowed; text-decoration: line-through; }
 .v2-cal-more { font-size: 14px; line-height: 18px; color: var(--v2-gray); }
 .v2-cal-cell--today .v2-cal-more { color: rgba(255,255,255,.8); }
 .v2-cal-foot { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--v2-line); }
@@ -365,4 +371,30 @@
 .v2--motion .v2-cta-left.is-in .v2-btn--cta { animation: v2-pulse 1.6s ease 1.2s 2; }
 @media (prefers-reduced-motion: reduce) {
   .v2--motion [data-reveal], .v2--motion .v2-header, .v2--motion .v2-step-num i, .v2--motion .v2-step-line, .v2--motion .v2-step-body, .v2--motion .v2-promo-slide .v2-promo-title i { opacity: 1 !important; transform: none !important; transition: none !important; animation: none !important; }
+}
+
+/* Calendar/quick booking live outside the landing's scaled desktop canvas. */
+.v2.v2-tour-portal { min-height: 0; background: transparent; }
+.v2-tour-portal .v2-overlay { padding: 20px; }
+.v2-tour-portal .v2-modal { max-width: 100%; max-height: calc(100dvh - 40px); overflow-y: auto; }
+.v2-tour-portal .v2-modal--tour { width: 500px; }
+.v2-tour-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 14px; line-height: 18px; }
+.v2-tour-date-time { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.v2-tour-note { border-radius: 10px; background: #f6f1ea; padding: 12px; font-size: 14px; line-height: 20px; }
+.v2 .v2-tour-next { display: block; margin-top: 8px; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.v2-tour-portal :is(button,input,select,textarea):focus-visible { outline: 2px solid var(--v2-gold); outline-offset: 3px; }
+.v2-tour-portal .v2-modal-close { min-width: 36px; min-height: 36px; }
+@media (max-width: 520px) {
+  .v2-tour-portal .v2-overlay { padding: 12px; }
+  .v2-tour-portal .v2-modal { padding: 48px 20px 24px; border-radius: 18px; max-height: calc(100dvh - 24px); }
+  .v2-tour-date-time { grid-template-columns: 1fr; }
+  .v2-tour-portal .v2-modal--calendar { padding: 48px 12px 20px; }
+  .v2-tour-portal .v2-cal-head { flex-direction: column; gap: 16px; padding-right: 0; }
+  .v2-tour-portal .v2-cal-nav { justify-content: space-between; width: 100%; }
+  .v2-tour-portal .v2-cal-grid, .v2-tour-portal .v2-cal-dow { gap: 3px; }
+  .v2-tour-portal .v2-cal-cell { min-height: 88px; padding: 5px 3px; }
+  .v2-tour-portal .v2-cal-dow > div { padding: 0 3px; }
+  .v2.v2-tour-portal .v2-cal-slot { display: block; -webkit-line-clamp: unset; overflow: visible; font-size: 11px; line-height: 14px; }
+  .v2.v2-tour-portal .v2-cal-slot b { display: block; }
+  .v2-tour-portal .v2-cal-foot { flex-direction: column; align-items: stretch; gap: 12px; }
 }
