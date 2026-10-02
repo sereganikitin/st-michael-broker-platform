@@ -8,8 +8,10 @@
 // в amoCRM задачей в воронку КЦ (source landing-callback).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { materialHref } from '@/lib/materials-folder-tree';
+import { allTourSlots, bookingForTourDate, bookingFromSlot, calendarDate, defaultTourBooking, isAvailableTourBooking, isCalendarDate, moscowDateTime, nextTourSlot, projectsKey, slotsForTourDay, tourBookingMessage, tourMonthGrid, tourWorkWeek, type TourBooking, type TourEvent } from '@/lib/broker-tour-booking';
 
 export interface LandingV2Data {
   content: any;
@@ -50,7 +52,7 @@ const TOLBUKHINA = {
 };
 
 const MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-const fmtNewsDate = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${MONTHS_RU[d.getMonth()]} ${d.getFullYear()}`; };
+const fmtNewsDate = (iso: string) => { const d = calendarDate(moscowDateTime(new Date(iso)).date); return `${d.getUTCDate()} ${MONTHS_RU[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
 
 // Переносы строк (\n) — как в макете: браузер считает текст на ~1 px уже Figma
 // и у границы блока переносил бы иначе; выводим через white-space: pre-line.
@@ -82,58 +84,7 @@ function plural(n: number, one: string, few: string, many: string) {
   if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
   return many;
 }
-const fmtDay = (d: Date) => `${DOW_RU[d.getDay()]}. ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
-const fmtTime = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-/** «Брокер-тур: Зорге 9 + Серебряный Бор» → ['Зорге 9', 'Квартал Серебряный Бор'] */
-function projectsFromTitle(title: string): string[] {
-  const raw = String(title || '').replace(/^\s*брокер-тур\s*:?\s*/i, '');
-  const parts = raw.split(/\s*[+,\/]\s*/).map((s) => s.trim()).filter(Boolean);
-  const out: string[] = [];
-  for (const p of parts) {
-    const v = p.toLowerCase();
-    if (v.includes('коммерц')) out.push('Коммерция Зорге 9');
-    else if (v.includes('зорге') || v.includes('zorge')) out.push('Зорге 9');
-    else if (v.includes('сереб') || v.includes('берзар') || v.includes('silver') || v.includes('ксб')) out.push('Квартал Серебряный Бор');
-    else if (p) out.push(p);
-  }
-  return out.length ? out : [raw || 'Брокер-тур'];
-}
-
-/** Рабочая неделя (Пн–Пт) с понедельника текущей недели + смещение в неделях. */
-function workWeek(offsetWeeks = 0): Date[] {
-  const now = new Date();
-  const dow = (now.getDay() + 6) % 7;
-  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow + offsetWeeks * 7);
-  return Array.from({ length: 5 }, (_, i) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i));
-}
-
-/** Расписание как на старом сайте: если в админке нет событий на неделю —
- *  типовые слоты (11:00 Квартал Серебряный Бор, 15:00 Зорге 9 + КСБ). */
-function slotsForDay(day: Date, events: any[]): Array<{ time: string; projects: string[] }> {
-  const key = dayKey(day);
-  const own = events
-    .map((e) => ({ e, d: new Date(e.date) }))
-    .filter(({ d }) => dayKey(d) === key)
-    .sort((a, b) => a.d.getTime() - b.d.getTime());
-  if (own.length) {
-    const byTime = new Map<string, string[]>();
-    for (const { e, d } of own) {
-      const t = fmtTime(d);
-      const list = byTime.get(t) || [];
-      for (const p of projectsFromTitle(e.title)) if (!list.includes(p)) list.push(p);
-      byTime.set(t, list);
-    }
-    return [...byTime.entries()].map(([time, projects]) => ({ time, projects }));
-  }
-  const dow = day.getDay();
-  if (dow === 0 || dow === 6) return [];
-  return [
-    { time: '11:00', projects: ['Квартал Серебряный Бор'] },
-    { time: '15:00', projects: ['Зорге 9', 'Квартал Серебряный Бор'] },
-  ];
-}
+const fmtDay = (date: string) => { const d = calendarDate(date); return `${DOW_RU[d.getUTCDay()]}. ${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`; };
 
 // ─── телефон с маской (правка владельца 01.10) ──────────────────────────────
 // Храним только 10 цифр после +7; показываем «+7 (912) 455-72-74». Разделители
@@ -221,7 +172,7 @@ function PhoneInput({ digits, onChange, invalid, onEnter }: { digits: string; on
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       onChange={handle}
-      onKeyDown={(e) => { if (e.key === 'Enter' && onEnter) onEnter(); }}
+      onKeyDown={(e) => { if (e.key === 'Enter' && onEnter) { e.preventDefault(); onEnter(); } }}
       aria-invalid={invalid || undefined}
     />
   );
@@ -230,45 +181,91 @@ function PhoneInput({ digits, onChange, invalid, onEnter }: { digits: string; on
 // ─── модалки ────────────────────────────────────────────────────────────────
 
 function Modal({ onClose, className, children }: { onClose: () => void; className?: string; children: React.ReactNode }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const bookingDialog = className === 'v2-modal--tour' || className === 'v2-modal--calendar';
+  const closeAction = useRef(onClose);
+  useEffect(() => { closeAction.current = onClose; }, [onClose]);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    if (bookingDialog) {
+      document.body.style.overflow = 'hidden';
+      dialogRef.current?.querySelector<HTMLElement>('button,input,select,textarea')?.focus();
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeAction.current();
+      if (bookingDialog && e.key === 'Tab') {
+        const fields = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea,a[href],[tabindex="0"]') || []);
+        const first = fields[0], last = fields[fields.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return (
+    return () => { window.removeEventListener('keydown', onKey); if (bookingDialog) { document.body.style.overflow = previousOverflow; previousFocus?.focus(); } };
+  }, [bookingDialog]);
+  const content = (
     <div className="v2-overlay" onClick={onClose}>
-      <div className={`v2-modal${className ? ' ' + className : ''}`} onClick={(e) => e.stopPropagation()}>
-        <button className="v2-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
+      <div className={`v2-modal${className ? ' ' + className : ''}`} ref={dialogRef} role={bookingDialog ? 'dialog' : undefined} aria-modal={bookingDialog || undefined} aria-label={bookingDialog ? className === 'v2-modal--tour' ? 'Записаться на брокер-тур' : 'Расписание брокер-туров на месяц' : undefined} onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="v2-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
         {children}
       </div>
     </div>
   );
+  // Booking dialogs must not inherit the landing's desktop canvas zoom on mobile.
+  return bookingDialog && typeof document !== 'undefined'
+    ? createPortal(<div className="v2 v2-tour-portal">{content}</div>, document.body) : content;
 }
 
-// initialMessage — предзаполненный комментарий (дата и время слота из календаря
-// брокер-туров); уходит в amoCRM примечанием к лиду (поле message → note).
-function LeadForm({ source, title, subtitle, buttonText, withMessage, initialMessage, onClose }: { source: 'landing-callback' | 'broker-tour'; title: string; subtitle: string; buttonText: string; withMessage?: boolean; initialMessage?: string; onClose: () => void }) {
+// Tour fields are structured in the UI; the existing API receives its compatible note.
+function LeadForm({ source, title, subtitle, buttonText, initialBooking, events = [], now, onClose }: { source: 'landing-callback' | 'broker-tour'; title: string; subtitle: string; buttonText: string; initialBooking?: TourBooking; events?: TourEvent[]; now?: Date; onClose: () => void }) {
   const [name, setName] = useState('');
   // 01.10: телефон — только 10 цифр после +7 (маска в PhoneInput); на сервер уходит +7XXXXXXXXXX
   const [phone, setPhone] = useState('');
   const [phoneError, setPhoneError] = useState('');
-  const [message, setMessage] = useState(initialMessage || '');
+  const [message, setMessage] = useState('');
+  const [booking, setBooking] = useState<TourBooking>(() => initialBooking || defaultTourBooking(events));
+  const [selectionNote, setSelectionNote] = useState('');
   const [loading, setLoading] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
+  const tour = source === 'broker-tour';
+  const clock = now || new Date();
+  const dateSlots = slotsForTourDay(booking.date, events, clock);
+  const routeOptions = [...new Map([
+    ['Квартал Серебряный Бор'], ['Зорге 9', 'Квартал Серебряный Бор'],
+    ...allTourSlots(events).map(slot => slot.projects),
+  ].map(projects => [projectsKey(projects), projects])).values()];
+  const selectedRoute = projectsKey(booking.projects);
+  const availableTimes = dateSlots.filter(slot => projectsKey(slot.projects) === selectedRoute);
+  const nextSlot = nextTourSlot(events, booking.date, clock);
+
+  function changeDate(date: string) {
+    const next = bookingForTourDate(date, booking, events, new Date());
+    setSelectionNote(selectedRoute && next.time && projectsKey(next.projects) !== selectedRoute
+      ? `Выбранного маршрута на эту дату нет. В расписании: ${next.projects.join(' + ')}. Проверьте выбор проектов.` : '');
+    setBooking(next);
+    setError('');
+  }
 
   const submit = async () => {
+    if (submitting.current) return;
     setError('');
     setPhoneError('');
     if (name.trim().length < 2) return setError('Введите имя');
     const p = '+7' + phone;
     if (!/^\+7\d{10}$/.test(p)) return setPhoneError('Введите 10 цифр номера');
+    if (tour && (!isCalendarDate(booking.date) || !isAvailableTourBooking(booking, events, new Date()))) {
+      return setError('Выберите проект, дату и время из актуального расписания. Прошедшее время недоступно.');
+    }
     setLoading(true);
+    submitting.current = true;
     try {
       const res = await fetch('/api/public/cms/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), phone: p, message: message.trim() || undefined, source }),
+        body: JSON.stringify({ name: name.trim(), phone: p, message: tour ? tourBookingMessage(booking, message) : message.trim() || undefined, source }),
       });
       if (res.ok) setSent(true);
       else {
@@ -279,10 +276,11 @@ function LeadForm({ source, title, subtitle, buttonText, withMessage, initialMes
       setError('Ошибка соединения. Попробуйте ещё раз.');
     }
     setLoading(false);
+    submitting.current = false;
   };
 
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} className={tour ? 'v2-modal--tour' : undefined}>
       <h3>{title}</h3>
       <p className="v2-modal-sub">{subtitle}</p>
       {sent ? (
@@ -291,16 +289,43 @@ function LeadForm({ source, title, subtitle, buttonText, withMessage, initialMes
           {source === 'landing-callback' ? 'Перезвоним в течение часа.' : 'Менеджер свяжется с вами, чтобы подтвердить запись.'}
         </div>
       ) : (
-        <div className="v2-form">
-          {error && <div className="v2-error">{error}</div>}
-          <input className="v2-input" placeholder="Ваше имя" value={name} onChange={(e) => setName(e.target.value)} />
+        <form className="v2-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+          {error && <div className="v2-error" role="alert">{error}</div>}
+          {tour && <>
+            <label className="v2-tour-field">ЖК / маршрут тура
+              <select className="v2-input" aria-label="Проекты" value={selectedRoute} onChange={(event) => {
+                const projects = routeOptions.find(route => projectsKey(route) === event.target.value) || [];
+                const first = dateSlots.find(slot => projectsKey(slot.projects) === event.target.value);
+                setBooking({ ...booking, projects: [...projects], time: first?.time || '' }); setError(''); setSelectionNote('');
+              }}>
+                <option value="">Выберите проекты</option>
+                {routeOptions.map(projects => <option key={projectsKey(projects)} value={projectsKey(projects)}>{projects.join(' + ')}</option>)}
+              </select>
+            </label>
+            <div className="v2-tour-date-time">
+              <label className="v2-tour-field">Дата
+                <input type="date" className="v2-input" aria-label="Дата брокер-тура" min={moscowDateTime(clock).date} value={booking.date} onChange={(event) => changeDate(event.target.value)} />
+              </label>
+              <label className="v2-tour-field">Время, МСК
+                <select className="v2-input" aria-label="Время брокер-тура" value={booking.time} onChange={(event) => { setBooking({ ...booking, time: event.target.value }); setError(''); }} disabled={!availableTimes.length}>
+                  <option value="">{availableTimes.length ? 'Выберите время' : 'Нет времени'}</option>
+                  {availableTimes.map(slot => <option key={slot.time} value={slot.time}>{slot.time}</option>)}
+                </select>
+              </label>
+            </div>
+            {!dateSlots.length && <div className="v2-tour-note" role="status">
+              На эту дату туров в расписании нет. Выберите другую дату — запись подтвердит менеджер.
+              {nextSlot && <button type="button" className="v2-tour-next" onClick={() => { setBooking(bookingFromSlot(nextSlot)); setError(''); setSelectionNote(''); }}>Ближайший тур: {fmtDay(nextSlot.date)}, {nextSlot.time}</button>}
+            </div>}
+            {!!dateSlots.length && !!selectedRoute && !availableTimes.length && <div className="v2-tour-note" role="status">Для выбранных проектов на эту дату времени нет. Измените проекты или дату.</div>}
+            {selectionNote && <div className="v2-tour-note" role="status">{selectionNote}</div>}
+          </>}
+          <input className="v2-input" placeholder="Ваше имя" aria-label="Ваше имя" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
           <PhoneInput digits={phone} invalid={!!phoneError} onChange={(d) => { setPhone(d); if (phoneError) setPhoneError(''); }} onEnter={submit} />
           {phoneError && <div className="v2-field-hint">{phoneError}</div>}
-          {withMessage && (
-            <textarea className="v2-input v2-textarea" placeholder="Какой проект и удобная дата" value={message} onChange={(e) => setMessage(e.target.value)} />
-          )}
-          <button className="v2-btn v2-btn--dark" onClick={submit} disabled={loading}>{loading ? 'Отправляем…' : buttonText}</button>
-        </div>
+          {tour && <textarea className="v2-input v2-textarea" placeholder="Комментарий (необязательно)" aria-label="Комментарий" value={message} onChange={(e) => setMessage(e.target.value)} />}
+          <button type="submit" className="v2-btn v2-btn--dark" disabled={loading}>{loading ? 'Отправляем…' : buttonText}</button>
+        </form>
       )}
     </Modal>
   );
@@ -337,26 +362,8 @@ const MONTHS_NOM = ['Январь', 'Февраль', 'Март', 'Апрель'
 const DOW_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const MONTHS_AHEAD = 2;
 const WEEKS_AHEAD = 8; // листание недель на главной (01.10)
-const PROJECT_ABBR: Record<string, string> = { 'Квартал Серебряный Бор': 'КСБ', 'Коммерция Зорге 9': 'Коммерция З9' };
+const PROJECT_ABBR: Record<string, string> = { 'Зорге 9': 'З9', 'Квартал Серебряный Бор': 'КСБ', 'Коммерция Зорге 9': 'Коммерция З9' };
 const abbrProjects = (list: string[]) => list.map((p) => PROJECT_ABBR[p] || p).join(' + ');
-
-/** Сетка месяца: недели с понедельника, дни соседних месяцев — null. */
-function monthGrid(year: number, month: number): Array<Date | null> {
-  const first = new Date(year, month, 1);
-  const lead = (first.getDay() + 6) % 7;
-  const total = new Date(year, month + 1, 0).getDate();
-  const cells: Array<Date | null> = Array.from({ length: lead }, () => null);
-  for (let d = 1; d <= total; d++) cells.push(new Date(year, month, d));
-  while (cells.length % 7) cells.push(null);
-  return cells;
-}
-
-/** Текст комментария в форму записи: «Брокер-тур 30.09.2026 в 11:00 — Квартал Серебряный Бор». */
-function tourPresetText(day: Date, slot?: { time: string; projects: string[] }): string {
-  const date = `${String(day.getDate()).padStart(2, '0')}.${String(day.getMonth() + 1).padStart(2, '0')}.${day.getFullYear()}`;
-  if (!slot) return `Брокер-тур ${date}`;
-  return `Брокер-тур ${date} в ${slot.time} — ${slot.projects.join(', ')}`;
-}
 
 const CalArrow = () => (
   <svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true">
@@ -364,14 +371,12 @@ const CalArrow = () => (
   </svg>
 );
 
-function MonthModal({ events, onClose, onBook }: { events: any[]; onClose: () => void; onBook: (preset?: string) => void }) {
-  const today = new Date();
-  const todayKey = dayKey(today);
+function MonthModal({ events, now, onClose, onBook }: { events: TourEvent[]; now: Date; onClose: () => void; onBook: (preset?: TourBooking) => void }) {
+  const todayKey = moscowDateTime(now).date;
+  const today = calendarDate(todayKey);
   const [offset, setOffset] = useState(0);
-  const year = today.getFullYear();
-  const month = today.getMonth() + offset;
-  const shown = new Date(year, month, 1);
-  const cells = monthGrid(shown.getFullYear(), shown.getMonth());
+  const shown = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + offset, 1));
+  const cells = tourMonthGrid(shown.getUTCFullYear(), shown.getUTCMonth());
 
   return (
     <Modal onClose={onClose} className="v2-modal--calendar">
@@ -382,7 +387,7 @@ function MonthModal({ events, onClose, onBook }: { events: any[]; onClose: () =>
         </div>
         <div className="v2-cal-nav">
           <button className="v2-cal-arrow v2-cal-arrow--prev" aria-label="Предыдущий месяц" disabled={offset <= 0} onClick={() => setOffset((v) => Math.max(0, v - 1))}><CalArrow /></button>
-          <div className="v2-cal-month">{MONTHS_NOM[shown.getMonth()]} {shown.getFullYear()}</div>
+          <div className="v2-cal-month">{MONTHS_NOM[shown.getUTCMonth()]} {shown.getUTCFullYear()}</div>
           <button className="v2-cal-arrow" aria-label="Следующий месяц" disabled={offset >= MONTHS_AHEAD} onClick={() => setOffset((v) => Math.min(MONTHS_AHEAD, v + 1))}><CalArrow /></button>
         </div>
       </div>
@@ -392,25 +397,28 @@ function MonthModal({ events, onClose, onBook }: { events: any[]; onClose: () =>
       <div className="v2-cal-grid">
         {cells.map((day, i) => {
           if (!day) return <div key={'e' + i} className="v2-cal-cell v2-cal-cell--empty" />;
-          const key = dayKey(day);
-          const slots = slotsForDay(day, events);
+          const key = day;
+          const slots = slotsForTourDay(day, events, now, true);
+          const futureSlots = slots.filter(slot => slot.startsAt >= now.getTime());
           const isToday = key === todayKey;
           const isPast = key < todayKey;
-          const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-          const clickable = !isPast && slots.length > 0;
+          const weekday = calendarDate(day).getUTCDay();
+          const isWeekend = weekday === 0 || weekday === 6;
+          const clickable = futureSlots.length > 0;
           const cls = ['v2-cal-cell', isToday && 'v2-cal-cell--today', isPast && 'v2-cal-cell--past', isWeekend && 'v2-cal-cell--weekend', clickable && 'v2-cal-cell--active']
             .filter(Boolean).join(' ');
-          const openDay = () => { if (clickable) onBook(tourPresetText(day, slots[0])); };
+          const openDay = () => { if (clickable) onBook(bookingFromSlot(futureSlots[0])); };
           return (
             <div key={key} className={cls} onClick={openDay} role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined}
-              onKeyDown={(e) => { if (clickable && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openDay(); } }}>
-              <div className="v2-cal-num">{day.getDate()}</div>
+              onKeyDown={(e) => { if (e.target === e.currentTarget && clickable && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openDay(); } }}>
+              <div className="v2-cal-num">{calendarDate(day).getUTCDate()}</div>
               {!isPast && slots.slice(0, 2).map((s) => {
                 const full = `${s.time} · ${s.projects.join(' + ')}`;
                 return (
                   <button key={s.time} type="button" className="v2-cal-slot" title={full}
-                    onClick={(e) => { e.stopPropagation(); onBook(tourPresetText(day, s)); }}>
-                    <b>{s.time}</b> · {abbrProjects(s.projects)}
+                    disabled={s.startsAt < now.getTime()} aria-label={`${fmtDay(day)}, ${full}`}
+                    onClick={(e) => { e.stopPropagation(); if (s.startsAt >= Date.now()) onBook(bookingFromSlot(s)); }}>
+                    <b>{s.time}</b><span className="v2-cal-route"> · {abbrProjects(s.projects)}</span>
                   </button>
                 );
               })}
@@ -555,9 +563,14 @@ function PromoCarousel({ promos }: { promos: any[] }) {
 
 export default function LandingV2({ data }: { data: LandingV2Data }) {
   const [modal, setModal] = useState<null | 'callback' | 'tour' | 'conditions' | 'month'>(null);
-  // предзаполненный комментарий формы записи на тур (из календаря: дата и время слота)
-  const [tourPreset, setTourPreset] = useState('');
-  const openTour = (preset?: string) => { setTourPreset(preset || ''); setModal('tour'); };
+  const activeEvents = useMemo(() => (data.events || []).filter((e) => e.isActive !== false), [data.events]);
+  const [calendarNow, setCalendarNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCalendarNow(new Date()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+  const [tourPreset, setTourPreset] = useState<TourBooking | undefined>();
+  const openTour = (preset?: TourBooking) => { setTourPreset(preset || defaultTourBooking(activeEvents, new Date())); setModal('tour'); };
   const [menu, setMenu] = useState(false);
   useEffect(() => {
     if (!menu) return;
@@ -658,15 +671,14 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
   // к новым узлам не привязан) — смена недели идёт с лёгким затуханием.
   const [weekOffset, setWeekOffset] = useState(0);
   const [weekDir, setWeekDir] = useState(0); // -1 назад, 1 вперёд, 0 — без анимации
-  const week = useMemo(() => workWeek(weekOffset), [weekOffset]);
+  const week = useMemo(() => tourWorkWeek(weekOffset, calendarNow), [weekOffset, calendarNow]);
   const goWeek = (next: number) => {
     const clamped = Math.max(0, Math.min(WEEKS_AHEAD, next));
     if (clamped === weekOffset) return;
     setWeekDir(clamped > weekOffset ? 1 : -1);
     setWeekOffset(clamped);
   };
-  const todayKey = dayKey(new Date());
-  const activeEvents = useMemo(() => (data.events || []).filter((e) => e.isActive !== false), [data.events]);
+  const todayKey = moscowDateTime(calendarNow).date;
   const promos = useMemo(
     () => (data.promos || []).filter((p) => p.isActive !== false && (!p.expiresAt || new Date(p.expiresAt) > new Date())),
     [data.promos],
@@ -848,17 +860,19 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
             <div className="v2-days-wrap">
               <div className={`v2-days${weekDir ? ' v2-days--anim' : ''}`} key={weekOffset} style={{ '--dir': weekDir } as React.CSSProperties}>
                 {week.map((day, di) => {
-                  const slots = slotsForDay(day, activeEvents);
-                  const isToday = dayKey(day) === todayKey;
+                  const slots = slotsForTourDay(day, activeEvents, calendarNow, true);
+                  const isToday = day === todayKey;
                   return (
-                    <div key={dayKey(day)} className={`v2-day${isToday ? ' v2-day--today' : ''}`} data-reveal={weekDir ? undefined : 'scale'} style={{ '--i': di } as React.CSSProperties}>
+                    <div key={day} className={`v2-day${isToday ? ' v2-day--today' : ''}`} data-reveal={weekDir ? undefined : 'scale'} style={{ '--i': di } as React.CSSProperties}>
                       <div className="v2-day-date">{fmtDay(day)}</div>
                       {slots.length === 0 && <div className="v2-day-empty">Туров нет</div>}
                       {slots.slice(0, 2).map((s) => (
-                        <div className="v2-slot" key={s.time}>
-                          <div className="v2-slot-time">{s.time}</div>
-                          <div className="v2-slot-list">{s.projects.map((p) => <div key={p}>{p}</div>)}</div>
-                        </div>
+                        <button type="button" className="v2-slot" key={s.time} disabled={s.startsAt < calendarNow.getTime()}
+                          aria-label={`Записаться: ${fmtDay(day)}, ${s.time}, ${s.projects.join(' + ')}`}
+                          onClick={() => { if (s.startsAt >= Date.now()) openTour(bookingFromSlot(s)); }}>
+                          <span className="v2-slot-time">{s.time}</span>
+                          <span className="v2-slot-list">{s.projects.map((p) => <span key={p}>{p}</span>)}</span>
+                        </button>
                       ))}
                     </div>
                   );
@@ -965,10 +979,10 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
         <LeadForm source="landing-callback" title="Стать партнёром" subtitle="Оставьте номер — перезвоним в течение часа" buttonText="Жду звонка" onClose={() => setModal(null)} />
       )}
       {modal === 'tour' && (
-        <LeadForm source="broker-tour" title="Записаться на брокер-тур" subtitle="Менеджер подтвердит дату и время" buttonText="Записаться" withMessage initialMessage={tourPreset} onClose={() => { setTourPreset(''); setModal(null); }} />
+        <LeadForm source="broker-tour" title="Записаться на брокер-тур" subtitle="Менеджер подтвердит дату и время" buttonText="Записаться" initialBooking={tourPreset} events={activeEvents} now={calendarNow} onClose={() => { setTourPreset(undefined); setModal(null); }} />
       )}
       {modal === 'conditions' && <ConditionsModal docs={data.cooperationDocs} onClose={() => setModal(null)} />}
-      {modal === 'month' && <MonthModal events={activeEvents} onClose={() => setModal(null)} onBook={openTour} />}
+      {modal === 'month' && <MonthModal events={activeEvents} now={calendarNow} onClose={() => setModal(null)} onBook={openTour} />}
     </div>
   );
 }
