@@ -1,0 +1,62 @@
+name: Monitor PLAUD file names
+
+on:
+  schedule:
+    # 09:00 Europe/Moscow. Moscow is UTC+3 year-round.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: 'How many recent days to check (1-30)'
+        required: false
+        default: '7'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monitor-plaud-file-names
+  cancel-in-progress: false
+
+jobs:
+  check-and-notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPS_TELEGRAM_BOT_TOKEN: ${{ secrets.OPS_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+      OPS_ALERT_CHAT_ID: ${{ secrets.OPS_ALERT_CHAT_ID }}
+      OPS_ALERT_CHAT_IDS: ${{ secrets.OPS_ALERT_CHAT_IDS }}
+      PLAUD_CLI_TOKENS_B64: ${{ secrets.PLAUD_CLI_TOKENS_B64 }}
+      PLAUD_NAME_LOOKBACK_DAYS: ${{ inputs.lookback_days || '7' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          test -n "$OPS_TELEGRAM_BOT_TOKEN" || { echo "OPS Telegram bot token is missing"; exit 1; }
+          test -n "${OPS_ALERT_CHAT_IDS}${OPS_ALERT_CHAT_ID}" || { echo "OPS Telegram chat ID is missing"; exit 1; }
+
+      - name: Restore PLAUD CLI authorization
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.plaud"
+          if [ -n "$PLAUD_CLI_TOKENS_B64" ]; then
+            node -e "require('fs').writeFileSync(process.env.HOME+'/.plaud/tokens.json', Buffer.from(process.env.PLAUD_CLI_TOKENS_B64, 'base64'), {mode: 0o600})"
+            echo "PLAUD token file restored"
+          else
+            echo "PLAUD_CLI_TOKENS_B64 is missing; the monitor will send a Telegram configuration alert"
+          fi
+
+      - name: Install official PLAUD CLI
+        run: npm install --global @plaud-ai/cli@0.3.14
+
+      - name: Check recent recording names and notify ops chat
+        run: node scripts/monitor-plaud-file-names.mjs --days "$PLAUD_NAME_LOOKBACK_DAYS"
