@@ -6,12 +6,12 @@ on:
       mode:
         description: 'inspect: только аудит; apply: проверенная замена с резервной копией'
         type: choice
-        options: [inspect, apply]
+        options: [inspect, apply, status]
         default: inspect
         required: true
 
 concurrency:
-  group: sync-yandex-files
+  group: ${{ inputs.mode == 'status' && 'materials-transfer-status' || 'sync-yandex-files' }}
   cancel-in-progress: false
 permissions:
   contents: read
@@ -46,6 +46,12 @@ jobs:
             git fetch origin master
             git cat-file -e "$SCRIPT_SHA^{commit}"
             git merge-base --is-ancestor "$SCRIPT_SHA" origin/master
+            if [ "$MATERIALS_MODE" = status ]; then
+              git show "$SCRIPT_SHA:scripts/materials-transfer-status.js" > /tmp/materials-transfer-status.js
+              docker cp /tmp/materials-transfer-status.js st-michael-api:/app/scripts/materials-transfer-status.js
+              docker compose exec -T api node /app/scripts/materials-transfer-status.js
+              exit 0
+            fi
             case "$MATERIALS_MODE" in inspect|apply) ;; *) exit 1 ;; esac
             docker exec st-michael-api node -e 'const fs=require("fs");for(const p of fs.readdirSync("/proc")){if(!/^\d+$/.test(p))continue;let c="";try{c=fs.readFileSync("/proc/"+p+"/cmdline","utf8")}catch{}if(c.startsWith("node\0")&&/scripts\/sync-yandex-files\.js/.test(c)){console.error("Existing material sync active: "+p);process.exit(1)}}'
             git show "$SCRIPT_SHA:scripts/materials-new-version.js" > /tmp/materials-new-version.js
