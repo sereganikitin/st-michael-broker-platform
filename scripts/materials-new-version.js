@@ -229,9 +229,13 @@ async function main() {
     if (currentSetting.value !== setting.value) throw new Error('Layout changed during staging; rerun');
     const currentDocs = await prisma.document.findMany({});
     const remove = currentDocs.filter(d => replaceable(d, saved) && !files.some(f => d.description === '[yandex-local:' + f.path + ']'));
-    const backupRoot = path.join(uploadRoot, 'materials-backups', new Date().toISOString().replace(/[:.]/g, '-'));
-    fs.mkdirSync(backupRoot, { recursive: true });
-    fs.writeFileSync(path.join(backupRoot, 'documents-layout.json'), JSON.stringify({ documents: currentDocs, setting, files, removeIds: remove.map(d => d.id) }, null, 2));
+    const backupParent = path.join(uploadRoot, 'materials-backups');
+    const backupRoot = path.join(backupParent, new Date().toISOString().replace(/[:.]/g, '-'));
+    // nginx runs as another UID: private backups must not be downloadable.
+    fs.mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
+    fs.chmodSync(backupParent, 0o700);
+    fs.chmodSync(backupRoot, 0o700);
+    fs.writeFileSync(path.join(backupRoot, 'documents-layout.json'), JSON.stringify({ documents: currentDocs, setting, files, removeIds: remove.map(d => d.id) }, null, 2), { mode: 0o600 });
     await prisma.$transaction(async tx => {
       const fresh = await tx.systemSetting.findUnique({ where: { key: setting.key } });
       if (fresh.value !== setting.value) throw new Error('Concurrent layout change');
