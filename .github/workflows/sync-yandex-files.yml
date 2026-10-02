@@ -42,6 +42,8 @@ jobs:
             git fetch origin master
             echo "=== Скрипт из origin/master: $(git rev-parse --short origin/master) ==="
             git show origin/master:scripts/sync-yandex-files.js > /tmp/sync-yandex-files.js
+            git show origin/master:scripts/materials-new-version.js > /tmp/materials-new-version.js
+            docker cp /tmp/materials-new-version.js st-michael-api:/app/scripts/materials-new-version.js
             docker cp /tmp/sync-yandex-files.js st-michael-api:/app/scripts/sync-yandex-files.js
             CLEAN_ORPHANS="${{ inputs.clean_orphans }}"
             if [ "$CLEAN_ORPHANS" = "true" ]; then CLEAN_FLAG=1; else CLEAN_FLAG=0; fi
