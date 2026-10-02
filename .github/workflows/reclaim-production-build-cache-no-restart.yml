@@ -128,8 +128,19 @@ jobs:
           container_inventory() {
             while IFS= read -r container_id; do
               test -n "$container_id" || continue
-              docker inspect --format '{{.Id}}|{{.Image}}|{{.Name}}|{{.State.Status}}|{{.State.Pid}}|{{.State.StartedAt}}|{{.RestartCount}}|{{json .Mounts}}' "$container_id"
+              docker inspect --format '{{.Id}}|{{.Image}}|{{.Name}}|{{.State.Status}}|{{.State.Pid}}|{{.State.StartedAt}}|{{.RestartCount}}' "$container_id" || return 1
             done < <(docker container ls -aq --no-trunc | sort)
+          }
+          container_mount_inventory() {
+            # Moby GetMountPoints builds this array by iterating a Go map, so
+            # equivalent inspections can return mounts in different orders.
+            # Keep every JSON field and duplicate, bind each mount to its
+            # container ID, and sort records rather than hashing array order.
+            while IFS= read -r container_id; do
+              test -n "$container_id" || continue
+              docker inspect --format '{{range .Mounts}}{{json .}}{{println}}{{end}}' "$container_id" \
+                | awk -v container_id="$container_id" 'NF { print container_id "|" $0 }' || return 1
+            done < <(docker container ls -aq --no-trunc | sort) | sort
           }
           running_container_inventory() {
             docker container ls -q --no-trunc | sort
@@ -181,6 +192,7 @@ jobs:
           required_backup_bytes=$((MIN_AVAILABLE_BYTES + database_size_bytes + BACKUP_SIZE_OVERHEAD_BYTES))
           require_uint "$required_backup_bytes"
           containers_before=$(container_inventory | inventory_hash)
+          mounts_before=$(container_mount_inventory | inventory_hash)
           running_before=$(running_container_inventory | inventory_hash)
           tagged_images_before=$(tagged_image_inventory | inventory_hash)
           volumes_before=$(volume_inventory | inventory_hash)
@@ -197,6 +209,7 @@ jobs:
           printf 'root_available_bytes_before=%s\n' "$root_before"
           printf 'required_backup_available_bytes=%s\n' "$required_backup_bytes"
           printf 'container_inventory_sha256_before=%s\n' "$containers_before"
+          printf 'container_mount_inventory_sha256_before=%s\n' "$mounts_before"
           printf 'running_container_inventory_sha256_before=%s\n' "$running_before"
           printf 'tagged_image_inventory_sha256_before=%s\n' "$tagged_images_before"
           printf 'volume_inventory_sha256_before=%s\n' "$volumes_before"
@@ -222,6 +235,7 @@ jobs:
           assert_database
           required_backup_bytes_after=$((MIN_AVAILABLE_BYTES + database_size_bytes + BACKUP_SIZE_OVERHEAD_BYTES))
           containers_after=$(container_inventory | inventory_hash)
+          mounts_after=$(container_mount_inventory | inventory_hash)
           running_after=$(running_container_inventory | inventory_hash)
           tagged_images_after=$(tagged_image_inventory | inventory_hash)
           volumes_after=$(volume_inventory | inventory_hash)
@@ -235,7 +249,22 @@ jobs:
           backup_after=$(available_bytes "$backup_storage_path")
           for metric in "$required_backup_bytes_after" "$root_after" "$deploy_after" "$release_context_after" "$docker_after" "$backup_after"; do require_uint "$metric"; done
 
+          # Emit sanitized evidence before assertions, including failures.
+          # Never print complete inspect output, environment, or mount paths.
+          printf 'cleanup_performed=%s\n' "$cleanup_performed"
+          printf 'cleanup_reason=%s\n' "$cleanup_reason"
+          printf 'root_available_bytes_after=%s\n' "$root_after"
+          printf 'required_backup_available_bytes_after=%s\n' "$required_backup_bytes_after"
+          printf 'container_inventory_sha256_after=%s\n' "$containers_after"
+          printf 'container_mount_inventory_sha256_after=%s\n' "$mounts_after"
+          printf 'running_container_inventory_sha256_after=%s\n' "$running_after"
+          printf 'tagged_image_inventory_sha256_after=%s\n' "$tagged_images_after"
+          printf 'volume_inventory_sha256_after=%s\n' "$volumes_after"
+          printf 'network_inventory_sha256_after=%s\n' "$networks_after"
+          printf 'deploy_status_sha256_after=%s\n' "$deploy_status_after"
+
           test "$containers_after" = "$containers_before" || { echo "Container inventory changed during cache cleanup"; exit 1; }
+          test "$mounts_after" = "$mounts_before" || { echo "Container mount inventory changed during cache cleanup"; exit 1; }
           test "$running_after" = "$running_before" || { echo "Running container inventory changed during cache cleanup"; exit 1; }
           test "$tagged_images_after" = "$tagged_images_before" || { echo "Tagged image inventory changed during cache cleanup"; exit 1; }
           test "$volumes_after" = "$volumes_before" || { echo "Volume inventory changed during cache cleanup"; exit 1; }
@@ -243,11 +272,8 @@ jobs:
           test "$deploy_head_after" = "$deploy_head_before" || { echo "Deploy worktree HEAD changed during cache cleanup"; exit 1; }
           test "$deploy_status_after" = "$deploy_status_before" || { echo "Deploy worktree status changed during cache cleanup"; exit 1; }
 
-          printf 'cleanup_performed=%s\n' "$cleanup_performed"
-          printf 'cleanup_reason=%s\n' "$cleanup_reason"
-          printf 'root_available_bytes_after=%s\n' "$root_after"
-          printf 'required_backup_available_bytes_after=%s\n' "$required_backup_bytes_after"
           printf 'container_inventory_unchanged=true\n'
+          printf 'container_mount_inventory_unchanged=true\n'
           printf 'running_container_inventory_unchanged=true\n'
           printf 'tagged_image_inventory_unchanged=true\n'
           printf 'volume_inventory_unchanged=true\n'

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "fs";
+import { spawnSync } from "child_process";
 import { resolve } from "path";
 import { parse } from "yaml";
 
@@ -947,7 +948,40 @@ describe("loyalty production workflow safety", () => {
     expect(remoteBody).toContain("{{.State.Pid}}");
     expect(remoteBody).toContain("{{.State.StartedAt}}");
     expect(remoteBody).toContain("{{.RestartCount}}");
-    expect(remoteBody).toContain("{{json .Mounts}}");
+    expect(remoteBody).not.toContain("{{json .Mounts}}");
+    expect(remoteBody).toContain("{{range .Mounts}}{{json .}}{{println}}{{end}}");
+    expect(remoteBody).toContain(
+      'awk -v container_id="$container_id" \'NF { print container_id "|" $0 }\' || return 1',
+    );
+    expect(remoteBody).toContain(
+      "done < <(docker container ls -aq --no-trunc | sort) | sort",
+    );
+    expect(remoteBody).toContain(
+      "mounts_before=$(container_mount_inventory | inventory_hash)",
+    );
+    expect(remoteBody).toContain(
+      "mounts_after=$(container_mount_inventory | inventory_hash)",
+    );
+    expect(remoteBody).toContain('test "$mounts_after" = "$mounts_before"');
+    expect(remoteBody).toContain("container_mount_inventory_sha256_before");
+    expect(remoteBody).toContain("container_mount_inventory_sha256_after");
+    expect(remoteBody).not.toContain("sort -u");
+    const firstInventoryAssertion = remoteBody.indexOf(
+      'test "$containers_after" = "$containers_before"',
+    );
+    for (const metric of [
+      "container_inventory",
+      "container_mount_inventory",
+      "running_container_inventory",
+      "tagged_image_inventory",
+      "volume_inventory",
+      "network_inventory",
+      "deploy_status",
+    ]) {
+      const afterEvidence = remoteBody.indexOf(`printf '${metric}_sha256_after=`);
+      expect(afterEvidence).toBeGreaterThan(fingerprintsAfter);
+      expect(afterEvidence).toBeLessThan(firstInventoryAssertion);
+    }
     expect(remoteBody).toContain("docker volume inspect --format");
     expect(remoteBody).toContain("docker network inspect --format");
     expect(remoteBody).toContain('test -z "${DOCKER_HOST:-}"');
@@ -998,8 +1032,10 @@ describe("loyalty production workflow safety", () => {
     );
     expect(remoteBody).not.toContain("|| true");
     expect(dockerCommandLines).toEqual([
-      "docker inspect --format '{{.Id}}|{{.Image}}|{{.Name}}|{{.State.Status}}|{{.State.Pid}}|{{.State.StartedAt}}|{{.RestartCount}}|{{json .Mounts}}' \"$container_id\"",
+      "docker inspect --format '{{.Id}}|{{.Image}}|{{.Name}}|{{.State.Status}}|{{.State.Pid}}|{{.State.StartedAt}}|{{.RestartCount}}' \"$container_id\" || return 1",
       "done < <(docker container ls -aq --no-trunc | sort)",
+      "docker inspect --format '{{range .Mounts}}{{json .}}{{println}}{{end}}' \"$container_id\" \\",
+      "done < <(docker container ls -aq --no-trunc | sort) | sort",
       "docker container ls -q --no-trunc | sort",
       "docker image ls --digests --no-trunc --format '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.Digest}}' \\",
       "docker volume inspect --format '{{.Name}}|{{.Driver}}|{{.Mountpoint}}|{{.Scope}}|{{json .Labels}}|{{json .Options}}' \"$volume_name\"",
@@ -1038,6 +1074,136 @@ describe("loyalty production workflow safety", () => {
     );
     expect(remoteBody).toContain("SELECT COUNT(*) FROM public.brokers");
     expect(remoteBody).toContain("SELECT pg_database_size(current_database())");
+  });
+
+  describe("canonical cache-cleanup container inventory", () => {
+    // Execute only the two read-only inventory functions, never the workflow.
+    // Docker is an in-memory fixture function; no daemon, SSH, DB, or network.
+    const script = (parse(buildCacheReclaimWorkflow) as {
+      jobs: { reclaim: { steps: Array<{ run: string }> } };
+    }).jobs.reclaim.steps[0].run;
+    const methods = script.slice(
+      script.indexOf("container_inventory() {"),
+      script.indexOf("running_container_inventory() {"),
+    );
+    const hashMethod = script.slice(
+      script.indexOf("inventory_hash() {"),
+      script.indexOf("canonical_master_sha() {"),
+    );
+    const bash =
+      process.platform === "win32"
+        ? "C:/Program Files/Git/bin/bash.exe"
+        : "/bin/bash";
+    const firstMount = {
+      Type: "bind",
+      Name: "",
+      Source: "/fixture/source",
+      Destination: "/fixture/target",
+      Driver: "",
+      Mode: "ro",
+      RW: false,
+      Propagation: "rprivate",
+      FutureField: "preserved",
+    };
+    const secondMount = {
+      ...firstMount,
+      Source: "/fixture/second",
+      Destination: "/fixture/other",
+    };
+    const dockerFixture = `docker() {
+      if [ "$1" = "container" ]; then printf '%s\\n' "$TASK_ID_B" "$TASK_ID_A"; return; fi
+      if [ "$1" != "inspect" ]; then return 9; fi
+      if [ "$4" = "$TASK_FAIL_ID" ]; then return 7; fi
+      if [ "$3" = '{{range .Mounts}}{{json .}}{{println}}{{end}}' ]; then
+        if [ "$TASK_SWAP" = '1' ]; then
+          printf '%s\\n' "$TASK_MOUNT_B" "$TASK_MOUNT_A"
+        else
+          printf '%s\\n' "$TASK_MOUNT_A" "$TASK_MOUNT_B"
+        fi
+        if [ "$TASK_DUPLICATE" = '1' ]; then printf '%s\\n' "$TASK_MOUNT_A"; fi
+      else
+        printf '%s|%s|%s|%s|%s|%s|%s\\n' "$4" "$TASK_IMAGE" "$TASK_NAME" "$TASK_STATUS" "$TASK_PID" "$TASK_STARTED" "$TASK_RESTARTS"
+      fi
+    }`;
+    const probe = (
+      changes: Record<string, string> = {},
+      method = "container_mount_inventory",
+    ) =>
+      spawnSync(bash, ["-s"], {
+        input: `set -euo pipefail\nexport LC_ALL=C\n${hashMethod}\n${methods}\n${dockerFixture}\n${method} | inventory_hash\n`,
+        encoding: "utf8",
+        timeout: 5000,
+        // Do not forward deployment credentials or app configuration to mocks.
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_ID_A: "c1",
+          TASK_ID_B: "c2",
+          TASK_FAIL_ID: "",
+          TASK_SWAP: "0",
+          TASK_DUPLICATE: "0",
+          TASK_MOUNT_A: JSON.stringify(firstMount),
+          TASK_MOUNT_B: JSON.stringify(secondMount),
+          TASK_IMAGE: "image",
+          TASK_NAME: "name",
+          TASK_STATUS: "running",
+          TASK_PID: "100",
+          TASK_STARTED: "2026-10-01T00:00:00Z",
+          TASK_RESTARTS: "0",
+          ...changes,
+        },
+      });
+
+    it("ignores only mount ordering and detects every changed JSON field", () => {
+      const base = probe();
+      expect(base.error).toBeUndefined();
+      expect(base.status).toBe(0);
+      const permuted = probe({ TASK_SWAP: "1" });
+      expect(permuted.status).toBe(0);
+      expect(permuted.stdout).toBe(base.stdout);
+      for (const [key, value] of Object.entries(firstMount)) {
+        const changed = {
+          ...firstMount,
+          [key]: typeof value === "boolean" ? !value : `${value}-changed`,
+        };
+        const result = probe({ TASK_MOUNT_A: JSON.stringify(changed) });
+        expect(result.status).toBe(0);
+        expect(result.stdout).not.toBe(base.stdout);
+      }
+    }, 20_000);
+
+    it("retains duplicate mounts and binds records to container IDs", () => {
+      const base = probe();
+      const duplicate = probe({ TASK_DUPLICATE: "1" });
+      const renamed = probe({ TASK_ID_A: "different-container" });
+      expect(duplicate.status).toBe(0);
+      expect(renamed.status).toBe(0);
+      expect(duplicate.stdout).not.toBe(base.stdout);
+      expect(renamed.stdout).not.toBe(base.stdout);
+    });
+
+    it("detects every lifecycle scalar and fails closed on the first inspect error", () => {
+      const base = probe({}, "container_inventory");
+      expect(base.status).toBe(0);
+      for (const field of [
+        "TASK_ID_A",
+        "TASK_IMAGE",
+        "TASK_NAME",
+        "TASK_STATUS",
+        "TASK_PID",
+        "TASK_STARTED",
+        "TASK_RESTARTS",
+      ]) {
+        const result = probe({ [field]: "changed" }, "container_inventory");
+        expect(result.status).toBe(0);
+        expect(result.stdout).not.toBe(base.stdout);
+      }
+      for (const method of ["container_inventory", "container_mount_inventory"]) {
+        const failed = probe({ TASK_FAIL_ID: "c1" }, method);
+        expect(failed.error).toBeUndefined();
+        expect(failed.status).not.toBe(0);
+      }
+    }, 20_000);
   });
 
   it("creates a fresh exact-SHA DB backup without retention or service changes", () => {
