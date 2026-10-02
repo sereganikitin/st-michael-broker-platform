@@ -10,6 +10,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import { PublicHeader } from '@/components/public/PublicHeader';
+import { findInstallmentCalculator } from '@/lib/materials-actions';
 import { materialHref } from '@/lib/materials-folder-tree';
 import { allTourSlots, bookingForTourDate, bookingFromSlot, calendarDate, defaultTourBooking, isAvailableTourBooking, isCalendarDate, moscowDateTime, nextTourSlot, projectsKey, slotsForTourDay, tourBookingMessage, tourMonthGrid, tourWorkWeek, type TourBooking, type TourEvent } from '@/lib/broker-tour-booking';
 
@@ -571,19 +573,6 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
   }, []);
   const [tourPreset, setTourPreset] = useState<TourBooking | undefined>();
   const openTour = (preset?: TourBooking) => { setTourPreset(preset || defaultTourBooking(activeEvents, new Date())); setModal('tour'); };
-  const [menu, setMenu] = useState(false);
-  useEffect(() => {
-    if (!menu) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Element | null;
-      if (t && t.closest('.v2-menu, .v2-burger')) return;
-      setMenu(false);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [menu]);
   const [zoom, setZoom] = useState(1);
   // 30.09 (владелец, по демо): анимации появления блоков. Включаются только
   // после гидрации и только без prefers-reduced-motion — без JS страница
@@ -591,7 +580,9 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
   const [motion, setMotion] = useState(false);
 
   useEffect(() => {
-    const apply = () => setZoom(window.innerWidth < 1440 ? Math.max(0.5, window.innerWidth / 1440) : 1);
+    // Mobile has its own fluid layout. Only the legacy tablet/desktop canvas
+    // retains its zoom; the shared header is outside this canvas altogether.
+    const apply = () => setZoom(window.innerWidth > 767 && window.innerWidth < 1440 ? window.innerWidth / 1440 : 1);
     apply();
     window.addEventListener('resize', apply);
     return () => window.removeEventListener('resize', apply);
@@ -606,8 +597,6 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
     if (!motion) return;
     const root = document.querySelector('.v2');
     if (!root) return;
-    const header = root.querySelector('.v2-header');
-    const raf = requestAnimationFrame(() => header?.classList.add('is-in'));
     const animateCounters = (scope: Element) => {
       scope.querySelectorAll<HTMLElement>('.v2-mcard-meta').forEach((el) => {
         if (el.dataset.counted) return;
@@ -644,7 +633,7 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
     };
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => { cancelAnimationFrame(raf); io.disconnect(); window.removeEventListener('scroll', onScroll); };
+    return () => { io.disconnect(); window.removeEventListener('scroll', onScroll); };
   }, [motion]);
 
   const contact = data.content?.contact || {};
@@ -689,39 +678,12 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
   // 01.10 (владелец): без цифр — просто перечень видов материалов
   const matCount = (_key: string) => 'Фото · Видео · Презентации';
   const condCount = data.cooperationDocs.length; void condCount;
+  const calculatorHref = useMemo(() => findInstallmentCalculator(data.cooperationDocs), [data.cooperationDocs]);
 
   return (
-    <div className={`v2${motion ? ' v2--motion' : ''}`} style={{ zoom } as React.CSSProperties}>
-      {/* ── шапка ── */}
-      <header className="v2-header">
-        <div className="v2-container">
-          <a className="v2-brand" href="#top" aria-label="St Michael">
-            <img src="/v2/svg/logo.svg" alt="St Michael" />
-            <span>Кабинет брокера</span>
-          </a>
-          <div className="v2-header-right">
-            {/* Макет 28.09 (7004): справа только «Регистрация» (контур 145×38),
-                золотая «Войти в кабинет брокера» (238×38) и бургер. Телефон и
-                «Записаться на брокер-тур» из шапки ушли — запись на тур в меню. */}
-            <Link className="v2-btn v2-btn--outline v2-header-reg" href="/register">Регистрация</Link>
-            <Link className="v2-btn v2-btn--gold v2-header-login" href="/login">Войти в кабинет брокера</Link>
-            <button className="v2-burger" aria-label="Меню" onClick={() => setMenu((v) => !v)}><img src="/v2/svg/burger.svg" alt="" width={40} height={16} /></button>
-          </div>
-          {menu && (
-            /* 30.09 (владелец): пункты как в старом лендинге; закрывается кликом вне меню */
-            <nav className="v2-menu" onClick={() => setMenu(false)}>
-              <a href="#projects">Проекты</a>
-              <a href="#events">Мероприятия</a>
-              {/* 01.10: запись на тур из меню (в шапке кнопки нет с макета 28.09) */}
-              <button onClick={() => openTour()}>Записаться на брокер-тур</button>
-              <button onClick={() => setModal('conditions')}>Документы</button>
-              <a href="#materials">Материалы</a>
-              <a href="#contacts">Контакты</a>
-            </nav>
-          )}
-        </div>
-      </header>
-
+    <>
+      <PublicHeader calculatorHref={calculatorHref} isHome onOpenTour={() => openTour()} onOpenConditions={() => setModal('conditions')} />
+      <div className={`v2${motion ? ' v2--motion' : ''}`} style={{ zoom } as React.CSSProperties}>
       <main id="top">
         {/* ── акции ── */}
         <PromoCarousel promos={promos} />
@@ -968,6 +930,10 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
                 <button className="v2-btn v2-btn--light" onClick={() => openTour()}>Записаться на брокер-тур</button>
                 <Link className="v2-btn v2-btn--outline-white" href="/login">Войти в кабинет</Link>
                 <a className="v2-btn v2-btn--outline-white" href={telegram} target="_blank" rel="noopener noreferrer">Telegram-канал</a>
+                <button type="button" className="v2-btn v2-btn--outline-white" onClick={() => {
+                  document.querySelector<HTMLElement>('[data-public-home]')?.focus({ preventScroll: true });
+                  window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+                }}>↑ Наверх</button>
               </div>
               <img className="v2-footer-watermark" src="/v2/svg/logo-big.svg" alt="" />
             </footer>
@@ -983,6 +949,7 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
       )}
       {modal === 'conditions' && <ConditionsModal docs={data.cooperationDocs} onClose={() => setModal(null)} />}
       {modal === 'month' && <MonthModal events={activeEvents} now={calendarNow} onClose={() => setModal(null)} onBook={openTour} />}
-    </div>
+      </div>
+    </>
   );
 }
