@@ -48,3 +48,9 @@ test('document-folder covers do not reference retired project media', () => {
   const after = buildLayout(before, [f]);
   assert.equal(after.covers['Условия сотрудничества'], f.fileUrl);
 });
+test('HEIC original retained, compatible JPEG used on both UI surfaces', () => {
+  const f = make('Благоустройство.heic');
+  assert.ok(f.originalFileUrl.endsWith('.heic'));
+  assert.ok(f.fileUrl.endsWith('.jpg'));
+  assert.notEqual(f.browserRel, f.rel);
+});
