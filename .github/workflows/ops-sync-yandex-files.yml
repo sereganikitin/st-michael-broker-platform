@@ -53,6 +53,8 @@ jobs:
             git fetch origin master
             echo "=== Скрипт из origin/master: $(git rev-parse --short origin/master) ==="
             git show origin/master:scripts/sync-yandex-files.js > /tmp/sync-yandex-files.js
+            git show origin/master:scripts/materials-new-version.js > /tmp/materials-new-version.js
+            docker cp /tmp/materials-new-version.js st-michael-api:/app/scripts/materials-new-version.js
             docker cp /tmp/sync-yandex-files.js st-michael-api:/app/scripts/sync-yandex-files.js
             FORCE=0
             if [ "$FORCE_INPUT" = "true" ]; then FORCE=1; fi

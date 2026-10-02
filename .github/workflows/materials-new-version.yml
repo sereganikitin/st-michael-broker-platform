@@ -1,0 +1,58 @@
+name: Replace project media from Новая версия
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'inspect: только аудит; apply: проверенная замена с резервной копией'
+        type: choice
+        options: [inspect, apply]
+        default: inspect
+        required: true
+
+concurrency:
+  group: sync-yandex-files
+  cancel-in-progress: false
+permissions:
+  contents: read
+
+jobs:
+  materials:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Verify scripts on runner
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test safe replacement contract
+        run: node --test scripts/materials-new-version.test.js
+      - name: Inspect or replace media without application restart
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SCRIPT_SHA: ${{ github.sha }}
+          MATERIALS_MODE: ${{ inputs.mode }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          command_timeout: 175m
+          envs: SCRIPT_SHA,MATERIALS_MODE
+          script: |
+            set -eu
+            cd ${{ secrets.DEPLOY_PATH }}
+            git fetch origin master
+            git cat-file -e "$SCRIPT_SHA^{commit}"
+            git merge-base --is-ancestor "$SCRIPT_SHA" origin/master
+            case "$MATERIALS_MODE" in inspect|apply) ;; *) exit 1 ;; esac
+            docker exec st-michael-api node -e 'const fs=require("fs");for(const p of fs.readdirSync("/proc")){if(!/^\d+$/.test(p))continue;let c="";try{c=fs.readFileSync("/proc/"+p+"/cmdline","utf8")}catch{}if(c.startsWith("node\0")&&/scripts\/sync-yandex-files\.js/.test(c)){console.error("Existing material sync active: "+p);process.exit(1)}}'
+            git show "$SCRIPT_SHA:scripts/materials-new-version.js" > /tmp/materials-new-version.js
+            docker cp /tmp/materials-new-version.js st-michael-api:/app/scripts/materials-new-version.js
+            docker compose exec -T -e MATERIALS_MODE="$MATERIALS_MODE" api node /app/scripts/materials-new-version.js
+            if [ "$MATERIALS_MODE" = apply ]; then
+              git show "$SCRIPT_SHA:scripts/sync-yandex-files.js" > /tmp/sync-yandex-files.js
+              docker cp /tmp/sync-yandex-files.js st-michael-api:/app/scripts/sync-yandex-files.js
+              echo 'New authoritative media source activated for scheduled synchronization.'
+            fi
