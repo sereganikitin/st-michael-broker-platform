@@ -27,7 +27,8 @@ function material(it) {
   const basename = clean(it.name.slice(0, -ext.length));
   const suffix = crypto.createHash('sha256').update(it.path).digest('hex').slice(0, 12);
   const rel = ['Новая версия', ...parts.slice(0, -1).map(clean), basename + '-' + suffix + ext.toLowerCase()].join('/');
-  return { ...it, folder, rel, fileUrl: urlFor(rel), project: project[1], groupId: project[0] };
+  const browserRel = rel.replace(/\.heic$/i, '.jpg');
+  return { ...it, folder, rel, browserRel, fileUrl: urlFor(browserRel), originalFileUrl: urlFor(rel), project: project[1], groupId: project[0] };
 }
 
 function coverTargets(f) {
@@ -190,6 +191,30 @@ async function thumbnail(f, original, dest, sharp) {
   });
 }
 
+async function browserImage(f, original, dest, sharp) {
+  if (f.browserRel === f.rel) return original;
+  if (fs.existsSync(dest)) {
+    try { const meta = await sharp(dest).metadata(); if (meta.width >= 200 && meta.height >= 100) return dest; } catch (_) { /* regenerate */ }
+  }
+  // Keep the checksum-verified HEIC original unchanged. Yandex's own decoder
+  // provides its largest available JPEG for browsers that cannot display HEIC;
+  // do not disable libheif security limits to decode the original locally.
+  await retry(async () => {
+    const resource = await json('', f.path, { preview_size: '4000x4000' });
+    if (!resource.preview) throw new Error('No browser-compatible HEIC preview: ' + f.path);
+    const response = await fetch(resource.preview, { signal: AbortSignal.timeout(60000) });
+    if (!response.ok) throw new Error('HEIC JPEG ' + response.status);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const tmp = dest + '.partial';
+    await sharp(bytes).rotate().jpeg({ quality: 95 }).toFile(tmp);
+    const meta = await sharp(tmp).metadata();
+    if (meta.width < 200 || meta.height < 100) throw new Error('Invalid HEIC JPEG preview');
+    fs.renameSync(tmp, dest);
+    console.log('HEIC_BROWSER_JPEG ' + JSON.stringify({ path: f.path, width: meta.width, height: meta.height, original: f.originalFileUrl }));
+  });
+  return dest;
+}
+
 async function main() {
   const mode = process.env.MATERIALS_MODE || 'apply';
   const uploadRoot = path.resolve(process.env.UPLOAD_ROOT || '/app/uploads');
@@ -227,7 +252,8 @@ async function main() {
         try {
           const original = path.join(uploadRoot, 'yandex', f.rel);
           await download(f, original);
-          await thumbnail(f, original, path.join(uploadRoot, 'yandex-thumbs', f.rel + '.thumb.jpg'), sharp);
+          const browser = await browserImage(f, original, path.join(uploadRoot, 'yandex', f.browserRel), sharp);
+          await thumbnail(f, browser, path.join(uploadRoot, 'yandex-thumbs', f.browserRel + '.thumb.jpg'), sharp);
           console.log('VERIFIED ' + (++done) + '/' + files.length + ' ' + f.path);
         } catch (e) { errors.push(f.path + ': ' + e.message); }
       }
@@ -252,7 +278,7 @@ async function main() {
         const description = '[yandex-local:' + f.path + ']';
         const matches = await tx.document.findMany({ where: { category: 'materials', description } });
         if (matches.length > 1) throw new Error('Duplicate material records: ' + f.path);
-        const data = { name: f.name.replace(/\*+(?=\.[^.]+$)/, ''), type: path.extname(f.name).slice(1).toUpperCase(), category: 'materials', subcategory: f.folder, project: f.project, fileUrl: f.fileUrl, fileSize: f.size, isPublic: true, sortOrder: 0, description };
+        const data = { name: f.name.replace(/\*+(?=\.[^.]+$)/, '').replace(/\.heic$/i, '.jpg'), type: path.extname(f.browserRel).slice(1).toUpperCase(), category: 'materials', subcategory: f.folder, project: f.project, fileUrl: f.fileUrl, fileSize: fs.statSync(path.join(uploadRoot, 'yandex', f.browserRel)).size, isPublic: true, sortOrder: 0, description };
         if (matches.length) await tx.document.update({ where: { id: matches[0].id }, data });
         else await tx.document.create({ data });
       }
