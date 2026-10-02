@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { materialHref } from '@/lib/materials-folder-tree';
 
 export interface LandingV2Data {
   content: any;
@@ -803,7 +804,7 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
                 появления перебивал подъём карточки при наведении. */}
             <div className="v2-materials" data-reveal="group">
               <div className="v2-mcard-wrap" data-reveal="left" style={{ '--i': 0 } as React.CSSProperties}>
-                <Link className="v2-mcard v2-hcard" href="/materials/Фотографии">
+                <Link className="v2-mcard v2-hcard" href={materialHref(['Зорге 9'])}>
                   <img className="v2-mcard-photo" src="/v2/img/materials-zorge9.webp" alt="Зорге 9" />
                   <div className="v2-mcard-name">Зорге 9</div>
                   <div className="v2-mcard-meta">{matCount('zorge9')}</div>
@@ -811,7 +812,7 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
                 </Link>
               </div>
               <div className="v2-mcard-wrap" data-reveal="left" style={{ '--i': 1 } as React.CSSProperties}>
-                <Link className="v2-mcard v2-hcard" href="/materials/Рендеры">
+                <Link className="v2-mcard v2-hcard" href={materialHref(['Квартал Серебряный бор'])}>
                   <img className="v2-mcard-photo" src="/v2/img/materials-silver-bor.webp" alt="Квартал Серебряный Бор" />
                   <div className="v2-mcard-name">Квартал Серебряный Бор</div>
                   <div className="v2-mcard-meta">{matCount('silver-bor')}</div>

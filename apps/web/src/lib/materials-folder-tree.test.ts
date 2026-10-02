@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   decodeMaterialsSegments,
   fileCountUnder,
@@ -51,4 +53,29 @@ test('materialHref encodes each path segment', () => {
 
 test('decodeMaterialsSegments accepts catch-all params', () => {
   assert.deepEqual(decodeMaterialsSegments(['%D0%9A%D0%A1%D0%91', '3.%20Reels']), ['КСБ', '3. Reels']);
+});
+
+test('new-version project links open the complete project hierarchy', () => {
+  const newDocs = [
+    { subcategory: 'Зорге 9/Фото/Лобби' },
+    { subcategory: 'Зорге 9/Видео/Теплый период — весна, лето, осень' },
+    { subcategory: 'Квартал Серебряный бор/Рендеры/Архитектура' },
+    { subcategory: 'Квартал Серебряный бор/Видео' },
+  ];
+  for (const project of ['Зорге 9', 'Квартал Серебряный бор']) {
+    const href = materialHref([project]);
+    const parts = decodeMaterialsSegments(href.slice('/materials/'.length).split('/'));
+    assert.equal(fileCountUnder(newDocs, parts), 2);
+    assert.equal(foldersAndFilesAt(newDocs, parts).folders.length, 2);
+  }
+  assert.equal(fileCountUnder(newDocs, ['Фотографии']), 0);
+  assert.equal(fileCountUnder(newDocs, ['Рендеры']), 0);
+});
+
+test('landing project cards do not link to retired top-level media folders', () => {
+  const source = readFileSync(resolve(__dirname, '../app/v2/LandingV2.tsx'), 'utf8');
+  assert.ok(source.includes("href={materialHref(['Зорге 9'])}"));
+  assert.ok(source.includes("href={materialHref(['Квартал Серебряный бор'])}"));
+  assert.ok(!source.includes('href="/materials/Фотографии"'));
+  assert.ok(!source.includes('href="/materials/Рендеры"'));
 });
