@@ -93,6 +93,7 @@ describe("ClientFixationService amo broker attachment", () => {
       $executeRaw: jest.fn().mockResolvedValue(0),
       $queryRaw: jest.fn().mockImplementation(async (strings: any) => {
         const sql = Array.from(strings || []).join("");
+        if (sql.includes("WITH numbers AS")) return [];
         return sql.includes('FROM "clients"')
           ? []
           : [{ id: "locked-broker" }];
@@ -102,7 +103,7 @@ describe("ClientFixationService amo broker attachment", () => {
       callback(prisma),
     );
     amo = {
-      findContactByPhone: jest.fn(),
+      findBrokerContactForFixationByPhone: jest.fn(),
       updateContact: jest.fn().mockResolvedValue(undefined),
       promoteContactToBroker: jest.fn().mockResolvedValue(undefined),
       createContact: jest.fn(),
@@ -434,6 +435,7 @@ describe("ClientFixationService amo broker attachment", () => {
     };
     const responsible = {
       id: "responsible",
+      role: "BROKER",
       fullName: "Новый брокер",
       phone: "+79990000002",
       email: "new@example.test",
@@ -457,7 +459,7 @@ describe("ClientFixationService amo broker attachment", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
     prisma.client.create.mockResolvedValue({ id: "client-1" });
-    amo.findContactByPhone.mockResolvedValue({
+    amo.findBrokerContactForFixationByPhone.mockResolvedValue({
       id: 777,
       custom_fields_values: [{ field_id: 835415, values: [{ value: true }] }],
       name: "Новый брокер",
@@ -477,29 +479,27 @@ describe("ClientFixationService amo broker attachment", () => {
       responsibleBrokerId: "responsible",
     }, assertAmoCreateLeaseOwned);
 
-    expect(amo.findContactByPhone).toHaveBeenCalledWith(responsible.phone, {
-      strict: true,
-    });
+    expect(amo.findBrokerContactForFixationByPhone).toHaveBeenCalledWith(responsible.phone);
     expect(prisma.$transaction).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({ isolationLevel: "Serializable" }),
     );
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
     expect(String(prisma.$executeRaw.mock.calls[0][0][0])).toContain(
       "pg_advisory_xact_lock",
     );
     expect(Array.from(prisma.$executeRaw.mock.calls[0][0]).join("")).toContain(
       "::bigint",
     );
-    expect(Array.from(prisma.$queryRaw.mock.calls[0][0]).join("")).toContain(
+    expect(Array.from(prisma.$queryRaw.mock.calls[1][0]).join("")).toContain(
       "FOR UPDATE",
     );
     expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      prisma.$queryRaw.mock.invocationCallOrder[0],
+      prisma.$queryRaw.mock.invocationCallOrder[1],
     );
-    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      amo.findContactByPhone.mock.invocationCallOrder[0],
+    expect(prisma.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      amo.findBrokerContactForFixationByPhone.mock.invocationCallOrder[0],
     );
     expect(prisma.broker.updateMany).toHaveBeenCalledWith({
       where: {
@@ -864,6 +864,7 @@ describe("ClientFixationService amo broker attachment", () => {
       phone: "+79990000003",
       email: null,
       isCoordinator: false,
+      role: "BROKER",
     };
     const fullExisting = {
       ...existing,
@@ -877,7 +878,10 @@ describe("ClientFixationService amo broker attachment", () => {
       if (args.where.id === "existing") return fullExisting;
       return null;
     });
-    amo.findContactByPhone.mockResolvedValue({
+    prisma.$queryRaw.mockImplementation(async (strings: any) => Array.from(strings || []).join("").includes("WITH numbers AS")
+      ? [{ id: existing.id, role: "BROKER", status: "ACTIVE" }]
+      : [{ id: "locked-broker" }]);
+    amo.findBrokerContactForFixationByPhone.mockResolvedValue({
       id: 778,
       custom_fields_values: [{ field_id: 835415, values: [{ value: true }] }],
       name: existing.fullName,
@@ -892,9 +896,7 @@ describe("ClientFixationService amo broker attachment", () => {
     // 2026-09-09 (владелец): брокеру возвращается только id существующей
     // карточки — ФИО, телефон и email чужого брокера наружу не уходят.
     expect(result).toEqual({ broker: { id: existing.id }, created: false, existed: true });
-    expect(amo.findContactByPhone).toHaveBeenCalledWith(existing.phone, {
-      strict: true,
-    });
+    expect(amo.findBrokerContactForFixationByPhone).toHaveBeenCalledWith(existing.phone);
     expect(prisma.broker.updateMany).toHaveBeenCalledWith({
       where: {
         id: "existing",
@@ -917,7 +919,7 @@ describe("ClientFixationService amo broker attachment", () => {
       brokerAgencies: [],
     };
     prisma.broker.findUnique.mockResolvedValue(broker);
-    amo.findContactByPhone
+    amo.findBrokerContactForFixationByPhone
       .mockResolvedValueOnce({
         id: 781,
         custom_fields_values: [
@@ -937,7 +939,7 @@ describe("ClientFixationService amo broker attachment", () => {
     expect(amo.updateContact).not.toHaveBeenCalled();
     expect(amo.promoteContactToBroker).toHaveBeenCalledTimes(1);
     expect(amo.promoteContactToBroker).toHaveBeenCalledWith(781);
-    expect(amo.findContactByPhone).toHaveBeenCalledTimes(2);
+    expect(amo.findBrokerContactForFixationByPhone).toHaveBeenCalledTimes(2);
     expect(prisma.broker.updateMany).toHaveBeenCalledWith({
       where: {
         id: broker.id,
@@ -948,7 +950,7 @@ describe("ClientFixationService amo broker attachment", () => {
     });
     expect(
       prisma.broker.updateMany.mock.invocationCallOrder[0],
-    ).toBeGreaterThan(amo.findContactByPhone.mock.invocationCallOrder[1]);
+    ).toBeGreaterThan(amo.findBrokerContactForFixationByPhone.mock.invocationCallOrder[1]);
   });
 
   it("does not let the broker-lead helper perform a second unlocked contact create fallback", async () => {
@@ -984,7 +986,7 @@ describe("ClientFixationService amo broker attachment", () => {
       return null;
     });
     prisma.broker.create.mockResolvedValue(created);
-    amo.findContactByPhone.mockResolvedValue(null);
+    amo.findBrokerContactForFixationByPhone.mockResolvedValue(null);
     amo.createContact.mockRejectedValue(
       new Error("amoCRM 400 /contacts: custom field rejected"),
     );
@@ -1055,7 +1057,7 @@ describe("ClientFixationService amo broker attachment", () => {
       brokerAgencies: [],
     };
     prisma.broker.findUnique.mockResolvedValue(broker);
-    amo.findContactByPhone.mockRejectedValue(new Error("amoCRM 401"));
+    amo.findBrokerContactForFixationByPhone.mockRejectedValue(new Error("amoCRM 401"));
 
     await expect(
       (service as any).ensureBrokerAmoContact("new-broker"),
@@ -1077,7 +1079,7 @@ describe("ClientFixationService amo broker attachment", () => {
       brokerAgencies: [],
     };
     prisma.broker.findUnique.mockResolvedValue(broker);
-    amo.findContactByPhone.mockResolvedValueOnce(null).mockResolvedValueOnce({
+    amo.findBrokerContactForFixationByPhone.mockResolvedValueOnce(null).mockResolvedValueOnce({
       id: 780,
       custom_fields_values: [{ field_id: 835415, values: [{ value: true }] }],
     });
@@ -1088,7 +1090,7 @@ describe("ClientFixationService amo broker attachment", () => {
     ).resolves.toEqual(expect.objectContaining({ amoContactId: BigInt(780) }));
 
     expect(amo.createContact).toHaveBeenCalledTimes(1);
-    expect(amo.findContactByPhone).toHaveBeenCalledTimes(2);
+    expect(amo.findBrokerContactForFixationByPhone).toHaveBeenCalledTimes(2);
     expect(prisma.broker.updateMany).toHaveBeenCalledWith({
       where: {
         id: broker.id,

@@ -6,6 +6,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { SAFE_MESSAGES } from "../common/safe-messages";
+import { getPublicWebOrigin } from "../common/public-web-origin";
 import { OTP_INVALID_MESSAGE, OtpService } from "../sms/otp.service";
 import { SmsService } from "../sms/sms.service";
 import type { OtpPurpose } from "../sms/sms-templates";
@@ -478,8 +479,7 @@ export class AuthService {
       console.warn("[welcome-email] SMTP не настроен, skip");
       return;
     }
-    const webUrl = process.env.WEB_URL || "https://broker.stmichael.ru";
-    const loginUrl = `${webUrl}/login`;
+    const loginUrl = `${getPublicWebOrigin()}/login`;
     const html = renderEmailLayout({
       title: "Добро пожаловать",
       preheader: "Ваш личный кабинет брокера ST Michael готов к работе",
@@ -576,7 +576,7 @@ export class AuthService {
       data: { passwordResetToken: token, passwordResetExpiresAt: expires },
     });
 
-    const resetUrl = `${process.env.WEB_URL || "https://72.56.241.199"}/reset-password?token=${token}`;
+    const resetUrl = `${getPublicWebOrigin()}/reset-password?token=${token}`;
 
     if (process.env.SMTP_HOST && process.env.SMTP_USER) {
       try {

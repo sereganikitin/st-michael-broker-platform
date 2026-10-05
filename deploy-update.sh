@@ -342,6 +342,12 @@ if ! validate_broker_contact_gate_hmac_key "$BROKER_CONTACT_GATE_HMAC_VALUE"; th
 fi
 unset BROKER_CONTACT_GATE_HMAC_LINE_COUNT BROKER_CONTACT_GATE_HMAC_ENV_VALUE BROKER_CONTACT_GATE_HMAC_VALUE
 
+# Public links must use the certificate-covered domain, never the legacy IP.
+# Stage this with the release so a failed rollout keeps the previous live env.
+update_env_value "WEB_URL" "https://broker.stmichael.ru"
+# Compose process variables override --env-file, including during rollback.
+unset WEB_URL
+
 # 2026-08-20: пишем реально задеплоенный SHA в .env, читается через
 # GET /api/health (см. health.controller.ts) — способ проверить, что сервер
 # на самом деле обновился, а не просто "workflow прошёл зелёным".
@@ -1002,5 +1008,5 @@ ENV_STAGING_FILE=""
 
 echo ""
 echo "✓ Деплой завершён успешно"
-echo "  Сайт: https://72.56.241.199/"
+echo "  Сайт: https://broker.stmichael.ru/"
 echo "  Развёрнутый SHA: $EXPECTED_DEPLOY_SHA"

@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { AppModule } from './app.module';
 import { ZodExceptionFilter } from './common/zod-exception.filter';
+import { getPublicWebOrigin } from './common/public-web-origin';
 
 // Fix BigInt JSON serialization
 (BigInt.prototype as any).toJSON = function () { return this.toString(); };
@@ -27,7 +28,7 @@ async function bootstrap() {
 
   // CORS
   app.enableCors({
-    origin: process.env.WEB_URL || 'http://localhost:3000',
+    origin: getPublicWebOrigin(),
     credentials: true,
   });
 
