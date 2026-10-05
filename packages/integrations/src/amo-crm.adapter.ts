@@ -1,4 +1,5 @@
 import { Project } from "@st-michael/shared";
+import { normalizeAmoFixationClientPhone } from "./amo-fixation-phone-lock";
 import {
   backgroundThrottle,
   isInteractiveAmoContext,
@@ -946,6 +947,66 @@ export class AmoCrmAdapter {
     if (target.length < 10) return [];
     const contacts = await this.listExactPhoneQueryPages(target);
     return filterContactsByExactPhone(contacts, target);
+  }
+
+  /**
+   * Fixation-only broker resolution. Client uniqueness still requires one
+   * exact contact; its ambiguity policy must never be relaxed by this rule.
+   * Dates mean creation, not last edit. Equal dates use the larger amo ID.
+   */
+  async findBrokerContactForFixationByPhone(
+    phone: string,
+  ): Promise<AmoContact | null> {
+    const normalized = normalizeAmoFixationClientPhone(phone);
+    const contacts = await this.listExactPhoneQueryPages(normalized.slice(-10));
+    const matches = contacts.filter((contact: any) => {
+      const fields = Array.isArray(contact?.custom_fields_values)
+        ? contact.custom_fields_values
+        : [];
+      return fields
+        .filter(
+          (field: any) =>
+            field?.field_id === AMO_CONTACT_FIELDS.PHONE ||
+            field?.field_code === "PHONE",
+        )
+        .some((field: any) =>
+          (Array.isArray(field?.values) ? field.values : []).some((value: any) => {
+            try {
+              return normalizeAmoFixationClientPhone(value?.value) === normalized;
+            } catch {
+              return false;
+            }
+          }),
+        );
+    });
+    const brokers = matches.filter((contact: any) =>
+      (contact.custom_fields_values || []).some(
+        (field: any) =>
+          field?.field_id === AMO_CONTACT_FIELDS.IS_BROKER &&
+          field?.values?.[0]?.value === true,
+      ),
+    );
+    if (brokers.length === 0) {
+      // Preserve promotion of one exact unflagged contact, but never guess
+      // which unrelated/unflagged duplicate should become a broker.
+      if (matches.length > 1) {
+        throw new Error("AMO_FIXATION_BROKER_DUPLICATES_UNFLAGGED");
+      }
+      return matches[0] || null;
+    }
+    if (
+      brokers.length > 1 &&
+      brokers.some(
+        (contact: any) =>
+          !Number.isSafeInteger(contact.created_at) || contact.created_at <= 0,
+      )
+    ) {
+      throw new Error("AMO_FIXATION_BROKER_CREATED_AT_INVALID");
+    }
+    return brokers.sort(
+      (a: any, b: any) =>
+        (b.created_at || 0) - (a.created_at || 0) || b.id - a.id,
+    )[0];
   }
 
   private async listExactPhoneQueryPages(target: string): Promise<any[]> {

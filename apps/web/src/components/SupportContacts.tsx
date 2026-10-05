@@ -1,7 +1,7 @@
 // 2026-06-11: блок «Не получилось войти / зарегистрироваться» — телефон + email +
 // Telegram поддержки. Брокер должен видеть куда писать ДО того как залогинится,
 // иначе на проблеме «забыл email» и «забыл пароль» брокер просто уходит.
-// Контакты совпадают с лендингом (apps/web/src/app/LandingClient.tsx). Если
+// Контакты поддержки кабинета брокера. Если
 // надо будет крутить из админки — вынести в SystemSetting.
 
 export function SupportContacts({ title = 'Не получается войти?' }: { title?: string }) {
@@ -17,8 +17,8 @@ export function SupportContacts({ title = 'Не получается войти?
         </div>
         <div>
           Email:{' '}
-          <a href="mailto:info@zorge9.com" className="text-accent hover:text-accent-hover">
-            info@zorge9.com
+          <a href="mailto:broker@stmichael.ru" className="text-accent hover:text-accent-hover">
+            broker@stmichael.ru
           </a>
         </div>
         <div>

@@ -78,7 +78,7 @@ services:
       # IPv6 нет — запросы идут через ретранслятор tg-relay (host network,
       # слушает шлюз compose-сети). Пусто → прямой https://api.telegram.org.
       TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-http://172.18.0.1:8081}
-      WEB_URL: ${WEB_URL:-http://localhost}
+      WEB_URL: ${WEB_URL:-https://broker.stmichael.ru}
       PROFITBASE_API_KEY: ${PROFITBASE_API_KEY:-}
       PROFITBASE_BASE_URL: ${PROFITBASE_BASE_URL:-}
       PROFITBASE_FEED_URL: ${PROFITBASE_FEED_URL:-https://pb7828.profitbase.ru/export/profitbase_xml/2b76e70bcddca7c519166c8a9993b20b?scheme=https}

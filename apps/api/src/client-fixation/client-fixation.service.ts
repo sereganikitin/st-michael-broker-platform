@@ -67,6 +67,7 @@ import {
   findUnreflectedLinkedSamePhoneAmoClient,
   findUnresolvedSamePhoneAmoClient,
 } from "../common/amo-fixation-phone-state";
+import { findLatestFixationBrokerId } from "../common/latest-fixation-broker";
 
 const UNIQUENESS_DAYS = 30;
 const msInDays = (days: number) => days * 24 * 60 * 60 * 1000;
@@ -333,7 +334,7 @@ export class ClientFixationService {
     // сам вызывающий (фиксация на себя).
     let responsibleBroker = broker as any;
     if (data.responsibleBrokerId && data.responsibleBrokerId !== broker.id) {
-      const candidate = await this.prisma.broker.findUnique({
+      let candidate = await this.prisma.broker.findUnique({
         where: { id: data.responsibleBrokerId },
         include: {
           brokerAgencies: {
@@ -347,6 +348,27 @@ export class ClientFixationService {
         throw new BadRequestException(
           "Указанный ответственный брокер не найден",
         );
+      }
+      if (candidate.role !== "BROKER") {
+        throw new BadRequestException("Указанная карточка не является брокером");
+      }
+      // ID-based selection must use the same rule as phone-based delegation:
+      // only the responsible destination changes; the signed-in actor stays
+      // the submitter/owner for auditing. Never apply this to self-fixation.
+      const latestResponsibleId = await findLatestFixationBrokerId(this.prisma, candidate.phone);
+      if (latestResponsibleId && latestResponsibleId !== candidate.id) {
+        candidate = await this.prisma.broker.findUnique({
+          where: { id: latestResponsibleId },
+          include: {
+            brokerAgencies: { where: { isPrimary: true }, include: { agency: true }, take: 1 },
+          },
+        });
+        if (!candidate || candidate.role !== "BROKER") {
+          throw new BadRequestException("Актуальная карточка ответственного брокера изменилась — повторите поиск");
+        }
+      }
+      if (candidate.role !== "BROKER") {
+        throw new BadRequestException("Указанная карточка не является брокером");
       }
       // 2026-09-07: заявку нельзя повесить на заблокированную или слитую
       // карточку — её владелец не сможет её увидеть.
@@ -378,7 +400,10 @@ export class ClientFixationService {
       resolvedResponsibleBrokerAmoContactId = requireBrokerAmoContactId(
         responsibleBroker.amoContactId,
       );
-    } catch {
+    } catch (error) {
+      if (/^(AMO_FIXATION_BROKER_|AMO_EXACT_CONTACT_|AMBIGUOUS_EXACT_CONTACT)/.test(String((error as any)?.message || ""))) {
+        throw new BadRequestException("Не удалось безопасно выбрать актуальную карточку брокера в amoCRM — обратитесь в поддержку");
+      }
       if (storedResponsibleAmoContactId) {
         resolvedResponsibleBrokerAmoContactId = storedResponsibleAmoContactId;
         responsibleBroker = {
@@ -1999,11 +2024,28 @@ export class ClientFixationService {
             this.prisma,
             broker.phone,
           );
+          const currentContact = await this.amoCrmAdapter.findBrokerContactForFixationByPhone(broker.phone);
+          if (broker.amoContactId && currentContact && Number(currentContact.id) !== Number(broker.amoContactId)) {
+            const holder = await tx.broker.findUnique({
+              where: { amoContactId: BigInt(currentContact.id) },
+              select: { id: true },
+            });
+            if (holder && holder.id !== broker.id) {
+              throw new Error("AMO_FIXATION_BROKER_CONTACT_OWNED_BY_OTHER_ACCOUNT");
+            }
+            if (observedGateId || !isAmoBrokerContact(currentContact)) {
+              throw new Error("AMO_FIXATION_BROKER_CONTACT_RELINK_UNSAFE");
+            }
+            const relinked = await tx.broker.updateMany({
+              where: { id: broker.id, amoContactId: broker.amoContactId, mergedIntoId: null },
+              data: { amoContactId: BigInt(currentContact.id) },
+            });
+            if (relinked.count !== 1) throw new Error("AMO_FIXATION_BROKER_CONTACT_RELINK_CAS_MISSED");
+            return { ...broker, amoContactId: BigInt(currentContact.id) };
+          }
           if (broker.amoContactId) {
             if (observedGateId) {
-              const confirmed = await (
-                this.amoCrmAdapter as any
-              ).findContactByPhone(broker.phone, { strict: true });
+              const confirmed = currentContact;
               if (
                 !confirmed ||
                 Number(confirmed.id) !== Number(broker.amoContactId) ||
@@ -2021,11 +2063,15 @@ export class ClientFixationService {
             custom_fields_values: brokerToAmoContactFields(broker, agency),
           } as any;
 
-          let amoContact = await (this.amoCrmAdapter as any).findContactByPhone(
-            broker.phone,
-            { strict: true },
-          );
+          let amoContact = currentContact;
           if (amoContact) {
+            const holder = await tx.broker.findUnique({
+              where: { amoContactId: BigInt(amoContact.id) },
+              select: { id: true },
+            });
+            if (holder && holder.id !== broker.id) {
+              throw new Error("AMO_FIXATION_BROKER_CONTACT_OWNED_BY_OTHER_ACCOUNT");
+            }
             if (observedGateId && !isAmoBrokerContact(amoContact)) {
               throw new Error("AMO_BROKER_CONTACT_GATE_NOT_CONFIRMED");
             }
@@ -2049,9 +2095,7 @@ export class ClientFixationService {
               amoContact = await reconcileExactAmoBrokerContact({
                 expectedContactId: Number(amoContact.id),
                 lookup: () =>
-                  (this.amoCrmAdapter as any).findContactByPhone(broker.phone, {
-                    strict: true,
-                  }),
+                  this.amoCrmAdapter.findBrokerContactForFixationByPhone(broker.phone),
               });
               if (!amoContact) {
                 throw new Error("AMO_BROKER_CONTACT_PROMOTION_NOT_RECONCILED");
@@ -2102,9 +2146,7 @@ export class ClientFixationService {
               amoContact = await reconcileExactAmoBrokerContact({
                 expectedContactId,
                 lookup: () =>
-                  (this.amoCrmAdapter as any).findContactByPhone(broker.phone, {
-                    strict: true,
-                  }),
+                  this.amoCrmAdapter.findBrokerContactForFixationByPhone(broker.phone),
               });
             } catch {
               amoContact = null;
@@ -2118,6 +2160,13 @@ export class ClientFixationService {
             throw new Error(
               `amoCRM contact was not resolved for broker ${brokerId}`,
             );
+          }
+          const holder = await tx.broker.findUnique({
+            where: { amoContactId: BigInt(amoContact.id) },
+            select: { id: true },
+          });
+          if (holder && holder.id !== broker.id) {
+            throw new Error("AMO_FIXATION_BROKER_CONTACT_OWNED_BY_OTHER_ACCOUNT");
           }
           const linked = await tx.broker.updateMany({
             where: {
@@ -2264,8 +2313,9 @@ export class ClientFixationService {
     // если брокер уже есть в системе, просто используем его как ответственного
     // (как и написано в подсказке под формой — «Если брокер с этим номером уже
     // зарегистрирован — заявка автоматически уйдёт на него»).
-    const existingByPhone = await this.prisma.broker.findUnique({
-      where: { phone: data.phone },
+    const latestBrokerId = await findLatestFixationBrokerId(this.prisma, data.phone);
+    const existingByPhone = latestBrokerId ? await this.prisma.broker.findUnique({
+      where: { id: latestBrokerId },
       select: {
         id: true,
         fullName: true,
@@ -2276,9 +2326,13 @@ export class ClientFixationService {
         email: true,
         isCoordinator: true,
         status: true,
+        role: true,
         mergedIntoId: true,
       },
-    });
+    }) : null;
+    if (latestBrokerId && (!existingByPhone || existingByPhone.role !== "BROKER" || existingByPhone.mergedIntoId)) {
+      throw new BadRequestException("Актуальная карточка брокера изменилась — повторите поиск");
+    }
     if (existingByPhone) {
       // 2026-09-09 (владелец): номер уже занят другой карточкой. Брокеру не
       // сообщаем, чьей именно, — заявка просто уходит брокеру с этим номером

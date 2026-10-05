@@ -40,10 +40,12 @@ describe("brokerPhoneConflict", () => {
 describe("ClientFixationService.createBrokerByCreator", () => {
   const creator = { id: "coord-1", fullName: "Координатор", brokerAgencies: [] };
   const mkService = (existing: any) => {
+    if (existing) existing.role = "BROKER";
     const prisma: any = {
+      $queryRaw: jest.fn().mockResolvedValue(existing ? [{ id: existing.id, role: "BROKER", status: existing.status || "ACTIVE" }] : []),
       broker: {
         findUnique: jest.fn(async (args: any) =>
-          args?.where?.id === "coord-1" ? creator : args?.where?.phone ? existing : null,
+          args?.where?.id === "coord-1" ? creator : args?.where?.id === existing?.id ? existing : null,
         ),
         findFirst: jest.fn().mockResolvedValue(null),
         update: jest.fn().mockResolvedValue({}),
