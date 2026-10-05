@@ -106,6 +106,27 @@ describe("production SMS TEST execution", () => {
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain("raw secret response");
   });
 
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9])("projects documented provider error code %s, without retry or raw text", async (errorCode) => {
+    const h = harness();
+    h.adapter.send.mockResolvedValue({ ok: false, errorCode, error: "raw secret response" } as any);
+    await expect(run({ ...env, APPLY: "1" }, h.load, h.emit)).rejects.toThrow();
+    expect(h.emit).toHaveBeenCalledWith({ sent: false, errorCode, outcomeMayBeUnknown: false, automaticRetry: false });
+    expect(h.prisma.smsMessage.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: "FAILED", error: `Provider error_code=${errorCode}. Do not automatically resend.` } }));
+    expect(h.adapter.send).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("raw secret response");
+  });
+
+  it.each([99, -1, Infinity, 0, 1.5, "6", undefined])("treats undocumented provider error code %s as unknown, without retry", async (errorCode) => {
+    const h = harness();
+    h.adapter.send.mockResolvedValue({ ok: false, errorCode, error: "raw secret response" } as any);
+    await expect(run({ ...env, APPLY: "1" }, h.load, h.emit)).rejects.toThrow();
+    expect(h.emit).toHaveBeenCalledWith({ sent: false, errorCode: null, outcomeMayBeUnknown: true, automaticRetry: false });
+    expect(h.prisma.smsMessage.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: "FAILED", error: "Provider rejected or outcome unknown. Do not automatically resend." } }));
+    await expect(run({ ...env, APPLY: "1" }, h.load, h.emit)).rejects.toThrow();
+    expect(h.adapter.send).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("raw secret response");
+  });
+
   it("status-only binds provider id + phone + TEST journal and never sends/writes", async () => {
     const h = harness();
     await expect(run({ ...env, STATUS_ID: "456" }, h.load, h.emit)).resolves.toMatchObject({ delivered: true });
@@ -211,5 +232,18 @@ describe("SMS workflow source safety contract", () => {
     expect(script).not.toContain("all: \"1\"");
     expect(script).not.toContain("psw:");
     expect(() => validateInput({ ...env, STATUS_ID: "456", CONFIRM_ENABLE_PASSWORD_RESET: "1" })).not.toThrow();
+  });
+
+  it("loads the recipient from the event file and masks it before use, not in public env logs", () => {
+    expect(workflow).not.toContain("PHONE_INPUT:");
+    expect(workflow).not.toContain("${{ inputs.phone }}");
+    const loadPhone = workflow.indexOf("PHONE_INPUT=$(jq");
+    const maskPhone = workflow.indexOf("printf '::add-mask::%s\\n'", loadPhone);
+    const validatePhone = workflow.indexOf('[[ "$PHONE_INPUT" =~', loadPhone);
+    expect(loadPhone).toBeGreaterThan(0);
+    expect(maskPhone).toBeGreaterThan(loadPhone);
+    expect(validatePhone).toBeGreaterThan(maskPhone);
+    expect(workflow.slice(loadPhone, maskPhone)).toContain('select(length == 12 and test("^\\\\+7[0-9]{10}$"))');
+    expect(workflow).toContain('"$GITHUB_EVENT_PATH"');
   });
 });
