@@ -142,9 +142,13 @@ async function run(env = process.env, load = loadDependencies, emit = (value) =>
     phase = "send";
     const sent = await adapter.send(input.phone, text); // ONE attempt, no retry
     if (!sent.ok) {
+      const errorCode = Number.isInteger(sent.errorCode) && sent.errorCode >= 1 && sent.errorCode <= 9
+        ? sent.errorCode : null;
       await prisma.smsMessage.update({ where: { id: input.journalId },
-        data: { status: "FAILED", error: "Provider rejected or outcome unknown. Do not automatically resend." } });
-      emit({ sent: false, outcomeMayBeUnknown: true, automaticRetry: false });
+        data: { status: "FAILED", error: errorCode === null
+          ? "Provider rejected or outcome unknown. Do not automatically resend."
+          : `Provider error_code=${errorCode}. Do not automatically resend.` } });
+      emit({ sent: false, errorCode, outcomeMayBeUnknown: errorCode === null, automaticRetry: false });
       throw new Error("Provider send failed or outcome unknown");
     }
     const providerId = String(sent.id || "");
