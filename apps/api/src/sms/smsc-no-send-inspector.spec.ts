@@ -12,7 +12,7 @@ const env = { PHONE: phone };
 function response(data: any, ok = true) {
   return { ok, text: jest.fn().mockResolvedValue(JSON.stringify(data)) };
 }
-function harness(sender = "BusinessSender") {
+function harness(sender = "BusinessSender", approved = ["BusinessSender"]) {
   const prisma: any = {
     $queryRaw: jest.fn().mockResolvedValue([{ mode: "on" }]),
     systemSetting: {
@@ -26,8 +26,13 @@ function harness(sender = "BusinessSender") {
   };
   const fetch = jest
     .fn()
-    .mockResolvedValueOnce(response([{ sender: "BusinessSender", id: 1 }]))
-    .mockResolvedValueOnce(response({ cost: "4.50", cnt: 1 }));
+    .mockImplementation(async (url) =>
+      response(
+        url.endsWith("senders.php")
+          ? approved.map((name, index) => ({ sender: name, id: index + 1 }))
+          : { cost: "4.50", cnt: 1 },
+      ),
+    );
   const load = jest.fn().mockReturnValue({ prisma, fetch });
   const emit = jest.fn();
   return { prisma, fetch, load, emit };
@@ -63,7 +68,7 @@ describe("SMSC strictly no-send diagnostic", () => {
     },
   );
 
-  it("uses exactly two fixed HTTPS POSTs, immutable get=1/cost=1 and no mutations", async () => {
+  it("uses bounded fixed HTTPS POSTs, immutable get=1/cost=1 and no mutations", async () => {
     const h = harness();
     const report = await run(
       { ...env, COST: "3", APPLY: "1", BASE_URL: "https://unsafe.example" },
@@ -74,6 +79,11 @@ describe("SMSC strictly no-send diagnostic", () => {
       readOnly: true,
       smsSent: false,
       databaseSessionReadOnly: true,
+      providerRequests: 3,
+      priceEstimateOnly: true,
+      brandSelection: "not_approved",
+      approvedBrand: null,
+      configuredSenderStatus: "skipped_not_approved_brand",
       senders: {
         ok: true,
         approvedSenderCount: 1,
@@ -81,7 +91,7 @@ describe("SMSC strictly no-send diagnostic", () => {
       },
       estimate: { ok: true, cost: 4.5, parts: 1 },
     });
-    expect(h.fetch).toHaveBeenCalledTimes(2);
+    expect(h.fetch).toHaveBeenCalledTimes(3);
     const [senderUrl, senderOptions] = h.fetch.mock.calls[0];
     const [estimateUrl, estimateOptions] = h.fetch.mock.calls[1];
     expect(senderUrl).toBe("https://smsc.ru/sys/senders.php");
@@ -94,11 +104,16 @@ describe("SMSC strictly no-send diagnostic", () => {
     expect(senderParams.get("all")).toBeNull();
     expect(estimateParams.getAll("cost")).toEqual(["1"]);
     expect(estimateParams.get("phones")).toBe(phone.slice(1));
-    expect(estimateParams.get("sender")).toBe("BusinessSender");
-    for (const options of [senderOptions, estimateOptions]) {
+    expect(estimateParams.get("sender")).toBeNull();
+    for (const [url, options] of h.fetch.mock.calls) {
       expect(options.method).toBe("POST");
       expect(options.redirect).toBe("error");
       expect(options.signal).toBeInstanceOf(AbortSignal);
+      if (url.endsWith("send.php")) {
+        const params = new URLSearchParams(options.body);
+        expect(params.getAll("cost")).toEqual(["1"]);
+        expect(params.get("phones")).toBe(phone.slice(1));
+      }
     }
     expect(h.prisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(h.prisma.systemSetting.findMany).toHaveBeenCalledTimes(1);
@@ -136,7 +151,7 @@ describe("SMSC strictly no-send diagnostic", () => {
       .mockResolvedValueOnce(
         response({ error: `${secret} ${phone}`, error_code: "2" }),
       )
-      .mockResolvedValueOnce(
+      .mockResolvedValue(
         response({ error: `${secret} ${phone}`, error_code: 6, id: phone }),
       );
     const report = await run(env, h.load, h.emit);
@@ -150,7 +165,7 @@ describe("SMSC strictly no-send diagnostic", () => {
       errorCode: 6,
       failureTag: "PROVIDER_REJECTED",
     });
-    expect(h.fetch).toHaveBeenCalledTimes(2);
+    expect(h.fetch).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain(phone);
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain(secret);
   });
@@ -159,7 +174,7 @@ describe("SMSC strictly no-send diagnostic", () => {
     const h = harness();
     h.fetch.mockReset().mockRejectedValue(new Error(`${secret} ${phone}`));
     const report = await run(env, h.load, h.emit);
-    expect(h.fetch).toHaveBeenCalledTimes(2);
+    expect(h.fetch).toHaveBeenCalledTimes(3);
     expect(report.senders.failureTag).toBe("TRANSPORT_FAILED");
     expect(report.estimate.failureTag).toBe("TRANSPORT_FAILED");
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain(secret);
@@ -206,10 +221,213 @@ describe("SMSC strictly no-send diagnostic", () => {
       h.fetch
         .mockReset()
         .mockResolvedValueOnce(response([]))
-        .mockResolvedValueOnce(response(data));
+        .mockResolvedValue(response(data));
       const report = await run(env, h.load, h.emit);
       expect(report.estimate.ok).toBe(false);
       expect(JSON.stringify(h.emit.mock.calls)).not.toContain(phone.slice(1));
+    },
+  );
+
+  it("estimates both fixed texts without sending, accepting env text or creating an OTP", async () => {
+    const h = harness("", ["St. Michael"]);
+    const report = await run(
+      { ...env, TEXT: secret, TEMPLATE: "login", CODE: "654321", COST: "3" },
+      h.load,
+      h.emit,
+    );
+    expect(report.providerRequests).toBe(5);
+    expect(report.matrix).toEqual([
+      {
+        senderMode: "default",
+        template: "test",
+        ok: true,
+        cost: 4.5,
+        parts: 1,
+      },
+      {
+        senderMode: "default",
+        template: "password_reset",
+        ok: true,
+        cost: 4.5,
+        parts: 1,
+      },
+      {
+        senderMode: "approved_brand",
+        template: "test",
+        ok: true,
+        cost: 4.5,
+        parts: 1,
+      },
+      {
+        senderMode: "approved_brand",
+        template: "password_reset",
+        ok: true,
+        cost: 4.5,
+        parts: 1,
+      },
+    ]);
+    const bodies = h.fetch.mock.calls
+      .slice(1)
+      .map(([, options]) => new URLSearchParams(options.body));
+    expect([...new Set(bodies.map((body) => body.get("mes")))]).toEqual([
+      "Тест СМС: 000000. Код недействителен для входа и смены пароля.",
+      "Код для смены пароля: 000000. Если это не вы — не вводите его.",
+    ]);
+    for (const body of bodies) {
+      expect(body.getAll("cost")).toEqual(["1"]);
+      expect(body.get("mes")!.length).toBeLessThanOrEqual(70);
+      expect(body.get("mes")).not.toContain("654321");
+    }
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("000000");
+    expect(h.prisma).not.toHaveProperty("smsOtp");
+  });
+
+  it("prefers exact approved brand and deduplicates identical current/approved sender", async () => {
+    const h = harness("St. Michael", [
+      "st. michael",
+      "St. Michael",
+      "OtherSender",
+    ]);
+    const report = await run(env, h.load, h.emit);
+    expect(report).toMatchObject({
+      brandSelection: "exact",
+      approvedBrand: "St. Michael",
+      configuredSenderStatus: "checked",
+      providerRequests: 5,
+    });
+    expect(report.matrix.map((row: any) => row.senderMode)).toEqual([
+      "default",
+      "default",
+      "configured_brand",
+      "configured_brand",
+    ]);
+    const bodies = h.fetch.mock.calls
+      .slice(1)
+      .map(([, options]) => new URLSearchParams(options.body));
+    expect(bodies.map((body) => body.get("sender"))).toEqual([
+      null,
+      null,
+      "St. Michael",
+      "St. Michael",
+    ]);
+    expect(report.estimate).toEqual({ ok: true, cost: 4.5, parts: 1 });
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("OtherSender");
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("st. michael");
+  });
+
+  it("uses only a single unambiguous approved case variant without disclosing its raw value", async () => {
+    const h = harness("", ["ST. MICHAEL", "SMSC", "ForeignBusiness"]);
+    const report = await run(env, h.load, h.emit);
+    expect(report).toMatchObject({
+      brandSelection: "case_unique",
+      approvedBrand: "St. Michael",
+      providerRequests: 5,
+    });
+    expect(
+      new URLSearchParams(h.fetch.mock.calls[3][1].body).get("sender"),
+    ).toBe("ST. MICHAEL");
+    for (const value of [
+      "ST. MICHAEL",
+      "SMSC",
+      "ForeignBusiness",
+      "000000",
+      secret,
+      phone,
+    ])
+      expect(JSON.stringify(h.emit.mock.calls)).not.toContain(value);
+  });
+
+  it("bounds current-case plus exact approved brand to seven requests and preserves current TEST compatibility", async () => {
+    const h = harness("st. michael", ["st. michael", "St. Michael"]);
+    h.fetch.mockImplementation(async (url, options) =>
+      response(
+        url.endsWith("senders.php")
+          ? [{ sender: "st. michael" }, { sender: "St. Michael" }]
+          : {
+              cost:
+                new URLSearchParams(options.body).get("sender") ===
+                "st. michael"
+                  ? "3.00"
+                  : "4.50",
+              cnt: 1,
+            },
+      ),
+    );
+    const report = await run(env, h.load, h.emit);
+    expect(report.providerRequests).toBe(7);
+    expect(h.fetch).toHaveBeenCalledTimes(7);
+    expect(report.estimate).toEqual({ ok: true, cost: 3, parts: 1 });
+    expect(report.matrix.map((row: any) => row.senderMode)).toEqual([
+      "default",
+      "default",
+      "configured_brand",
+      "configured_brand",
+      "approved_brand",
+      "approved_brand",
+    ]);
+    for (const [, options] of h.fetch.mock.calls.slice(1))
+      expect(new URLSearchParams(options.body).getAll("cost")).toEqual(["1"]);
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("st. michael");
+  });
+
+  it.each([
+    {
+      sender: "st. michael",
+      approved: ["st. michael", "ST. MICHAEL"],
+      selection: "ambiguous",
+    },
+    {
+      sender: "SMSC",
+      approved: [
+        "SMSC",
+        "St.Michael",
+        " St. Michael",
+        "St. Michael ",
+        "St. Michael Extra",
+        phone,
+      ],
+      selection: "not_approved",
+    },
+    {
+      sender: "St. Michael",
+      approved: ["OtherSender"],
+      selection: "not_approved",
+    },
+  ])(
+    "does not choose ambiguous, unapproved, generic or foreign names",
+    async ({ sender, approved, selection }) => {
+      const h = harness(sender, approved);
+      const report = await run(env, h.load, h.emit);
+      expect(report).toMatchObject({
+        brandSelection: selection,
+        approvedBrand: null,
+        providerRequests: 3,
+        configuredSenderStatus: "skipped_not_approved_brand",
+      });
+      expect(
+        report.matrix.every((row: any) => row.senderMode === "default"),
+      ).toBe(true);
+      for (const [, options] of h.fetch.mock.calls.slice(1))
+        expect(new URLSearchParams(options.body).has("sender")).toBe(false);
+      const output = JSON.stringify(h.emit.mock.calls);
+      for (const value of approved) expect(output).not.toContain(value);
+    },
+  );
+
+  it.each([null, {}, [{ sender: "St. Michael" }, { sender: null }]])(
+    "fails closed on malformed approved list but still estimates default only",
+    async (list) => {
+      const h = harness("St. Michael");
+      h.fetch.mockResolvedValueOnce(response(list));
+      const report = await run(env, h.load, h.emit);
+      expect(report).toMatchObject({
+        brandSelection: "unavailable",
+        approvedBrand: null,
+        providerRequests: 3,
+        senders: { ok: false },
+      });
+      for (const [, options] of h.fetch.mock.calls.slice(1))
+        expect(new URLSearchParams(options.body).has("sender")).toBe(false);
     },
   );
 });

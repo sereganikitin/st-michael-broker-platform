@@ -8,8 +8,12 @@ const SETTING_KEYS = ["SMSC_LOGIN", "SMSC_API_KEY", "SMSC_SENDER"];
 const TIMEOUT_MS = 15000;
 const MAX_RESPONSE_CHARS = 131072;
 const MAX_SENDERS = 1000;
-const ESTIMATE_TEXT =
-  "Тест СМС: 000000. Код недействителен для входа и смены пароля.";
+const BRAND_SENDER = "St. Michael";
+const ESTIMATE_TEXTS = Object.freeze({
+  test: "Тест СМС: 000000. Код недействителен для входа и смены пароля.",
+  password_reset:
+    "Код для смены пароля: 000000. Если это не вы — не вводите его.",
+});
 
 function validatePhone(env) {
   const phone = String(env.PHONE || "");
@@ -71,7 +75,7 @@ function errorCode(data) {
   return Number.isInteger(code) && code >= 1 && code <= 9 ? code : null;
 }
 
-async function requestNoSend(operation, settings, phone, fetchImpl) {
+async function requestNoSend(operation, settings, phone, fetchImpl, estimate) {
   const params = {
     login: settings.login,
     apikey: settings.apiKey,
@@ -86,8 +90,10 @@ async function requestNoSend(operation, settings, phone, fetchImpl) {
     endpoint = "https://smsc.ru/sys/send.php";
     params.cost = "1"; // Immutable no-send mode. Never read a cost/apply value from env.
     params.phones = phone.slice(1);
-    params.mes = ESTIMATE_TEXT;
-    if (settings.sender) params.sender = settings.sender;
+    if (!estimate || !Object.hasOwn(ESTIMATE_TEXTS, estimate.template))
+      throw new Error("OPERATION_INVALID");
+    params.mes = ESTIMATE_TEXTS[estimate.template];
+    if (estimate.sender) params.sender = estimate.sender;
   } else {
     throw new Error("OPERATION_INVALID");
   }
@@ -196,6 +202,47 @@ function estimateProjection(result) {
   return { ok: true, cost, parts };
 }
 
+function estimateVariants(result, senders, settings) {
+  const variants = [{ senderMode: "default", sender: "" }];
+  let brandSelection = "unavailable";
+  let approvedBrand = "";
+  if (senders.ok) {
+    // Never normalize punctuation/whitespace or select a generic/foreign sender.
+    const matches = [...new Set(result.data.map((row) => row.sender))].filter(
+      (sender) => sender.toLowerCase() === BRAND_SENDER.toLowerCase(),
+    );
+    if (matches.includes(BRAND_SENDER)) {
+      approvedBrand = BRAND_SENDER;
+      brandSelection = "exact";
+    } else if (matches.length === 1) {
+      approvedBrand = matches[0];
+      brandSelection = "case_unique";
+    } else {
+      brandSelection = matches.length ? "ambiguous" : "not_approved";
+    }
+  }
+  const configuredAllowed = Boolean(
+    approvedBrand &&
+    settings.sender &&
+    settings.sender.toLowerCase() === BRAND_SENDER.toLowerCase() &&
+    result.data.some((row) => row.sender === settings.sender),
+  );
+  if (configuredAllowed)
+    variants.push({ senderMode: "configured_brand", sender: settings.sender });
+  if (approvedBrand && !variants.some((row) => row.sender === approvedBrand))
+    variants.push({ senderMode: "approved_brand", sender: approvedBrand });
+  return {
+    variants,
+    brandSelection,
+    approvedBrand: approvedBrand ? BRAND_SENDER : null, // Only agreed public label.
+    configuredSenderStatus: !settings.sender
+      ? "missing"
+      : configuredAllowed
+        ? "checked"
+        : "skipped_not_approved_brand",
+  };
+}
+
 async function run(
   env = process.env,
   load = loadDependencies,
@@ -214,23 +261,51 @@ async function run(
       throw new Error("DATABASE_NOT_READ_ONLY");
     const settings = await readSettings(prisma, env);
     if (!settings.login || !settings.apiKey) throw new Error("CONFIG_MISSING");
-    const senders = senderProjection(
-      await requestNoSend("senders", settings, phone, fetchImpl),
+    const senderResult = await requestNoSend(
+      "senders",
       settings,
+      phone,
+      fetchImpl,
     );
-    const estimate = estimateProjection(
-      await requestNoSend("estimate", settings, phone, fetchImpl),
-    );
+    const senders = senderProjection(senderResult, settings);
+    const selection = estimateVariants(senderResult, senders, settings);
+    const matrix = [];
+    for (const variant of selection.variants) {
+      for (const template of Object.keys(ESTIMATE_TEXTS)) {
+        matrix.push({
+          senderMode: variant.senderMode,
+          template,
+          ...estimateProjection(
+            await requestNoSend("estimate", settings, phone, fetchImpl, {
+              sender: variant.sender,
+              template,
+            }),
+          ),
+        });
+      }
+    }
+    // Backwards-compatible current TEST result; safe default if current is not approved.
+    const currentTest =
+      matrix.find(
+        (row) =>
+          row.senderMode === "configured_brand" && row.template === "test",
+      ) || matrix[0];
+    const { senderMode, template, ...estimate } = currentTest;
     const report = {
       readOnly: true,
       databaseSessionReadOnly: true,
       smsSent: false,
-      providerRequests: 2,
+      providerRequests: 1 + matrix.length, // One sender-list plus <= six cost=1 requests.
       automaticRetry: false,
+      priceEstimateOnly: true,
       senderConfigured: Boolean(settings.sender),
-      defaultSenderRequested: !settings.sender,
+      defaultSenderRequested: true,
+      configuredSenderStatus: selection.configuredSenderStatus,
+      brandSelection: selection.brandSelection,
+      approvedBrand: selection.approvedBrand,
       senders,
       estimate,
+      matrix,
     };
     emit(report);
     return report;

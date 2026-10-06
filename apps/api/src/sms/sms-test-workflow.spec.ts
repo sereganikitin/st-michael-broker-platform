@@ -64,6 +64,18 @@ describe("production SMS TEST execution", () => {
     expect(h.prisma.smsMessage.create).not.toHaveBeenCalled();
     expect(h.prisma.systemSetting.upsert).not.toHaveBeenCalled();
     expect(h.prisma.$disconnect).toHaveBeenCalledTimes(1);
+    expect(h.emit).toHaveBeenCalledWith({ balanceChecked: true, sufficientBalance: true });
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain('"balance":');
+  });
+
+  it.each([0, -1, Infinity, undefined, "100"])("invalid/insufficient balance %s cannot reserve or send", async (balance) => {
+    const h = harness();
+    h.adapter.getBalance.mockResolvedValue({ ok: true, balance } as any);
+    await expect(run({ ...env, APPLY: "1" }, h.load, h.emit)).rejects.toThrow("balance is insufficient");
+    expect(h.prisma.smsMessage.create).not.toHaveBeenCalled();
+    expect(h.adapter.send).not.toHaveBeenCalled();
+    expect(h.emit).toHaveBeenCalledWith({ balanceChecked: true, sufficientBalance: false });
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain('"balance":');
   });
 
   it("missing configuration or failed balance cannot reserve/send", async () => {
@@ -245,5 +257,6 @@ describe("SMS workflow source safety contract", () => {
     expect(validatePhone).toBeGreaterThan(maskPhone);
     expect(workflow.slice(loadPhone, maskPhone)).toContain('select(length == 12 and test("^\\\\+7[0-9]{10}$"))');
     expect(workflow).toContain('"$GITHUB_EVENT_PATH"');
+    expect(workflow).toContain('"${PHONE_INPUT#+}"');
   });
 });

@@ -78,6 +78,7 @@ jobs:
           # step environment/expression preamble of this public repository.
           PHONE_INPUT=$(jq -er '.inputs.phone | select(type == "string") | select(length == 12 and test("^\\+7[0-9]{10}$"))' "$GITHUB_EVENT_PATH")
           printf '::add-mask::%s\n' "$PHONE_INPUT"
+          printf '::add-mask::%s\n' "${PHONE_INPUT#+}"
           test "$EXPECTED_REPOSITORY" = "$CANONICAL_REPOSITORY" || { echo "Inspector is restricted to the canonical repository"; exit 1; }
           test "$EXPECTED_REF" = "refs/heads/master" || { echo "Inspector is restricted to master"; exit 1; }
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid inspector SHA"; exit 1; }
