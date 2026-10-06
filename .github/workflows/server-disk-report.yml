@@ -104,6 +104,14 @@ jobs:
           test "$(git rev-parse HEAD)" = "$expected_deployed_sha" || exit 1
           test "$(docker inspect --format '{{.State.Running}}' st-michael-api)" = true || exit 1
           test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$expected_deployed_sha" || exit 1
+          # Boolean-only flags from the attested runtime; never export key bytes.
+          docker exec -i st-michael-api node <<'CONTACT_GATE_FLAGS'
+          const key = process.env.BROKER_CONTACT_GATE_HMAC_KEY;
+          const configured = typeof key === 'string' && key.length > 0;
+          const valid = configured && key.length >= 32 && !/[^A-Za-z0-9._~+/=-]/.test(key)
+            && key !== 'replace-with-a-stable-random-secret-at-least-32-bytes';
+          console.log(JSON.stringify({ brokerContactGateKeyConfigured: configured, brokerContactGateKeyValidAscii: valid }));
+          CONTACT_GATE_FLAGS
           docker_root_reported=$(docker info --format '{{.DockerRootDir}}')
           [[ "$docker_root_reported" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 1
           case "$docker_root_reported/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
