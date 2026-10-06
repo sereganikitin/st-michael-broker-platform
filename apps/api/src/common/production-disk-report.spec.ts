@@ -1,6 +1,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { parse } from "yaml";
+import { runInNewContext } from "vm";
 
 describe("production disk report safety", () => {
   const root = resolve(__dirname, "../../../..");
@@ -33,7 +34,33 @@ describe("production disk report safety", () => {
     expect(remote).not.toContain(".Config.Env");
   });
 
+  it.each([
+    [undefined, false, false], ["", false, false], ["short", true, false],
+    ["replace-with-a-stable-random-secret-at-least-32-bytes", true, false],
+    ["test-only-key.ABC_123~+/=-stable-value", true, true],
+    ["x".repeat(32) + "\n::warning::private", true, false],
+    ["x".repeat(32) + "\n", true, false], ["я".repeat(32), true, false],
+  ])("reports only booleans for the attested contact key without disclosure or mutation", (key, configured, valid) => {
+    const nodeStart = remote.indexOf("docker exec -i st-michael-api node <<'CONTACT_GATE_FLAGS'");
+    expect(nodeStart).toBeGreaterThan(remote.indexOf('test "$(docker exec st-michael-api sh'));
+    const inline = remote.slice(nodeStart).match(/CONTACT_GATE_FLAGS'\n([\s\S]*?)\n\s*CONTACT_GATE_FLAGS/)![1];
+    const log = jest.fn();
+    const env = Object.freeze({ BROKER_CONTACT_GATE_HMAC_KEY: key });
+    runInNewContext(inline, { process: { env }, console: { log } });
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(log.mock.calls[0][0])).toEqual({
+      brokerContactGateKeyConfigured: configured, brokerContactGateKeyValidAscii: valid,
+    });
+    if (key) expect(log.mock.calls[0][0]).not.toContain(key);
+    expect(inline).not.toMatch(/digest|hash|substring|slice|write|require|fetch|spawn/);
+    expect(env.BROKER_CONTACT_GATE_HMAC_KEY).toBe(key);
+  });
+
   it("never mutates server files, containers, logs, backups or DB rows", () => {
+    expect(remote).toContain('test -f .env -a ! -L .env');
+    expect(remote).toContain('test "$(readlink -f -- .env)" = "$deploy_root/.env"');
+    expect(remote).toContain('grep -qF -- BROKER_CONTACT_GATE_HMAC_KEY .env');
+    expect(remote).toContain('test "$grep_status" -eq 1 || exit 1');
     expect(remote).not.toMatch(/\b(rm|mv|cp|truncate|mktemp)\b/);
     expect(remote).not.toMatch(/prune|vacuum-size|git fetch|git reset|docker (restart|start|stop|rm|run|cp)/);
     expect(remote).not.toMatch(/\b(UPDATE|INSERT|DELETE|ALTER|DROP)\b/);
