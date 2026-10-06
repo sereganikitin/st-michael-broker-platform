@@ -1233,7 +1233,7 @@ describe("production-safe amo broker-contact provisioner", () => {
     }
   });
 
-  it("keeps first-deploy rollback parse-compatible and rejects a weak target gate secret before SSH, compose or builds", () => {
+  it("preserves an existing server key when GH is empty, but rejects weak nonempty inputs and invalid staged keys before builds", () => {
     const deployWorkflow = readFileSync(
       resolve(repositoryRoot, ".github/workflows/deploy.yml"),
       "utf8",
@@ -1256,7 +1256,7 @@ describe("production-safe amo broker-contact provisioner", () => {
       "BROKER_CONTACT_GATE_HMAC_KEY: ${{ secrets.BROKER_CONTACT_GATE_HMAC_KEY }}",
     );
     const workflowSecretGate = deployWorkflow.indexOf(
-      'if [ "${#BROKER_CONTACT_GATE_HMAC_KEY}" -lt 32 ]',
+      'if [ -n "$BROKER_CONTACT_GATE_HMAC_KEY" ] && {',
     );
     expect(workflowSecretGate).toBeGreaterThan(-1);
     expect(deployWorkflow).toContain("^[A-Za-z0-9._~+/=-]{32,}$");
@@ -1325,6 +1325,10 @@ describe("production-safe amo broker-contact provisioner", () => {
       deployScript.indexOf("unset VAR_NAME VAR_VALUE", allowlistEnd),
     );
     expect(validation).toBeGreaterThan(extraction);
+    const preservation = deployScript.indexOf("| verify_live_broker_contact_gate_hmac_key;");
+    expect(preservation).toBeGreaterThan(validation);
+    expect(deployScript).toContain('if [ "$var_name" = BROKER_CONTACT_GATE_HMAC_KEY ]; then');
+    expect(deployScript).toContain('test "$CONTACT_GATE_HEALTH_SHA" = "$CONTACT_GATE_LIVE_API_SHA"');
     for (const laterBoundary of [
       deployScript.indexOf(
         'docker compose --env-file "$ENV_STAGING_FILE" config --quiet',
@@ -1334,6 +1338,7 @@ describe("production-safe amo broker-contact provisioner", () => {
       deployScript.indexOf("prisma migrate deploy"),
     ]) {
       expect(laterBoundary).toBeGreaterThan(validation);
+      expect(laterBoundary).toBeGreaterThan(preservation);
     }
 
     const functionStart = deployScript.indexOf(
@@ -1379,6 +1384,60 @@ describe("production-safe amo broker-contact provisioner", () => {
         { encoding: "utf8" },
       ).status,
     ).toBe(0);
+  });
+
+  it("decodes only safe plain/single/double quoted ASCII keys without eval or normalization", () => {
+    const source = readFileSync(resolve(repositoryRoot, "deploy-update.sh"), "utf8").replace(/\r\n/g, "\n");
+    const extract = (name: string) => source.slice(source.indexOf(`${name}() {`), source.indexOf("\n}\n", source.indexOf(`${name}() {`)) + 3);
+    const helpers = extract("validate_broker_contact_gate_hmac_key") + "\n" + extract("decode_broker_contact_gate_hmac_env_value");
+    expect(helpers).not.toMatch(/\beval\b|\bsource\b/);
+    const bash = process.platform === "win32" ? "C:\\Program Files\\Git\\bin\\bash.exe" : "bash";
+    const key = "test-only-stable-key.ABC_123~+/=-long-enough";
+    for (const encoded of [key, `'${key}'`, `"${key}"`]) {
+      const result = spawnSync(bash, ["-c", `${helpers}\nIFS= read -r -d '' encoded\ndecode_broker_contact_gate_hmac_env_value "$encoded"`], { encoding: "utf8", input: encoded + "\0" });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(key);
+      expect(result.stderr).toBe("");
+    }
+    for (const encoded of ["", "short", `'${key}`, `${key}'`, `"${key}`, `${key}\n`, `${key}\r`, `${key} #comment`, `${key};echo private`, `${key}$(echo private)`, `${key}é`]) {
+      const result = spawnSync(bash, ["-c", `${helpers}\nIFS= read -r -d '' encoded\ndecode_broker_contact_gate_hmac_env_value "$encoded"`], { encoding: "utf8", input: encoded + "\0" });
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("");
+    }
+  });
+
+  it("checks exact live key equality through mock Docker stdin without exposing or rotating key bytes", () => {
+    const source = readFileSync(resolve(repositoryRoot, "deploy-update.sh"), "utf8").replace(/\r\n/g, "\n");
+    const start = source.indexOf("verify_live_broker_contact_gate_hmac_key() {");
+    const helper = source.slice(start, source.indexOf("\n}\n", start) + 3);
+    expect(helper).toContain('process.env.BROKER_CONTACT_GATE_HMAC_KEY || ""');
+    expect(helper.replace(/^\s*#.*$/gm, "")).not.toMatch(/digest|hash|length|substring|process\.argv/);
+    const bash = process.platform === "win32" ? "C:\\Program Files\\Git\\bin\\bash.exe" : "bash";
+    const key = "synthetic-stable-key.ABC_123~+/=-long-enough";
+    const program = `${helper}\nNODE_TEST_BINARY=$1\nMOCK_LIVE_KEY=$2\ndocker() { test "$#" -eq 6 && test "$1" = exec && test "$2" = -i && test "$3" = st-michael-api && test "$4" = node && test "$5" = -e || return 99; BROKER_CONTACT_GATE_HMAC_KEY="$MOCK_LIVE_KEY" "$NODE_TEST_BINARY" -e "$6"; }\nprintf '%s' "$3" | verify_live_broker_contact_gate_hmac_key`;
+    for (const [live, candidate, expected] of [[key, key, 0], [key, `${key}-different`, 1], ["", key, 0]]) {
+      const result = spawnSync(bash, ["-c", program, "mock-runtime", process.execPath.replace(/\\/g, "/"), live as string, candidate as string], {
+        encoding: "utf8", env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot },
+      });
+      expect(result.status).toBe(expected);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).not.toContain(key);
+      expect(result.stderr).not.toContain(candidate);
+    }
+  });
+
+  it("rejects duplicate and alternate active assignments rather than trusting dotenv override order", () => {
+    const source = readFileSync(resolve(repositoryRoot, "deploy-update.sh"), "utf8").replace(/\r\n/g, "\n");
+    const counter = source.match(/BROKER_CONTACT_GATE_HMAC_LINE_COUNT=\$\(awk '\n([\s\S]*?)\n' "\$ENV_STAGING_FILE"\)/)![1];
+    const ambiguous = source.match(/if ! awk '\n([\s\S]*?)\n' "\$ENV_STAGING_FILE"; then/)![1];
+    const bash = process.platform === "win32" ? "C:\\Program Files\\Git\\bin\\bash.exe" : "bash";
+    const key = "synthetic-duplicate-key-1234567890-safe-value";
+    expect(spawnSync(bash, ["-c", `awk '${counter}'`], { encoding: "utf8", input: `BROKER_CONTACT_GATE_HMAC_KEY=${key}\nBROKER_CONTACT_GATE_HMAC_KEY=${key}\n` }).stdout.trim()).toBe("2");
+    for (const alias of [` BROKER_CONTACT_GATE_HMAC_KEY=${key}`, `export BROKER_CONTACT_GATE_HMAC_KEY=${key}`, `BROKER_CONTACT_GATE_HMAC_KEY =${key}`]) {
+      expect(spawnSync(bash, ["-c", `awk '${ambiguous}'`], { encoding: "utf8", input: alias + "\n" }).status).not.toBe(0);
+    }
+    expect(source).toContain('if [ "$BROKER_CONTACT_GATE_HMAC_LINE_COUNT" -ne 1 ]; then');
   });
 
   it("has a syntactically valid exact-SHA, two-file, secret-backed exclusive-lock workflow with a bounded manifest and no deploy", () => {

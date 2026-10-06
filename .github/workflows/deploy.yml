@@ -271,9 +271,12 @@ jobs:
         run: |
           set -euo pipefail
           export LC_ALL=C
-          if [ "${#BROKER_CONTACT_GATE_HMAC_KEY}" -lt 32 ] \
+          # Empty GH value preserves the server key; final staged validation
+          # and live-runtime byte equality are mandatory in deploy-update.sh.
+          if [ -n "$BROKER_CONTACT_GATE_HMAC_KEY" ] && { [ "${#BROKER_CONTACT_GATE_HMAC_KEY}" -lt 32 ] \
             || ! printf '%s' "$BROKER_CONTACT_GATE_HMAC_KEY" | grep -Eq '^[A-Za-z0-9._~+/=-]{32,}$' \
-            || [ "$BROKER_CONTACT_GATE_HMAC_KEY" = "replace-with-a-stable-random-secret-at-least-32-bytes" ]; then
+            || [[ "$BROKER_CONTACT_GATE_HMAC_KEY" == *$'\r'* || "$BROKER_CONTACT_GATE_HMAC_KEY" == *$'\n'* ]] \
+            || [ "$BROKER_CONTACT_GATE_HMAC_KEY" = "replace-with-a-stable-random-secret-at-least-32-bytes" ]; }; then
             echo "BROKER_CONTACT_GATE_HMAC_KEY must be a non-placeholder secret of at least 32 ASCII bytes"
             exit 1
           fi
