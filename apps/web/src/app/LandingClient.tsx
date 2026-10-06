@@ -1128,7 +1128,7 @@ const DEFAULT_CONTACT = {
   blockTitle: 'Горячая линия по работе с партнёрами',
   phone: '+7 (499) 226-22-49',
   phoneHours: 'Ежедневно с 9:00 до 21:00',
-  email: 'info@zorge9.com',
+  email: 'broker@stmichael.ru',
   telegram: 'https://t.me/stmichaelBroker',
   // 2026-09-17 (владелец): Ксения Цепляева больше не работает — её карточка
   // и личный мобильный убраны. Персональный контакт — Дарья Великанова.

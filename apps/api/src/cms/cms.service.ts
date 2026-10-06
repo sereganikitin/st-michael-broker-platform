@@ -7,6 +7,7 @@ import {
   morekitLeadDate,
 } from "@st-michael/integrations";
 import { getSystemSetting } from "../common/system-setting";
+import { BROKER_CONTACT_EMAIL, normalizeLegacyContactBlock } from "../common/broker-contact-email";
 import { createHash } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
@@ -198,7 +199,7 @@ const DEFAULT_CONTENT: Record<string, any> = {
     blockTitle: "Горячая линия по работе с партнёрами",
     phone: "+7 (499) 226-22-49",
     phoneHours: "Ежедневно с 9:00 до 21:00",
-    email: "info@zorge9.com",
+    email: BROKER_CONTACT_EMAIL,
     telegram: "https://t.me/stmichaelBroker",
     // 2026-09-17 (владелец): Ксения Цепляева больше не работает. Персональный
     // контакт — Дарья Великанова; общий телефон отдела остаётся прежним.
@@ -342,12 +343,14 @@ export class CmsService {
     const rows = await this.prisma.siteContent.findMany();
     const map: Record<string, any> = { ...DEFAULT_CONTENT };
     for (const r of rows) map[r.key] = r.value;
+    map.contact = normalizeLegacyContactBlock(map.contact);
     return map;
   }
 
   async getContent(key: string) {
     const row = await this.prisma.siteContent.findUnique({ where: { key } });
-    return row?.value ?? DEFAULT_CONTENT[key] ?? null;
+    const value = row?.value ?? DEFAULT_CONTENT[key] ?? null;
+    return key === "contact" ? normalizeLegacyContactBlock(value) : value;
   }
 
   // КБ6 #45 (2026-05-25): на каждое сохранение CMS-блока пишем revision
