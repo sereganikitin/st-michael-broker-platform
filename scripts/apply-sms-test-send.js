@@ -56,6 +56,7 @@ function failureTag(error) {
   const tags = {
     "SMSC is not configured": "CONFIG_MISSING",
     "Provider balance check failed": "BALANCE_FAILED",
+    "Provider balance is insufficient or invalid": "BALANCE_INSUFFICIENT",
     "TEST journal entry not found": "TEST_NOT_FOUND",
     "TEST was failed or outcome unknown; recovery remains unchanged": "TEST_OUTCOME_UNKNOWN",
     "Provider status check failed": "STATUS_FAILED",
@@ -131,8 +132,10 @@ async function run(env = process.env, load = loadDependencies, emit = (value) =>
     }
     phase = "balance";
     const balance = await adapter.getBalance();
-    emit({ balanceChecked: Boolean(balance.ok), balance: balance.ok && Number.isFinite(balance.balance) ? balance.balance : null });
+    const sufficientBalance = Boolean(balance.ok && Number.isFinite(balance.balance) && balance.balance > 0);
+    emit({ balanceChecked: Boolean(balance.ok), sufficientBalance });
     if (!balance.ok) throw new Error("Provider balance check failed");
+    if (!sufficientBalance) throw new Error("Provider balance is insufficient or invalid");
     if (!input.apply) return { sent: false };
 
     const text = sampleText(input.sample);
