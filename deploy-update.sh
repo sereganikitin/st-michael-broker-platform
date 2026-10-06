@@ -278,14 +278,46 @@ update_env_value() {
     mv "$env_tmp" "$ENV_STAGING_FILE"
     escaped_value=$(printf '%s' "$var_value" | sed "s/'/\\\\'/g")
     printf "%s='%s'\n" "$var_name" "$escaped_value" >> "$ENV_STAGING_FILE"
-    echo "    $var_name accepted (${#var_value} characters)."
+    if [ "$var_name" = BROKER_CONTACT_GATE_HMAC_KEY ]; then
+        echo "    $var_name accepted."
+    else
+        echo "    $var_name accepted (${#var_value} characters)."
+    fi
 }
 
 validate_broker_contact_gate_hmac_key() {
     local gate_key_value="${1-}"
+    case "$gate_key_value" in *$'\r'*|*$'\n'*) return 1 ;; esac
     [ "${#gate_key_value}" -ge 32 ] \
         && printf '%s' "$gate_key_value" | LC_ALL=C grep -Eq '^[A-Za-z0-9._~+/=-]{32,}$' \
         && [ "$gate_key_value" != "replace-with-a-stable-random-secret-at-least-32-bytes" ]
+}
+
+decode_broker_contact_gate_hmac_env_value() {
+    local encoded="${1-}" decoded
+    case "$encoded" in
+        \'*\') decoded=${encoded#\'}; decoded=${decoded%\'} ;;
+        \"*\") decoded=${encoded#\"}; decoded=${decoded%\"} ;;
+        *) decoded=$encoded ;;
+    esac
+    validate_broker_contact_gate_hmac_key "$decoded" || return 1
+    printf '%s' "$decoded"
+}
+
+verify_live_broker_contact_gate_hmac_key() {
+    # Candidate bytes travel only through stdin, never argv, logs or a digest.
+    docker exec -i st-michael-api node -e '
+        let candidate = "";
+        process.stdin.setEncoding("utf8");
+        process.stdin.on("data", chunk => { candidate += chunk; });
+        process.stdin.on("end", () => {
+            const live = process.env.BROKER_CONTACT_GATE_HMAC_KEY || "";
+            if (live && live !== candidate) {
+                console.error("Existing contact-gate key differs; rotation is forbidden.");
+                process.exitCode = 1;
+            }
+        });
+    '
 }
 
 for VAR_NAME in \
@@ -321,25 +353,37 @@ if [ "$BROKER_CONTACT_GATE_HMAC_LINE_COUNT" -ne 1 ]; then
     echo "    ✗ BROKER_CONTACT_GATE_HMAC_KEY is missing or duplicated in target env."
     exit 1
 fi
+if ! awk '
+    /^[[:space:]]*(export[[:space:]]+)?BROKER_CONTACT_GATE_HMAC_KEY[[:space:]]*=/ && !/^BROKER_CONTACT_GATE_HMAC_KEY=/ { exit 1 }
+' "$ENV_STAGING_FILE"; then
+    echo "    ✗ Ambiguous contact-gate key assignment in target env."
+    exit 1
+fi
 BROKER_CONTACT_GATE_HMAC_ENV_VALUE=$(awk '
     /^BROKER_CONTACT_GATE_HMAC_KEY=/ {
         print substr($0, length("BROKER_CONTACT_GATE_HMAC_KEY=") + 1)
     }
 ' "$ENV_STAGING_FILE")
-case "$BROKER_CONTACT_GATE_HMAC_ENV_VALUE" in
-    \'*\')
-        BROKER_CONTACT_GATE_HMAC_VALUE=${BROKER_CONTACT_GATE_HMAC_ENV_VALUE#\'}
-        BROKER_CONTACT_GATE_HMAC_VALUE=${BROKER_CONTACT_GATE_HMAC_VALUE%\'}
-        ;;
-    *)
-        echo "    ✗ BROKER_CONTACT_GATE_HMAC_KEY has an invalid target env encoding."
-        exit 1
-        ;;
-esac
+if ! BROKER_CONTACT_GATE_HMAC_VALUE=$(decode_broker_contact_gate_hmac_env_value "$BROKER_CONTACT_GATE_HMAC_ENV_VALUE"); then
+    echo "    ✗ BROKER_CONTACT_GATE_HMAC_KEY has an invalid target env encoding."
+    exit 1
+fi
 if ! validate_broker_contact_gate_hmac_key "$BROKER_CONTACT_GATE_HMAC_VALUE"; then
     echo "    ✗ BROKER_CONTACT_GATE_HMAC_KEY must be a non-placeholder secret of at least 32 ASCII bytes."
     exit 1
 fi
+test "$(docker inspect --format '{{.State.Running}}' st-michael-api)" = true || { echo "Current API is not running; key preservation cannot be verified."; exit 1; }
+test "$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' st-michael-api)" = api || exit 1
+CONTACT_GATE_LIVE_API_SHA=$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')
+[[ "$CONTACT_GATE_LIVE_API_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Current API SHA is unavailable."; exit 1; }
+CONTACT_GATE_HEALTH_SHA=$(curl --fail --silent --show-error --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health \
+    | grep -o '"deployedSha":"[0-9a-f]\{40\}"' | cut -d'"' -f4)
+test "$CONTACT_GATE_HEALTH_SHA" = "$CONTACT_GATE_LIVE_API_SHA" || { echo "Current API health identity mismatch."; exit 1; }
+if ! printf '%s' "$BROKER_CONTACT_GATE_HMAC_VALUE" | verify_live_broker_contact_gate_hmac_key; then
+    echo "    ✗ Existing contact-gate key must be preserved exactly."
+    exit 1
+fi
+unset CONTACT_GATE_LIVE_API_SHA CONTACT_GATE_HEALTH_SHA
 unset BROKER_CONTACT_GATE_HMAC_LINE_COUNT BROKER_CONTACT_GATE_HMAC_ENV_VALUE BROKER_CONTACT_GATE_HMAC_VALUE
 
 # Public links must use the certificate-covered domain, never the legacy IP.
