@@ -146,7 +146,8 @@ describe("Recovery email read-only/no-send inspector", () => {
       code: "EAUTH", responseCode: 535, response: secret, command: secret,
     }));
     const report = await run(env, h.load, h.emit);
-    expect(report.smtp).toEqual({ attempted: true, attempts: 1, ok: false, failureTag: "AUTH", code: "EAUTH", responseCode: 535 });
+    expect(report.smtp).toMatchObject({ attempted: true, attempts: 1, ok: false, failureTag: "AUTH", code: "EAUTH", responseCode: 535,
+      command: null, stage: "AUTH", certificateReason: null, certificateReasonSource: null });
     expect(h.transport.verify).toHaveBeenCalledTimes(1);
     expect(h.transport.close).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain(secret);
@@ -159,7 +160,8 @@ describe("Recovery email read-only/no-send inspector", () => {
     }));
     const report = await run(env, h.load, h.emit);
     expect(report.smtp).toEqual({ attempted: true, attempts: 1, ok: false, failureTag: "TLS",
-      code: "DEPTH_ZERO_SELF_SIGNED_CERT", responseCode: null });
+      code: "DEPTH_ZERO_SELF_SIGNED_CERT", responseCode: null, command: null, stage: "TLS",
+      certificateReason: "SELF_SIGNED", certificateReasonSource: "OBSERVED_ERROR_CODE" });
     expect(report.deliveryVerified).toBe(false);
     expect(report.config.strictPolicyDifferentFromProduction).toBe(true);
     expect(h.createTransport).toHaveBeenCalledTimes(1);
@@ -171,7 +173,76 @@ describe("Recovery email read-only/no-send inspector", () => {
   });
 
   it.each([secret, "ECONNECTION\n::warning::unsafe", 42])("never emits unknown provider codes", (code) => {
-    expect(smtpFailure({ code, responseCode: secret })).toEqual({ ok: false, failureTag: "VERIFY_FAILED", code: null, responseCode: null });
+    expect(smtpFailure({ code, responseCode: secret })).toEqual({ ok: false, failureTag: "VERIFY_FAILED", code: null, responseCode: null,
+      command: null, stage: "UNKNOWN", certificateReason: null, certificateReasonSource: null });
+  });
+
+  it.each([
+    ["self-signed certificate", "SELF_SIGNED"],
+    ["self-signed certificate in certificate chain", "SELF_SIGNED_CHAIN"],
+    ["certificate has expired", "EXPIRED"],
+    ["unable to verify the first certificate", "UNVERIFIABLE_CHAIN"],
+    ["unable to get local issuer certificate", "UNVERIFIABLE_CHAIN"],
+    [`Hostname/IP does not match certificate's altnames: ${secret}`, "HOSTNAME_MISMATCH"],
+  ])("projects known TLS signatures without reconstructing the lost Node code", (message, reason) => {
+    const result = smtpFailure({ code: "ESOCKET", command: "CONN", message });
+    expect(result).toMatchObject({ code: "ESOCKET", command: "CONN", stage: "TLS",
+      certificateReason: reason, certificateReasonSource: "KNOWN_MESSAGE_HINT" });
+    expect(JSON.stringify(result)).not.toContain(message);
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("faithfully diagnoses the installed Nodemailer ESOCKET wrapping without a network connection", () => {
+    const SMTPConnection = require("nodemailer/lib/smtp-connection");
+    const connection = new SMTPConnection({ logger: false, debug: false });
+    const original = Object.assign(new Error("self-signed certificate"), { code: "DEPTH_ZERO_SELF_SIGNED_CERT" });
+    const wrapped = connection._formatError(original, "ESOCKET", false, "CONN");
+    expect(wrapped.code).toBe("ESOCKET");
+    expect(smtpFailure(wrapped)).toMatchObject({ stage: "TLS", certificateReason: "SELF_SIGNED",
+      certificateReasonSource: "KNOWN_MESSAGE_HINT", code: "ESOCKET" });
+    connection.close();
+  });
+
+  it.each([
+    { code: "ESOCKET", command: "CONN", message: `${secret} self-signed certificate ${email}` },
+    { code: "EAUTH", command: "AUTH LOGIN", message: "self-signed certificate" },
+    { code: "ESOCKET", command: "EHLO", message: "self-signed certificate" },
+    { code: "ESOCKET", command: "CONN", message: "self-signed certificate", responseCode: 550 },
+    { code: secret, command: "CONN", message: "self-signed certificate" },
+    { code: "ESOCKET", command: `${secret}\n::warning::unsafe`, message: secret },
+    { code: "ESOCKET", command: "CONN", message: `self-signed certificate${"x".repeat(4096)}` },
+  ])("does not derive certificates from arbitrary messages/replies or emit PII", (error) => {
+    const result = smtpFailure(error);
+    expect(result.certificateReason).toBeNull();
+    expect(result.certificateReasonSource).toBeNull();
+    for (const privateValue of [email, secret, "::warning::"]) expect(JSON.stringify(result)).not.toContain(privateValue);
+  });
+
+  it.each([
+    ["EDNS", "CONN", "DNS"], ["EAUTH", "AUTH LOGIN", "AUTH"],
+    ["ETLS", "STARTTLS", "TLS"], ["ECONNECTION", "EHLO", "GREETING_OR_CAPABILITIES"],
+    ["ESOCKET", "CONN", "CONNECTION_OR_TLS_UNKNOWN"],
+  ])("keeps uncertain socket errors uncertain and projects only whitelisted stages", (code, command, stage) => {
+    expect(smtpFailure({ code, command, message: secret })).toMatchObject({ stage,
+      certificateReason: null, certificateReasonSource: null });
+  });
+
+  it("still verifies only once with strict TLS after a wrapped certificate failure", async () => {
+    const h = harness();
+    h.transport.verify.mockRejectedValue(Object.assign(new Error("Error initiating TLS - self-signed certificate"), {
+      code: "ESOCKET", command: "CONN", host: env.SMTP_HOST, response: secret,
+    }));
+    const report = await run(env, h.load, h.emit);
+    expect(report.smtp).toMatchObject({ attempts: 1, stage: "TLS", certificateReason: "SELF_SIGNED",
+      certificateReasonSource: "KNOWN_MESSAGE_HINT" });
+    expect(h.transport.verify).toHaveBeenCalledTimes(1);
+    expect(h.transport.close).toHaveBeenCalledTimes(1);
+    expect(h.transport.sendMail).not.toHaveBeenCalled();
+    expect(h.createTransport).toHaveBeenCalledTimes(1);
+    expect(h.createTransport.mock.calls[0][0]).toMatchObject({ requireTLS: true, tls: { rejectUnauthorized: true },
+      debug: false, logger: false, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 15000 });
+    for (const privateValue of [email, secret, env.SMTP_HOST, env.SMTP_USER, env.SMTP_FROM])
+      expect(JSON.stringify(h.emit.mock.calls)).not.toContain(privateValue);
   });
 
   it.each([0, 600, "535", 123456789])("only emits bounded integer SMTP response code", (responseCode) => {
@@ -186,6 +257,16 @@ describe("Recovery email read-only/no-send inspector", () => {
       sendgridFromObsoleteMailbox: true, vapidSubjectObsoleteMailbox: true, webUrlCanonicalOrigin: true });
     expect(configFacts({ WEB_URL: "https://broker.stmichael.ru/forgot?token=private" }).webUrlCanonicalOrigin).toBe(false);
     expect(JSON.stringify(facts)).not.toContain("info@zorge9.com");
+  });
+
+  it.each([
+    ["mail.stmichael.ru", true], ["  MAIL.StMichael.RU  ", true],
+    ["mail.stmichael.ru.untrusted.test", false], [secret, false], [undefined, false],
+  ])("compares the reported public SMTP endpoint without revealing the configured host", (SMTP_HOST, matches) => {
+    const facts = configFacts({ ...env, SMTP_HOST });
+    expect(facts.smtpHostMatchesReportedServer).toBe(matches);
+    expect(JSON.stringify(facts)).not.toContain("mail.stmichael.ru");
+    expect(JSON.stringify(facts)).not.toContain(secret);
   });
 
   it("sanitizes dependency failures and closes DB without emitting credentials", async () => {

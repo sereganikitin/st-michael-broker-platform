@@ -101,6 +101,7 @@ function configFacts(env) {
   const port = Number(env.SMTP_PORT || 465);
   return {
     hostConfigured: configured("SMTP_HOST"), userConfigured: configured("SMTP_USER"),
+    smtpHostMatchesReportedServer: typeof env.SMTP_HOST === "string" && env.SMTP_HOST.trim().toLowerCase() === "mail.stmichael.ru",
     passwordConfigured: configured("SMTP_PASS"), fromConfigured: configured("SMTP_FROM"),
     effectiveFromConfigured: configured("SMTP_FROM") || configured("SMTP_USER"),
     port: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null,
@@ -123,13 +124,50 @@ function smtpFailure(error) {
   const code = typeof error?.code === "string" && SAFE_CODES.has(error.code) ? error.code : null;
   const responseCode = Number.isInteger(error?.responseCode) && error.responseCode >= 100 && error.responseCode <= 599
     ? error.responseCode : null;
+  // Nodemailer replaces the original Node socket/TLS error.code with ESOCKET.
+  // Never emit or parse arbitrary SMTP replies as a certificate diagnosis.
+  const command = ["CONN", "EHLO", "HELO", "STARTTLS"].includes(error?.command) ? error.command :
+    ["AUTH LOGIN", "AUTH PLAIN", "AUTH CRAM-MD5", "AUTH XOAUTH2"].includes(error?.command) ? "AUTH" : null;
+  const certificateCodes = {
+    CERT_HAS_EXPIRED: "EXPIRED", DEPTH_ZERO_SELF_SIGNED_CERT: "SELF_SIGNED",
+    SELF_SIGNED_CERT_IN_CHAIN: "SELF_SIGNED_CHAIN",
+    UNABLE_TO_VERIFY_LEAF_SIGNATURE: "UNVERIFIABLE_CHAIN",
+    ERR_TLS_CERT_ALTNAME_INVALID: "HOSTNAME_MISMATCH",
+  };
+  let certificateReason = Object.prototype.hasOwnProperty.call(certificateCodes, code)
+    ? certificateCodes[code] : null;
+  let certificateReasonSource = certificateReason ? "OBSERVED_ERROR_CODE" : null;
+  if (!certificateReason && ["ESOCKET", "ETLS"].includes(code) && responseCode === null &&
+      [null, "CONN", "STARTTLS"].includes(command) && typeof error?.message === "string" && error.message.length <= 4096) {
+    const message = error.message.replace(/^Error initiating TLS - /, "").toLowerCase();
+    const signatures = {
+      "certificate has expired": "EXPIRED",
+      "self-signed certificate": "SELF_SIGNED",
+      "self-signed certificate in certificate chain": "SELF_SIGNED_CHAIN",
+      "unable to verify the first certificate": "UNVERIFIABLE_CHAIN",
+      "unable to get local issuer certificate": "UNVERIFIABLE_CHAIN",
+    };
+    certificateReason = Object.prototype.hasOwnProperty.call(signatures, message) ? signatures[message] : null;
+    if (message.startsWith("hostname/ip does not match certificate's altnames:"))
+      certificateReason = "HOSTNAME_MISMATCH";
+    // This is explicitly a known-message HINT, not a reconstructed Node code.
+    if (certificateReason) certificateReasonSource = "KNOWN_MESSAGE_HINT";
+  }
+  const stage = certificateReason || code === "ETLS" ? "TLS" :
+    code === "EAUTH" || command === "AUTH" ? "AUTH" :
+    ["EDNS", "ENOTFOUND", "EAI_AGAIN"].includes(code) ? "DNS" :
+    command === "STARTTLS" ? "STARTTLS" :
+    ["EHLO", "HELO"].includes(command) ? "GREETING_OR_CAPABILITIES" :
+    command === "CONN" || ["ESOCKET", "ECONNECTION", "ECONNREFUSED", "ECONNRESET"].includes(code)
+      ? "CONNECTION_OR_TLS_UNKNOWN" : "UNKNOWN";
   const category = code === "EAUTH" ? "AUTH" :
     ["EDNS", "ENOTFOUND", "EAI_AGAIN"].includes(code) ? "DNS" :
     ["ETLS", "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN",
       "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ERR_TLS_CERT_ALTNAME_INVALID"].includes(code) ? "TLS" :
     ["ETIMEDOUT", "ETIMEOUT"].includes(code) ? "TIMEOUT" :
     code ? "CONNECTION_OR_PROTOCOL" : "VERIFY_FAILED";
-  return { ok: false, failureTag: category, code, responseCode };
+  return { ok: false, failureTag: category, code, responseCode,
+    command, stage, certificateReason, certificateReasonSource };
 }
 
 async function inspectSmtp(env, createTransport, facts) {
