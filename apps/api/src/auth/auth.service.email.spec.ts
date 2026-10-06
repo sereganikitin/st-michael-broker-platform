@@ -99,6 +99,8 @@ describe("AuthService public email links", () => {
       expect(mail.html).not.toContain("72.56.241.199");
       expect(mail.html).not.toContain("localhost");
       expect(mail.html).not.toContain("untrusted.example");
+      expect(mail.html).toContain('href="mailto:broker@stmichael.ru"');
+      expect(mail.html).not.toContain("info@zorge9.com");
     },
   );
 
@@ -139,6 +141,8 @@ describe("AuthService public email links", () => {
       );
 
       const html = sendMail.mock.calls[0][0].html;
+      expect(html).toContain('href="mailto:broker@stmichael.ru"');
+      expect(html).not.toContain("info@zorge9.com");
       const loginLinks = [...html.matchAll(/href="([^"]*\/login)"/g)].map(
         (match: RegExpMatchArray) => match[1],
       );

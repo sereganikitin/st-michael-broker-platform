@@ -29,7 +29,7 @@ async function loadOffer(): Promise<Offer | null> {
 const FALLBACK: Offer = {
   version: '—',
   title: 'Договор-оферта о сотрудничестве с партнёрами по продаже недвижимости',
-  body: 'Текст оферты временно недоступен. Пожалуйста, обратитесь к менеджеру: info@zorge9.com',
+  body: 'Текст оферты временно недоступен. Пожалуйста, обратитесь к менеджеру: broker@stmichael.ru',
   updatedAt: new Date().toISOString(),
 };
 
