@@ -57,6 +57,10 @@ describe("production disk report safety", () => {
   });
 
   it("never mutates server files, containers, logs, backups or DB rows", () => {
+    expect(remote).toContain('test -f .env -a ! -L .env');
+    expect(remote).toContain('test "$(readlink -f -- .env)" = "$deploy_root/.env"');
+    expect(remote).toContain('grep -qF -- BROKER_CONTACT_GATE_HMAC_KEY .env');
+    expect(remote).toContain('test "$grep_status" -eq 1 || exit 1');
     expect(remote).not.toMatch(/\b(rm|mv|cp|truncate|mktemp)\b/);
     expect(remote).not.toMatch(/prune|vacuum-size|git fetch|git reset|docker (restart|start|stop|rm|run|cp)/);
     expect(remote).not.toMatch(/\b(UPDATE|INSERT|DELETE|ALTER|DROP)\b/);

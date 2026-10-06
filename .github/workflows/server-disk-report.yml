@@ -112,6 +112,17 @@ jobs:
             && key !== 'replace-with-a-stable-random-secret-at-least-32-bytes';
           console.log(JSON.stringify({ brokerContactGateKeyConfigured: configured, brokerContactGateKeyValidAscii: valid }));
           CONTACT_GATE_FLAGS
+          # Conservative presence only: even a commented/alternate encoding
+          # prevents automatic initialization from overwriting an existing key.
+          test -f .env -a ! -L .env || exit 1
+          test "$(readlink -f -- .env)" = "$deploy_root/.env" || exit 1
+          if grep -qF -- BROKER_CONTACT_GATE_HMAC_KEY .env; then
+            echo 'server_env_contact_key_mentioned=true'
+          else
+            grep_status=$?
+            test "$grep_status" -eq 1 || exit 1
+            echo 'server_env_contact_key_mentioned=false'
+          fi
           docker_root_reported=$(docker info --format '{{.DockerRootDir}}')
           [[ "$docker_root_reported" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 1
           case "$docker_root_reported/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
