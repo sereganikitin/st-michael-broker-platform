@@ -723,117 +723,133 @@ describe("loyalty production workflow safety", () => {
     expect(trustedDeployScript).toBeGreaterThan(liveBackupCheck);
   });
 
-  it("reclaims only the explicitly approved no-restart disk targets", () => {
-    const remoteStart = diskReclaimWorkflow.indexOf("<<'REMOTE'");
-    const remoteEnd = diskReclaimWorkflow.indexOf(
-      "\n          REMOTE",
-      remoteStart,
-    );
-    const remoteBody = diskReclaimWorkflow.slice(remoteStart, remoteEnd);
-    const reclaimJobStart = diskReclaimWorkflow.indexOf("\n  reclaim:");
-    const reclaimStepsStart = diskReclaimWorkflow.indexOf(
-      "\n    steps:",
-      reclaimJobStart,
-    );
-    const reclaimJobHeader = diskReclaimWorkflow.slice(
-      reclaimJobStart,
-      reclaimStepsStart,
-    );
+  it("reclaims only approved archived journals and retains the full backup reserve", () => {
+    const parsed: any = parse(diskReclaimWorkflow);
+    const job = parsed.jobs.reclaim;
+    const maintenance = job.steps.find((step: any) => typeof step.run === "string");
+    const run = maintenance.run.replace(/\r\n/g, "\n");
+    const remoteStart = run.indexOf("<<'REMOTE'\n");
+    const remoteEnd = run.indexOf("\nREMOTE", remoteStart);
+    const remoteBody = run.slice(remoteStart, remoteEnd);
     const remoteLines = remoteBody
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
+    const remoteCommands = remoteLines.filter((line) => !line.startsWith("#")).join("\n");
+    const physicalLock = remoteBody.indexOf("exec 9</tmp/st-michael-production-deploy.lock");
+    const journalPathGuard = remoteBody.indexOf('test "$(sudo -n readlink -f -- "$journal_path")" = "$journal_path"');
+    const databasePrecheck = remoteBody.indexOf("database_size_bytes=$(read_database_size)");
     const enoughDiskDecision = remoteBody.indexOf(
       'if [ "$root_before" -ge "$MIN_AVAILABLE_BYTES" ]',
     );
     const journalVacuum = remoteBody.indexOf(
-      "sudo -n journalctl --vacuum-size=300M >/dev/null 2>&1",
+      'sudo -n journalctl --directory="$journal_path" --vacuum-size=300M >/dev/null 2>&1',
     );
-    const danglingPrune = remoteBody.indexOf(
-      "docker image prune -f >/dev/null",
-    );
+    const databasePostcheck = remoteBody.indexOf("post_database_size_bytes=$(read_database_size)");
     const finalDiskGate = remoteBody.indexOf(
       'if [ "$root_after" -lt "$MIN_AVAILABLE_BYTES" ]',
     );
 
-    expect(diskReclaimWorkflow).toContain("workflow_dispatch:");
-    expect(diskReclaimWorkflow).toContain("confirm_cleanup:");
-    expect(diskReclaimWorkflow).toContain("required: true");
-    expect(diskReclaimWorkflow).toContain("default: false");
-    expect(diskReclaimWorkflow).toContain("type: boolean");
-    expect(reclaimJobHeader).not.toMatch(/^\s+if:/m);
-    expect(diskReclaimWorkflow).toContain(
-      "CONFIRM_CLEANUP: ${{ inputs.confirm_cleanup }}",
-    );
-    expect(diskReclaimWorkflow).toContain('test "$CONFIRM_CLEANUP" = "true"');
+    expect(parsed.on.workflow_dispatch.inputs.confirm_cleanup).toMatchObject({
+      required: true, default: false, type: "boolean",
+    });
+    expect(job.if).toBeUndefined();
+    expect(job.environment).toBe("production");
+    expect(parsed.concurrency).toEqual({ group: "production-deploy", "cancel-in-progress": false });
+    expect(parsed.permissions).toEqual({ contents: "read" });
+    expect(job.steps[0]).toMatchObject({
+      uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+      with: { ref: "${{ github.sha }}", "fetch-depth": 1, "persist-credentials": false },
+    });
+    expect(maintenance.env).toMatchObject({
+      EXPECTED_SHA: "${{ github.sha }}",
+      CANONICAL_REPOSITORY: "sereganikitin/st-michael-broker-platform",
+      EXPECTED_SSH_FINGERPRINT: "${{ vars.DEPLOY_HOST_FINGERPRINT }}",
+      PRODUCTION_PG_SYSTEM_IDENTIFIER: "${{ vars.PRODUCTION_PG_SYSTEM_IDENTIFIER }}",
+      PRODUCTION_MIN_BROKER_ROWS: "${{ vars.PRODUCTION_MIN_BROKER_ROWS }}",
+    });
+    expect(run).toContain('.inputs.confirm_cleanup | if . == true or . == "true" then "true"');
+    expect(run).toContain('test "$CONFIRM_CLEANUP" = "true"');
+    expect(run).toContain('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"');
+    expect(run).toContain('test "$EXPECTED_REF" = "refs/heads/master"');
+    expect(run).toContain('"/repos/$EXPECTED_REPOSITORY/compare/$deployed_sha...$EXPECTED_SHA"');
+    expect(run).toContain("case \"$compare_status\" in ahead|identical)");
     expect(diskReclaimWorkflow).not.toContain("continue-on-error: true");
-    expect(diskReclaimWorkflow).toContain("group: production-deploy");
-    expect(diskReclaimWorkflow).toContain("cancel-in-progress: false");
-    expect(diskReclaimWorkflow).toContain("environment: production");
-    expect(diskReclaimWorkflow).toContain(
-      "CANONICAL_REPOSITORY: sereganikitin/st-michael-broker-platform",
-    );
-    expect(diskReclaimWorkflow).toContain(
-      'test "$EXPECTED_REF" = "refs/heads/master"',
-    );
-    expect(diskReclaimWorkflow).toContain(
-      "EXPECTED_SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}",
-    );
-    expect(diskReclaimWorkflow).toContain("^SHA256:[A-Za-z0-9+/]{43}$");
-    expect(diskReclaimWorkflow).toContain(
-      'test "${fingerprints[0]}" = "$EXPECTED_SSH_FINGERPRINT"',
-    );
+    expect(run).toContain("^SHA256:[A-Za-z0-9+/]{43}$");
+    expect(run).toContain('test "${fingerprints[0]}" = "$EXPECTED_SSH_FINGERPRINT"');
+    expect(run).toContain("StrictHostKeyChecking=yes");
+    expect(run).toContain("HostKeyAlgorithms=ssh-ed25519");
     expect(remoteStart).toBeGreaterThan(-1);
     expect(remoteEnd).toBeGreaterThan(remoteStart);
     expect(remoteBody).toContain("MIN_AVAILABLE_BYTES=8589934592");
-    expect(remoteBody).toContain(
-      "exec 9>/tmp/st-michael-production-deploy.lock",
-    );
+    expect(remoteBody).toContain("BACKUP_SIZE_OVERHEAD_BYTES=67108864");
+    expect(remoteBody).toContain("test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock");
+    expect(remoteBody).not.toContain("exec 9>/tmp/st-michael-production-deploy.lock");
     expect(remoteBody).toContain("flock -n 9");
+    expect(remoteBody).not.toContain("flock -s");
+    expect(remoteBody).toContain('test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git');
+    expect(remoteBody).toContain('test "$(git rev-parse HEAD)" = "$expected_deployed_sha"');
+    expect(remoteBody).toContain('test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"');
+    expect(remoteBody).toContain('test "$(docker context show)" = default');
     expect(remoteBody).toContain('available_bytes "$deploy_root"');
     expect(remoteBody).toContain("available_bytes /tmp");
     expect(remoteBody).toContain("docker info --format '{{.DockerRootDir}}'");
     expect(remoteBody).toContain("df -P -B1 --");
-    expect(enoughDiskDecision).toBeGreaterThan(-1);
+    expect(remoteBody).toContain("backup_path=/var/backups/stmichael/loyalty-predeploy");
+    expect(remoteBody).toContain('test "$(readlink -f -- "$backup_path")" = "$backup_path"');
+    expect(remoteBody).toContain('backup_before=$(available_bytes "$backup_path")');
+    expect(remoteBody).toContain('backup_after=$(available_bytes "$backup_path")');
+    expect(remoteBody).toContain("journal_path=/var/log/journal");
+    expect(remoteBody).toContain('sudo -n test ! -L "$journal_path"');
+    expect(remoteBody).toContain('sudo -n timeout 15 find "$journal_path" -type l -printf x -quit');
+    expect(remoteBody).toContain('test -z "$journal_symlink"');
+    expect(remoteBody).toContain("--no-psqlrc -AtF '|' -v ON_ERROR_STOP=1");
+    expect(remoteBody).toContain("BEGIN READ ONLY; SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='1s';");
+    expect(remoteBody).toContain("SELECT system_identifier, (SELECT count(*) FROM public.brokers), pg_database_size(current_database()) FROM pg_control_system(); ROLLBACK;");
+    expect(remoteBody).toContain('test "$system_identifier" = "$expected_system_identifier"');
+    expect(remoteBody).toContain('test "$broker_rows" -ge "$minimum_broker_rows"');
+    expect(remoteBody).toContain("required_backup_available_bytes=$((MIN_AVAILABLE_BYTES + database_size_bytes + BACKUP_SIZE_OVERHEAD_BYTES))");
+    expect(remoteBody).toContain("required_backup_available_bytes_after=$((MIN_AVAILABLE_BYTES + post_database_size_bytes + BACKUP_SIZE_OVERHEAD_BYTES))");
+    expect(remoteBody).toContain('[ "$backup_before" -ge "$required_backup_available_bytes" ]');
+    expect(remoteBody).toContain('[ "$backup_after" -lt "$required_backup_available_bytes_after" ]');
+    expect(physicalLock).toBeGreaterThan(-1);
+    expect(journalPathGuard).toBeGreaterThan(physicalLock);
+    expect(databasePrecheck).toBeGreaterThan(journalPathGuard);
+    expect(enoughDiskDecision).toBeGreaterThan(databasePrecheck);
     expect(journalVacuum).toBeGreaterThan(enoughDiskDecision);
-    expect(danglingPrune).toBeGreaterThan(journalVacuum);
-    expect(finalDiskGate).toBeGreaterThan(danglingPrune);
-    expect(remoteBody.match(/journalctl --vacuum-size=300M/g)).toHaveLength(1);
-    expect(remoteBody.match(/docker image prune -f/g)).toHaveLength(1);
-    expect(
-      remoteLines.filter((line) => /\bdocker\s+image\s+prune\b/.test(line)),
-    ).toEqual(["docker image prune -f >/dev/null"]);
-    expect(remoteBody).not.toMatch(
-      /\bdocker\s+image\s+prune\b[^\n]*(?:--all\b|-[A-Za-z]*a[A-Za-z]*\b)/,
-    );
-    expect(remoteBody).not.toMatch(
-      /docker\s+(?:system|volume|builder|buildx|container|network)\s+prune|docker(?:-compose|\s+compose)|\bdocker\s+(?:rm|rmi|start|stop|restart|kill|run|exec|build|pull|push)\b|\b(?:systemctl|service|restart|stop|kill|psql|prisma|git|cp|mv|rm|rmdir|truncate|unlink|shred|tee|touch|dd|install|mkdir|ln|chmod|chown|find)\b/,
-    );
+    expect(databasePostcheck).toBeGreaterThan(journalVacuum);
+    expect(finalDiskGate).toBeGreaterThan(databasePostcheck);
     expect(remoteLines.filter((line) => /\bjournalctl\b/.test(line))).toEqual([
-      "command -v journalctl >/dev/null",
-      "sudo -n journalctl --vacuum-size=300M >/dev/null 2>&1",
+      "for tool in awk curl df docker find flock git journalctl jq readlink sudo timeout; do command -v \"$tool\" >/dev/null || exit 1; done",
+      'sudo -n journalctl --directory="$journal_path" --vacuum-size=300M >/dev/null 2>&1',
     ]);
+    expect(remoteCommands.match(/\bjournalctl\s+--directory=/g)).toHaveLength(1);
+    expect(remoteCommands).not.toMatch(/--rotate\b|--vacuum-(?:time|files)\b/);
     expect(remoteLines.filter((line) => /\bsudo\b/.test(line))).toEqual([
-      "command -v sudo >/dev/null",
-      "sudo -n journalctl --vacuum-size=300M >/dev/null 2>&1",
+      "for tool in awk curl df docker find flock git journalctl jq readlink sudo timeout; do command -v \"$tool\" >/dev/null || exit 1; done",
+      'sudo -n test -d "$journal_path" || exit 1',
+      'sudo -n test ! -L "$journal_path" || exit 1',
+      'test "$(sudo -n readlink -f -- "$journal_path")" = "$journal_path" || exit 1',
+      'journal_symlink=$(sudo -n timeout 15 find "$journal_path" -type l -printf x -quit 2>/dev/null)',
+      'sudo -n journalctl --directory="$journal_path" --vacuum-size=300M >/dev/null 2>&1',
     ]);
-    expect(remoteLines.filter((line) => /\bdocker\b/.test(line))).toEqual([
-      "command -v docker >/dev/null",
-      "docker_root_reported=$(docker info --format '{{.DockerRootDir}}')",
-      "dangling_before=$(docker image ls -q --filter dangling=true | sort -u | wc -l | tr -d '[:space:]')",
-      "docker image prune -f >/dev/null",
-      "dangling_after=$(docker image ls -q --filter dangling=true | sort -u | wc -l | tr -d '[:space:]')",
-    ]);
-    expect(remoteBody).toContain("root_after=$root_before");
-    expect(remoteBody).toContain("deploy_after=$deploy_before");
-    expect(remoteBody).toContain(
-      "release_context_after=$release_context_before",
-    );
-    expect(remoteBody).toContain("docker_after=$docker_before");
-    expect(remoteBody).toContain("dangling_after=$dangling_before");
+    expect(remoteCommands).not.toMatch(/\bdocker\s+(?:system|image|volume|builder|buildx|container|network)\s+prune\b|docker(?:-compose|\s+compose)|\bdocker\s+(?:rm|rmi|start|stop|restart|kill|run|build|pull|push)\b/);
+    expect(remoteCommands).not.toMatch(/\b(?:systemctl|prisma|pg_dump|pg_restore|cp|mv|rm|rmdir|truncate|unlink|shred|tee|touch|dd|install|mkdir|ln|chmod|chown)\b|\bfind\b[^\n]*-(?:delete|exec|execdir)\b|(?:^|[;\n|&$(])\s*service\s+/);
+    expect(remoteCommands).not.toMatch(/\bgit\s+(?:fetch|pull|push|reset|clean|checkout|switch|commit|merge|rebase|restore)\b/);
+    expect(remoteCommands).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE)\b/);
+    expect(remoteCommands).not.toMatch(/journalctl[^\n]*(?:--output|--follow|--show-cursor)\b/);
+    expect(remoteLines.filter((line) => line === "assert_health")).toHaveLength(2);
+    expect(remoteBody).toContain('test "$(docker inspect --format \'{{.State.StartedAt}}\' st-michael-api)" = "$api_started_before"');
     expect(remoteBody).toContain('echo "cleanup_threshold_satisfied=false"');
     expect(remoteBody).toContain('echo "cleanup_threshold_satisfied=true"');
     expect(remoteBody).not.toContain("|| true");
+
+    // Parse only: never execute maintenance, sudo, Docker, SSH, or database calls.
+    const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
+    const syntax = spawnSync(bash, ["-n"], { input: run, encoding: "utf8", timeout: 5000,
+      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
+    expect(syntax.error).toBeUndefined();
+    expect(syntax.status).toBe(0);
   });
 
   it("reclaims only reproducible Docker build cache without restarting production", () => {
