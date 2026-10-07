@@ -79,11 +79,15 @@ describe("SMSC strictly no-send diagnostic", () => {
       readOnly: true,
       smsSent: false,
       databaseSessionReadOnly: true,
-      providerRequests: 3,
+      providerRequests: 7,
       priceEstimateOnly: true,
       brandSelection: "not_approved",
       approvedBrand: null,
       configuredSenderStatus: "skipped_not_approved_brand",
+      additionalApprovedSendersEstimated: 1,
+      additionalSenderEstimatesTechnicalOnly: true,
+      additionalSenderSendingAuthorized: false,
+      senderConfigurationChanged: false,
       senders: {
         ok: true,
         approvedSenderCount: 1,
@@ -91,7 +95,7 @@ describe("SMSC strictly no-send diagnostic", () => {
       },
       estimate: { ok: true, cost: 4.5, parts: 1 },
     });
-    expect(h.fetch).toHaveBeenCalledTimes(3);
+    expect(h.fetch).toHaveBeenCalledTimes(7);
     const [senderUrl, senderOptions] = h.fetch.mock.calls[0];
     const [estimateUrl, estimateOptions] = h.fetch.mock.calls[1];
     expect(senderUrl).toBe("https://smsc.ru/sys/senders.php");
@@ -165,7 +169,7 @@ describe("SMSC strictly no-send diagnostic", () => {
       errorCode: 6,
       failureTag: "PROVIDER_REJECTED",
     });
-    expect(h.fetch).toHaveBeenCalledTimes(3);
+    expect(h.fetch).toHaveBeenCalledTimes(4);
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain(phone);
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain(secret);
   });
@@ -174,7 +178,7 @@ describe("SMSC strictly no-send diagnostic", () => {
     const h = harness();
     h.fetch.mockReset().mockRejectedValue(new Error(`${secret} ${phone}`));
     const report = await run(env, h.load, h.emit);
-    expect(h.fetch).toHaveBeenCalledTimes(3);
+    expect(h.fetch).toHaveBeenCalledTimes(4);
     expect(report.senders.failureTag).toBe("TRANSPORT_FAILED");
     expect(report.estimate.failureTag).toBe("TRANSPORT_FAILED");
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain(secret);
@@ -228,14 +232,14 @@ describe("SMSC strictly no-send diagnostic", () => {
     },
   );
 
-  it("estimates both fixed texts without sending, accepting env text or creating an OTP", async () => {
+  it("estimates all three fixed texts without sending, accepting env text or creating an OTP", async () => {
     const h = harness("", ["St. Michael"]);
     const report = await run(
       { ...env, TEXT: secret, TEMPLATE: "login", CODE: "654321", COST: "3" },
       h.load,
       h.emit,
     );
-    expect(report.providerRequests).toBe(5);
+    expect(report.providerRequests).toBe(7);
     expect(report.matrix).toEqual([
       {
         senderMode: "default",
@@ -251,6 +255,7 @@ describe("SMSC strictly no-send diagnostic", () => {
         cost: 4.5,
         parts: 1,
       },
+      { senderMode: "default", template: "neutral", ok: true, cost: 4.5, parts: 1 },
       {
         senderMode: "approved_brand",
         template: "test",
@@ -265,6 +270,7 @@ describe("SMSC strictly no-send diagnostic", () => {
         cost: 4.5,
         parts: 1,
       },
+      { senderMode: "approved_brand", template: "neutral", ok: true, cost: 4.5, parts: 1 },
     ]);
     const bodies = h.fetch.mock.calls
       .slice(1)
@@ -272,6 +278,7 @@ describe("SMSC strictly no-send diagnostic", () => {
     expect([...new Set(bodies.map((body) => body.get("mes")))]).toEqual([
       "Тест СМС: 000000. Код недействителен для входа и смены пароля.",
       "Код для смены пароля: 000000. Если это не вы — не вводите его.",
+      "Тест.",
     ]);
     for (const body of bodies) {
       expect(body.getAll("cost")).toEqual(["1"]);
@@ -293,13 +300,18 @@ describe("SMSC strictly no-send diagnostic", () => {
       brandSelection: "exact",
       approvedBrand: "St. Michael",
       configuredSenderStatus: "checked",
-      providerRequests: 5,
+      providerRequests: 10,
     });
     expect(report.matrix.map((row: any) => row.senderMode)).toEqual([
       "default",
       "default",
+      "default",
       "configured_brand",
       "configured_brand",
+      "configured_brand",
+      "approved_sender_1",
+      "approved_sender_1",
+      "approved_sender_1",
     ]);
     const bodies = h.fetch.mock.calls
       .slice(1)
@@ -307,8 +319,13 @@ describe("SMSC strictly no-send diagnostic", () => {
     expect(bodies.map((body) => body.get("sender"))).toEqual([
       null,
       null,
+      null,
       "St. Michael",
       "St. Michael",
+      "St. Michael",
+      "OtherSender",
+      "OtherSender",
+      "OtherSender",
     ]);
     expect(report.estimate).toEqual({ ok: true, cost: 4.5, parts: 1 });
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain("OtherSender");
@@ -321,10 +338,10 @@ describe("SMSC strictly no-send diagnostic", () => {
     expect(report).toMatchObject({
       brandSelection: "case_unique",
       approvedBrand: "St. Michael",
-      providerRequests: 5,
+      providerRequests: 10,
     });
     expect(
-      new URLSearchParams(h.fetch.mock.calls[3][1].body).get("sender"),
+      new URLSearchParams(h.fetch.mock.calls[4][1].body).get("sender"),
     ).toBe("ST. MICHAEL");
     for (const value of [
       "ST. MICHAEL",
@@ -337,7 +354,7 @@ describe("SMSC strictly no-send diagnostic", () => {
       expect(JSON.stringify(h.emit.mock.calls)).not.toContain(value);
   });
 
-  it("bounds current-case plus exact approved brand to seven requests and preserves current TEST compatibility", async () => {
+  it("bounds current-case plus exact approved brand and neutral text to ten requests and preserves current TEST compatibility", async () => {
     const h = harness("st. michael", ["st. michael", "St. Michael"]);
     h.fetch.mockImplementation(async (url, options) =>
       response(
@@ -354,14 +371,17 @@ describe("SMSC strictly no-send diagnostic", () => {
       ),
     );
     const report = await run(env, h.load, h.emit);
-    expect(report.providerRequests).toBe(7);
-    expect(h.fetch).toHaveBeenCalledTimes(7);
+    expect(report.providerRequests).toBe(10);
+    expect(h.fetch).toHaveBeenCalledTimes(10);
     expect(report.estimate).toEqual({ ok: true, cost: 3, parts: 1 });
     expect(report.matrix.map((row: any) => row.senderMode)).toEqual([
       "default",
       "default",
+      "default",
       "configured_brand",
       "configured_brand",
+      "configured_brand",
+      "approved_brand",
       "approved_brand",
       "approved_brand",
     ]);
@@ -375,6 +395,7 @@ describe("SMSC strictly no-send diagnostic", () => {
       sender: "st. michael",
       approved: ["st. michael", "ST. MICHAEL"],
       selection: "ambiguous",
+      requests: 4,
     },
     {
       sender: "SMSC",
@@ -387,28 +408,35 @@ describe("SMSC strictly no-send diagnostic", () => {
         phone,
       ],
       selection: "not_approved",
+      requests: 10,
     },
     {
       sender: "St. Michael",
       approved: ["OtherSender"],
       selection: "not_approved",
+      requests: 7,
     },
   ])(
-    "does not choose ambiguous, unapproved, generic or foreign names",
-    async ({ sender, approved, selection }) => {
+    "does not authorize nonbrand senders while allowing approved technical probes",
+    async ({ sender, approved, selection, requests }) => {
       const h = harness(sender, approved);
       const report = await run(env, h.load, h.emit);
       expect(report).toMatchObject({
         brandSelection: selection,
         approvedBrand: null,
-        providerRequests: 3,
+        providerRequests: requests,
         configuredSenderStatus: "skipped_not_approved_brand",
+        additionalSenderSendingAuthorized: false,
+        senderConfigurationChanged: false,
       });
       expect(
-        report.matrix.every((row: any) => row.senderMode === "default"),
+        report.matrix.slice(0, 3).every((row: any) => row.senderMode === "default"),
       ).toBe(true);
-      for (const [, options] of h.fetch.mock.calls.slice(1))
-        expect(new URLSearchParams(options.body).has("sender")).toBe(false);
+      for (const [, options] of h.fetch.mock.calls.slice(1)) {
+        const params = new URLSearchParams(options.body);
+        expect(params.getAll("cost")).toEqual(["1"]);
+        if (params.has("sender")) expect(approved).toContain(params.get("sender"));
+      }
       const output = JSON.stringify(h.emit.mock.calls);
       for (const value of approved) expect(output).not.toContain(value);
     },
@@ -423,13 +451,166 @@ describe("SMSC strictly no-send diagnostic", () => {
       expect(report).toMatchObject({
         brandSelection: "unavailable",
         approvedBrand: null,
-        providerRequests: 3,
+        providerRequests: 4,
         senders: { ok: false },
       });
       for (const [, options] of h.fetch.mock.calls.slice(1))
         expect(new URLSearchParams(options.body).has("sender")).toBe(false);
     },
   );
+
+  it("reserves the three-text budget for at most two approved names, keeps anonymous labels and never changes sender configuration", async () => {
+    const names = ["SMSC", "ForeignBusiness", "GenericSender", "FourthSender", "SMSC"];
+    const h = harness("", names);
+    const report = await run(env, h.load, h.emit);
+    expect(report).toMatchObject({ providerRequests: 10, additionalApprovedSendersEstimated: 2,
+      additionalSenderEstimatesTechnicalOnly: true, additionalSenderSendingAuthorized: false,
+      senderConfigurationChanged: false, configuredSenderStatus: "missing" });
+    expect(report.matrix.map((row: any) => row.senderMode)).toEqual([
+      "default", "default", "default", "approved_sender_1", "approved_sender_1", "approved_sender_1",
+      "approved_sender_2", "approved_sender_2", "approved_sender_2",
+    ]);
+    const requested = h.fetch.mock.calls.slice(1).map(([, options]) => new URLSearchParams(options.body));
+    expect([...new Set(requested.map(body => body.get("sender")))]).toEqual([null, ...names.slice(0, 2)]);
+    for (const body of requested) expect(body.getAll("cost")).toEqual(["1"]);
+    for (const value of [...names, phone, phone.slice(1), secret, "000000"])
+      expect(JSON.stringify(h.emit.mock.calls)).not.toContain(value);
+    expect(Object.keys(h.prisma.systemSetting)).toEqual(["findMany"]);
+  });
+
+  it("bounds all existing brand variants plus extra probes to eleven calls without retrying", async () => {
+    const names = ["St. Michael", "st. michael", "SMSC", "ForeignBusiness", "ThirdSender"];
+    const h = harness("st. michael", names);
+    const report = await run(env, h.load, h.emit);
+    expect(report).toMatchObject({ providerRequests: 10, additionalApprovedSendersEstimated: 0,
+      configuredSenderStatus: "checked", automaticRetry: false });
+    expect(h.fetch).toHaveBeenCalledTimes(10);
+    const pairs = h.fetch.mock.calls.slice(1).map(([, options]) => {
+      const params = new URLSearchParams(options.body);
+      expect(params.getAll("cost")).toEqual(["1"]);
+      return `${params.get("sender")}:${params.get("mes")}`;
+    });
+    expect(new Set(pairs).size).toBe(pairs.length);
+    expect(pairs.some(pair => pair.startsWith("ThirdSender:"))).toBe(false);
+    expect(report.estimate).toEqual({ ok: true, cost: 4.5, parts: 1 });
+  });
+
+  it("deduplicates approved generic names by case and skips malformed identities without leaking them", async () => {
+    const names = ["SMSC", "smsc", "SMSC", " OtherSender", "Line\nSender", "x".repeat(65), "SecondSender"];
+    const h = harness("", names);
+    const report = await run(env, h.load, h.emit);
+    expect(report.additionalApprovedSendersEstimated).toBe(2);
+    expect(report.providerRequests).toBe(10);
+    const requested = [...new Set(h.fetch.mock.calls.slice(1).map(([, options]) =>
+      new URLSearchParams(options.body).get("sender")))];
+    expect(requested).toEqual([null, "SMSC", "SecondSender"]);
+    for (const value of names) expect(JSON.stringify(h.emit.mock.calls)).not.toContain(value);
+  });
+
+  it("reports only observed sender-dependent estimate results, not delivery or an operator cause", async () => {
+    const h = harness("", ["TechnicalSender"]);
+    h.fetch.mockImplementation(async (url, options) => response(url.endsWith("senders.php")
+      ? [{ sender: "TechnicalSender", operator: "private-undocumented-value" }]
+      : new URLSearchParams(options.body).has("sender")
+        ? { cost: "4.50", cnt: 1, operator: "private-undocumented-value" }
+        : { error_code: 6, error: `${secret} ${phone}` }));
+    const report = await run(env, h.load, h.emit);
+    expect(report.estimateComparison).toEqual({ providerResultDiffersBySender: true,
+      providerResultDiffersByTemplate: false,
+      costOrPartsDifferBySender: false, conclusion: "sender_dependent_estimate_result_observed", deliveryVerified: false });
+    expect(report.additionalSenderSendingAuthorized).toBe(false);
+    for (const value of ["TechnicalSender", "private-undocumented-value", secret, phone])
+      expect(JSON.stringify(h.emit.mock.calls)).not.toContain(value);
+  });
+
+  it("does not establish a sender cause when all variants reject identically or transport is unknown", async () => {
+    const h = harness("", ["TechnicalSender"]);
+    h.fetch.mockImplementation(async url => response(url.endsWith("senders.php")
+      ? [{ sender: "TechnicalSender" }] : { error_code: 6, error: secret }));
+    const rejected = await run(env, h.load, h.emit);
+    expect(rejected.estimateComparison).toEqual({ providerResultDiffersBySender: false,
+      providerResultDiffersByTemplate: false,
+      costOrPartsDifferBySender: false, conclusion: "no_sender_dependency_established", deliveryVerified: false });
+    h.fetch.mockImplementation(async (url, options) => {
+      if (url.endsWith("senders.php")) return response([{ sender: "TechnicalSender" }]);
+      if (new URLSearchParams(options.body).has("sender")) throw new Error(secret);
+      return response({ cost: "4.50", cnt: 1 });
+    });
+    const unknown = await run(env, h.load, h.emit);
+    expect(unknown.estimateComparison.conclusion).toBe("no_sender_dependency_established");
+    expect(unknown.estimateComparison.deliveryVerified).toBe(false);
+  });
+
+  it("compares prices only within the same text template, and never turns price differences into delivery claims", async () => {
+    const h = harness("", ["TechnicalSender"]);
+    h.fetch.mockImplementation(async (url, options) => {
+      if (url.endsWith("senders.php")) return response([{ sender: "TechnicalSender" }]);
+      const params = new URLSearchParams(options.body);
+      return response({ cost: params.get("mes")!.startsWith("Тест") ? "3.00" : "4.50", cnt: 1 });
+    });
+    const identical = await run(env, h.load, h.emit);
+    expect(identical.estimateComparison.conclusion).toBe("no_sender_dependency_established");
+    h.fetch.mockImplementation(async (url, options) => response(url.endsWith("senders.php")
+      ? [{ sender: "TechnicalSender" }] : {
+        cost: new URLSearchParams(options.body).has("sender") ? "3.00" : "4.50", cnt: 1,
+      }));
+    const differing = await run(env, h.load, h.emit);
+    expect(differing.estimateComparison).toEqual({ providerResultDiffersBySender: false,
+      providerResultDiffersByTemplate: false,
+      costOrPartsDifferBySender: true, conclusion: "sender_dependent_estimate_price_observed", deliveryVerified: false });
+  });
+
+  it("observes template dependence when neutral is accepted and both code texts reject for the same sender", async () => {
+    const h = harness("", ["TechnicalSender", "OtherSender"]);
+    h.fetch.mockImplementation(async (url, options) => response(url.endsWith("senders.php")
+      ? [{ sender: "TechnicalSender" }, { sender: "OtherSender" }]
+      : new URLSearchParams(options.body).get("mes") === "Тест."
+        ? { cost: "4.50", cnt: 1 }
+        : { error_code: 6, error: `${secret} ${phone}` }));
+    const report = await run(env, h.load, h.emit);
+    expect(report.providerRequests).toBe(10);
+    expect(report.estimate).toEqual({ ok: false, errorCode: 6, failureTag: "PROVIDER_REJECTED" });
+    expect(report.matrix.slice(0, 3).map((row: any) => [row.template, row.ok])).toEqual([
+      ["test", false], ["password_reset", false], ["neutral", true],
+    ]);
+    expect(report.estimateComparison).toEqual({ providerResultDiffersBySender: false,
+      providerResultDiffersByTemplate: true, costOrPartsDifferBySender: false,
+      conclusion: "template_dependent_estimate_result_observed", deliveryVerified: false });
+    for (const [, options] of h.fetch.mock.calls.slice(1))
+      expect(new URLSearchParams(options.body).getAll("cost")).toEqual(["1"]);
+    for (const value of ["TechnicalSender", "OtherSender", secret, phone, "000000"])
+      expect(JSON.stringify(h.emit.mock.calls)).not.toContain(value);
+  });
+
+  it("reports both observed dimensions without asserting an exact delivery cause", async () => {
+    const h = harness("", ["TechnicalSender"]);
+    h.fetch.mockImplementation(async (url, options) => {
+      if (url.endsWith("senders.php")) return response([{ sender: "TechnicalSender" }]);
+      const params = new URLSearchParams(options.body);
+      return response(params.has("sender") && params.get("mes") === "Тест."
+        ? { cost: "4.50", cnt: 1 } : { error_code: 6, error: secret });
+    });
+    const report = await run(env, h.load, h.emit);
+    expect(report.estimateComparison).toEqual({ providerResultDiffersBySender: true,
+      providerResultDiffersByTemplate: true, costOrPartsDifferBySender: false,
+      conclusion: "sender_and_template_dependent_estimate_result_observed", deliveryVerified: false });
+    expect(report.smsSent).toBe(false);
+    expect(report.additionalSenderSendingAuthorized).toBe(false);
+  });
+
+  it("unknown template transport failures never establish template dependence", async () => {
+    const h = harness("", []);
+    h.fetch.mockImplementation(async (url, options) => {
+      if (url.endsWith("senders.php")) return response([]);
+      if (new URLSearchParams(options.body).get("mes") !== "Тест.") throw new Error(secret);
+      return response({ cost: "4.50", cnt: 1 });
+    });
+    const report = await run(env, h.load, h.emit);
+    expect(report.estimateComparison.providerResultDiffersByTemplate).toBe(false);
+    expect(report.estimateComparison.conclusion).toBe("no_sender_dependency_established");
+    expect(report.estimateComparison.deliveryVerified).toBe(false);
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain(secret);
+  });
 });
 
 describe("no-send workflow source contract", () => {
@@ -484,5 +665,7 @@ describe("no-send workflow source contract", () => {
     expect(script).not.toContain("$executeRaw");
     expect(script).not.toMatch(/cost\s*=\s*["'](?:0|2|3)["']/);
     expect(script).not.toMatch(/process\.env\.(COST|APPLY|BASE_URL)/);
+    expect(script).toContain("const MAX_PROVIDER_REQUESTS = 11;");
+    expect(script).toContain("if (providerRequests >= MAX_PROVIDER_REQUESTS)");
   });
 });

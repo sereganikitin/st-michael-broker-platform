@@ -723,7 +723,7 @@ describe("loyalty production workflow safety", () => {
     expect(trustedDeployScript).toBeGreaterThan(liveBackupCheck);
   });
 
-  it("reclaims only approved archived journals and retains the full backup reserve", () => {
+  it("reclaims only the explicitly approved scope and retains the full backup reserve", () => {
     const parsed: any = parse(diskReclaimWorkflow);
     const job = parsed.jobs.reclaim;
     const maintenance = job.steps.find((step: any) => typeof step.run === "string");
@@ -742,9 +742,7 @@ describe("loyalty production workflow safety", () => {
     const enoughDiskDecision = remoteBody.indexOf(
       'if [ "$root_before" -ge "$MIN_AVAILABLE_BYTES" ]',
     );
-    const journalVacuum = remoteBody.indexOf(
-      'sudo -n journalctl --directory="$journal_path" --vacuum-size=300M >/dev/null 2>&1',
-    );
+    const scopedCleanup = remoteBody.indexOf("perform_selected_cleanup || exit 1");
     const databasePostcheck = remoteBody.indexOf("post_database_size_bytes=$(read_database_size)");
     const finalDiskGate = remoteBody.indexOf(
       'if [ "$root_after" -lt "$MIN_AVAILABLE_BYTES" ]',
@@ -752,6 +750,9 @@ describe("loyalty production workflow safety", () => {
 
     expect(parsed.on.workflow_dispatch.inputs.confirm_cleanup).toMatchObject({
       required: true, default: false, type: "boolean",
+    });
+    expect(parsed.on.workflow_dispatch.inputs.cleanup_scope).toMatchObject({
+      required: true, default: "journals", type: "choice", options: ["journals", "docker"],
     });
     expect(job.if).toBeUndefined();
     expect(job.environment).toBe("production");
@@ -770,6 +771,11 @@ describe("loyalty production workflow safety", () => {
     });
     expect(run).toContain('.inputs.confirm_cleanup | if . == true or . == "true" then "true"');
     expect(run).toContain('test "$CONFIRM_CLEANUP" = "true"');
+    expect(run).toContain('.inputs.cleanup_scope | if . == null then "journals"');
+    expect(run).toContain('case "$CLEANUP_SCOPE" in journals|docker)');
+    expect(run).toContain("'$PRODUCTION_MIN_BROKER_ROWS' '$CLEANUP_SCOPE'");
+    expect(remoteBody).toContain("cleanup_scope=$5");
+    expect(remoteBody).toContain('case "$cleanup_scope" in journals|docker)');
     expect(run).toContain('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"');
     expect(run).toContain('test "$EXPECTED_REF" = "refs/heads/master"');
     expect(run).toContain('"/repos/$EXPECTED_REPOSITORY/compare/$deployed_sha...$EXPECTED_SHA"');
@@ -791,6 +797,7 @@ describe("loyalty production workflow safety", () => {
     expect(remoteBody).toContain('test "$(git rev-parse HEAD)" = "$expected_deployed_sha"');
     expect(remoteBody).toContain('test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"');
     expect(remoteBody).toContain('test "$(docker context show)" = default');
+    expect(remoteBody).toContain('case "$docker_endpoint" in unix:///*)');
     expect(remoteBody).toContain('available_bytes "$deploy_root"');
     expect(remoteBody).toContain("available_bytes /tmp");
     expect(remoteBody).toContain("docker info --format '{{.DockerRootDir}}'");
@@ -816,24 +823,30 @@ describe("loyalty production workflow safety", () => {
     expect(journalPathGuard).toBeGreaterThan(physicalLock);
     expect(databasePrecheck).toBeGreaterThan(journalPathGuard);
     expect(enoughDiskDecision).toBeGreaterThan(databasePrecheck);
-    expect(journalVacuum).toBeGreaterThan(enoughDiskDecision);
-    expect(databasePostcheck).toBeGreaterThan(journalVacuum);
+    expect(scopedCleanup).toBeGreaterThan(enoughDiskDecision);
+    expect(databasePostcheck).toBeGreaterThan(scopedCleanup);
     expect(finalDiskGate).toBeGreaterThan(databasePostcheck);
     expect(remoteLines.filter((line) => /\bjournalctl\b/.test(line))).toEqual([
-      "for tool in awk curl df docker find flock git journalctl jq readlink sudo timeout; do command -v \"$tool\" >/dev/null || exit 1; done",
-      'sudo -n journalctl --directory="$journal_path" --vacuum-size=300M >/dev/null 2>&1',
+      'for tool in find journalctl sudo; do command -v "$tool" >/dev/null || exit 1; done',
+      'sudo -n journalctl --directory="$journal_path" --vacuum-size=300M >/dev/null 2>&1 || { echo "Approved journal cleanup failed" >&2; return 1; }',
     ]);
     expect(remoteCommands.match(/\bjournalctl\s+--directory=/g)).toHaveLength(1);
     expect(remoteCommands).not.toMatch(/--rotate\b|--vacuum-(?:time|files)\b/);
     expect(remoteLines.filter((line) => /\bsudo\b/.test(line))).toEqual([
-      "for tool in awk curl df docker find flock git journalctl jq readlink sudo timeout; do command -v \"$tool\" >/dev/null || exit 1; done",
+      'for tool in find journalctl sudo; do command -v "$tool" >/dev/null || exit 1; done',
       'sudo -n test -d "$journal_path" || exit 1',
       'sudo -n test ! -L "$journal_path" || exit 1',
       'test "$(sudo -n readlink -f -- "$journal_path")" = "$journal_path" || exit 1',
       'journal_symlink=$(sudo -n timeout 15 find "$journal_path" -type l -printf x -quit 2>/dev/null)',
-      'sudo -n journalctl --directory="$journal_path" --vacuum-size=300M >/dev/null 2>&1',
+      'sudo -n journalctl --directory="$journal_path" --vacuum-size=300M >/dev/null 2>&1 || { echo "Approved journal cleanup failed" >&2; return 1; }',
     ]);
-    expect(remoteCommands).not.toMatch(/\bdocker\s+(?:system|image|volume|builder|buildx|container|network)\s+prune\b|docker(?:-compose|\s+compose)|\bdocker\s+(?:rm|rmi|start|stop|restart|kill|run|build|pull|push)\b/);
+    expect(remoteLines.filter((line) => /\bdocker\s+\S+\s+prune\b/.test(line))).toEqual([
+      'docker builder prune --all --force >/dev/null 2>&1 || { echo "Approved builder-cache cleanup failed" >&2; return 1; }',
+      'docker image prune --force >/dev/null 2>&1 || { echo "Approved dangling-image cleanup failed" >&2; return 1; }',
+    ]);
+    expect(remoteCommands).not.toMatch(/\bdocker\s+(?:system|volume|buildx|container|network)\s+prune\b|docker(?:-compose|\s+compose)|\bdocker\s+(?:rm|rmi|start|stop|restart|kill|run|build|pull|push)\b/);
+    expect(remoteCommands).not.toMatch(/docker\s+image\s+prune[^\n]*(?:--all|\s-a(?:\s|$))/);
+    expect(remoteCommands).not.toMatch(/docker\s+image\s+(?:rm|rmi|tag)\b/);
     expect(remoteCommands).not.toMatch(/\b(?:systemctl|prisma|pg_dump|pg_restore|cp|mv|rm|rmdir|truncate|unlink|shred|tee|touch|dd|install|mkdir|ln|chmod|chown)\b|\bfind\b[^\n]*-(?:delete|exec|execdir)\b|(?:^|[;\n|&$(])\s*service\s+/);
     expect(remoteCommands).not.toMatch(/\bgit\s+(?:fetch|pull|push|reset|clean|checkout|switch|commit|merge|rebase|restore)\b/);
     expect(remoteCommands).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE)\b/);
@@ -850,6 +863,192 @@ describe("loyalty production workflow safety", () => {
       env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
     expect(syntax.error).toBeUndefined();
     expect(syntax.status).toBe(0);
+  });
+
+  it("keeps Docker inventory guards fail-closed without exposing raw snapshots", () => {
+    const run = parse(diskReclaimWorkflow).jobs.reclaim.steps[1].run.replace(/\r\n/g, "\n");
+    const remote = run.split("<<'REMOTE'\n")[1].split("\nREMOTE")[0];
+    const capture = remote.indexOf("containers_before=$(container_snapshot) || exit 1");
+    const cleanup = remote.indexOf("perform_selected_cleanup || exit 1");
+    const verify = remote.indexOf("assert_docker_inventory_unchanged || exit 1", cleanup);
+    expect(capture).toBeGreaterThan(remote.indexOf("database_size_bytes=$(read_database_size)"));
+    expect(cleanup).toBeGreaterThan(capture);
+    expect(verify).toBeGreaterThan(cleanup);
+    expect(remote).toContain('container_ids=$(docker ps -aq --no-trunc 2>/dev/null | sort -u) ||');
+    expect(remote).not.toContain("< <(docker ps");
+    for (const field of [".Id", ".Image", ".State.StartedAt", ".State.Status", ".State.Running",
+      ".State.Paused", ".State.Restarting", ".State.OOMKilled", ".State.Dead", ".State.ExitCode",
+      ".State.FinishedAt", ".State.Pid", ".RestartCount"]) expect(remote).toContain(`{{${field}}}`);
+    expect(remote).toContain("{{.Repository}}:{{.Tag}}|{{.ID}}");
+    expect(remote).toContain("^st-michael-rollback-(api|web):");
+    expect(remote).toContain('test "$containers_now" = "$containers_before"');
+    expect(remote).toContain('test "$tagged_images_now" = "$tagged_images_before"');
+    expect(remote).toContain('test "$rollback_images_now" = "$rollback_images_before"');
+    expect(remote).toContain('assert_referenced_images "$containers_before" || return 1');
+    const outputStatements = remote.split("\n").filter(line => !line.includes(" | ")).join("\n");
+    expect(outputStatements).not.toMatch(/printf[^\n]*\$(?:containers_before|containers_now|tagged_images_before|tagged_images_now|rollback_images_before|rollback_images_now)/);
+    expect(remote).not.toContain(".Config.Env");
+    expect(remote).not.toContain("docker system df");
+  });
+
+  it.each([
+    ["journals", "", false, 0, "sudo -n journalctl --directory=/var/log/journal --vacuum-size=300M"],
+    ["docker", "", false, 0, "docker builder prune --all --force\ninventory\ndocker image prune --force"],
+    ["invalid", "", false, 1, ""],
+    ["docker", "builder", false, 1, "docker builder prune --all --force"],
+    ["docker", "", true, 1, "docker builder prune --all --force\ninventory"],
+    ["docker", "image", false, 1, "docker builder prune --all --force\ninventory\ndocker image prune --force"],
+    ["journals", "journal", false, 1, "sudo -n journalctl --directory=/var/log/journal --vacuum-size=300M"],
+  ])("executes only mocked commands for scope=%s failure=%s changed=%s", (scope, failure, changed, expectedStatus, expectedCalls) => {
+    const run = parse(diskReclaimWorkflow).jobs.reclaim.steps[1].run.replace(/\r\n/g, "\n");
+    const remote = run.split("<<'REMOTE'\n")[1].split("\nREMOTE")[0];
+    const definition = remote.match(/^perform_selected_cleanup\(\) \{\n[\s\S]*?^\}/m)![0];
+    // Execute the selected function only. Docker/sudo are shell mocks; no real
+    // cleanup, SSH, journal, filesystem or database command is ever invoked.
+    const input = `set -euo pipefail
+cleanup_scope=${scope}
+journal_path=/var/log/journal
+failure=${failure}
+changed=${changed}
+calls=''
+docker() {
+  calls="$calls""docker $*\n"
+  printf '%s\\n' 'SYNTHETIC_PRIVATE_PRUNE_OUTPUT'
+  case "$failure:$1" in builder:builder|image:image) return 1;; esac
+}
+sudo() {
+  calls="$calls""sudo $*\n"
+  printf '%s\\n' 'SYNTHETIC_PRIVATE_JOURNAL_OUTPUT'
+  test "$failure" != journal
+}
+assert_docker_inventory_unchanged() {
+  calls="$calls""inventory\n"
+  test "$changed" = false
+}
+${definition}
+if perform_selected_cleanup; then result=0; else result=$?; fi
+printf 'status=%s\\n' "$result"
+printf '%b' "$calls"
+`;
+    const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
+    const execution = spawnSync(bash, ["-s"], { input, encoding: "utf8", timeout: 5000,
+      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
+    expect(execution.error).toBeUndefined();
+    expect(execution.status).toBe(0);
+    expect(execution.stdout.trim()).toBe(`status=${expectedStatus}${expectedCalls ? "\n" + expectedCalls : ""}`);
+    expect(execution.stdout + execution.stderr).not.toContain("SYNTHETIC_PRIVATE");
+  });
+
+  it.each(["container_snapshot", "tagged_image_snapshot"])("fails closed when %s enumeration fails inside command substitution", (name) => {
+    const run = parse(diskReclaimWorkflow).jobs.reclaim.steps[1].run.replace(/\r\n/g, "\n");
+    const remote = run.split("<<'REMOTE'\n")[1].split("\nREMOTE")[0];
+    const definition = remote.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?^\\}`, "m"))![0];
+    const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
+    const execution = spawnSync(bash, ["-s"], { input: `set -euo pipefail\ndocker() { return 1; }\n${definition}\nif snapshot=$(${name}); then exit 90; else exit 0; fi\n`,
+      encoding: "utf8", timeout: 5000, env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
+    expect(execution.error).toBeUndefined();
+    expect(execution.status).toBe(0);
+  });
+
+  it("protects physical bounded rollback metadata before any Docker prune", () => {
+    const run = parse(diskReclaimWorkflow).jobs.reclaim.steps[1].run.replace(/\r\n/g, "\n");
+    const remote = run.split("<<'REMOTE'\n")[1].split("\nREMOTE")[0];
+    const preflight = remote.indexOf("inspect_rollback_metadata || exit 1");
+    const cleanup = remote.indexOf("perform_selected_cleanup || exit 1");
+    expect(preflight).toBeGreaterThan(remote.indexOf("tagged_images_before=$(tagged_image_snapshot"));
+    expect(cleanup).toBeGreaterThan(preflight);
+    expect(remote).toContain("release_dir=/var/backups/stmichael/releases");
+    expect(remote).toContain('test -d "$release_dir" -a ! -L "$release_dir"');
+    expect(remote).toContain('test "$resolved" = "$release_dir"');
+    expect(remote).toContain('test -f "$record" -a ! -L "$record"');
+    expect(remote).toContain('test "$resolved" = "$record"');
+    expect(remote).toContain('test "${#release_records[@]}" -le 2000');
+    expect(remote).toContain('test "$size" -le 65536');
+    expect(remote).toContain("++seen[$1] != 1");
+    expect(remote).toContain("seen[\"previous_nginx_image\"] != 1");
+    expect(remote).toContain("Untagged rollback images require protection; cleanup not performed");
+    expect(remote).toContain('echo "cleanup_performed=false" >&2');
+    expect(remote).toContain("assert_metadata_images_present || return 1");
+    expect(remote).not.toMatch(/(?:eval|source)\s+["']?\$record\b|cat\s+["']?\$record\b/);
+    const outputStatements = remote.split("\n").filter(line => !line.includes(" | ")).join("\n");
+    expect(outputStatements).not.toMatch(/printf[^\n]*\$(?:record|values|metadata_existing_image_ids)\b/);
+    expect(remote).toContain("historical_missing_image_references=%s");
+  });
+
+  it.each([
+    ["tagged", 0, 2, 0], ["untagged", 1, 0, 0], ["missing", 0, 2, 1],
+    ["inspect-failed", 1, 0, 0], ["symlink-record", 1, 0, 0], ["symlink-directory", 1, 0, 0],
+    ["duplicate-key", 1, 0, 0], ["invalid-id", 1, 0, 0], ["missing-key", 1, 0, 0],
+    ["too-many-records", 1, 0, 0], ["find-failed", 1, 0, 0], ["directory-absent", 0, 2, 0],
+  ])("runs mocked metadata preflight scenario=%s before all prune calls", (scenario, expectedStatus, expectedPrunes, expectedMissing) => {
+    const run = parse(diskReclaimWorkflow).jobs.reclaim.steps[1].run.replace(/\r\n/g, "\n");
+    const remote = run.split("<<'REMOTE'\n")[1].split("\nREMOTE")[0];
+    const definitions = ["inspect_rollback_metadata", "perform_selected_cleanup"]
+      .map(name => remote.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?^\\}`, "m"))![0]).join("\n");
+    const ids = ["a", "b", "c"].map(character => `sha256:${character.repeat(64)}`);
+    let recordText = ids.map((id, index) => `${["previous_api_image", "previous_web_image", "previous_nginx_image"][index]}=${id}`).join("\n");
+    if (scenario === "duplicate-key") recordText += `\nprevious_api_image=${ids[0]}`;
+    if (scenario === "invalid-id") recordText = recordText.replace(ids[0], "not-an-image-id");
+    if (scenario === "missing-key") recordText = recordText.split("\n").slice(0, 2).join("\n");
+    const allIds = (scenario === "missing" ? ids.slice(0, 2) : ids).join("\n");
+    const tagged = ids.slice(0, scenario === "untagged" ? 2 : 3).map((id, index) => `safe-${index}:rollback|${id}`).join("\n");
+    // Filesystem inspection, Docker and timeout are shell mocks; actual awk,
+    // grep and sort operate only on fixed synthetic strings, never files.
+    const input = `set -euo pipefail
+scenario=${scenario}
+fixture='${recordText}'
+all_ids='${allIds}'
+tagged_images_before='${tagged}'
+cleanup_scope=docker
+prune_calls=0
+test() {
+  case "$1:$2" in
+    -e:/var/backups/stmichael/releases) builtin test "$scenario" != directory-absent; return;;
+    -L:/var/backups/stmichael/releases) builtin test "$scenario" = symlink-directory; return;;
+    -d:/var/backups/stmichael/releases) builtin test "$scenario" != symlink-directory; return;;
+    -f:/var/backups/stmichael/releases/*) builtin test "$scenario" != symlink-record; return;;
+  esac
+  builtin test "$@"
+}
+readlink() { printf '%s\\n' "\${@: -1}"; }
+stat() { printf '300\\n'; }
+timeout() { shift; "$@"; }
+find() {
+  if builtin test "$scenario" = find-failed; then return 1; fi
+  if builtin test "$scenario" = too-many-records; then
+    for ((index=1; index<=2001; index++)); do printf 'release-%s.txt\\n' "$index"; done
+  else printf 'release-synthetic.txt\\n'; fi
+}
+awk() {
+  if [[ "\${@: -1}" == /var/backups/stmichael/releases/* ]]; then
+    printf '%s\\n' "$fixture" | command awk "\${@:1:$#-1}"
+  else command awk "$@"; fi
+}
+docker() {
+  case "$1:$2" in
+    image:ls) printf '%s\\n' "$all_ids";;
+    image:inspect)
+      if builtin test "$scenario" = inspect-failed; then return 1; fi
+      printf '%s\\n' "\${@: -1}";;
+    builder:prune|image:prune) prune_calls=$((prune_calls + 1));;
+    *) return 91;;
+  esac
+}
+assert_docker_inventory_unchanged() { return 0; }
+${definitions}
+if inspect_rollback_metadata; then
+  if perform_selected_cleanup; then result=0; else result=$?; fi
+else result=$?; fi
+printf 'status=%s prunes=%s missing=%s\\n' "$result" "$prune_calls" "$metadata_missing_image_references"
+`;
+    const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
+    const execution = spawnSync(bash, ["-s"], { input, encoding: "utf8", timeout: 5000,
+      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
+    expect(execution.error).toBeUndefined();
+    expect(execution.status).toBe(0);
+    expect(execution.stdout.trim()).toBe(`status=${expectedStatus} prunes=${expectedPrunes} missing=${expectedMissing}`);
+    for (const id of ids) expect(execution.stdout + execution.stderr).not.toContain(id);
+    if (scenario === "untagged") expect(execution.stderr).toContain("Untagged rollback images require protection; cleanup not performed");
   });
 
   it("reclaims only reproducible Docker build cache without restarting production", () => {
