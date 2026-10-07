@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { AdminPasswordForm } from '@/components/AdminPasswordForm';
 import { ArrowLeft, RefreshCw, Save, Shield, Trash2, Phone, Ban, Database } from 'lucide-react';
 
 const categoryLabels: Record<string, { label: string; cls: string }> = {
@@ -41,6 +42,9 @@ export default function AdminBrokerDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params?.id as string;
+  const activeRouteId = useRef(id);
+  activeRouteId.current = id;
+  const loadSequence = useRef(0);
 
   const [broker, setBroker] = useState<any>(null);
   const [deals, setDeals] = useState<any[]>([]);
@@ -62,12 +66,10 @@ export default function AdminBrokerDetailPage() {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
 
-  if (currentUser && currentUser.role !== 'ADMIN' && currentUser.role !== 'MANAGER') {
-    return <div className="card">Доступ запрещён</div>;
-  }
   const isAdmin = currentUser?.role === 'ADMIN';
 
   const load = async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     try {
       const [b, d, c, m] = await Promise.all([
@@ -76,6 +78,7 @@ export default function AdminBrokerDetailPage() {
         apiGet(`/admin/brokers/${id}/clients?limit=50`),
         apiGet(`/admin/brokers/${id}/meetings?limit=10`),
       ]);
+      if (activeRouteId.current !== id || sequence !== loadSequence.current) return;
       setBroker(b);
       setForm({
         fullName: b.fullName || '',
@@ -88,8 +91,10 @@ export default function AdminBrokerDetailPage() {
       setDeals(d.deals || []);
       setClients(c.clients || []);
       setMeetings(m.meetings || []);
-    } catch {}
-    setLoading(false);
+    } catch {
+      if (activeRouteId.current === id && sequence === loadSequence.current) setBroker(null);
+    }
+    if (activeRouteId.current === id && sequence === loadSequence.current) setLoading(false);
   };
 
   const handleSaveMangoEmployeeNum = async () => {
@@ -160,7 +165,10 @@ export default function AdminBrokerDetailPage() {
     setSyncing(false);
   };
 
-  if (loading) return <div className="text-center py-8 text-text-muted">Загрузка...</div>;
+  if (currentUser && currentUser.role !== 'ADMIN' && currentUser.role !== 'MANAGER') {
+    return <div className="card">Доступ запрещён</div>;
+  }
+  if (loading || (broker && broker.id !== id)) return <div className="text-center py-8 text-text-muted">Загрузка...</div>;
   if (!broker) return <div className="card">Брокер не найден</div>;
 
   return (
@@ -326,6 +334,9 @@ export default function AdminBrokerDetailPage() {
               </button>
             )}
           </div>
+          {isAdmin && currentUser?.id !== broker.id && broker.status === 'ACTIVE' && !broker.mergedIntoId && (
+            <AdminPasswordForm key={broker.id} id={broker.id} name={broker.fullName} phone={broker.phone} />
+          )}
         </div>
       )}
 

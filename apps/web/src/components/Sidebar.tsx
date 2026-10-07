@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect } from 'react';
 import {
   UserCheck,
   Users,
@@ -26,6 +27,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { lockSidebarBodyScroll } from '@/lib/sidebar-scroll';
+import styles from './Sidebar.module.css';
 
 const navigation = [
   { name: 'Проверить клиента на уникальность', href: '/fixation', icon: UserCheck },
@@ -71,6 +74,10 @@ const adminNavigation = [
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
   const { broker } = useAuth();
+  useEffect(() => {
+    if (!open) return;
+    return lockSidebarBodyScroll(document.body.classList);
+  }, [open]);
   const isAdmin = broker?.role === 'ADMIN' || broker?.role === 'MANAGER';
   // 2026-07-01: временно скрываем «Мои сделки» для роли BROKER — раздел
   // дорабатывается. Для ADMIN/MANAGER оставляем видимым, чтобы можно было
@@ -98,11 +105,12 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
 
       <div
         className={cn(
-          'fixed top-0 left-0 z-50 h-full w-64 bg-surface border-r border-border transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 lg:z-auto',
+          styles.panel,
+          'fixed top-0 left-0 z-50 w-64 bg-surface border-r border-border transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 lg:z-auto',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="p-6 flex items-center justify-between">
+        <div className="p-6 flex shrink-0 items-center justify-between">
           {/* 2026-05-27: лого кликабельно → возвращает на лендинг (/) */}
           <Link href="/" className="block hover:opacity-80 transition" title="Вернуться на главную">
             <h2 className="text-xl font-bold text-accent">ST Michael</h2>
@@ -111,6 +119,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
           {onClose && (
             <button
               onClick={onClose}
+              aria-label="Закрыть меню"
               className="lg:hidden p-2 hover:bg-surface-secondary rounded-lg"
             >
               <X className="w-5 h-5" />
@@ -118,7 +127,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
           )}
         </div>
 
-        <nav className="px-4">
+        <nav className={cn('px-4', styles.navigation)} aria-label="Основное меню кабинета">
           <ul className="space-y-2">
             {items.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
