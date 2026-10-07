@@ -4,7 +4,11 @@ import {
   Optional,
   UnauthorizedException,
   BadRequestException,
+  ForbiddenException,
+  ConflictException,
+  HttpException,
 } from "@nestjs/common";
+import { sessionVersionMatches } from "./session-version";
 import { SAFE_MESSAGES } from "../common/safe-messages";
 import { getPublicWebOrigin } from "../common/public-web-origin";
 import { OTP_INVALID_MESSAGE, OtpService } from "../sms/otp.service";
@@ -14,7 +18,7 @@ import { JwtService } from "@nestjs/jwt";
 import { PrismaClient, UserStatus } from "@st-michael/database";
 import { InjectQueue } from "@nestjs/bull";
 import type { Queue } from "bull";
-import * as bcrypt from "bcrypt";
+import { hashPassword, verifyPassword } from "./password-hash";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { randomUUID } from "crypto";
@@ -57,6 +61,8 @@ type SessionBroker = {
   funnelStage: string;
   amoContactId: bigint | null;
   brokerAgencies: Array<{ agency: unknown }>;
+  authVersion?: number;
+  mergedIntoId?: string | null;
 };
 
 const UPLOADS_ROOT = process.env.UPLOADS_DIR || "/app/uploads";
@@ -305,7 +311,7 @@ export class AuthService {
       await this.otp.verify({ purpose: "REGISTER", phone: data.phone, code: data.smsCode });
     }
 
-    const passwordHash = await bcrypt.hash(data.password, 10);
+    const passwordHash = await hashPassword(data.password);
 
     // 2026-07-01: убрали ручной 5-полевой маппинг в amoCRM. Теперь сначала
     // делаем Broker в БД (create или update при активации), потом единый
@@ -321,6 +327,7 @@ export class AuthService {
           fullName: data.fullName,
           email: data.email,
           passwordHash,
+          authVersion: { increment: 1 },
           status: UserStatus.ACTIVE,
           // 2026-09-11 (правило владельца): человек регистрируется на номер,
           // который уже числится за импортированной карточкой — ничего ему не
@@ -640,6 +647,7 @@ export class AuthService {
     if (
       !broker ||
       broker.status !== UserStatus.ACTIVE ||
+      broker.mergedIntoId ||
       !broker.passwordHash ||
       !broker.passwordResetExpiresAt ||
       broker.passwordResetExpiresAt < new Date()
@@ -647,15 +655,8 @@ export class AuthService {
       throw new BadRequestException("Ссылка недействительна или истекла");
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, 10);
-    await this.prisma.broker.update({
-      where: { id: broker.id },
-      data: {
-        passwordHash,
-        passwordResetToken: null,
-        passwordResetExpiresAt: null,
-      },
-    });
+    const passwordHash = await hashPassword(newPassword);
+    await this.replacePasswordAndRevoke(broker, passwordHash, { passwordResetToken: token });
 
     return { message: "Пароль успешно изменён" };
   }
@@ -721,7 +722,7 @@ export class AuthService {
       });
     }
 
-    const isValid = await bcrypt.compare(data.password, broker.passwordHash);
+    const isValid = await verifyPassword(data.password, broker.passwordHash);
     if (!isValid) {
       throw new UnauthorizedException("Неверный логин или пароль");
     }
@@ -731,9 +732,10 @@ export class AuthService {
 
   /** Общий хвост входа (по паролю и по коду): токены и фоновые синки. */
   private issueSession(broker: SessionBroker) {
-    const payload = { sub: broker.id, phone: broker.phone, role: broker.role };
-    const accessToken = this.jwtService.sign(payload);
-    const refreshToken = this.jwtService.sign(payload, {
+    if (broker.mergedIntoId || broker.status !== UserStatus.ACTIVE) throw new UnauthorizedException("Account unavailable");
+    const payload = { sub: broker.id, phone: broker.phone, role: broker.role, authVersion: broker.authVersion ?? 0 };
+    const accessToken = this.jwtService.sign({ ...payload, type: "access" });
+    const refreshToken = this.jwtService.sign({ ...payload, type: "refresh" }, {
       expiresIn: process.env.JWT_REFRESH_TTL || "7d",
     });
 
@@ -920,18 +922,15 @@ export class AuthService {
     }
     const broker = await this.prisma.broker.findUnique({
       where: { phone: data.phone },
-      select: { id: true, status: true, passwordHash: true },
+      select: { id: true, phone: true, status: true, passwordHash: true, authVersion: true, mergedIntoId: true },
     });
     // Код на такой номер не выдавался — ответ тот же, что при неверном коде.
-    if (!broker || broker.status !== UserStatus.ACTIVE || !broker.passwordHash) {
+    if (!broker || broker.status !== UserStatus.ACTIVE || !broker.passwordHash || broker.mergedIntoId) {
       throw new BadRequestException({ message: OTP_INVALID_MESSAGE, code: "OTP_INVALID" });
     }
     await this.otp.verify({ purpose: "PASSWORD_RESET", phone: data.phone, code: data.code });
-    const passwordHash = await bcrypt.hash(data.password, 10);
-    await this.prisma.broker.update({
-      where: { id: broker.id },
-      data: { passwordHash, passwordResetToken: null, passwordResetExpiresAt: null },
-    });
+    const passwordHash = await hashPassword(data.password);
+    await this.replacePasswordAndRevoke(broker, passwordHash);
     return { message: "Пароль успешно изменён" };
   }
 
@@ -1146,7 +1145,8 @@ export class AuthService {
         where: { id: payload.sub },
       });
 
-      if (!broker || broker.status !== UserStatus.ACTIVE) {
+      if (!broker || broker.status !== UserStatus.ACTIVE || !broker.passwordHash || broker.mergedIntoId ||
+          !sessionVersionMatches(payload, broker.authVersion ?? 0, "refresh")) {
         throw new UnauthorizedException("Invalid refresh token");
       }
 
@@ -1154,6 +1154,8 @@ export class AuthService {
         sub: broker.id,
         phone: broker.phone,
         role: broker.role,
+        type: "access",
+        authVersion: broker.authVersion ?? 0,
       };
       const accessToken = this.jwtService.sign(newPayload);
 
@@ -1751,22 +1753,33 @@ export class AuthService {
     const broker = await this.prisma.broker.findUnique({
       where: { id: brokerId },
     });
-    if (!broker || !broker.passwordHash) {
+    if (!broker || !broker.passwordHash || broker.status !== UserStatus.ACTIVE || broker.mergedIntoId) {
       throw new UnauthorizedException("Broker not found");
     }
 
-    const valid = await bcrypt.compare(currentPassword, broker.passwordHash);
+    const valid = await verifyPassword(currentPassword, broker.passwordHash);
     if (!valid) {
       throw new BadRequestException("Текущий пароль введён неверно");
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, 10);
-    await this.prisma.broker.update({
-      where: { id: brokerId },
-      data: { passwordHash },
-    });
+    const passwordHash = await hashPassword(newPassword);
+    await this.replacePasswordAndRevoke(broker, passwordHash);
 
     return { ok: true, message: "Пароль изменён" };
+  }
+
+  private async replacePasswordAndRevoke(broker: { id: string; phone: string; passwordHash: string | null; authVersion: number }, passwordHash: string, extraWhere: Record<string, unknown> = {}) {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.broker.update({ where: { id: broker.id, status: UserStatus.ACTIVE, mergedIntoId: null,
+          passwordHash: broker.passwordHash, authVersion: broker.authVersion, ...extraWhere },
+          data: { passwordHash, authVersion: { increment: 1 }, passwordResetToken: null, passwordResetExpiresAt: null } });
+        await tx.phoneOtp.updateMany({ where: { phone: broker.phone, purpose: { in: ["LOGIN", "PASSWORD_RESET"] }, consumedAt: null }, data: { consumedAt: new Date() } });
+      }, { isolationLevel: "Serializable" });
+    } catch {
+      // Prisma errors can include sensitive mutation inputs; never expose them.
+      throw new ConflictException("Учетная запись изменилась. Повторите восстановление или проверку пароля.");
+    }
   }
 
   async uploadAvatar(brokerId: string, file: Express.Multer.File) {
@@ -1808,12 +1821,54 @@ export class AuthService {
     return { avatarUrl: fileUrl };
   }
 
+  async adminChangePassword(actorId: string, targetId: string, currentPassword: string, newPassword: string, actorAuthVersion?: number) {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuid.test(actorId) || !uuid.test(targetId)) throw new BadRequestException("Некорректный идентификатор пользователя");
+    if (actorId.toLowerCase() === targetId.toLowerCase()) throw new BadRequestException("Свой пароль меняйте через профиль");
+    if (typeof currentPassword !== "string" || !currentPassword || [...currentPassword].length > 128)
+      throw new BadRequestException("Введите текущий пароль администратора");
+    if (typeof newPassword !== "string" || [...newPassword].length < 12 || [...newPassword].length > 128)
+      throw new BadRequestException("Новый пароль должен содержать от 12 до 128 символов");
+    if (!Number.isSafeInteger(actorAuthVersion) || actorAuthVersion! < 0) throw new UnauthorizedException("Session unavailable");
+    try {
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Deterministic row locks bind reauthentication and the target write to
+      // the same current accounts; no activation or profile/role mutation.
+      await tx.$queryRaw`SELECT id FROM brokers WHERE id IN (${actorId}, ${targetId}) ORDER BY id FOR UPDATE`;
+      const select = { id: true, phone: true, role: true, status: true, mergedIntoId: true, passwordHash: true, authVersion: true } as const;
+      const actor = await tx.broker.findUnique({ where: { id: actorId }, select });
+      if (!actor || actor.role !== "ADMIN" || actor.status !== UserStatus.ACTIVE || actor.mergedIntoId || !actor.passwordHash)
+        throw new ForbiddenException("Требуются права действующего администратора");
+      if (actor.authVersion !== actorAuthVersion) throw new UnauthorizedException("Session revoked");
+      if (!(await verifyPassword(currentPassword, actor.passwordHash))) throw new ForbiddenException("Текущий пароль администратора введён неверно");
+      const target = await tx.broker.findUnique({ where: { id: targetId }, select });
+      if (!target || target.status !== UserStatus.ACTIVE || target.mergedIntoId || !target.passwordHash ||
+          !["ADMIN", "MANAGER", "BROKER"].includes(target.role))
+        throw new BadRequestException("Пароль можно изменить только существующему активированному пользователю");
+      const passwordHash = await hashPassword(newPassword);
+      const changed = await tx.broker.updateMany({
+        where: { id: targetId, passwordHash: target.passwordHash, authVersion: target.authVersion, status: UserStatus.ACTIVE, mergedIntoId: null },
+        data: { passwordHash, authVersion: { increment: 1 }, passwordResetToken: null, passwordResetExpiresAt: null },
+      });
+      if (changed.count !== 1) throw new ConflictException("Учетная запись изменилась. Повторите проверку.");
+      await tx.phoneOtp.updateMany({ where: { phone: target.phone, purpose: { in: ["LOGIN", "PASSWORD_RESET"] }, consumedAt: null }, data: { consumedAt: new Date() } });
+      await tx.auditLog.create({ data: { userId: actorId, action: "ADMIN_PASSWORD_CHANGED", entity: "Broker", entityId: targetId,
+        payload: { sessionsRevoked: true } } });
+      return { ok: true, message: "Пароль пользователя изменён", sessionsRevoked: true };
+    }, { isolationLevel: "Serializable", maxWait: 5000, timeout: 10000 });
+    return result;
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new ConflictException("Не удалось изменить пароль. Повторите проверку учетной записи.");
+    }
+  }
+
   async validateBroker(brokerId: string) {
     const broker = await this.prisma.broker.findUnique({
       where: { id: brokerId },
     });
 
-    if (!broker || broker.status !== UserStatus.ACTIVE) {
+    if (!broker || broker.status !== UserStatus.ACTIVE || !broker.passwordHash || broker.mergedIntoId) {
       return null;
     }
 

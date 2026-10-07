@@ -8,11 +8,14 @@ const SETTING_KEYS = ["SMSC_LOGIN", "SMSC_API_KEY", "SMSC_SENDER"];
 const TIMEOUT_MS = 15000;
 const MAX_RESPONSE_CHARS = 131072;
 const MAX_SENDERS = 1000;
+const MAX_PROVIDER_REQUESTS = 11;
+const MAX_EXTRA_APPROVED_SENDERS = 3;
 const BRAND_SENDER = "St. Michael";
 const ESTIMATE_TEXTS = Object.freeze({
   test: "Тест СМС: 000000. Код недействителен для входа и смены пароля.",
   password_reset:
     "Код для смены пароля: 000000. Если это не вы — не вводите его.",
+  neutral: "Тест.",
 });
 
 function validatePhone(env) {
@@ -231,8 +234,26 @@ function estimateVariants(result, senders, settings) {
     variants.push({ senderMode: "configured_brand", sender: settings.sender });
   if (approvedBrand && !variants.some((row) => row.sender === approvedBrand))
     variants.push({ senderMode: "approved_brand", sender: approvedBrand });
+  let additionalSenderCount = 0;
+  if (senders.ok) {
+    // Technical price probes only, not an authorization to configure or send
+    // using another business's identity. Keep names in memory, never in output.
+    const seen = new Set(variants.map((row) => row.sender.toLowerCase()));
+    const maxVariants = Math.floor((MAX_PROVIDER_REQUESTS - 1) / Object.keys(ESTIMATE_TEXTS).length);
+    for (const row of result.data) {
+      const sender = row.sender;
+      const normalized = sender.toLowerCase();
+      if (normalized === BRAND_SENDER.toLowerCase() || seen.has(normalized) ||
+          sender !== sender.trim() || sender.length > 64 || /[\x00-\x1f\x7f]/.test(sender)) continue;
+      if (additionalSenderCount >= MAX_EXTRA_APPROVED_SENDERS || variants.length >= maxVariants) break;
+      seen.add(normalized);
+      additionalSenderCount++;
+      variants.push({ senderMode: `approved_sender_${additionalSenderCount}`, sender });
+    }
+  }
   return {
     variants,
+    additionalSenderCount,
     brandSelection,
     approvedBrand: approvedBrand ? BRAND_SENDER : null, // Only agreed public label.
     configuredSenderStatus: !settings.sender
@@ -240,6 +261,40 @@ function estimateVariants(result, senders, settings) {
       : configuredAllowed
         ? "checked"
         : "skipped_not_approved_brand",
+  };
+}
+
+function estimateComparison(matrix) {
+  let providerResultDiffersBySender = false;
+  let providerResultDiffersByTemplate = false;
+  let costOrPartsDifferBySender = false;
+  const known = (row) => row.ok ||
+    (row.failureTag === "PROVIDER_REJECTED" && row.errorCode !== null);
+  const outcome = (row) => row.ok ? "accepted" : `rejected_${row.errorCode}`;
+  for (const template of Object.keys(ESTIMATE_TEXTS)) {
+    const rows = matrix.filter((row) => row.template === template);
+    providerResultDiffersBySender ||= new Set(rows.filter(known).map(outcome)).size > 1;
+    costOrPartsDifferBySender ||= new Set(rows.filter((row) => row.ok)
+      .map((row) => `${row.cost}:${row.parts}`)).size > 1;
+  }
+  for (const senderMode of new Set(matrix.map((row) => row.senderMode))) {
+    const rows = matrix.filter((row) => row.senderMode === senderMode);
+    providerResultDiffersByTemplate ||= new Set(rows.filter(known).map(outcome)).size > 1;
+  }
+  return {
+    providerResultDiffersBySender,
+    providerResultDiffersByTemplate,
+    costOrPartsDifferBySender,
+    conclusion: providerResultDiffersBySender && providerResultDiffersByTemplate
+      ? "sender_and_template_dependent_estimate_result_observed"
+      : providerResultDiffersBySender
+        ? "sender_dependent_estimate_result_observed"
+        : providerResultDiffersByTemplate
+          ? "template_dependent_estimate_result_observed"
+          : costOrPartsDifferBySender
+            ? "sender_dependent_estimate_price_observed"
+            : "no_sender_dependency_established",
+    deliveryVerified: false,
   };
 }
 
@@ -261,7 +316,13 @@ async function run(
       throw new Error("DATABASE_NOT_READ_ONLY");
     const settings = await readSettings(prisma, env);
     if (!settings.login || !settings.apiKey) throw new Error("CONFIG_MISSING");
-    const senderResult = await requestNoSend(
+    let providerRequests = 0;
+    const request = (...args) => {
+      if (providerRequests >= MAX_PROVIDER_REQUESTS) throw new Error("REQUEST_LIMIT");
+      providerRequests++;
+      return requestNoSend(...args);
+    };
+    const senderResult = await request(
       "senders",
       settings,
       phone,
@@ -276,7 +337,7 @@ async function run(
           senderMode: variant.senderMode,
           template,
           ...estimateProjection(
-            await requestNoSend("estimate", settings, phone, fetchImpl, {
+            await request("estimate", settings, phone, fetchImpl, {
               sender: variant.sender,
               template,
             }),
@@ -295,7 +356,7 @@ async function run(
       readOnly: true,
       databaseSessionReadOnly: true,
       smsSent: false,
-      providerRequests: 1 + matrix.length, // One sender-list plus <= six cost=1 requests.
+      providerRequests, // One sender-list plus at most ten immutable cost=1 requests.
       automaticRetry: false,
       priceEstimateOnly: true,
       senderConfigured: Boolean(settings.sender),
@@ -303,6 +364,11 @@ async function run(
       configuredSenderStatus: selection.configuredSenderStatus,
       brandSelection: selection.brandSelection,
       approvedBrand: selection.approvedBrand,
+      additionalApprovedSendersEstimated: selection.additionalSenderCount,
+      additionalSenderEstimatesTechnicalOnly: true,
+      additionalSenderSendingAuthorized: false,
+      senderConfigurationChanged: false,
+      estimateComparison: estimateComparison(matrix),
       senders,
       estimate,
       matrix,

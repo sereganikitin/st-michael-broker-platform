@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaClient } from '@st-michael/database';
 import { AuthService } from './auth.service';
+import { sessionVersionMatches } from './session-version';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -18,8 +19,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
+    if (!payload || typeof payload.sub !== 'string' || !payload.sub) return null;
     const broker = await this.authService.validateBroker(payload.sub);
-    if (!broker) {
+    if (!broker || !sessionVersionMatches(payload, broker.authVersion ?? 0, 'access')) {
       return null;
     }
 
@@ -28,6 +30,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       phone: broker.phone,
       role: broker.role,
       fullName: broker.fullName,
+      authVersion: broker.authVersion ?? 0,
     };
   }
 }

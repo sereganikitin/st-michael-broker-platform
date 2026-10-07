@@ -48,4 +48,16 @@ describe("JwtStrategy current account boundary", () => {
       }),
     ).resolves.toMatchObject({ role: "BROKER" });
   });
+
+  it("rejects stale and wrong-type bearer tokens after password change", async () => {
+    const authService = { validateBroker: jest.fn().mockResolvedValue({
+      id: "broker-1", phone: "+79990000000", fullName: "Broker", role: "BROKER", authVersion: 2,
+    }) };
+    const strategy = new JwtStrategy({} as any, authService as any);
+    for (const payload of [{ sub: "broker-1" }, { sub: "broker-1", type: "access", authVersion: 1 },
+      { sub: "broker-1", type: "refresh", authVersion: 2 }, { sub: "broker-1", type: "access", authVersion: "2" }]) {
+      await expect(strategy.validate(payload)).resolves.toBeNull();
+    }
+    await expect(strategy.validate({ sub: "broker-1", type: "access", authVersion: 2 })).resolves.toMatchObject({ id: "broker-1", authVersion: 2 });
+  });
 });

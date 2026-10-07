@@ -709,6 +709,7 @@ function NotificationsSection() {
 // ─── Security section ───────────────────────────────────────
 
 function SecuritySection() {
+  const { logout } = useAuth();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -725,9 +726,9 @@ function SecuritySection() {
     setSaving(true);
     try {
       await apiPost('/auth/change-password', { currentPassword: current, newPassword: next });
-      setOk('Пароль изменён');
       setCurrent(''); setNext(''); setConfirm('');
-      setTimeout(() => setOk(''), 2500);
+      logout();
+      window.location.assign('/login?passwordChanged=1');
     } catch (e: any) { setErr(e.message || 'Ошибка'); }
     setSaving(false);
   };

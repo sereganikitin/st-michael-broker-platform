@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Sidebar owns a separate lock; an open material viewer keeps its inline lock. */
+@media not all and (min-width: 1024px) {
+  body.cabinet-sidebar-open {
+    overflow: hidden;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;

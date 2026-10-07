@@ -17,6 +17,8 @@ function createHarness(opts: { enabled?: boolean; sendOk?: boolean } = {}) {
     for (const [k, v] of Object.entries(where || {})) {
       if (v && typeof v === "object" && "gte" in (v as any)) {
         if (!(row[k] >= (v as any).gte)) return false;
+      } else if (v && typeof v === "object" && "gt" in (v as any)) {
+        if (!(row[k] > (v as any).gt)) return false;
       } else if (row[k] !== v) return false;
     }
     return true;
@@ -30,7 +32,13 @@ function createHarness(opts: { enabled?: boolean; sendOk?: boolean } = {}) {
       count: jest.fn(async ({ where }: any) => rows.filter((r) => matches(r, where)).length),
       updateMany: jest.fn(async ({ where, data }: any) => {
         let count = 0;
-        for (const r of rows) if (matches(r, where)) { Object.assign(r, data); count++; }
+        for (const r of rows) if (matches(r, where)) {
+          for (const [key, value] of Object.entries(data)) {
+            r[key] = value && typeof value === "object" && "increment" in value
+              ? r[key] + (value as any).increment : value;
+          }
+          count++;
+        }
         return { count };
       }),
       create: jest.fn(async ({ data }: any) => {
@@ -125,6 +133,46 @@ describe("OtpService", () => {
     await expect(service.verify({ purpose: "LOGIN", phone: PHONE, code })).resolves.toBeUndefined();
     expect(rows[0].consumedAt).toBeInstanceOf(Date);
     await expect(service.verify({ purpose: "LOGIN", phone: PHONE, code })).rejects.toThrow(OTP_INVALID_MESSAGE);
+  });
+
+  it("одновременные проверки одного кода допускают только одного победителя", async () => {
+    const { service, prisma, sent, rows } = createHarness();
+    await service.request({ purpose: "PASSWORD_RESET", phone: PHONE });
+    const code = codeFromText(sent[0].text);
+    const snapshot = { ...rows[0] };
+    // Both requests have read the same unused row before either consumes it.
+    prisma.phoneOtp.findFirst.mockResolvedValue(snapshot);
+    const outcomes = await Promise.allSettled([
+      service.verify({ purpose: "PASSWORD_RESET", phone: PHONE, code }),
+      service.verify({ purpose: "PASSWORD_RESET", phone: PHONE, code }),
+    ]);
+    expect(outcomes.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = outcomes.find(result => result.status === "rejected") as PromiseRejectedResult;
+    expect(rejected.reason).toBeInstanceOf(BadRequestException);
+    expect(rejected.reason.getResponse()).toMatchObject({ code: "OTP_INVALID" });
+    expect(rows[0].attempts).toBe(1);
+    expect(rows[0].consumedAt).toBeInstanceOf(Date);
+    expect(prisma.phoneOtp.updateMany).toHaveBeenLastCalledWith({
+      where: { id: rows[0].id, phone: PHONE, purpose: "PASSWORD_RESET", consumedAt: null,
+        attempts: 0, expiresAt: { gt: expect.any(Date) } },
+      data: { consumedAt: expect.any(Date), attempts: { increment: 1 } },
+    });
+  });
+
+  it("не принимает код, отозванный сменой пароля после чтения, и не перезаписывает отзыв", async () => {
+    const { service, prisma, sent, rows } = createHarness();
+    await service.request({ purpose: "PASSWORD_RESET", phone: PHONE });
+    const code = codeFromText(sent[0].text);
+    const snapshot = { ...rows[0] };
+    const revokedAt = new Date(Date.now() - 1000);
+    prisma.phoneOtp.findFirst.mockImplementation(async () => {
+      rows[0].consumedAt = revokedAt;
+      return snapshot;
+    });
+    await expect(service.verify({ purpose: "PASSWORD_RESET", phone: PHONE, code }))
+      .rejects.toMatchObject({ response: { code: "OTP_INVALID" } });
+    expect(rows[0].consumedAt).toBe(revokedAt);
+    expect(rows[0].attempts).toBe(0);
   });
 
   it("код одного назначения не подходит для другого", async () => {

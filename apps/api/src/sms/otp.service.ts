@@ -162,6 +162,13 @@ export class OtpService {
       });
       throw invalid();
     }
-    await this.prisma.phoneOtp.update({ where: { id: row.id }, data: { consumedAt: now, attempts: row.attempts + 1 } });
+    // Bind success to the still-unused row. A concurrent verification or
+    // password change may have consumed it after the read above.
+    const consumed = await this.prisma.phoneOtp.updateMany({
+      where: { id: row.id, phone, purpose: input.purpose, consumedAt: null,
+        attempts: row.attempts, expiresAt: { gt: now } },
+      data: { consumedAt: now, attempts: { increment: 1 } },
+    });
+    if (consumed.count !== 1) throw invalid();
   }
 }

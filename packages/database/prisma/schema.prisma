@@ -465,6 +465,7 @@ model Broker {
   avatarUrl                         String?                      @map("avatar_url")
   birthDate                         DateTime?                    @map("birth_date") @db.Date
   passwordHash                      String?                      @map("password_hash")
+  authVersion                       Int                          @default(0) @map("auth_version")
   passwordResetToken                String?                      @unique @map("password_reset_token")
   passwordResetExpiresAt            DateTime?                    @map("password_reset_expires_at")
   role                              UserRole                     @default(BROKER)

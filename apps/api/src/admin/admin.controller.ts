@@ -1,4 +1,5 @@
-import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards, UseInterceptors, UploadedFile, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards, UseInterceptors, UploadedFile, ParseUUIDPipe, HttpCode } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -7,6 +8,8 @@ import { Roles } from '../auth/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../auth/current-user.decorator';
 import { UserRole } from '@st-michael/shared';
 import { AdminService } from './admin.service';
+import { AuthService } from '../auth/auth.service';
+import { AdminChangePasswordDto } from './admin-password.dto';
 import { GoogleSheetsSyncService } from './google-sheets-sync.service';
 import { SmsService } from '../sms/sms.service';
 import { SmsTestDto } from './admin-sms.dto';
@@ -29,6 +32,7 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly gsheets: GoogleSheetsSyncService,
     private readonly sms: SmsService,
+    private readonly authService: AuthService,
   ) {}
 
   @Get('brokers')
@@ -73,6 +77,20 @@ export class AdminController {
   @Roles(UserRole.ADMIN)
   async changeRole(@Param('id') id: string, @Body() body: { role: 'BROKER' | 'MANAGER' | 'ADMIN' }) {
     return this.adminService.changeRole(id, body.role);
+  }
+
+  @Post('brokers/:id/password')
+  @HttpCode(200)
+  @Roles(UserRole.ADMIN)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Set another registered user password after administrator reauthentication' })
+  async changeUserPassword(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AdminChangePasswordDto,
+  ) {
+    return this.authService.adminChangePassword(user.id, id, body.currentPassword, body.newPassword, user.authVersion);
   }
 
   @Patch('brokers/:id/status')

@@ -26,7 +26,9 @@ function createHarness(opts: { registerEnabled?: boolean } = {}) {
     siteContent: { findUnique: jest.fn() },
     offerAcceptance: { create: jest.fn() },
     privacyAcceptance: { create: jest.fn() },
+    phoneOtp: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
+  prisma.$transaction = jest.fn(async (fn: any) => fn(prisma));
   const jwtService = { sign: jest.fn().mockReturnValue("token"), verify: jest.fn() };
   const otp = {
     isPurposeEnabled: jest.fn(async (p: string) => (p === "REGISTER" ? Boolean(opts.registerEnabled) : true)),
