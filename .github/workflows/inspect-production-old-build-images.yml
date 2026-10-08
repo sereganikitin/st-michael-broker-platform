@@ -1,0 +1,320 @@
+name: Inspect old production build images (read-only)
+
+# Inventory only. There is deliberately no apply input, image removal, prune,
+# server script/file creation, restart, deploy fetch or backup/data mutation.
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - name: Checkout exact reviewed inventory
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Attest host and inspect protected images
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_REF: ${{ github.ref }}
+          EXPECTED_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          EXPECTED_SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          PRODUCTION_PG_SYSTEM_IDENTIFIER: ${{ vars.PRODUCTION_PG_SYSTEM_IDENTIFIER }}
+          PRODUCTION_MIN_BROKER_ROWS: ${{ vars.PRODUCTION_MIN_BROKER_ROWS }}
+        run: |
+          set -eEuo pipefail
+          stage=local_validation
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "inventory_failed_stage=%s\ninventory_exit_code=%s\n" "$stage" "$rc" >&2; fi' EXIT
+          set_stage() { stage=$1; printf 'inventory_stage=%s\n' "$stage"; }
+          set_stage local_validation
+          test "$EXPECTED_REPOSITORY" = sereganikitin/st-michael-broker-platform || exit 1
+          test "$EXPECTED_REF" = refs/heads/master || exit 1
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || exit 1
+          test -n "$SSH_HOST" -a -n "$SSH_USER" -a -n "$SSH_PRIVATE_KEY" -a -n "$DEPLOY_PATH" || exit 1
+          case "$SSH_HOST" in ""|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ ]] || exit 1
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && test "$SSH_PORT" -ge 1 -a "$SSH_PORT" -le 65535 || exit 1
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 1
+          case "$DEPLOY_PATH/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          [[ "$EXPECTED_SSH_FINGERPRINT" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || exit 1
+          [[ "$PRODUCTION_PG_SYSTEM_IDENTIFIER" =~ ^[0-9]+$ ]] || exit 1
+          [[ "$PRODUCTION_MIN_BROKER_ROWS" =~ ^[1-9][0-9]*$ ]] || exit 1
+          set_stage local_master_identity
+          master_sha=$(gh api "/repos/$EXPECTED_REPOSITORY/git/ref/heads/master" --jq '.object.sha')
+          test "$master_sha" = "$EXPECTED_SHA" || { echo "Inventory source is not current master"; exit 1; }
+          set_stage local_https_health
+          deployed_sha=$(curl --fail --silent --show-error --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health \
+            | jq -er '.deployedSha | select(type == "string" and test("^[0-9a-f]{40}$"))')
+          set_stage local_source_ancestry
+          compare_status=$(gh api "/repos/$EXPECTED_REPOSITORY/compare/$deployed_sha...$EXPECTED_SHA" --jq '.status')
+          case "$compare_status" in ahead|identical) ;; *) exit 1;; esac
+          unset master_sha compare_status GH_TOKEN
+          set_stage local_ssh_host_identity
+          ssh_root=$(mktemp -d)
+          known_hosts="$ssh_root/known_hosts"
+          private_key="$ssh_root/deploy-key"
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "inventory_failed_stage=%s\ninventory_exit_code=%s\n" "$stage" "$rc" >&2; fi; rm -f -- "$known_hosts" "$private_key"; rmdir -- "$ssh_root" 2>/dev/null || true' EXIT
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$private_key"
+          chmod 600 "$private_key"
+          timeout 15 ssh-keyscan -p "$SSH_PORT" -t ed25519 "$SSH_HOST" > "$known_hosts" 2>/dev/null
+          chmod 600 "$known_hosts"
+          mapfile -t fingerprints < <(ssh-keygen -lf "$known_hosts" -E sha256 | awk '{print $2}' | sort -u)
+          test "${#fingerprints[@]}" -eq 1 || exit 1
+          test "${fingerprints[0]}" = "$EXPECTED_SSH_FINGERPRINT" || exit 1
+          set_stage local_pinned_ssh
+          timeout --foreground 6m ssh -T -i "$private_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o NumberOfPasswordPrompts=0 \
+            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "${SSH_USER}@${SSH_HOST}" \
+            "bash -s -- '$DEPLOY_PATH' '$deployed_sha' '$PRODUCTION_PG_SYSTEM_IDENTIFIER' '$PRODUCTION_MIN_BROKER_ROWS' '$EXPECTED_SHA'" <<'REMOTE'
+          set -eEuo pipefail
+          stage=remote_validation
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "inventory_failed_stage=%s\ninventory_exit_code=%s\n" "$stage" "$rc" >&2; fi' EXIT
+          set_stage() { stage=$1; printf 'inventory_stage=%s\n' "$stage"; }
+          set_stage remote_validation
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          deploy_path=$1
+          expected_deployed_sha=$2
+          expected_system_identifier=$3
+          minimum_broker_rows=$4
+          source_sha=$5
+          for tool in awk curl date df docker find flock git grep jq ps readlink sha256sum sort stat timeout; do command -v "$tool" >/dev/null || exit 1; done
+          [[ "$deploy_path" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 1
+          case "$deploy_path/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          [[ "$expected_deployed_sha" =~ ^[0-9a-f]{40}$ && "$source_sha" =~ ^[0-9a-f]{40}$ && "$expected_system_identifier" =~ ^[0-9]+$ && "$minimum_broker_rows" =~ ^[1-9][0-9]*$ ]] || exit 1
+          deploy_root=$(readlink -f -- "$deploy_path")
+          test -n "$deploy_root" -a "$deploy_root" != / -a -d "$deploy_root" || exit 1
+          set_stage remote_shared_lock
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock || { echo 'inventory_guard_failed=physical_lock'; exit 1; }
+          exec 9</tmp/st-michael-production-deploy.lock
+          flock -s -n 9 || { echo "production_lock_busy=true"; exit 1; }
+          assert_no_docker_cli() {
+            local names
+            # comm only: never read/print arbitrary process arguments or env.
+            names=$(timeout 10 ps --no-headers -eo comm | awk 'NR > 10000 {exit 1} {print}') || { echo "Process inventory failed" >&2; return 1; }
+            if printf '%s\n' "$names" | grep -Eq '^[[:space:]]*(docker|docker-compose|docker-buildx|buildx|buildctl)[[:space:]]*$'; then
+              echo "active_docker_cli_observed=true" >&2
+              echo "Inventory refused while another Docker CLI is active" >&2
+              return 1
+            else
+              test "$?" -eq 1 || return 1
+            fi
+          }
+          set_stage remote_docker_cli_gate
+          assert_no_docker_cli || exit 1
+          set_stage remote_runtime_identity
+          cd -- "$deploy_root"
+          test "$(git rev-parse --show-toplevel)" = "$deploy_root" || exit 1
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git || exit 1
+          test "$(git symbolic-ref --short HEAD)" = master || exit 1
+          test "$(git rev-parse HEAD)" = "$expected_deployed_sha" || exit 1
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}" || exit 1
+          test "$(timeout 15 docker context show)" = default || exit 1
+          endpoint=$(timeout 15 docker context inspect default --format '{{.Endpoints.docker.Host}}')
+          case "$endpoint" in unix:///*) ;; *) exit 1;; esac
+          assert_health() {
+            local sha
+            sha=$(curl --fail --silent --show-error --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health | jq -er '.deployedSha | select(type == "string" and test("^[0-9a-f]{40}$"))') || { echo 'inventory_guard_failed=https_health' >&2; return 1; }
+            test "$sha" = "$expected_deployed_sha" || return 1
+            test "$(timeout 15 docker inspect --format '{{.State.Running}}' st-michael-api)" = true || return 1
+            test "$(timeout 15 docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$expected_deployed_sha" || return 1
+          }
+          set_stage remote_https_health
+          assert_health || exit 1
+          set_stage remote_compose_provenance
+          project=$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' st-michael-postgres)
+          [[ "$project" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || { echo "Compose project provenance is invalid"; exit 1; }
+          for service in api web; do
+            test "$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "st-michael-$service")" = "$project" || exit 1
+            test "$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "st-michael-$service")" = "$service" || exit 1
+          done
+          containers_snapshot() {
+            local ids id details
+            ids=$(timeout 15 docker ps -aq --no-trunc | sort -u) || return 1
+            test -n "$ids" && test "$(printf '%s\n' "$ids" | awk 'END {print NR}')" -le 1000 || return 1
+            while IFS= read -r id; do
+              [[ "$id" =~ ^[0-9a-f]{64}$ ]] || return 1
+              details=$(timeout 15 docker inspect --format '{{.Id}}|{{.Image}}|{{.State.StartedAt}}|{{.State.Status}}|{{.State.Running}}|{{.State.Paused}}|{{.State.Restarting}}|{{.State.OOMKilled}}|{{.State.Dead}}|{{.State.ExitCode}}|{{.State.FinishedAt}}|{{.State.Pid}}|{{.RestartCount}}' "$id") || return 1
+              [[ "$details" == "$id|sha256:"* ]] || return 1
+              printf '%s\n' "$details"
+            done <<< "$ids"
+          }
+          tags_snapshot() {
+            local rows tag id extra
+            rows=$(timeout 15 docker image ls --all --no-trunc --format '{{.Repository}}:{{.Tag}}|{{.ID}}' | sort -u) || return 1
+            test -n "$rows" && test "$(printf '%s\n' "$rows" | awk 'END {print NR}')" -le 4000 || return 1
+            while IFS='|' read -r tag id extra; do
+              [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]] && test -n "$tag" -a -z "$extra" || return 1
+              printf '%s|%s\n' "$tag" "$id"
+            done <<< "$rows"
+          }
+          metadata_snapshot() {
+            local dir=/var/backups/stmichael/releases names name record size values id digest
+            test -d "$dir" -a ! -L "$dir" && test "$(readlink -f -- "$dir")" = "$dir" || { echo "Physical rollback metadata directory is required" >&2; return 1; }
+            names=$(timeout 15 find "$dir" -maxdepth 1 -name 'release-*.txt' -printf '%f\n' | sort | awk 'NR > 2000 {exit 1} {print}') || return 1
+            test -n "$names" || { echo "Rollback metadata records are required" >&2; return 1; }
+            while IFS= read -r name; do
+              [[ "$name" =~ ^release-[A-Za-z0-9._-]+\.txt$ ]] || return 1
+              record="$dir/$name"
+              test -f "$record" -a ! -L "$record" && test "$(readlink -f -- "$record")" = "$record" || return 1
+              size=$(stat -c '%s' -- "$record") || return 1
+              [[ "$size" =~ ^[0-9]{1,9}$ ]] && test "$size" -le 65536 || return 1
+              values=$(awk -F'=' '$1 == "previous_api_image" || $1 == "previous_web_image" || $1 == "previous_nginx_image" {if (NF != 2 || ++seen[$1] != 1) exit 1; print $2} END {if (seen["previous_api_image"] != 1 || seen["previous_web_image"] != 1 || seen["previous_nginx_image"] != 1) exit 1}' "$record") || return 1
+              digest=$(sha256sum -- "$record" | awk '{print $1}') || return 1
+              [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+              while IFS= read -r id; do
+                [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+                printf '%s|%s|%s\n' "$name" "$digest" "$id"
+              done <<< "$values"
+            done <<< "$names"
+          }
+          protected_ids_snapshot() {
+            local container_refs rollback_refs metadata_refs
+            # Each extraction must fail closed independently. A later printf
+            # must never hide an earlier failed protection pipeline.
+            container_refs=$(printf '%s\n' "$1" | awk -F'|' '{print $2}') || return 1
+            rollback_refs=$(printf '%s\n' "$2" | awk -F'|' 'tolower($1) ~ /(rollback|recovery|backup)/ {print $2}') || return 1
+            metadata_refs=$(printf '%s\n' "$3" | awk -F'|' '{print $3}') || return 1
+            printf '%s\n' "$container_refs" "$rollback_refs" "$metadata_refs" "$4" | awk 'NF' | sort -u || return 1
+          }
+          prepare_attestation_metrics() {
+            local metric digest
+            candidate_count=$(printf '%s\n' "$candidates" | awk 'NF {count++} END {print count+0}') || return 1
+            candidate_size_upper_bound=$(printf '%s\n' "$candidates" | awk -F'|' 'NF {sum+=$3} END {printf "%.0f",sum}') || return 1
+            image_count=$(printf '%s\n' "$all_ids" | awk 'END {print NR}') || return 1
+            protected_count=$(printf '%s\n' "$protected_ids" | awk 'END {print NR}') || return 1
+            candidates_hash=$(printf '%s' "$candidates" | sha256sum | awk '{print $1}') || return 1
+            protected_hash=$(printf '%s' "$protected_ids" | sha256sum | awk '{print $1}') || return 1
+            root_available=$(df -P -B1 / | awk 'NR==2 {print $4}') || return 1
+            for metric in "$candidate_count" "$candidate_size_upper_bound" "$image_count" "$protected_count" "$root_available"; do [[ "$metric" =~ ^[0-9]{1,19}$ ]] || return 1; done
+            for digest in "$candidates_hash" "$protected_hash"; do [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1; done
+          }
+          candidate_record() {
+            local id=$1 created=$2 size=$3 image_tags=$4 protected=$5 project_name=$6 now=$7 tag service lower_tag
+            [[ "$id" =~ ^sha256:[0-9a-f]{64}$ && "$created" =~ ^[1-9][0-9]{0,10}$ && "$size" =~ ^[0-9]{1,15}$ && "$now" =~ ^[1-9][0-9]{0,10}$ && "$project_name" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || return 1
+            test "$created" -le "$now" || return 1
+            test "$((now - created))" -ge 604800 || return 0
+            if grep -Fxq -- "$id" <<< "$protected"; then return 0; else test "$?" -eq 1 || return 1; fi
+            # One exact project build tag only. Unknown/multi-tag/dangling images
+            # are never proposed, even when their labels look plausible.
+            [[ "$image_tags" != *$'\n'* && "$image_tags" != *,* ]] || return 0
+            case "$image_tags" in "$project_name-api:"*) service=api;; "$project_name-web:"*) service=web;; *) return 0;; esac
+            tag=${image_tags#*:}
+            [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || return 1
+            lower_tag=${tag,,}
+            case "$lower_tag" in latest|stable|current|prod|production|release|*rollback*|*recovery*|*backup*) return 0;; esac
+            printf '%s|%s|%s|%s|%s\n' "$id" "$created" "$size" "$service" "$image_tags"
+          }
+          set_stage remote_container_inventory
+          containers_before=$(containers_snapshot) || { echo 'inventory_guard_failed=container_inventory'; exit 1; }
+          set_stage remote_tag_inventory
+          tags_before=$(tags_snapshot) || exit 1
+          set_stage remote_rollback_metadata
+          metadata_before=$(metadata_snapshot) || { echo 'inventory_guard_failed=rollback_metadata'; exit 1; }
+          all_ids=$(printf '%s\n' "$tags_before" | awk -F'|' '{print $2}' | sort -u)
+          test "$(printf '%s\n' "$all_ids" | awk 'END {print NR}')" -le 2000 || exit 1
+          set_stage remote_current_service_tags
+          current_ids=''
+          for service in api web; do
+            current_id=$(timeout 15 docker image inspect --format '{{.Id}}' "$project-$service:latest") || { echo "Current service tag guard failed"; exit 1; }
+            [[ "$current_id" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+            current_ids+="$current_id"$'\n'
+          done
+          set_stage remote_protected_image_ids
+          protected_ids=$(protected_ids_snapshot "$containers_before" "$tags_before" "$metadata_before" "$current_ids") || { echo 'inventory_guard_failed=protected_image_ids'; exit 1; }
+          while IFS= read -r id; do [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1; done <<< "$protected_ids"
+          set_stage remote_readonly_database
+          database_metrics=$(timeout 20 docker exec st-michael-postgres psql -U postgres -d broker_platform --no-psqlrc -AtF '|' -v ON_ERROR_STOP=1 -c "BEGIN READ ONLY; SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='1s'; SELECT system_identifier, (SELECT count(*) FROM public.brokers), pg_database_size(current_database()) FROM pg_control_system(); ROLLBACK;" | awk -F'|' 'NF==3 && $1 ~ /^[0-9]+$/ {print}')
+          [[ "$database_metrics" =~ ^[0-9]+\|[0-9]+\|[1-9][0-9]{0,17}$ ]] || exit 1
+          IFS='|' read -r system_identifier broker_rows database_size <<< "$database_metrics"
+          test "$system_identifier" = "$expected_system_identifier" && test "$broker_rows" -ge "$minimum_broker_rows" || exit 1
+          inspection_epoch=$(date -u +%s)
+          [[ "$inspection_epoch" =~ ^[1-9][0-9]{0,10}$ ]] || exit 1
+          image_records=''
+          candidates=''
+          missing_metadata_count=0
+          set_stage remote_unique_image_inspection
+          while IFS= read -r id; do
+            record=$(timeout 15 docker image inspect --format '{{.Id}}|{{.Created}}|{{.Size}}|{{json (index .Config.Labels "com.docker.compose.project")}}|{{json (index .Config.Labels "com.docker.compose.service")}}|{{json .RepoDigests}}' "$id") || { echo "Image inspection failed"; exit 1; }
+            IFS='|' read -r inspected_id created_iso size project_json service_json digests_json extra <<< "$record"
+            test "$inspected_id" = "$id" -a -z "$extra" || exit 1
+            [[ "$created_iso" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[+-][0-9:]+)$ ]] || exit 1
+            [[ "$size" =~ ^[0-9]{1,15}$ ]] || exit 1
+            created_epoch=$(date -u -d "$created_iso" +%s) || exit 1
+            image_project=$(printf '%s' "$project_json" | jq -er 'if . == null then "" elif type == "string" then . else error("Invalid label type") end') || exit 1
+            image_service=$(printf '%s' "$service_json" | jq -er 'if . == null then "" elif type == "string" then . else error("Invalid label type") end') || exit 1
+            digests=$(printf '%s' "$digests_json" | jq -ceS 'if . == null then [] elif type == "array" and all(.[]; type == "string") then sort else error("Invalid digest topology") end') || exit 1
+            image_tags=$(printf '%s\n' "$tags_before" | awk -F'|' -v id="$id" '$2 == id {print $1}' | sort -u)
+            candidate=''
+            # Unknown upstream/registry/recovery provenance is unclassified,
+            # never proposed. Only locally built, exact Compose-labeled images.
+            if [ "$image_project" = "$project" ] && [ "$digests" = '[]' ]; then
+              case "$image_service" in api|web)
+                candidate=$(candidate_record "$id" "$created_epoch" "$size" "$image_tags" "$protected_ids" "$project" "$inspection_epoch") || exit 1
+                if [ -n "$candidate" ]; then test "$(printf '%s' "$candidate" | awk -F'|' '{print $4}')" = "$image_service" || exit 1; fi
+                ;;
+              esac
+            fi
+            image_records+="$id|$created_epoch|$size|$project_json|$service_json|$digests"$'\n'
+            if [ -n "$candidate" ]; then candidates+="$candidate"$'\n'; fi
+          done <<< "$all_ids"
+          metadata_ids=$(printf '%s\n' "$metadata_before" | awk -F'|' '{print $3}' | sort -u)
+          while IFS= read -r id; do
+            if grep -Fxq -- "$id" <<< "$all_ids"; then :; else test "$?" -eq 1 || exit 1; missing_metadata_count=$((missing_metadata_count + 1)); fi
+          done <<< "$metadata_ids"
+          set_stage remote_inventory_recheck
+          assert_no_docker_cli || exit 1
+          test "$(containers_snapshot)" = "$containers_before" || { echo "Container inventory changed"; exit 1; }
+          test "$(tags_snapshot)" = "$tags_before" || { echo "Image/tag inventory changed"; exit 1; }
+          test "$(metadata_snapshot)" = "$metadata_before" || { echo "Rollback metadata changed"; exit 1; }
+          set_stage remote_final_https_health
+          assert_health || exit 1
+          test "$(git rev-parse HEAD)" = "$expected_deployed_sha" || exit 1
+          set_stage remote_attestation
+          candidates=$(printf '%s' "$candidates" | awk 'NF' | sort)
+          inventory_hash=$(printf '%s\n' "$source_sha" "$expected_deployed_sha" "$expected_system_identifier" "$project" "$containers_before" "$tags_before" "$metadata_before" "$image_records" "$protected_ids" "$candidates" | sha256sum | awk '{print $1}')
+          [[ "$inventory_hash" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          prepare_attestation_metrics || { echo 'inventory_guard_failed=attestation_metrics'; exit 1; }
+          printf 'inventory_sha256=%s\nsource_sha=%s\ndeployed_sha=%s\n' "$inventory_hash" "$source_sha" "$expected_deployed_sha"
+          printf 'inspection_epoch=%s\ncandidates_sha256=%s\nprotected_ids_sha256=%s\n' "$inspection_epoch" "$candidates_hash" "$protected_hash"
+          printf 'candidate_count=%s\ncandidate_size_upper_bound_bytes=%s\n' "$candidate_count" "$candidate_size_upper_bound"
+          printf 'image_count=%s\nprotected_image_id_count=%s\nhistorical_missing_metadata_image_ids=%s\n' "$image_count" "$protected_count" "$missing_metadata_count"
+          printf 'root_available_bytes=%s\nrequired_backup_available_bytes=%s\n' "$root_available" "$((8589934592 + database_size + 67108864))"
+          if [ -n "$candidates" ]; then
+            while IFS='|' read -r id created_epoch size service candidate_tag; do
+              # A Docker tag can contain a person's name/phone even when its
+              # characters are valid. Keep it in the aggregate attestation only.
+              printf 'candidate_id=%s candidate_created_epoch=%s candidate_size_bytes=%s candidate_service=%s\n' "$id" "$created_epoch" "$size" "$service"
+            done <<< "$candidates"
+          fi
+          echo 'minimum_image_age_days=7'
+          echo 'all_container_states_unchanged=true'
+          echo 'all_image_tags_unchanged=true'
+          echo 'all_rollback_metadata_unchanged=true'
+          echo 'active_docker_cli_observed=false'
+          echo 'daemon_prune_completion_verified=false'
+          echo 'inspection_only=true'
+          echo 'cleanup_performed=false'
+          REMOTE
