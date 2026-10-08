@@ -635,6 +635,88 @@ reload_nginx_upstreams() {
     fi
 }
 
+previous_api_authentication_is_compatible() {
+    local capability_status current_api_running auth_schema_state incompatible_auth_rows auth_predicate
+
+    # Do not infer compatibility from the loyalty enum or a mutable checkout.
+    # Read one pure compiled capability module in the exact rollback image,
+    # without app startup, production environment, network or writable rootfs.
+    if docker run --rm --network none --read-only --entrypoint node \
+        "$ROLLBACK_API_IMAGE" -e '
+          const fs = require("fs");
+          const path = "/app/apps/api/dist/auth/password-compatibility.js";
+          try {
+            if (!fs.lstatSync(path).isFile()) process.exit(20);
+          } catch (error) {
+            process.exit(error && error.code === "ENOENT" ? 10 : 20);
+          }
+          try {
+            const marker = require(path);
+            process.exit(marker.AUTH_PASSWORD_COMPATIBILITY === "bcrypt-sha256-v1+auth-version-v1" ? 0 : 20);
+          } catch { process.exit(20); }
+        ' >/dev/null 2>&1; then
+        return 0
+    else
+        capability_status=$?
+    fi
+    if [ "$capability_status" -ne 10 ]; then
+        echo "    ✗ Could not attest previous API authentication capability; refusing rollback."
+        return 1
+    fi
+
+    # Even a failed rollout may have accepted a registration/password change.
+    # Fence all API writers BEFORE any schema/count query; never restart an old
+    # verifier on a count read while the new API could still change passwords.
+    if ! rollback_compose stop -t 30 api >/dev/null 2>&1; then
+        echo "    ✗ Could not quiesce the API before the authentication rollback check."
+        return 1
+    fi
+    if ! current_api_running=$(docker inspect --format '{{.State.Running}}' st-michael-api 2>/dev/null); then
+        echo "    ✗ Could not verify that the API is stopped; refusing authentication rollback."
+        return 1
+    fi
+    if [ "$current_api_running" != "false" ]; then
+        echo "    ✗ API is not stopped; refusing the authentication compatibility query."
+        return 1
+    fi
+
+    if ! auth_schema_state=$(rollback_compose exec -T postgres \
+        psql -X -v ON_ERROR_STOP=1 -U postgres -d broker_platform -Atqc \
+        "BEGIN READ ONLY; SET LOCAL statement_timeout='5s';
+         SELECT CASE
+           WHEN to_regclass('public.brokers') IS NULL THEN 'invalid'
+           WHEN EXISTS (SELECT 1 FROM pg_attribute
+             WHERE attrelid = 'public.brokers'::regclass
+               AND attname = 'auth_version' AND attnum > 0 AND NOT attisdropped)
+             THEN 'present'
+           ELSE 'absent'
+         END; COMMIT;" 2>/dev/null); then
+        echo "    ✗ Could not inspect authentication schema; refusing old-image rollback."
+        return 1
+    fi
+    case "$auth_schema_state" in
+        present) auth_predicate="auth_version > 0 OR password_hash LIKE 'bcrypt-sha256-v1\$%'" ;;
+        absent) auth_predicate="password_hash LIKE 'bcrypt-sha256-v1\$%'" ;;
+        *) echo "    ✗ Invalid authentication schema result; refusing old-image rollback."; return 1 ;;
+    esac
+    if ! incompatible_auth_rows=$(rollback_compose exec -T postgres \
+        psql -X -v ON_ERROR_STOP=1 -U postgres -d broker_platform -Atqc \
+        "BEGIN READ ONLY; SET LOCAL statement_timeout='5s';
+         SELECT COUNT(*) FROM public.brokers WHERE $auth_predicate; COMMIT;" 2>/dev/null); then
+        echo "    ✗ Could not verify authentication state; refusing old-image rollback."
+        return 1
+    fi
+    if ! printf '%s' "$incompatible_auth_rows" | grep -Eq '^(0|[1-9][0-9]{0,18})$'; then
+        echo "    ✗ Invalid authentication compatibility count; refusing old-image rollback."
+        return 1
+    fi
+    if [ "$incompatible_auth_rows" != "0" ]; then
+        echo "    ✗ Old-image rollback blocked: versioned passwords or revoked sessions exist."
+        echo "      API remains stopped. Apply a compatible forward fix; do not rewrite hashes or restore data automatically."
+        return 1
+    fi
+}
+
 previous_api_schema_is_compatible() {
     local rollback_schema_status
     local loyalty_schema_state
@@ -733,6 +815,10 @@ previous_api_schema_is_compatible() {
 
 rollback_application() {
     echo "    Attempting fast application rollback; additive DB migrations stay applied."
+    if ! previous_api_authentication_is_compatible; then
+        echo "    ✗ Authentication-incompatible rollback blocked before container replacement."
+        return 1
+    fi
     if ! previous_api_schema_is_compatible; then
         echo "    ✗ Incompatible previous API rollback blocked before container replacement."
         return 1
