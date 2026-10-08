@@ -1328,7 +1328,9 @@ export class SchedulerService {
       const requiresUniquenessRecheck = String(client.amoSyncError || '')
         .startsWith(AMO_UNIQUENESS_RECHECK_MARKER);
       const storedError = String(client.amoSyncError || '');
-      const hasDurableCreateMarker = requiresAmoCreateReconciliation(storedError);
+      const hasDurableCreateMarker = storedError.startsWith(
+        AMO_CREATE_RECONCILIATION_REQUIRED_MARKER,
+      );
       const hasLegacyAmbiguousCreateError = !requiresUniquenessRecheck
         && !hasDurableCreateMarker
         && (storedError

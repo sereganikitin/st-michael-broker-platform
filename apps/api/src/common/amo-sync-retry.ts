@@ -97,15 +97,16 @@ export function markAmoCreateFailure(error: unknown): string {
     'AMO_CONFIGURATION_ERROR',
     'FIXATION_AGENCY_MISSING',
     'BROKER_AMO_CONTACT_MISSING',
-    'AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD',
   ].includes(code)) return code;
   return `${AMO_CREATE_RECONCILIATION_REQUIRED_MARKER}${code}`;
 }
 
 export function requiresAmoCreateReconciliation(error: unknown): boolean {
-  return String((error as any)?.message || error || '').startsWith(
-    AMO_CREATE_RECONCILIATION_REQUIRED_MARKER,
-  );
+  const raw = String((error as any)?.message || error || '');
+  // An immediate empty GET after a lost POST is not proof of rejection.
+  // Recognize the legacy bare code too, before any scheduler/admin replay.
+  return raw === 'AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD' ||
+    raw.startsWith(AMO_CREATE_RECONCILIATION_REQUIRED_MARKER);
 }
 
 export function isSafeAmoCreateRetry(error: unknown): boolean {
@@ -134,7 +135,7 @@ export function publicAmoSyncError(error: unknown): string | null {
     BROKER_AMO_CONTACT_MISSING:
       'Ответственный брокер не связан с контактом amoCRM.',
     AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD:
-      'Ответ amoCRM не получен, лид не найден. Повтор будет выполнен автоматически.',
+      'Ответ amoCRM не получен. Автоповтор заблокирован до сверки сделки.',
     AMO_SYNC_FAILED: 'Не удалось передать заявку в amoCRM.',
   };
   return messages[code] || messages.AMO_SYNC_FAILED;

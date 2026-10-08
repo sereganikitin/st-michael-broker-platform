@@ -11,12 +11,18 @@ const EXPECTED_BROKER_ID = "6e414141-f2ca-4c71-8402-2032c9186568";
 // AMO_CONTACT_FIELDS.IS_BROKER in the reviewed shared field map; regression
 // tests bind this exact checkbox ID, without importing a mutable live module.
 const IS_BROKER_FIELD_ID = 835415;
+const KC_PIPELINE_ID = 7600542;
+const WINDOW_PAGE_LIMIT = 250;
+const WINDOW_MAX_PAGES = 10;
+const BROKER_MAX_LINKED_LEADS = 250;
+const WINDOW_MAX_AGE_SECONDS = 24 * 60 * 60;
+const WINDOW_SKEW_SECONDS = 120;
 const BROKER_SELECT = {
   id: true, phone: true, amoContactId: true, role: true, status: true, mergedIntoId: true,
   brokerAgencies: { select: { agencyId: true, isPrimary: true }, take: 101 },
 };
 const CLIENT_SELECT = {
-  id: true, brokerId: true, responsibleBrokerId: true, phone: true,
+  id: true, brokerId: true, responsibleBrokerId: true, phone: true, fullName: true,
   project: true, fixationAgencyId: true, createdAt: true, updatedAt: true,
   amoLeadId: true, amoCreatedAt: true, amoUpdatedAt: true,
   amoSyncStatus: true, amoSyncAttempts: true, amoSyncLastAttemptAt: true,
@@ -99,6 +105,180 @@ function privateFingerprint(row) {
   // detects imports/raw SQL that change linkage without updating timestamps.
   return createHash("sha256").update(JSON.stringify(row, (_key, value) => typeof value === "bigint" ? value.toString() : value)).digest("hex");
 }
+function record(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
+function unixTime(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 946684800 && value <= 4133980800 ? value : null;
+}
+function expectedGeneratedName(row) {
+  if (typeof row.fullName !== "string" || !row.fullName.trim() || Buffer.byteLength(row.fullName, "utf8") > 1000 || /[\x00-\x1f\x7f]/.test(row.fullName)) refused("INVALID_CASE_NAME");
+  return `Фиксация: ${row.fullName} (${row.project})`;
+}
+function makeEvidenceWindow(row, scanNow) {
+  const created = Math.floor(new Date(iso(row.createdAt)).getTime() / 1000);
+  const now = Math.floor(new Date(iso(scanNow)).getTime() / 1000);
+  if (now < created - WINDOW_SKEW_SECONDS || now - created > WINDOW_MAX_AGE_SECONDS) refused("CASE_SCAN_WINDOW_UNSAFE");
+  expectedGeneratedName(row);
+  return { pipelineId: KC_PIPELINE_ID, from: created - WINDOW_SKEW_SECONDS, to: now + WINDOW_SKEW_SECONDS };
+}
+function validateEvidenceWindow(window) {
+  if (!record(window) || Object.keys(window).sort().join(",") !== "from,pipelineId,to" || window.pipelineId !== KC_PIPELINE_ID || !unixTime(window.from) || !unixTime(window.to) || window.to < window.from || window.to - window.from > WINDOW_MAX_AGE_SECONDS + 2 * WINDOW_SKEW_SECONDS) refused("CASE_SCAN_WINDOW_UNSAFE");
+}
+function createKcWindowRequester(accessToken, fetchImpl = globalThis.fetch, window) {
+  validateEvidenceWindow(window);
+  window = { ...window };
+  if (typeof accessToken !== "string" || !accessToken.trim() || typeof fetchImpl !== "function") refused("WINDOW_REQUEST_CONFIGURATION_INVALID");
+  const token = accessToken.trim();
+  let lastStarted = 0;
+  return async (page) => {
+    if (!Number.isInteger(page) || page < 1 || page > WINDOW_MAX_PAGES) refused("WINDOW_PAGE_BOUND_EXCEEDED");
+    const url = new URL("https://stmichael.amocrm.ru/api/v4/leads");
+    url.searchParams.set("filter[created_at][from]", String(window.from));
+    url.searchParams.set("filter[created_at][to]", String(window.to));
+    url.searchParams.set("filter[pipeline_id][]", String(KC_PIPELINE_ID));
+    url.searchParams.set("limit", String(WINDOW_PAGE_LIMIT));
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("with", "contacts");
+    // The separately serialized legacy requester is <=4 requests/sec. Keep
+    // this parallel collection below 2.5/sec; never follow server next URLs.
+    const wait = lastStarted + 400 - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    lastStarted = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    let response;
+    try {
+      response = await fetchImpl(url, { method: "GET", redirect: "error", signal: controller.signal, headers: { Accept: "application/json", Authorization: `Bearer ${token}` } });
+      if (response?.status === 204) {
+        try { await response.body?.cancel?.(); } catch { /* no provider output */ }
+        return null;
+      }
+      if (response?.ok !== true) {
+        controller.abort();
+        try { await response?.body?.cancel?.(); } catch { /* no provider output */ }
+        refused("WINDOW_REQUEST_REJECTED");
+      }
+      return await helpers.readBoundedJsonResponse(response, controller);
+    } catch (error) {
+      controller.abort();
+      if (["WINDOW_REQUEST_REJECTED"].includes(error?.safeCode)) throw error;
+      refused("WINDOW_REQUEST_FAILED");
+    } finally { clearTimeout(timeout); }
+  };
+}
+function serializeRequester(request) {
+  let tail = Promise.resolve();
+  return (...args) => {
+    const current = tail.then(() => request(...args));
+    tail = current.catch(() => {});
+    return current;
+  };
+}
+function validatedLead(raw, expectedId, row, window, requireWindow) {
+  if (!record(raw) || positiveId(raw.id) !== expectedId || !positiveId(raw.pipeline_id) || !positiveId(raw.status_id) || !unixTime(raw.created_at) || typeof raw.name !== "string" || Buffer.byteLength(raw.name, "utf8") > 4000) refused("EXPANDED_LEAD_INVALID");
+  if (requireWindow && (raw.pipeline_id !== KC_PIPELINE_ID || raw.created_at < window.from || raw.created_at > window.to)) refused("WINDOW_LEAD_OUT_OF_SCOPE");
+  const ids = raw._embedded?.contacts;
+  if (!Array.isArray(ids) || ids.length > 50) refused("EXPANDED_LEAD_INVALID");
+  const seen = new Set();
+  for (const contact of ids) {
+    const id = positiveId(contact?.id);
+    if (!id || seen.has(id)) refused("EXPANDED_LEAD_INVALID");
+    seen.add(id);
+  }
+  const reduced = helpers.reduceLeadEvidence(raw, expectedId);
+  return { ...reduced, exactGeneratedName: raw.name === expectedGeneratedName(row) };
+}
+async function collectWindowLeads(row, window, requestWindow) {
+  validateEvidenceWindow(window);
+  expectedGeneratedName(row);
+  const leads = [], seen = new Set();
+  let pagesRead = 0, complete = false;
+  for (let page = 1; page <= WINDOW_MAX_PAGES; page += 1) {
+    const payload = await requestWindow(page);
+    pagesRead += 1;
+    if (payload === null) { complete = true; break; }
+    const batch = payload?._embedded?.leads;
+    if (!record(payload) || !Array.isArray(batch) || batch.length > WINDOW_PAGE_LIMIT) refused("WINDOW_PAGE_INVALID");
+    for (const raw of batch) {
+      const id = positiveId(raw?.id);
+      if (!id || seen.has(id)) refused("WINDOW_LEAD_DUPLICATED");
+      seen.add(id);
+      leads.push(validatedLead(raw, id, row, window, true));
+    }
+    const links = payload._links;
+    if (links !== undefined && links !== null && !record(links)) refused("WINDOW_PAGE_INVALID");
+    const next = links?.next;
+    if (next !== undefined && next !== null && !record(next)) refused("WINDOW_PAGE_INVALID");
+    if (next === undefined || next === null) {
+      // A full page without a next marker cannot establish a complete scan.
+      if (batch.length === WINDOW_PAGE_LIMIT) refused("WINDOW_PAGINATION_INCOMPLETE");
+      complete = true; break;
+    }
+    if (batch.length === 0) refused("WINDOW_PAGINATION_INCOMPLETE");
+  }
+  if (!complete) refused("WINDOW_PAGE_BOUND_EXCEEDED");
+  return { leads, pagesRead };
+}
+async function collectBrokerLeads(row, brokerContact, request, window) {
+  if (!brokerContact) refused("BROKER_LINK_SCAN_UNAVAILABLE");
+  const refs = brokerContact._embedded?.leads;
+  if (!Array.isArray(refs) || refs.length > BROKER_MAX_LINKED_LEADS) refused("BROKER_LINK_SCAN_INVALID");
+  const ids = [], seen = new Set();
+  for (const ref of refs) {
+    const id = positiveId(ref?.id);
+    if (!id || seen.has(id)) refused("BROKER_LINK_SCAN_INVALID");
+    seen.add(id); ids.push(id);
+  }
+  const leads = [];
+  for (const id of ids.sort((a, b) => a - b)) {
+    const raw = await request(`/api/v4/leads/${id}`, { with: "contacts" });
+    leads.push(validatedLead(raw, id, row, window, false));
+  }
+  return leads;
+}
+async function collectExpandedEvidence({ row, brokerContact, contactEvidence, request, requestWindow, scanNow }) {
+  const effective = validateCase(row, true);
+  if (!canInspectEffectiveBroker(row, effective)) refused("EXPECTED_BROKER_NOT_CANONICAL");
+  if (!positiveId(effective.broker.amoContactId) || !brokerContact || positiveId(brokerContact.id) !== positiveId(effective.broker.amoContactId)) refused("BROKER_CONTACT_ID_MISMATCH");
+  const window = makeEvidenceWindow(row, scanNow);
+  const existingPromise = typeof contactEvidence === "function" ? contactEvidence() : contactEvidence;
+  const [windowResult, brokerLinkedLeads, existing] = await Promise.all([
+    collectWindowLeads(row, window, requestWindow),
+    collectBrokerLeads(row, brokerContact, request, window),
+    existingPromise,
+  ]);
+  const exactIds = existing?.byPhone?.get(helpers.normalizePhone(row.phone))?.exactContactIds;
+  if (!Array.isArray(exactIds) || exactIds.some((id) => !positiveId(id)) || new Set(exactIds).size !== exactIds.length) refused("EXPANDED_CONTACT_EVIDENCE_INVALID");
+  const brokerId = positiveId(effective.broker.amoContactId);
+  const candidates = new Map();
+  for (const [scope, leads] of [["kc_creation_window", windowResult.leads], ["stored_broker_link", brokerLinkedLeads]]) {
+    for (const lead of leads) {
+      const brokerLinked = brokerId !== null && lead.contactIds.includes(brokerId);
+      const clientLinked = lead.contactIds.some((id) => exactIds.includes(id));
+      const inWindow = lead.createdAt >= window.from && lead.createdAt <= window.to;
+      if (!lead.exactGeneratedName && !clientLinked && !(brokerLinked && inWindow && lead.pipelineId === KC_PIPELINE_ID)) continue;
+      const current = candidates.get(lead.leadId);
+      if (current && JSON.stringify(current.privateLead) !== JSON.stringify(lead)) refused("EXPANDED_LEAD_CHANGED_DURING_SCAN");
+      const entry = current || { privateLead: lead, leadId: lead.leadId, pipelineId: lead.pipelineId, statusId: lead.statusId, exactGeneratedName: lead.exactGeneratedName, effectiveBrokerLinked: brokerLinked, exactClientContactLinked: clientLinked, strictBrokerSourceMarker: lead.sourceMarker, projectEvidence: safeProjectEvidence(lead.projectValues, row.project), leadCreatedAt: safeTimestamp(lead.createdAt, row.createdAt), scopes: [] };
+      entry.scopes.push(scope); candidates.set(lead.leadId, entry);
+    }
+  }
+  return { complete: true, capturedAt: iso(scanNow), window, contactEvidence: existing, brokerLinkedLeads, kcWindowLeads: windowResult.leads, windowPagesRead: windowResult.pagesRead, possibleCandidates: [...candidates.values()].sort((a, b) => a.leadId - b.leadId), databaseFingerprint: privateFingerprint(row) };
+}
+function safeProjectEvidence(values, project) {
+  if (!Array.isArray(values) || values.length === 0) return "missing";
+  if (values.length !== 1 || typeof values[0] !== "string") return "ambiguous";
+  const expected = project === "ZORGE9" ? "Зорге 9" : "Квартал Серебряный Бор";
+  return values[0] === expected ? "matches" : "different_or_unknown";
+}
+function assertCompleteNegativeEvidence(expanded, row) {
+  validateCase(row, true);
+  if (!expanded || expanded.complete !== true || expanded.databaseFingerprint !== privateFingerprint(row) || !Array.isArray(expanded.brokerLinkedLeads) || expanded.brokerLinkedLeads.length > BROKER_MAX_LINKED_LEADS || !Array.isArray(expanded.kcWindowLeads) || expanded.kcWindowLeads.length > WINDOW_PAGE_LIMIT * WINDOW_MAX_PAGES || !Number.isInteger(expanded.windowPagesRead) || expanded.windowPagesRead < 1 || expanded.windowPagesRead > WINDOW_MAX_PAGES) refused("EXPANDED_EVIDENCE_INCOMPLETE");
+  const expected = makeEvidenceWindow(row, new Date(expanded.capturedAt));
+  if (helpers.optionalStoredAmoLeadId(row.amoLeadId) !== null || JSON.stringify(expanded.window) !== JSON.stringify(expected) || !Array.isArray(expanded.possibleCandidates) || expanded.possibleCandidates.length !== 0) refused("EXPANDED_POSSIBLE_LEAD_PRESENT");
+  const contacts = expanded.contactEvidence?.byPhone?.get(helpers.normalizePhone(row.phone));
+  if (!contacts || !Array.isArray(contacts.exactContactIds) || !Array.isArray(contacts.leads) || contacts.leads.length !== 0) refused("EXPANDED_POSSIBLE_LEAD_PRESENT");
+  return true; // Proof about these bounded GET scopes, never write authority.
+}
 function runtimeMetadata(environment) {
   const metadata = {
     inspectorSha256: environment.FIXED_CASE_INSPECTOR_SHA256,
@@ -124,7 +304,7 @@ async function snapshot(prisma, environment, includeToken) {
     return { row, token: tokenRow?.value };
   }, { isolationLevel: "RepeatableRead", timeout: 20000, maxWait: 5000 });
 }
-function buildReport(row, evidence, brokerContact, storedLead, metadata) {
+function buildReport(row, evidence, brokerContact, storedLead, metadata, expanded = null) {
   const effective = validateCase(row, true);
   if (!canInspectEffectiveBroker(row, effective)) refused("EXPECTED_BROKER_NOT_CANONICAL");
   const expectedBrokerMatched = effective.broker.id === EXPECTED_BROKER_ID;
@@ -154,7 +334,14 @@ function buildReport(row, evidence, brokerContact, storedLead, metadata) {
   const resolution = inspected.publicRecord.resolution;
   // Complete bounded evidence permits a narrow absence statement only about
   // contact-linked KC leads. It does not certify absence anywhere in amoCRM.
+  let negativeEvidenceComplete = false;
+  if (expanded) {
+    try { negativeEvidenceComplete = assertCompleteNegativeEvidence(expanded, row); }
+    catch (error) { if (!["EXPANDED_POSSIBLE_LEAD_PRESENT"].includes(error?.safeCode)) throw error; }
+  }
   const conclusion = storedLeadId !== null ? "stored_link_requires_review"
+    : expanded?.possibleCandidates.length ? "possible_lead_observed_in_expanded_scopes"
+    : negativeEvidenceComplete ? "no_possible_lead_observed_in_complete_bounded_scopes"
     : resolution === "single_strong_candidate" ? "unique_strong_candidate_advisory"
     : ["no_exact_client_contact", "no_candidate"].includes(resolution) ? "no_contact_linked_kc_candidate_observed"
     : "ambiguous_or_incomplete_evidence";
@@ -183,6 +370,15 @@ function buildReport(row, evidence, brokerContact, storedLead, metadata) {
     strongLeadIds: candidates.filter((candidate) => candidate.strength === "strong").map((candidate) => candidate.leadId),
     linkedLeadCounts: inspected.publicRecord.linkedLeadEvidence,
     resolution, conclusion, candidates, rowUnchangedDuringScan: true,
+    expandedEvidence: expanded ? {
+      complete: expanded.complete, capturedAt: expanded.capturedAt, window: expanded.window,
+      kcWindowPagesRead: expanded.windowPagesRead, kcWindowLeadsRead: expanded.kcWindowLeads.length,
+      storedBrokerLinkedLeadsRead: expanded.brokerLinkedLeads.length,
+      possibleLeadIds: expanded.possibleCandidates.map((candidate) => candidate.leadId),
+      possibleCandidates: expanded.possibleCandidates.map(({ privateLead: _privateLead, ...candidate }) => candidate),
+      negativeEvidenceComplete,
+      absenceScope: "contact_links_and_all_stored_broker_links_and_bounded_kc_creation_window_only",
+    } : null,
     advisory: { ...NO_WRITE, candidateLinkEvidenceSufficient: expectedBrokerMatched && conclusion === "unique_strong_candidate_advisory" && brokerContactMatchesCurrentBrokerPhone && brokerFlag.value === true && effective.broker.status === "ACTIVE" && candidates.some((candidate) => candidate.strength === "strong" && candidate.strictBrokerSourceMarker) },
   };
 }
@@ -231,27 +427,32 @@ function safeTimestamp(values, reference) {
   const evidence = helpers.unixTimestampEvidence(values, reference);
   return { coverage: evidence.coverage, validValueCount: evidence.validValueCount, relativeToQueue: evidence.relativeToQueue };
 }
-async function run({ prisma, environment = process.env, fetchImpl } = {}) {
+async function run({ prisma, environment = process.env, fetchImpl, now = () => new Date() } = {}) {
   const metadata = runtimeMetadata(environment);
   const initial = await snapshot(prisma, environment, true);
   if (!canInspectEffectiveBroker(initial.row)) return buildOwnershipReport(initial.row, metadata);
   const token = typeof initial.token === "string" && initial.token.trim() ? initial.token : environment.AMO_ACCESS_TOKEN;
-  const request = helpers.createGetOnlyRequester(token, fetchImpl);
+  const scanNow = now();
+  const window = makeEvidenceWindow(initial.row, scanNow);
+  const request = serializeRequester(helpers.createGetOnlyRequester(token, fetchImpl));
+  const requestWindow = createKcWindowRequester(token, fetchImpl, window);
   await helpers.assertExpectedAccount(request);
   const effective = validateCase(initial.row, true);
   const brokerContactId = positiveId(effective.broker.amoContactId);
   const brokerContact = brokerContactId ? await request(`/api/v4/contacts/${brokerContactId}`, { with: "leads" }) : null;
   if (brokerContact && brokerContact.id !== brokerContactId) refused("BROKER_CONTACT_ID_MISMATCH");
-  const evidence = await helpers.collectAmoEvidence([initial.row], request);
+  const contactEvidence = () => helpers.collectAmoEvidence([initial.row], request);
+  const expanded = await collectExpandedEvidence({ row: initial.row, brokerContact, contactEvidence, request, requestWindow, scanNow });
+  const evidence = expanded.contactEvidence;
   const storedId = helpers.optionalStoredAmoLeadId(initial.row.amoLeadId);
   const storedRaw = storedId ? await request(`/api/v4/leads/${storedId}`, { with: "contacts" }) : null;
   const storedLead = storedRaw ? helpers.reduceLeadEvidence(storedRaw, storedId) : null;
   const final = await snapshot(prisma, environment, false);
   if (privateFingerprint(initial.row) !== privateFingerprint(final.row)) refused("CASE_CHANGED_DURING_SCAN");
-  return buildReport(initial.row, evidence, brokerContact, storedLead, metadata);
+  return buildReport(initial.row, evidence, brokerContact, storedLead, metadata, expanded);
 }
 function failureCode(error) {
-  const allowed = ["INVALID_CASE_TIMESTAMP", "INVALID_CASE_STATE", "RESPONSIBLE_BROKER_UNRESOLVED", "OWNER_BROKER_UNRESOLVED", "FIXED_CLIENT_MISSING", "EXPECTED_BROKER_MISMATCH", "EXPECTED_BROKER_NOT_CANONICAL", "INVALID_CLIENT_PHONE", "PROJECT_MAPPING_UNSUPPORTED", "INVALID_SYNC_ATTEMPTS", "INVALID_BROKER_CONTACT_ID", "AGENCY_SCOPE_TOO_LARGE", "SOURCE_ATTESTATION_INVALID", "DATABASE_ATTESTATION_INVALID", "UNSAFE_TLS_CONFIGURATION", "DATABASE_IDENTITY_MISMATCH", "BROKER_CONTACT_ID_MISMATCH", "CASE_CHANGED_DURING_SCAN"];
+  const allowed = ["INVALID_CASE_TIMESTAMP", "INVALID_CASE_STATE", "RESPONSIBLE_BROKER_UNRESOLVED", "OWNER_BROKER_UNRESOLVED", "FIXED_CLIENT_MISSING", "EXPECTED_BROKER_MISMATCH", "EXPECTED_BROKER_NOT_CANONICAL", "INVALID_CLIENT_PHONE", "PROJECT_MAPPING_UNSUPPORTED", "INVALID_SYNC_ATTEMPTS", "INVALID_BROKER_CONTACT_ID", "AGENCY_SCOPE_TOO_LARGE", "SOURCE_ATTESTATION_INVALID", "DATABASE_ATTESTATION_INVALID", "UNSAFE_TLS_CONFIGURATION", "DATABASE_IDENTITY_MISMATCH", "BROKER_CONTACT_ID_MISMATCH", "CASE_CHANGED_DURING_SCAN", "INVALID_CASE_NAME", "CASE_SCAN_WINDOW_UNSAFE", "WINDOW_REQUEST_CONFIGURATION_INVALID", "WINDOW_PAGE_BOUND_EXCEEDED", "WINDOW_REQUEST_REJECTED", "WINDOW_REQUEST_FAILED", "EXPANDED_LEAD_INVALID", "WINDOW_LEAD_OUT_OF_SCOPE", "WINDOW_PAGE_INVALID", "WINDOW_LEAD_DUPLICATED", "WINDOW_PAGINATION_INCOMPLETE", "BROKER_LINK_SCAN_UNAVAILABLE", "BROKER_LINK_SCAN_INVALID", "EXPANDED_CONTACT_EVIDENCE_INVALID", "EXPANDED_LEAD_CHANGED_DURING_SCAN", "EXPANDED_EVIDENCE_INCOMPLETE", "EXPANDED_POSSIBLE_LEAD_PRESENT"];
   try { return allowed.includes(error?.safeCode) ? error.safeCode : helpers.classifyFailure(error); } catch { return "UNKNOWN_FAILURE"; }
 }
 async function main() {
@@ -262,5 +463,5 @@ async function main() {
   try { process.stdout.write(`${JSON.stringify(await run({ prisma }), null, 2)}\n`); }
   finally { await prisma.$disconnect(); }
 }
-module.exports = { CLIENT_ID, EXPECTED_BROKER_ID, IS_BROKER_FIELD_ID, CLIENT_SELECT, validateCase, canInspectEffectiveBroker, brokerFlagEvidence, runtimeMetadata, snapshot, buildReport, buildOwnershipReport, run, failureCode, main };
+module.exports = { CLIENT_ID, EXPECTED_BROKER_ID, IS_BROKER_FIELD_ID, CLIENT_SELECT, KC_PIPELINE_ID, WINDOW_PAGE_LIMIT, WINDOW_MAX_PAGES, BROKER_MAX_LINKED_LEADS, privateFingerprint, expectedGeneratedName, makeEvidenceWindow, createKcWindowRequester, collectWindowLeads, collectBrokerLeads, collectExpandedEvidence, assertCompleteNegativeEvidence, validateCase, canInspectEffectiveBroker, brokerFlagEvidence, runtimeMetadata, snapshot, buildReport, buildOwnershipReport, run, failureCode, main };
 if (require.main === module) main().catch((error) => { process.stderr.write(`fixed_case_failure_code=${failureCode(error)}\n`); process.exitCode = 1; });
