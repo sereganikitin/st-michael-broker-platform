@@ -175,6 +175,34 @@ describe("approved single-client GET-only amo inspector", () => {
     expect(inspector.validateCase(actual).source).toBe("responsible");
   });
   it.each([
+    ["BROKER", null, true],
+    ["MANAGER", null, false],
+    ["BROKER", "private-merged-target", false],
+  ])("reports a scoped ownership mismatch DB-only without token/CRM: %s", async (role, mergedIntoId, canonical) => {
+    const actual = row({
+      responsibleBrokerId: "private-unexpected-broker",
+      responsibleBroker: { ...row().broker, id: "private-unexpected-broker", role, mergedIntoId },
+    });
+    const db = database([actual]);
+    const fetchImpl = crm();
+    const report = await inspector.run({ prisma: db, environment: env, fetchImpl });
+    expect(report).toMatchObject({ expectedBrokerMatched: false, expectedBrokerIsOwner: true, expectedBrokerIsResponsible: false, mappingSource: "responsible", effectiveBrokerRole: role, effectiveBrokerStatus: "ACTIVE", effectiveBrokerCanonical: canonical, crmInspectionPerformed: false, tokenRead: false, conclusion: "effective_broker_mismatch_db_only" });
+    expect(report.database).toMatchObject({ project: "ZORGE9", status: "NEW", amoSyncStatus: "FAILED", amoSyncAttempts: 3, errorClass: "create_reconciliation_required" });
+    expect(report.advisory).toEqual({ executablePayload: false, databaseMutationAuthorized: false, amoMutationAuthorized: false, retryAuthorized: false, candidateLinkEvidenceSufficient: false });
+    expect(db.tx.systemSetting.findUnique).not.toHaveBeenCalled();
+    expect(db.tx.client.findUnique).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(JSON.stringify(report)).not.toMatch(/private-unexpected-broker|private-merged-target|private-name|private-db-token|79991234567|example.test|rawValidValues/);
+  });
+  it("still refuses the exact client when the expected broker is neither owner nor responsible", async () => {
+    const actual = row({ brokerId: "private-other-owner", broker: { ...row().broker, id: "private-other-owner" }, responsibleBrokerId: "private-other-responsible", responsibleBroker: { ...row().broker, id: "private-other-responsible" } });
+    const db = database([actual]);
+    const fetchImpl = crm();
+    await expect(inspector.run({ prisma: db, environment: env, fetchImpl })).rejects.toMatchObject({ safeCode: "EXPECTED_BROKER_MISMATCH" });
+    expect(db.tx.systemSetting.findUnique).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it.each([
     { NODE_TLS_REJECT_UNAUTHORIZED: "0" }, { FIXED_CASE_INSPECTOR_SHA256: "wrong" }, { PRODUCTION_MIN_BROKER_ROWS: "0" }, { PRODUCTION_MIN_BROKER_ROWS: "9007199254740992" },
   ])("refuses unsafe runtime attestation: %j", async (changes) => {
     const db = database();
