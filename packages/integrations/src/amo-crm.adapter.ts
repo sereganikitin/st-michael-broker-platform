@@ -11,6 +11,7 @@ import {
   AMO_LEAD_ENUMS,
   AMO_CONTACT_FIELDS,
   AMO_PIPELINES,
+  leadToProject,
   readinessLevelToEnumId,
   purchaseTimingToEnumId,
   evaluateUniqueness,
@@ -78,6 +79,7 @@ export const AMO_FIXATION_RECOVER_STRONG_WINDOW_SECONDS = 15 * 60;
 export const AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD =
   "AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD";
 const AMO_FIXATION_RECOVER_LOOKUP_ATTEMPTS = 3;
+const AMO_FIXATION_RECOVER_MAX_EXACT_CONTACTS = 25;
 const AMO_FIXATION_RECOVER_RETRY_DELAY_MS = process.env.JEST_WORKER_ID
   ? 0
   : 1_500;
@@ -1803,14 +1805,16 @@ export class AmoCrmAdapter {
 
   /**
    * GET-only recovery after a lost POST /leads response. Matches exactly one
-   * KC-pipeline lead on the client contact, created in the given window, with
-   * the responsible broker attached. Never POSTs.
+   * KC-pipeline lead across all exact client-phone contacts, created in the
+   * given window, with the responsible broker attached. Never POSTs or
+   * chooses a client contact for a future create/uniqueness decision.
    */
   async recoverFixationLeadAfterAmbiguousCreate(params: {
     clientPhone: string;
     brokerAmoContactId: number;
     createdAfterUnix: number;
     createdBeforeUnix: number;
+    expectedProject?: Project;
     lookupAttempts?: number;
   }): Promise<RecoverFixationLeadResult> {
     if (
@@ -1821,6 +1825,11 @@ export class AmoCrmAdapter {
       params.createdAfterUnix > params.createdBeforeUnix
     ) {
       return { kind: "ambiguous", reason: "invalid_recover_window" };
+    }
+    if (params.expectedProject !== undefined && ![
+      Project.ZORGE9, Project.SILVER_BOR, Project.TOLBUKHINA,
+    ].includes(params.expectedProject)) {
+      return { kind: "ambiguous", reason: "invalid_expected_project" };
     }
     const attempts = Number.isSafeInteger(params.lookupAttempts)
       ? Math.max(1, Number(params.lookupAttempts))
@@ -1839,18 +1848,81 @@ export class AmoCrmAdapter {
     brokerAmoContactId: number;
     createdAfterUnix: number;
     createdBeforeUnix: number;
+    expectedProject?: Project;
   }): Promise<RecoverFixationLeadResult> {
     try {
-      const contact = await this.findContactByPhone(params.clientPhone, {
-        strict: true,
-      });
-      if (!contact) return { kind: "empty" };
-      const contactId = Number(contact.id);
-      if (!Number.isSafeInteger(contactId) || contactId <= 0) {
-        return { kind: "ambiguous", reason: "invalid_contact_id" };
+      const phone = normalizeAmoFixationClientPhone(params.clientPhone);
+      const contacts = await this.findContactsByPhoneExact(phone);
+      if (contacts.length === 0) return { kind: "empty" };
+      // A pathological duplicate cohort must not monopolize the scheduler.
+      // Exceeding the bound is incomplete evidence, never "no lead".
+      if (contacts.length > AMO_FIXATION_RECOVER_MAX_EXACT_CONTACTS) {
+        return { kind: "ambiguous", reason: "exact_contact_bound_exceeded" };
       }
-      const leads = await this.getLeadsByContact(contactId);
-      const matches = leads.filter(
+      const contactIds = new Set<number>();
+      for (const contact of contacts) {
+        const id = Number(contact.id);
+        if (!Number.isSafeInteger(id) || id <= 0 || contactIds.has(id)) {
+          return { kind: "ambiguous", reason: "invalid_contact_id" };
+        }
+        if (id === params.brokerAmoContactId) {
+          return { kind: "ambiguous", reason: "contact_role_collision" };
+        }
+        contactIds.add(id);
+      }
+      // Broadening recovery across duplicates must not auto-link a lead of a
+      // different project. Existing callers may run before the project PATCH
+      // has completed, so preserve their one-contact legacy path only.
+      if (contactIds.size > 1 && params.expectedProject === undefined) {
+        return { kind: "ambiguous", reason: "duplicate_contact_project_unconfirmed" };
+      }
+      const leads = new Map<number, AmoLead>();
+      const leadSnapshots = new Map<number, string>();
+      // Do not return early on the first match: another exact contact may
+      // contain a second matching lead or an unreadable partial response.
+      for (const contactId of contactIds) {
+        const contactLeads = await this.getLeadsByContact(contactId);
+        const seenLeadIds = new Set<number>();
+        for (const lead of contactLeads) {
+          const leadId = Number(lead.id);
+          if (!Number.isSafeInteger(leadId) || leadId <= 0 || seenLeadIds.has(leadId)) {
+            return { kind: "ambiguous", reason: "invalid_lead_id" };
+          }
+          seenLeadIds.add(leadId);
+          const pipelineId = Number(lead.pipeline_id);
+          const statusId = Number(lead.status_id);
+          const createdAt = Number(lead.created_at);
+          if (!Number.isSafeInteger(pipelineId) || pipelineId <= 0 ||
+              !Number.isSafeInteger(statusId) || statusId <= 0 ||
+              !Number.isSafeInteger(createdAt) || createdAt < 0 ||
+              !isKnownUniquenessLeadStage(pipelineId, statusId) ||
+              !isClassifiedUniquenessLeadStage(pipelineId, statusId) ||
+              !Array.isArray(lead._embedded?.contacts)) {
+            return { kind: "ambiguous", reason: "invalid_lead_snapshot" };
+          }
+          const linkedIds: number[] = lead._embedded.contacts
+            .map((contact: { id?: unknown }) => Number(contact.id));
+          if (linkedIds.some(id => !Number.isSafeInteger(id) || id <= 0) ||
+              new Set(linkedIds).size !== linkedIds.length) {
+            return { kind: "ambiguous", reason: "invalid_lead_contacts" };
+          }
+          linkedIds.sort((left, right) => left - right);
+          if (!linkedIds.includes(contactId)) {
+            return { kind: "ambiguous", reason: "incomplete_lead_contacts" };
+          }
+          const snapshot = JSON.stringify([
+            pipelineId, statusId, createdAt, linkedIds,
+            params.expectedProject === undefined ? null : leadToProject(lead),
+          ]);
+          const previousSnapshot = leadSnapshots.get(leadId);
+          if (previousSnapshot !== undefined && previousSnapshot !== snapshot) {
+            return { kind: "ambiguous", reason: "conflicting_lead_snapshot" };
+          }
+          leadSnapshots.set(leadId, snapshot);
+          leads.set(leadId, lead);
+        }
+      }
+      const matches = Array.from(leads.values()).filter(
         (lead) =>
           isKcPipelineLeadInWindow(
             lead,
@@ -1860,21 +1932,25 @@ export class AmoCrmAdapter {
       );
       if (matches.length === 0) return { kind: "empty" };
       if (matches.length > 1) {
-        return {
-          kind: "ambiguous",
-          reason: `multiple_leads:${matches
-            .map((lead) => Number(lead.id))
-            .join(",")}`,
-        };
+        return { kind: "ambiguous", reason: "multiple_leads" };
       }
       const leadId = Number(matches[0].id);
       if (!Number.isSafeInteger(leadId) || leadId <= 0) {
         return { kind: "ambiguous", reason: "invalid_lead_id" };
       }
+      if (params.expectedProject !== undefined) {
+        const project = leadToProject(matches[0]);
+        if (project === "UNKNOWN") {
+          return { kind: "ambiguous", reason: "lead_project_unconfirmed" };
+        }
+        if (project !== params.expectedProject) {
+          return { kind: "ambiguous", reason: "lead_project_mismatch" };
+        }
+      }
       return { kind: "found", leadId };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "lookup_failed";
-      return { kind: "ambiguous", reason: message.slice(0, 120) };
+    } catch {
+      // Transport/provider exceptions can contain credentials or client data.
+      return { kind: "ambiguous", reason: "lookup_failed" };
     }
   }
 
