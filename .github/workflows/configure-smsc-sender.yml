@@ -1,0 +1,190 @@
+name: Configure approved ST MICHAEL sender only (guarded)
+
+# Exactly one settings value, no SMS send/enable/recovery/account mutations.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_set_sender:
+        description: Configure exactly ST MICHAEL only; keep every SMS flow off
+        required: true
+        default: false
+        type: boolean
+      phone:
+        description: Authorized cost-only diagnostic recipient; no SMS is sent
+        required: true
+        type: string
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment: production
+    steps:
+      - name: Checkout exact reviewed sender configuration
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Attest production and configure fixed approved sender
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_REF: ${{ github.ref }}
+          EXPECTED_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          EXPECTED_SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          PRODUCTION_PG_SYSTEM_IDENTIFIER: ${{ vars.PRODUCTION_PG_SYSTEM_IDENTIFIER }}
+          PRODUCTION_MIN_BROKER_ROWS: ${{ vars.PRODUCTION_MIN_BROKER_ROWS }}
+        run: |
+          set -eEuo pipefail
+          stage=local_confirmation
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "sender_config_failed_stage=%s\nsender_config_exit_code=%s\n" "$stage" "$rc" >&2; fi' EXIT
+          set_stage() { stage=$1; printf 'sender_config_stage=%s\n' "$stage"; }
+          jq -e '.inputs.confirm_set_sender == true or .inputs.confirm_set_sender == "true"' "$GITHUB_EVENT_PATH" >/dev/null || exit 1
+          PHONE_INPUT=$(jq -er '.inputs.phone | select(type == "string") | select(length == 12 and test("^\\+79[0-9]{9}$"))' "$GITHUB_EVENT_PATH")
+          printf '::add-mask::%s\n' "$PHONE_INPUT"
+          printf '::add-mask::%s\n' "${PHONE_INPUT#+}"
+          set_stage local_validation
+          test "$EXPECTED_REPOSITORY" = sereganikitin/st-michael-broker-platform || exit 1
+          test "$EXPECTED_REF" = refs/heads/master || exit 1
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ && "$RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || exit 1
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || exit 1
+          test -n "$SSH_HOST" -a -n "$SSH_USER" -a -n "$SSH_PRIVATE_KEY" -a -n "$DEPLOY_PATH" || exit 1
+          case "$SSH_HOST" in ""|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ ]] || exit 1
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && test "$SSH_PORT" -ge 1 -a "$SSH_PORT" -le 65535 || exit 1
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 1
+          case "$DEPLOY_PATH/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          [[ "$EXPECTED_SSH_FINGERPRINT" =~ ^SHA256:[A-Za-z0-9+/]{43}$ && "$PRODUCTION_PG_SYSTEM_IDENTIFIER" =~ ^[1-9][0-9]{0,19}$ && "$PRODUCTION_MIN_BROKER_ROWS" =~ ^[1-9][0-9]{0,18}$ ]] || exit 1
+          script_path=scripts/configure-smsc-sender.js
+          test -f "$script_path" -a ! -L "$script_path" || exit 1
+          script_size=$(stat -c '%s' -- "$script_path")
+          [[ "$script_size" =~ ^[1-9][0-9]{0,5}$ ]] && test "$script_size" -le 65536 || exit 1
+          script_sha=$(sha256sum -- "$script_path" | awk '{print $1}')
+          [[ "$script_sha" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          set_stage local_current_master_and_https
+          master_sha=$(gh api "/repos/$EXPECTED_REPOSITORY/git/ref/heads/master" --jq '.object.sha')
+          test "$master_sha" = "$EXPECTED_SHA" || exit 1
+          deployed_sha=$(curl --fail --silent --show-error --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health | jq -er '.deployedSha | select(type == "string" and test("^[0-9a-f]{40}$"))')
+          compare_status=$(gh api "/repos/$EXPECTED_REPOSITORY/compare/$deployed_sha...$EXPECTED_SHA" --jq '.status')
+          case "$compare_status" in ahead|identical) ;; *) exit 1;; esac
+          unset master_sha compare_status GH_TOKEN
+          set_stage local_pinned_ssh
+          ssh_root=$(mktemp -d)
+          known_hosts="$ssh_root/known_hosts"
+          private_key="$ssh_root/deploy-key"
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "sender_config_failed_stage=%s\nsender_config_exit_code=%s\n" "$stage" "$rc" >&2; fi; rm -f -- "$known_hosts" "$private_key"; rmdir -- "$ssh_root" 2>/dev/null || true' EXIT
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$private_key"
+          chmod 600 "$private_key"
+          timeout 15 ssh-keyscan -p "$SSH_PORT" -t ed25519 "$SSH_HOST" > "$known_hosts" 2>/dev/null
+          chmod 600 "$known_hosts"
+          mapfile -t fingerprints < <(ssh-keygen -lf "$known_hosts" -E sha256 | awk '{print $2}' | sort -u)
+          test "${#fingerprints[@]}" -eq 1 && test "${fingerprints[0]}" = "$EXPECTED_SSH_FINGERPRINT" || exit 1
+          {
+            cat <<'REMOTE_PREFIX'
+          set -eEuo pipefail
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          stage=remote_validation
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "sender_config_failed_stage=%s\nsender_config_exit_code=%s\n" "$stage" "$rc" >&2; fi' EXIT
+          set_stage() { stage=$1; printf 'sender_config_stage=%s\n' "$stage"; }
+          deploy_path=$1
+          script_sha=$2
+          runtime_sha=$3
+          source_sha=$4
+          run_id=$5
+          phone=$6
+          pg_identifier=$7
+          broker_floor=$8
+          for tool in awk base64 curl docker flock git id jq readlink stat timeout; do command -v "$tool" >/dev/null || exit 1; done
+          [[ "$deploy_path" =~ ^/[A-Za-z0-9._/-]+$ && "$script_sha" =~ ^[0-9a-f]{64}$ && "$runtime_sha" =~ ^[0-9a-f]{40}$ && "$source_sha" =~ ^[0-9a-f]{40}$ && "$run_id" =~ ^[1-9][0-9]{0,19}$ && "$phone" =~ ^\+79[0-9]{9}$ && "$pg_identifier" =~ ^[1-9][0-9]{0,19}$ && "$broker_floor" =~ ^[1-9][0-9]{0,18}$ ]] || exit 1
+          case "$deploy_path/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          deploy_root=$(readlink -f -- "$deploy_path")
+          test -n "$deploy_root" -a "$deploy_root" != / -a -d "$deploy_root" || exit 1
+          set_stage remote_exclusive_existing_lock
+          lock_path=/tmp/st-michael-production-deploy.lock
+          test -d /tmp -a ! -L /tmp && test "$(readlink -f -- /tmp)" = /tmp || exit 1
+          test -f "$lock_path" -a ! -L "$lock_path" && test "$(readlink -f -- "$lock_path")" = "$lock_path" || exit 1
+          test "$(stat -c '%u:%a:%h:%s' -- "$lock_path")" = "$(id -u):600:1:0" || exit 1
+          lock_identity=$(stat -c '%d:%i' -- "$lock_path")
+          exec 9<"$lock_path"
+          flock -n 9 || exit 1
+          test "$(stat -Lc '%d:%i' -- /proc/$$/fd/9)" = "$lock_identity" || exit 1
+          set_stage remote_runtime_and_database_identity
+          cd -- "$deploy_root"
+          test "$(git rev-parse --show-toplevel)" = "$deploy_root" || exit 1
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git || exit 1
+          test "$(git symbolic-ref --short HEAD)" = master && test "$(git rev-parse HEAD)" = "$runtime_sha" || exit 1
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}" || exit 1
+          test "$(timeout 15 docker context show)" = default || exit 1
+          endpoint=$(timeout 15 docker context inspect default --format '{{.Endpoints.docker.Host}}')
+          case "$endpoint" in unix:///*) ;; *) exit 1;; esac
+          assert_health() {
+            local sha
+            sha=$(curl --fail --silent --show-error --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health | jq -er '.deployedSha | select(type == "string" and test("^[0-9a-f]{40}$"))') || return 1
+            test "$sha" = "$runtime_sha" || return 1
+            test "$(timeout 15 docker inspect --format '{{.State.Running}}' st-michael-api)" = true || return 1
+            test "$(timeout 15 docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$runtime_sha" || return 1
+          }
+          assert_health || exit 1
+          test "$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' st-michael-api)" = api || exit 1
+          project=$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' st-michael-api)
+          test -n "$project" && test "$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' st-michael-postgres)" = "$project" || exit 1
+          started_at=$(timeout 15 docker inspect --format '{{.State.StartedAt}}' st-michael-api)
+          database_metrics=$(timeout 20 docker exec st-michael-postgres psql -U postgres -d broker_platform --no-psqlrc -AtF '|' -v ON_ERROR_STOP=1 -c "BEGIN READ ONLY; SET LOCAL statement_timeout='5s'; SELECT system_identifier, (SELECT count(*) FROM public.brokers) FROM pg_control_system(); ROLLBACK;" | awk -F'|' 'NF==2 && $1 ~ /^[0-9]+$/ {print}')
+          [[ "$database_metrics" =~ ^[0-9]+\|[0-9]+$ ]] || exit 1
+          IFS='|' read -r actual_identifier actual_rows <<< "$database_metrics"
+          test "$actual_identifier" = "$pg_identifier" && test "$actual_rows" -ge "$broker_floor" || exit 1
+          set_stage remote_cost_only_checks_and_sender_setting
+          # No server file is created/copied/deleted. Fixed reviewed bytes are
+          # hash checked in memory and compiled with a fixed module identity.
+          base64 -d <<'FIXED_SENDER_PAYLOAD' | timeout 90 docker exec -i --user 0 \
+            -e PHONE="$phone" -e CONFIRM_SET_SENDER=1 -e GITHUB_RUN_ID="$run_id" \
+            -e SOURCE_SHA="$source_sha" -e RUNTIME_SHA="$runtime_sha" \
+            -e EXPECTED_PG_SYSTEM_IDENTIFIER="$pg_identifier" -e PRODUCTION_MIN_BROKER_ROWS="$broker_floor" \
+            st-michael-api node -e '
+            try {
+              const fs = require("fs"), crypto = require("crypto"), Module = require("module");
+              const source = fs.readFileSync(0);
+              const expected = process.argv[1];
+              if (!/^[0-9a-f]{64}$/.test(expected) || source.length > 65536 || crypto.createHash("sha256").update(source).digest("hex") !== expected) process.exit(1);
+              const instance = new Module("/app/scripts/configure-smsc-sender.js", module);
+              instance.filename = "/app/scripts/configure-smsc-sender.js";
+              instance.paths = Module._nodeModulePaths("/app/scripts");
+              instance._compile(source.toString("utf8"), instance.filename);
+              if (typeof instance.exports.run !== "function") process.exit(1);
+              instance.exports.run().catch(() => { console.error("Guarded sender configuration failed; no SMS sent; verify any ambiguous settings outcome."); process.exitCode = 1; });
+            } catch { console.error("Reviewed sender source validation failed."); process.exitCode = 1; }
+          ' "$script_sha"
+          REMOTE_PREFIX
+            base64 -w 0 -- "$script_path"
+            printf '\nFIXED_SENDER_PAYLOAD\n'
+            cat <<'REMOTE_SUFFIX'
+          set_stage remote_final_attestation
+          assert_health || exit 1
+          test "$(timeout 15 docker inspect --format '{{.State.StartedAt}}' st-michael-api)" = "$started_at" || exit 1
+          test "$(git rev-parse HEAD)" = "$runtime_sha" || exit 1
+          test -f "$lock_path" -a ! -L "$lock_path" && test "$(stat -c '%d:%i' -- "$lock_path")" = "$lock_identity" || exit 1
+          echo 'sender_configuration_completed_without_sms_or_service_restart=true'
+          REMOTE_SUFFIX
+          } | timeout --foreground 4m ssh -T -i "$private_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o NumberOfPasswordPrompts=0 \
+            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "${SSH_USER}@${SSH_HOST}" \
+            "bash -s -- '$DEPLOY_PATH' '$script_sha' '$deployed_sha' '$EXPECTED_SHA' '$RUN_ID' '$PHONE_INPUT' '$PRODUCTION_PG_SYSTEM_IDENTIFIER' '$PRODUCTION_MIN_BROKER_ROWS'"
