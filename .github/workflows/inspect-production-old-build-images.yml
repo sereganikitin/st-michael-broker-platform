@@ -199,6 +199,18 @@ jobs:
             metadata_refs=$(printf '%s\n' "$3" | awk -F'|' '{print $3}') || return 1
             printf '%s\n' "$container_refs" "$rollback_refs" "$metadata_refs" "$4" | awk 'NF' | sort -u || return 1
           }
+          prepare_attestation_metrics() {
+            local metric digest
+            candidate_count=$(printf '%s\n' "$candidates" | awk 'NF {count++} END {print count+0}') || return 1
+            candidate_size_upper_bound=$(printf '%s\n' "$candidates" | awk -F'|' 'NF {sum+=$3} END {printf "%.0f",sum}') || return 1
+            image_count=$(printf '%s\n' "$all_ids" | awk 'END {print NR}') || return 1
+            protected_count=$(printf '%s\n' "$protected_ids" | awk 'END {print NR}') || return 1
+            candidates_hash=$(printf '%s' "$candidates" | sha256sum | awk '{print $1}') || return 1
+            protected_hash=$(printf '%s' "$protected_ids" | sha256sum | awk '{print $1}') || return 1
+            root_available=$(df -P -B1 / | awk 'NR==2 {print $4}') || return 1
+            for metric in "$candidate_count" "$candidate_size_upper_bound" "$image_count" "$protected_count" "$root_available"; do [[ "$metric" =~ ^[0-9]{1,19}$ ]] || return 1; done
+            for digest in "$candidates_hash" "$protected_hash"; do [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1; done
+          }
           candidate_record() {
             local id=$1 created=$2 size=$3 image_tags=$4 protected=$5 project_name=$6 now=$7 tag service lower_tag
             [[ "$id" =~ ^sha256:[0-9a-f]{64}$ && "$created" =~ ^[1-9][0-9]{0,10}$ && "$size" =~ ^[0-9]{1,15}$ && "$now" =~ ^[1-9][0-9]{0,10}$ && "$project_name" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || return 1
@@ -239,6 +251,7 @@ jobs:
           IFS='|' read -r system_identifier broker_rows database_size <<< "$database_metrics"
           test "$system_identifier" = "$expected_system_identifier" && test "$broker_rows" -ge "$minimum_broker_rows" || exit 1
           inspection_epoch=$(date -u +%s)
+          [[ "$inspection_epoch" =~ ^[1-9][0-9]{0,10}$ ]] || exit 1
           image_records=''
           candidates=''
           missing_metadata_count=0
@@ -283,17 +296,17 @@ jobs:
           candidates=$(printf '%s' "$candidates" | awk 'NF' | sort)
           inventory_hash=$(printf '%s\n' "$source_sha" "$expected_deployed_sha" "$expected_system_identifier" "$project" "$containers_before" "$tags_before" "$metadata_before" "$image_records" "$protected_ids" "$candidates" | sha256sum | awk '{print $1}')
           [[ "$inventory_hash" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          prepare_attestation_metrics || { echo 'inventory_guard_failed=attestation_metrics'; exit 1; }
           printf 'inventory_sha256=%s\nsource_sha=%s\ndeployed_sha=%s\n' "$inventory_hash" "$source_sha" "$expected_deployed_sha"
-          printf 'inspection_epoch=%s\ncandidates_sha256=%s\nprotected_ids_sha256=%s\n' "$inspection_epoch" "$(printf '%s' "$candidates" | sha256sum | awk '{print $1}')" "$(printf '%s' "$protected_ids" | sha256sum | awk '{print $1}')"
-          printf 'candidate_count=%s\ncandidate_size_upper_bound_bytes=%s\n' "$(printf '%s\n' "$candidates" | awk 'NF {count++} END {print count+0}')" "$(printf '%s\n' "$candidates" | awk -F'|' 'NF {sum+=$3} END {printf "%.0f",sum}')"
-          printf 'image_count=%s\nprotected_image_id_count=%s\nhistorical_missing_metadata_image_ids=%s\n' "$(printf '%s\n' "$all_ids" | awk 'END {print NR}')" "$(printf '%s\n' "$protected_ids" | awk 'END {print NR}')" "$missing_metadata_count"
-          printf 'root_available_bytes=%s\nrequired_backup_available_bytes=%s\n' "$(df -P -B1 / | awk 'NR==2 {print $4}')" "$((8589934592 + database_size + 67108864))"
+          printf 'inspection_epoch=%s\ncandidates_sha256=%s\nprotected_ids_sha256=%s\n' "$inspection_epoch" "$candidates_hash" "$protected_hash"
+          printf 'candidate_count=%s\ncandidate_size_upper_bound_bytes=%s\n' "$candidate_count" "$candidate_size_upper_bound"
+          printf 'image_count=%s\nprotected_image_id_count=%s\nhistorical_missing_metadata_image_ids=%s\n' "$image_count" "$protected_count" "$missing_metadata_count"
+          printf 'root_available_bytes=%s\nrequired_backup_available_bytes=%s\n' "$root_available" "$((8589934592 + database_size + 67108864))"
           if [ -n "$candidates" ]; then
             while IFS='|' read -r id created_epoch size service candidate_tag; do
               # A Docker tag can contain a person's name/phone even when its
-              # characters are valid. Emit only its hash, never the raw tag.
-              tag_hash=$(printf '%s' "$candidate_tag" | sha256sum | awk '{print $1}')
-              printf 'candidate_id=%s candidate_created_epoch=%s candidate_size_bytes=%s candidate_service=%s candidate_tag_sha256=%s\n' "$id" "$created_epoch" "$size" "$service" "$tag_hash"
+              # characters are valid. Keep it in the aggregate attestation only.
+              printf 'candidate_id=%s candidate_created_epoch=%s candidate_size_bytes=%s candidate_service=%s\n' "$id" "$created_epoch" "$size" "$service"
             done <<< "$candidates"
           fi
           echo 'minimum_image_age_days=7'

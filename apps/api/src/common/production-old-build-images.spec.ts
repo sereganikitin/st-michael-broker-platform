@@ -147,7 +147,8 @@ describe("read-only old production build image inventory", () => {
     const outputs = remote.split("\n").filter((line: string) => /printf|echo/.test(line) && !line.includes(" | ")).join("\n");
     expect(outputs).not.toContain("$candidate_tag");
     expect(outputs).not.toMatch(/printf[^\n]*\$(?:containers_before|tags_before|metadata_before|image_records|protected_ids|candidate)\b/);
-    expect(outputs).toContain("candidate_tag_sha256");
+    expect(outputs).toContain("candidate_service=");
+    expect(outputs).not.toContain("candidate_tag_sha256");
   });
 
   it.each(["none", "container", "rollback", "metadata"])("keeps protection extraction fail-closed at %s", (failure) => {
@@ -168,6 +169,26 @@ protected_ids_snapshot ${quote(`container|${id}`)} ${quote(`st-michael-rollback-
     expect(result.status).toBe(failure === "none" ? 0 : 1);
     if (failure === "none") expect(result.stdout.trim().split("\n")).toEqual([id, another, third]);
     else expect(result.stdout).toBe("");
+  });
+
+  it.each(["none", "count", "hash", "df", "invalid_metric", "invalid_hash"])("validates every attestation capture before output for %s", (failure) => {
+    const script = `failure=${quote(failure)}
+candidates=${quote(`${id}|1|123|api|unit-api:synthetic-private`)}
+all_ids=${quote(id)}
+protected_ids=${quote(another)}
+awk() { if [ "$failure" = count ]; then return 1; fi; command awk "$@"; }
+sha256sum() { case "$failure" in hash) return 1;; invalid_hash) printf 'invalid\\n';; *) printf '%s\\n' ${quote("d".repeat(64))};; esac; }
+df() { case "$failure" in df) return 1;; invalid_metric) printf 'header\\nfs 1 2 invalid 1%% /\\n';; *) printf 'header\\nfs 10000 1000 9000 10%% /\\n';; esac; }
+${functionSource("prepare_attestation_metrics")}
+prepare_attestation_metrics || exit 1
+printf 'trusted_attestation=true\\n'`;
+    const result = runIsolated(script);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(failure === "none" ? 0 : 1);
+    expect(result.stdout).toBe(failure === "none" ? "trusted_attestation=true\n" : "");
+    const publish = remote.indexOf("printf 'inventory_sha256=%s");
+    expect(remote.indexOf("prepare_attestation_metrics ||")).toBeLessThan(publish);
+    expect(remote.slice(publish)).not.toMatch(/printf[^\n]*\$\((?!\()/);
   });
 
   it("prints fixed stage evidence even when an explicit guard exits", () => {
