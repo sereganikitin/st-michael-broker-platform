@@ -233,7 +233,7 @@ describe("SMSC strictly no-send diagnostic", () => {
   );
 
   it("estimates all three fixed texts without sending, accepting env text or creating an OTP", async () => {
-    const h = harness("", ["St. Michael"]);
+    const h = harness("", ["ST MICHAEL"]);
     const report = await run(
       { ...env, TEXT: secret, TEMPLATE: "login", CODE: "654321", COST: "3" },
       h.load,
@@ -290,15 +290,15 @@ describe("SMSC strictly no-send diagnostic", () => {
   });
 
   it("prefers exact approved brand and deduplicates identical current/approved sender", async () => {
-    const h = harness("St. Michael", [
-      "st. michael",
-      "St. Michael",
+    const h = harness("ST MICHAEL", [
+      "st michael",
+      "ST MICHAEL",
       "OtherSender",
     ]);
     const report = await run(env, h.load, h.emit);
     expect(report).toMatchObject({
       brandSelection: "exact",
-      approvedBrand: "St. Michael",
+      approvedBrand: "ST MICHAEL",
       configuredSenderStatus: "checked",
       providerRequests: 10,
     });
@@ -320,31 +320,72 @@ describe("SMSC strictly no-send diagnostic", () => {
       null,
       null,
       null,
-      "St. Michael",
-      "St. Michael",
-      "St. Michael",
+      "ST MICHAEL",
+      "ST MICHAEL",
+      "ST MICHAEL",
       "OtherSender",
       "OtherSender",
       "OtherSender",
     ]);
     expect(report.estimate).toEqual({ ok: true, cost: 4.5, parts: 1 });
     expect(JSON.stringify(h.emit.mock.calls)).not.toContain("OtherSender");
-    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("st. michael");
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("st michael");
   });
 
+  it("estimates the exact user-approved ST MICHAEL without substituting the legacy dotted sender", async () => {
+    const h = harness("St. Michael", ["St. Michael", "ST MICHAEL", "st michael"]);
+    const report = await run(env, h.load, h.emit);
+    expect(report).toMatchObject({
+      brandSelection: "exact", approvedBrand: "ST MICHAEL",
+      configuredSenderStatus: "skipped_not_approved_brand",
+      senderConfigurationChanged: false, additionalSenderSendingAuthorized: false,
+      smsSent: false, automaticRetry: false, providerRequests: 10,
+    });
+    const pairs = report.matrix.map((row: any, index: number) => ({
+      mode: row.senderMode, params: new URLSearchParams(h.fetch.mock.calls[index + 1][1].body),
+    }));
+    expect(pairs.filter((row: any) => row.mode === "approved_brand").map((row: any) => row.params.get("sender")))
+      .toEqual(["ST MICHAEL", "ST MICHAEL", "ST MICHAEL"]);
+    expect(pairs.some((row: any) => row.mode === "configured_brand")).toBe(false);
+    for (const row of pairs) expect(row.params.getAll("cost")).toEqual(["1"]);
+    for (const value of ["St. Michael", "st michael", phone, secret])
+      expect(JSON.stringify(h.emit.mock.calls)).not.toContain(value);
+    expect(Object.keys(h.prisma.systemSetting)).toEqual(["findMany"]);
+  });
+
+  it.each(["St. Michael", "ST. MICHAEL", "St.Michael", "ST  MICHAEL", "ST-MICHAEL", " ST MICHAEL", "ST MICHAEL "])(
+    "never normalizes punctuation/whitespace in %s into the agreed public sender",
+    async (sender) => {
+      const h = harness("", [sender]);
+      const report = await run(env, h.load, h.emit);
+      expect(report).toMatchObject({
+        brandSelection: "not_approved", approvedBrand: null,
+        configuredSenderStatus: "missing", smsSent: false,
+        senderConfigurationChanged: false, additionalSenderSendingAuthorized: false,
+      });
+      expect(report.matrix.some((row: any) => ["approved_brand", "configured_brand"].includes(row.senderMode))).toBe(false);
+      for (const [, options] of h.fetch.mock.calls.slice(1)) {
+        const params = new URLSearchParams(options.body);
+        expect(params.getAll("cost")).toEqual(["1"]);
+        if (params.has("sender")) expect(params.get("sender")).toBe(sender);
+      }
+      expect(JSON.stringify(h.emit.mock.calls)).not.toContain(sender);
+    },
+  );
+
   it("uses only a single unambiguous approved case variant without disclosing its raw value", async () => {
-    const h = harness("", ["ST. MICHAEL", "SMSC", "ForeignBusiness"]);
+    const h = harness("", ["St Michael", "SMSC", "ForeignBusiness"]);
     const report = await run(env, h.load, h.emit);
     expect(report).toMatchObject({
       brandSelection: "case_unique",
-      approvedBrand: "St. Michael",
+      approvedBrand: "ST MICHAEL",
       providerRequests: 10,
     });
     expect(
       new URLSearchParams(h.fetch.mock.calls[4][1].body).get("sender"),
-    ).toBe("ST. MICHAEL");
+    ).toBe("St Michael");
     for (const value of [
-      "ST. MICHAEL",
+      "St Michael",
       "SMSC",
       "ForeignBusiness",
       "000000",
@@ -355,15 +396,15 @@ describe("SMSC strictly no-send diagnostic", () => {
   });
 
   it("bounds current-case plus exact approved brand and neutral text to ten requests and preserves current TEST compatibility", async () => {
-    const h = harness("st. michael", ["st. michael", "St. Michael"]);
+    const h = harness("st michael", ["st michael", "ST MICHAEL"]);
     h.fetch.mockImplementation(async (url, options) =>
       response(
         url.endsWith("senders.php")
-          ? [{ sender: "st. michael" }, { sender: "St. Michael" }]
+          ? [{ sender: "st michael" }, { sender: "ST MICHAEL" }]
           : {
               cost:
                 new URLSearchParams(options.body).get("sender") ===
-                "st. michael"
+                "st michael"
                   ? "3.00"
                   : "4.50",
               cnt: 1,
@@ -387,13 +428,13 @@ describe("SMSC strictly no-send diagnostic", () => {
     ]);
     for (const [, options] of h.fetch.mock.calls.slice(1))
       expect(new URLSearchParams(options.body).getAll("cost")).toEqual(["1"]);
-    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("st. michael");
+    expect(JSON.stringify(h.emit.mock.calls)).not.toContain("st michael");
   });
 
   it.each([
     {
-      sender: "st. michael",
-      approved: ["st. michael", "ST. MICHAEL"],
+      sender: "st michael",
+      approved: ["st michael", "St Michael"],
       selection: "ambiguous",
       requests: 4,
     },
@@ -402,16 +443,16 @@ describe("SMSC strictly no-send diagnostic", () => {
       approved: [
         "SMSC",
         "St.Michael",
-        " St. Michael",
-        "St. Michael ",
-        "St. Michael Extra",
+        " ST MICHAEL",
+        "ST MICHAEL ",
+        "ST MICHAEL Extra",
         phone,
       ],
       selection: "not_approved",
       requests: 10,
     },
     {
-      sender: "St. Michael",
+      sender: "ST MICHAEL",
       approved: ["OtherSender"],
       selection: "not_approved",
       requests: 7,
@@ -442,10 +483,10 @@ describe("SMSC strictly no-send diagnostic", () => {
     },
   );
 
-  it.each([null, {}, [{ sender: "St. Michael" }, { sender: null }]])(
+  it.each([null, {}, [{ sender: "ST MICHAEL" }, { sender: null }]])(
     "fails closed on malformed approved list but still estimates default only",
     async (list) => {
-      const h = harness("St. Michael");
+      const h = harness("ST MICHAEL");
       h.fetch.mockResolvedValueOnce(response(list));
       const report = await run(env, h.load, h.emit);
       expect(report).toMatchObject({
@@ -479,8 +520,8 @@ describe("SMSC strictly no-send diagnostic", () => {
   });
 
   it("bounds all existing brand variants plus extra probes to eleven calls without retrying", async () => {
-    const names = ["St. Michael", "st. michael", "SMSC", "ForeignBusiness", "ThirdSender"];
-    const h = harness("st. michael", names);
+    const names = ["ST MICHAEL", "st michael", "SMSC", "ForeignBusiness", "ThirdSender"];
+    const h = harness("st michael", names);
     const report = await run(env, h.load, h.emit);
     expect(report).toMatchObject({ providerRequests: 10, additionalApprovedSendersEstimated: 0,
       configuredSenderStatus: "checked", automaticRetry: false });
@@ -667,5 +708,7 @@ describe("no-send workflow source contract", () => {
     expect(script).not.toMatch(/process\.env\.(COST|APPLY|BASE_URL)/);
     expect(script).toContain("const MAX_PROVIDER_REQUESTS = 11;");
     expect(script).toContain("if (providerRequests >= MAX_PROVIDER_REQUESTS)");
+    expect(script).toContain('const BRAND_SENDER = "ST MICHAEL";');
+    expect(script).not.toContain('const BRAND_SENDER = "St. Michael";');
   });
 });

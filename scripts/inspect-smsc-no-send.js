@@ -10,7 +10,7 @@ const MAX_RESPONSE_CHARS = 131072;
 const MAX_SENDERS = 1000;
 const MAX_PROVIDER_REQUESTS = 11;
 const MAX_EXTRA_APPROVED_SENDERS = 3;
-const BRAND_SENDER = "St. Michael";
+const BRAND_SENDER = "ST MICHAEL";
 const ESTIMATE_TEXTS = Object.freeze({
   test: "Тест СМС: 000000. Код недействителен для входа и смены пароля.",
   password_reset:
