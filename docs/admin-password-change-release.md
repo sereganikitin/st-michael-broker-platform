@@ -31,6 +31,13 @@ or enforce revocation. A rollback must retain the new verifier/version checks an
 the additive database column. Prefer a corrective forward release. Do not use
 the manual create-admin/import tooling as a recovery workaround.
 
+The deployment rollback checks a pure capability marker in the previous image
+before the loyalty compatibility guard. For an older image without the marker,
+it first stops and verifies the API, then performs read-only aggregate checks.
+Any new-format hash or positive authentication version blocks the old image and
+leaves the API stopped for a compatible forward fix. Inspection failures also
+fail closed; this guard never rewrites passwords or restores a database.
+
 Before publication, obtain an exact-SHA backup and isolated clone migration
 rehearsal; retain the existing protected production identity/disk checks. Never
 change a real user's password solely to smoke-test the release. Functional tests
