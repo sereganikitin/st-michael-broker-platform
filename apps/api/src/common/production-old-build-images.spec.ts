@@ -95,6 +95,59 @@ describe("read-only old production build image inventory", () => {
     expect(remote).toContain('test "$(printf \'%s\' "$candidate" | awk -F\'|\' \'{print $4}\')" = "$image_service"');
   });
 
+  it.each(["no_config", "no_labels", "unrelated_labels"])("inspects %s without granting tag-based provenance", (scenario) => {
+    const inspect = functionSource("inspect_image_record");
+    const nilSafe = '{{if .Config}}{{if .Config.Labels}}';
+    expect(inspect.split(nilSafe)).toHaveLength(3);
+    expect(inspect.split('{{else}}null{{end}}{{else}}null{{end}}')).toHaveLength(3);
+    const labels = scenario === "unrelated_labels" ? '""|""' : "null|null";
+    const record = `${id}|2026-09-01T00:00:00Z|123|${labels}|[]`;
+    const result = runIsolated(`timeout() { shift; "$@"; }
+docker() {
+  command test "$1 $2 $3" = 'image inspect --format' || return 99
+  case "$4" in *${quote(nilSafe)}*) ;; *) printf 'template nil failure\\n' >&2; return 99;; esac
+  printf '%s\\n' ${quote(record)}
+}
+${inspect}
+inspect_image_record ${quote(id)}`);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe(record);
+    expect(result.stderr).toBe("");
+    // Execute the actual provenance branch with missing labels. A plausible
+    // project build tag alone must never make this image a candidate.
+    const branch = remote.slice(remote.indexOf('if [ "$image_project" = "$project" ]'), remote.indexOf('image_records+='));
+    const candidate = runIsolated(`image_project=''; image_service=''; project=unit; digests='[]'; candidate=''
+id=${quote(id)}; created_epoch=1800000000; size=123; image_tags='unit-api:old'; protected_ids=''; inspection_epoch=${now}
+${functionSource("candidate_record")}
+${branch}
+printf '%s' "$candidate"`);
+    expect(candidate.status).toBe(0);
+    expect(candidate.stdout).toBe("");
+    expect(candidate.stderr).toBe("");
+  });
+
+  it.each([
+    [1, "nil pointer evaluating config synthetic-private@example.test", "template_nil"],
+    [1, "error calling index: index of untyped nil synthetic-private@example.test", "template_nil"],
+    [1, "template parsing error synthetic-private@example.test", "template_error"],
+    [1, "Error: No such image: synthetic-private@example.test", "image_not_found"],
+    [1, "permission denied synthetic-private@example.test", "permission_denied"],
+    [1, "Cannot connect to the Docker daemon synthetic-private@example.test", "daemon_unavailable"],
+    [124, "private timeout detail synthetic-private@example.test", "timeout"],
+    [137, "private arbitrary detail synthetic-private@example.test", "unknown"],
+  ])("sanitizes failed image inspection exit=%s into a fixed category", (status, message, kind) => {
+    const result = runIsolated(`timeout() { shift; "$@"; }
+docker() { printf '%s\\n' ${quote(message)} >&2; return ${status}; }
+${functionSource("inspect_image_record")}
+inspect_image_record ${quote(id)}`);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(`inventory_guard_failed=image_inspection\nimage_inspection_error_kind=${kind}\nimage_inspection_exit_code=${status}\n`);
+    expect(result.stderr).not.toContain("synthetic-private");
+  });
+
   it.each([
     [604800, "unit-api:20260901", "", 0, true],
     [604801, "unit-web:20260901", another, 0, true],
