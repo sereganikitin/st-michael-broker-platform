@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { PrismaClient } from '@st-michael/database';
 import { TelegramNewsService } from '../telegram-news/telegram-news.service';
+import { OpsSupportAccessService } from './ops-support-access.service';
 
 // 2026-09-08 (владелец): «чтобы я мог отвечать через телеграм-бот, а ты брал
 // это в работу». Входящие сообщения в ops-бота техподдержки (ответы владельца
@@ -62,6 +63,7 @@ export class OpsInboxService {
     @Inject('PrismaClient') private readonly prisma: PrismaClient,
     private readonly config: ConfigService,
     private readonly telegramNews: TelegramNewsService,
+    private readonly supportAccess: OpsSupportAccessService,
   ) {}
 
   private get inbox() {
@@ -139,6 +141,14 @@ export class OpsInboxService {
       for (const update of updates) {
         maxUpdateId = Math.max(maxUpdateId, Number(update.update_id));
         if (update.callback_query) {
+          try {
+            if (await this.supportAccess.handleCallback(update.callback_query as any)) {
+              callbacks += 1;
+              continue;
+            }
+          } catch (error) {
+            this.logger.warn(`[OpsInbox] access callback failed: ${(error as Error)?.message || error}`);
+          }
           // Кнопка согласования новости; чужие callback-и сервис игнорирует.
           callbacks += 1;
           try {
@@ -161,6 +171,14 @@ export class OpsInboxService {
         }
         const message = update.message;
         if (!message || message.from?.is_bot) continue;
+        try {
+          if (await this.supportAccess.handleMessage(message as any)) {
+            stored += 1;
+            continue;
+          }
+        } catch (error) {
+          this.logger.warn(`[OpsInbox] access command failed: ${(error as Error)?.message || error}`);
+        }
         const record = this.toRecord(update.update_id, message);
         try {
           await this.inbox.upsert({

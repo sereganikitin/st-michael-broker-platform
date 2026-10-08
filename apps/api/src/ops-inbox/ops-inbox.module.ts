@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { OpsInboxController } from './ops-inbox.controller';
 import { OpsInboxService } from './ops-inbox.service';
 import { TelegramNewsModule } from '../telegram-news/telegram-news.module';
+import { OpsSupportAccessService } from './ops-support-access.service';
 
 // 2026-09-08: входящие ops-бота техподдержки (ответы владельца/Анны) →
 // таблица ops_inbox_messages → рабочая сессия ассистента.
@@ -10,7 +11,7 @@ import { TelegramNewsModule } from '../telegram-news/telegram-news.module';
 @Module({
   imports: [ConfigModule, TelegramNewsModule],
   controllers: [OpsInboxController],
-  providers: [OpsInboxService],
+  providers: [OpsInboxService, OpsSupportAccessService],
   exports: [OpsInboxService],
 })
 export class OpsInboxModule {}
