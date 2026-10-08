@@ -25,12 +25,16 @@ function createService(updates: any[]) {
     handleUpdate: jest.fn(async () => 'created'),
     handleCallback: jest.fn(async () => 'approved'),
   };
+  const supportAccess = {
+    handleMessage: jest.fn(async () => false),
+    handleCallback: jest.fn(async () => false),
+  };
   const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
     ok: true,
     status: 200,
     json: async () => ({ ok: true, result: updates }),
   } as any);
-  const service = new OpsInboxService(prisma as any, config as any, telegramNews as any);
+  const service = new OpsInboxService(prisma as any, config as any, telegramNews as any, supportAccess as any);
   return { service, inbox, telegramNews, settings, fetchMock };
 }
 
