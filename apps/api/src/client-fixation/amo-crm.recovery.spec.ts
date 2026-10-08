@@ -4,11 +4,12 @@ import { AMO_CONTACT_FIELDS, AMO_PIPELINES } from "../../../../packages/integrat
 
 const PHONE = "+79990000901";
 const PARAMS = { clientPhone: PHONE, brokerAmoContactId: 201,
-  createdAfterUnix: 880, createdBeforeUnix: 1_900, lookupAttempts: 1 };
+  createdAfterUnix: 880, createdBeforeUnix: 1_900, expectedProject: Project.ZORGE9, lookupAttempts: 1 };
 const lead = (overrides: Record<string, unknown> = {}) => ({
   id: 301, name: "Synthetic fixation", pipeline_id: AMO_PIPELINES.KC,
   status_id: 143, created_at: 1_000,
   _embedded: { contacts: [{ id: 101 }, { id: 102 }, { id: 201 }] },
+  custom_fields_values: [{ field_id: 839179, field_name: "Объект интереса", values: [{ value: "Зорге 9" }] }],
   ...overrides,
 });
 
@@ -48,6 +49,25 @@ describe("GET-only ambiguous fixation recovery across exact contacts", () => {
     await expect(h.adapter.recoverFixationLeadAfterAmbiguousCreate(PARAMS))
       .resolves.toEqual({ kind: "found", leadId: 301 });
     expect(h.leads).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses broadened duplicate-contact recovery without an expected project", async () => {
+    const h = harness();
+    h.leads.mockResolvedValueOnce([]).mockResolvedValueOnce([lead()] as any);
+    await expect(h.adapter.recoverFixationLeadAfterAmbiguousCreate({ ...PARAMS, expectedProject: undefined }))
+      .resolves.toEqual({ kind: "ambiguous", reason: "duplicate_contact_project_unconfirmed" });
+    expect(h.leads).not.toHaveBeenCalled();
+    expect(h.createLead).not.toHaveBeenCalled();
+    expect(h.createContact).not.toHaveBeenCalled();
+    expect(h.updateLead).not.toHaveBeenCalled();
+  });
+
+  it("preserves single-contact legacy recovery when project PATCH is not yet available", async () => {
+    const h = harness([{ id: 101 }]);
+    h.leads.mockResolvedValue([lead({ custom_fields_values: [] })] as any);
+    await expect(h.adapter.recoverFixationLeadAfterAmbiguousCreate({ ...PARAMS, expectedProject: undefined }))
+      .resolves.toEqual({ kind: "found", leadId: 301 });
+    expect(h.leads).toHaveBeenCalledTimes(1);
   });
 
   it("never picks one of two distinct strong leads", async () => {
@@ -161,6 +181,19 @@ describe("GET-only ambiguous fixation recovery across exact contacts", () => {
     await expect(h.adapter.recoverFixationLeadAfterAmbiguousCreate({ ...PARAMS, expectedProject: Project.UNKNOWN }))
       .resolves.toEqual({ kind: "ambiguous", reason: "invalid_expected_project" });
     expect(h.exact).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Берзарина 37", "lead_project_mismatch"],
+    ["", "lead_project_unconfirmed"],
+  ])("blocks duplicate-contact recovery when the only matching lead has wrong/unknown project: %s", async (value, reason) => {
+    const h = harness();
+    const candidate = lead({ custom_fields_values: [{ field_id: 839179, field_name: "Объект интереса", values: [{ value }] }] });
+    h.leads.mockResolvedValueOnce([]).mockResolvedValueOnce([candidate] as any);
+    await expect(h.adapter.recoverFixationLeadAfterAmbiguousCreate(PARAMS))
+      .resolves.toEqual({ kind: "ambiguous", reason });
+    expect(h.leads).toHaveBeenCalledTimes(2);
+    expect(h.updateLead).not.toHaveBeenCalled();
   });
 
   it("performs the actual paginated exact-contact and complete lead hydration through GET only", async () => {

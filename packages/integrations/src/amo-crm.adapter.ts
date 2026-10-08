@@ -1870,6 +1870,12 @@ export class AmoCrmAdapter {
         }
         contactIds.add(id);
       }
+      // Broadening recovery across duplicates must not auto-link a lead of a
+      // different project. Existing callers may run before the project PATCH
+      // has completed, so preserve their one-contact legacy path only.
+      if (contactIds.size > 1 && params.expectedProject === undefined) {
+        return { kind: "ambiguous", reason: "duplicate_contact_project_unconfirmed" };
+      }
       const leads = new Map<number, AmoLead>();
       const leadSnapshots = new Map<number, string>();
       // Do not return early on the first match: another exact contact may
