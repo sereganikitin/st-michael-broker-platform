@@ -38,7 +38,7 @@ describe('amo sync retry safety', () => {
       'amoCRM временно недоступна.',
     );
     expect(publicAmoSyncError('AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD')).toBe(
-      'Ответ amoCRM не получен, лид не найден. Повтор будет выполнен автоматически.',
+      'Ответ amoCRM не получен. Автоповтор заблокирован до сверки сделки.',
     );
   });
 
@@ -47,6 +47,7 @@ describe('amo sync retry safety', () => {
     new Error('amoCRM 503 unavailable'),
     new Error('amoCRM did not return a lead id'),
     new Error('unexpected adapter failure'),
+    new Error('AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD'),
   ])('marks an ambiguous create response for manual reconciliation', (error) => {
     const stored = markAmoCreateFailure(error);
 
@@ -62,10 +63,19 @@ describe('amo sync retry safety', () => {
     ['amoCRM 401 Unauthorized', 'AMO_AUTH_401'],
     ['amoCRM 403 Forbidden', 'AMO_FORBIDDEN_403'],
     ['amoCRM 429 rate limit', 'AMO_RATE_LIMIT_429'],
-    ['AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD', 'AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD'],
   ])('keeps a definite rejected create eligible for the existing retry policy', (raw, code) => {
     expect(markAmoCreateFailure(new Error(raw))).toBe(code);
     expect(isSafeAmoCreateRetry(code)).toBe(true);
+  });
+
+  it('blocks legacy bare unconfirmed codes before scheduler/admin replay', () => {
+    const legacy = 'AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD';
+    expect(requiresAmoCreateReconciliation(legacy)).toBe(true);
+    expect(requiresAmoCreateReconciliation(new Error(legacy))).toBe(true);
+    expect(isSafeAmoCreateRetry(legacy)).toBe(false);
+    const marked = markAmoCreateFailure(legacy);
+    expect(marked).toBe(`${AMO_CREATE_RECONCILIATION_REQUIRED_MARKER}${legacy}`);
+    expect(markAmoCreateFailure(marked)).toBe(marked);
   });
 
   it('requeues only exhausted auth failures with no recorded amo lead', async () => {

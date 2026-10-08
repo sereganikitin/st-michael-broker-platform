@@ -1724,6 +1724,23 @@ describe("ClientFixationService amo broker attachment", () => {
     }
   });
 
+  it("distinguishes the responsible broker from a coordinator sending the fixation", async () => {
+    prisma.broker.findMany.mockResolvedValue([{ id: "manager-1" }]);
+    await (service as any).notifyAmoSyncFailed(
+      "client-delegated", "coordinator-owner", "AMO_TEMPORARY_UNAVAILABLE",
+      "NEW_CLIENT", "responsible-broker",
+    );
+    const messages = [
+      opsAlerts.sendSafely.mock.calls[0][0],
+      ...queue.add.mock.calls.map((call: any[]) => call[1].body),
+    ];
+    for (const text of messages) {
+      expect(text).toContain("Номер брокера: responsible-broker");
+      expect(text).toContain("Номер отправителя заявки: coordinator-owner");
+      expect(text).not.toContain("Номер брокера: coordinator-owner");
+    }
+  });
+
   it("alerts ops when Morekit rejects an already-created amo fixation", async () => {
     await (service as any).notifyMorekitFailed(
       "client-morekit-failed",

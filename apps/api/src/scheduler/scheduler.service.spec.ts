@@ -512,13 +512,13 @@ describe("SchedulerService.handleAmoFailedRetry", () => {
     expect(createFixationRequest).not.toHaveBeenCalled();
   });
 
-  it("terminalizes a legacy ambiguous create error without another amo POST", async () => {
+  it.each(["AMO_NETWORK_ERROR", "AMO_FIXATION_CREATE_UNCONFIRMED_NO_LEAD"])("terminalizes legacy %s without another amo POST", async (legacyError) => {
     const candidate = {
       id: "client-legacy-network-error",
       amoSyncStatus: "FAILED",
       fixationAgencyId: "agency-1",
       amoSyncAttempts: 1,
-      amoSyncError: "AMO_NETWORK_ERROR",
+      amoSyncError: legacyError,
       phone: "+79990000063",
       fullName: "Client",
       project: "ZORGE9",
@@ -545,7 +545,7 @@ describe("SchedulerService.handleAmoFailedRetry", () => {
       },
       data: {
         amoSyncStatus: "FAILED",
-        amoSyncError: `${AMO_CREATE_RECONCILIATION_REQUIRED_MARKER}AMO_NETWORK_ERROR`,
+        amoSyncError: `${AMO_CREATE_RECONCILIATION_REQUIRED_MARKER}${legacyError}`,
         amoSyncAttempts: 10,
         amoSyncLastAttemptAt: expect.any(Date),
       },

@@ -955,7 +955,7 @@ export class ClientFixationService {
         try {
           await this.notifyBrokerAmoContactMissing(
             client.id,
-            brokerId,
+            responsibleBroker.id,
             "NEW_CLIENT",
           );
         } catch (e: any) {
@@ -985,6 +985,7 @@ export class ClientFixationService {
             brokerId,
             amoSyncError || "",
             "NEW_CLIENT",
+            responsibleBroker.id,
           );
         } catch (e: any) {
           console.error(
@@ -1272,7 +1273,7 @@ export class ClientFixationService {
       try {
         await this.notifyBrokerAmoContactMissing(
           newClient.id,
-          brokerId,
+          responsibleBroker.id,
           "REFIX_AFTER_CLOSED",
         );
       } catch (e: any) {
@@ -1305,6 +1306,7 @@ export class ClientFixationService {
           brokerId,
           amoSyncError || "",
           "REFIX_AFTER_CLOSED",
+          responsibleBroker.id,
         );
       } catch (e: any) {
         console.error(
@@ -3138,9 +3140,17 @@ export class ClientFixationService {
     brokerId: string,
     error: string,
     scenario: "NEW_CLIENT" | "REFIX_AFTER_CLOSED" | "REFIX_AMO_DOWN",
+    responsibleBrokerId: string = brokerId,
   ) {
     const safeClientId = this.safeAlertIdentifier(clientId);
     const safeBrokerId = this.safeAlertIdentifier(brokerId);
+    const safeResponsibleBrokerId = this.safeAlertIdentifier(responsibleBrokerId);
+    const brokerAlertLines = [
+      `Номер брокера: ${safeResponsibleBrokerId}`,
+      ...(safeResponsibleBrokerId !== safeBrokerId
+        ? [`Номер отправителя заявки: ${safeBrokerId}`]
+        : []),
+    ];
     const category = this.categorizeAmoSyncError(error);
     const safeScenario = this.safeAlertIdentifier(scenario);
     const reconciliationRequired = requiresAmoCreateReconciliation(error);
@@ -3153,7 +3163,7 @@ export class ClientFixationService {
     const body = [
       headline,
       `Номер заявки: ${safeClientId}`,
-      `Номер брокера: ${safeBrokerId}`,
+      ...brokerAlertLines,
       `Причина: ${opsAlertCategoryLabel(category)}`,
       `Операция: ${opsAlertScenarioLabel(safeScenario)}`,
       disposition,
@@ -3167,7 +3177,7 @@ export class ClientFixationService {
               ? "🔴 Рабочий сайт: результат передачи в amoCRM не подтверждён"
               : "🔴 Рабочий сайт: фиксация не передана в amoCRM",
             `Номер заявки: ${safeClientId}`,
-            `Номер брокера: ${safeBrokerId}`,
+            ...brokerAlertLines,
             `Причина: ${opsAlertCategoryLabel(category)}`,
             `Операция: ${opsAlertScenarioLabel(safeScenario)}`,
             `Время: ${opsAlertTime()}`,
