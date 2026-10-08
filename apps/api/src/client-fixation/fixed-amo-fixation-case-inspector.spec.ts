@@ -2,6 +2,7 @@ import { spawnSync } from "child_process";
 import { readFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { parse } from "yaml";
+import { AMO_CONTACT_FIELDS } from "../../../../packages/integrations/src/amo-crm.fields";
 
 describe("approved single-client GET-only amo inspector", () => {
   const root = resolve(__dirname, "../../../..");
@@ -29,7 +30,7 @@ describe("approved single-client GET-only amo inspector", () => {
   const row = (changes: any = {}) => ({
     id: inspector.CLIENT_ID, brokerId: inspector.EXPECTED_BROKER_ID,
     responsibleBrokerId: null, responsibleBroker: null,
-    broker: { id: inspector.EXPECTED_BROKER_ID, amoContactId: 900001n, role: "BROKER", status: "ACTIVE", mergedIntoId: null, brokerAgencies: [{ agencyId: "private-agency", isPrimary: true }] },
+    broker: { id: inspector.EXPECTED_BROKER_ID, phone: "+79998887766", amoContactId: 900001n, role: "BROKER", status: "ACTIVE", mergedIntoId: null, brokerAgencies: [{ agencyId: "private-agency", isPrimary: true }] },
     phone: "+79991234567", project: "ZORGE9", fixationAgencyId: "private-agency",
     createdAt: new Date("2026-10-08T08:00:00Z"), updatedAt: new Date("2026-10-08T08:02:00Z"),
     amoLeadId: null, amoCreatedAt: null, amoUpdatedAt: null,
@@ -59,7 +60,7 @@ describe("approved single-client GET-only amo inspector", () => {
   const crm = () => jest.fn(async (url: URL) => {
     const path = new URL(url).pathname;
     if (path === "/api/v4/account") return json({ id: 28552900 });
-    if (path === "/api/v4/contacts/900001") return json({ id: 900001, name: "private-broker" });
+    if (path === "/api/v4/contacts/900001") return json({ id: 900001, name: "private-broker", custom_fields_values: [{ field_id: 557903, values: [{ value: "+79998887766" }] }, { field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] }] });
     if (path === "/api/v4/contacts") return json({ _embedded: { contacts: [clientContact()] } });
     if (path === "/api/v4/contacts/800001") return json(clientContact());
     if (path === "/api/v4/leads/101") return json(crmLead());
@@ -175,7 +176,7 @@ describe("approved single-client GET-only amo inspector", () => {
     expect(inspector.validateCase(actual).source).toBe("responsible");
   });
   it.each([
-    ["BROKER", null, true],
+    ["ADMIN", null, false],
     ["MANAGER", null, false],
     ["BROKER", "private-merged-target", false],
   ])("reports a scoped ownership mismatch DB-only without token/CRM: %s", async (role, mergedIntoId, canonical) => {
@@ -201,6 +202,71 @@ describe("approved single-client GET-only amo inspector", () => {
     await expect(inspector.run({ prisma: db, environment: env, fetchImpl })).rejects.toMatchObject({ safeCode: "EXPECTED_BROKER_MISMATCH" });
     expect(db.tx.systemSetting.findUnique).not.toHaveBeenCalled();
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it("reads the canonical PENDING responsible of this exact owner, without repair advice or identity output", async () => {
+    const actual = row({ responsibleBrokerId: "private-stored-responsible", responsibleBroker: { ...row().broker, id: "private-stored-responsible", status: "PENDING" } });
+    const db = database([actual, actual]);
+    const fetchImpl = crm();
+    const report = await inspector.run({ prisma: db, environment: env, fetchImpl });
+    expect(report).toMatchObject({ expectedBrokerMatched: false, expectedBrokerIsOwner: true, expectedBrokerIsResponsible: false, mappingSource: "responsible", effectiveBrokerRole: "BROKER", effectiveBrokerStatus: "PENDING", effectiveBrokerCanonical: true, crmInspectionPerformed: true, brokerLinkageReference: "stored_effective_broker_contact", brokerContactMatchesCurrentBrokerPhone: true, brokerContactHasBrokerFlag: true, brokerContactBrokerFlagEvidence: "valid" });
+    expect(report.strongLeadIds).toEqual([101]);
+    expect(report.candidates[0]).toMatchObject({ effectiveBrokerAttachment: "present", expectedBrokerAttachment: "not_inspected" });
+    expect(report.advisory).toEqual({ executablePayload: false, databaseMutationAuthorized: false, amoMutationAuthorized: false, retryAuthorized: false, candidateLinkEvidenceSufficient: false });
+    expect(db.tx.systemSetting.findUnique).toHaveBeenCalledTimes(1);
+    expect(db.tx.client.findUnique).toHaveBeenCalledTimes(2);
+    for (const [url, options] of fetchImpl.mock.calls as any) {
+      expect(new URL(url).origin).toBe("https://stmichael.amocrm.ru");
+      expect(options.method).toBe("GET");
+    }
+    expect(JSON.stringify(report)).not.toMatch(/private-stored-responsible|private-agency|private-name|private-db-token|79991234567|79998887766|example.test|rawValidValues|contactIds/);
+  });
+  it("does not emit repair advice even for an ACTIVE canonical responsible mismatch", () => {
+    const actual = row({ responsibleBrokerId: "private-stored-responsible", responsibleBroker: { ...row().broker, id: "private-stored-responsible", status: "ACTIVE" } });
+    const brokerContact = { id: 900001, custom_fields_values: [{ field_id: 557903, values: [{ value: "+79998887766" }] }, { field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] }] };
+    const report = inspector.buildReport(actual, evidence(), brokerContact, null, metadata);
+    expect(report.expectedBrokerMatched).toBe(false);
+    expect(report.brokerContactMatchesCurrentBrokerPhone).toBe(true);
+    expect(report.brokerContactHasBrokerFlag).toBe(true);
+    expect(report.advisory.candidateLinkEvidenceSufficient).toBe(false);
+  });
+  it.each([
+    [{ phone: "invalid" }, "INVALID_CLIENT_PHONE"],
+    [{ project: "UNKNOWN" }, "PROJECT_MAPPING_UNSUPPORTED"],
+    [{ responsibleBroker: { ...row().broker, id: "private-stored-responsible", brokerAgencies: new Array(101).fill({}) } }, "AGENCY_SCOPE_TOO_LARGE"],
+    [{ broker: { ...row().broker, id: "private-not-approved-owner" } }, "OWNER_BROKER_UNRESOLVED"],
+  ])("validates newly allowed canonical-responsible scope before token/CRM", async (changes, code) => {
+    const actual = row({ responsibleBrokerId: "private-stored-responsible", responsibleBroker: { ...row().broker, id: "private-stored-responsible", status: "PENDING" }, ...changes });
+    const db = database([actual]);
+    const fetchImpl = crm();
+    await expect(inspector.run({ prisma: db, environment: env, fetchImpl })).rejects.toMatchObject({ safeCode: code });
+    expect(db.tx.systemSetting.findUnique).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it("rejects a changed canonical responsible snapshot after the GET scan", async () => {
+    const initial = row({ responsibleBrokerId: "private-stored-responsible", responsibleBroker: { ...row().broker, id: "private-stored-responsible", status: "PENDING" } });
+    const changed = { ...initial, responsibleBroker: { ...initial.responsibleBroker, phone: "+79998880000" } };
+    await expect(inspector.run({ prisma: database([initial, changed]), environment: env, fetchImpl: crm() })).rejects.toMatchObject({ safeCode: "CASE_CHANGED_DURING_SCAN" });
+  });
+  it("binds the reported broker checkbox to the reviewed shared field constant", () => {
+    expect(inspector.IS_BROKER_FIELD_ID).toBe(AMO_CONTACT_FIELDS.IS_BROKER);
+  });
+  it.each([
+    [undefined, "missing", null],
+    [[], "missing", null],
+    [[{ field_id: 835415, values: [{ value: true }] }], "valid", true],
+    [[{ field_id: 835415, values: [{ value: false }] }], "valid", false],
+    [[{ field_id: 835415, values: [{ value: "true" }] }], "invalid", null],
+    [[{ field_id: 835415, values: [{ value: 1 }] }], "invalid", null],
+    [[{ field_id: 835415, values: [{ value: true }, { value: false }] }], "invalid", null],
+    [[{ field_id: 835415, values: [{ value: true }] }, { field_id: 835415, values: [{ value: true }] }], "invalid", null],
+  ])("does not invent broker-flag evidence: %j", (fields, coverage, value) => {
+    expect(inspector.brokerFlagEvidence({ custom_fields_values: fields })).toEqual({ coverage, value });
+  });
+  it("keeps an unmatched broker phone as safe negative evidence, never a phone output", () => {
+    const report = inspector.buildReport(row(), evidence(), { id: 900001, custom_fields_values: [{ field_id: 557903, values: [{ value: "+79990000000" }] }] }, null, metadata);
+    expect(report.brokerContactMatchesCurrentBrokerPhone).toBe(false);
+    expect(report.advisory.candidateLinkEvidenceSufficient).toBe(false);
+    expect(JSON.stringify(report)).not.toMatch(/79990000000|79998887766/);
   });
   it.each([
     { NODE_TLS_REJECT_UNAUTHORIZED: "0" }, { FIXED_CASE_INSPECTOR_SHA256: "wrong" }, { PRODUCTION_MIN_BROKER_ROWS: "0" }, { PRODUCTION_MIN_BROKER_ROWS: "9007199254740992" },
