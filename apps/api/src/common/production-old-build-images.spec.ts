@@ -10,6 +10,9 @@ describe("read-only old production build image inventory", () => {
   const run = workflow.jobs.inspect.steps[1].run.replace(/\r\n/g, "\n");
   const remote = run.split("<<'REMOTE'\n")[1].split("\nREMOTE")[0];
   const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
+  const python = process.platform === "win32"
+    ? "C:/Users/PC-OpenClaw/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe"
+    : "python3";
   const quote = (value: string) => `'${value.replace(/'/g, `'"'"'`)}'`;
   const functionSource = (name: string) => remote.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?^\\}`, "m"))![0];
   const runIsolated = (script: string) => spawnSync(bash, ["-s"], {
@@ -89,24 +92,27 @@ describe("read-only old production build image inventory", () => {
   it("requires exact Compose image provenance and refuses registry digests", () => {
     expect(remote).toContain('"com.docker.compose.project"');
     expect(remote).toContain('"com.docker.compose.service"');
-    expect(remote).toContain("{{json .RepoDigests}}");
+    expect(remote).toContain('digests = data.get("RepoDigests")');
     expect(remote).toContain('[ "$image_project" = "$project" ] && [ "$digests" = \'[]\' ]');
     expect(remote).toContain('case "$image_service" in api|web)');
     expect(remote).toContain('test "$(printf \'%s\' "$candidate" | awk -F\'|\' \'{print $4}\')" = "$image_service"');
   });
 
-  it.each(["no_config", "no_labels", "unrelated_labels"])("inspects %s without granting tag-based provenance", (scenario) => {
+  it.each(["no_config", "null_config", "no_labels", "null_labels", "unrelated_labels"])("inspects %s without granting tag-based provenance", (scenario) => {
     const inspect = functionSource("inspect_image_record");
-    const nilSafe = '{{if .Config}}{{if .Config.Labels}}';
-    expect(inspect.split(nilSafe)).toHaveLength(3);
-    expect(inspect.split('{{else}}null{{end}}{{else}}null{{end}}')).toHaveLength(3);
-    const labels = scenario === "unrelated_labels" ? '""|""' : "null|null";
-    const record = `${id}|2026-09-01T00:00:00Z|123|${labels}|[]`;
+    expect(inspect).not.toContain("--format");
+    expect(inspect).toContain("python3 -B -c");
+    const image: any = { Id: id, Created: "2026-09-01T00:00:00Z", Size: 123, RepoDigests: null };
+    if (scenario === "null_config") image.Config = null;
+    if (scenario === "no_labels") image.Config = {};
+    if (scenario === "null_labels") image.Config = { Labels: null };
+    if (scenario === "unrelated_labels") image.Config = { Labels: { owner: "synthetic-private@example.test" } };
+    const record = `${id}|2026-09-01T00:00:00Z|123|null|null|[]`;
     const result = runIsolated(`timeout() { shift; "$@"; }
+python3() { command ${quote(python)} "$@"; }
 docker() {
-  command test "$1 $2 $3" = 'image inspect --format' || return 99
-  case "$4" in *${quote(nilSafe)}*) ;; *) printf 'template nil failure\\n' >&2; return 99;; esac
-  printf '%s\\n' ${quote(record)}
+  command test "$1 $2" = 'image inspect' && command test "$#" -eq 3 && command test "$3" = ${quote(id)} || return 99
+  printf '%s\\n' ${quote(JSON.stringify([image]))}
 }
 ${inspect}
 inspect_image_record ${quote(id)}`);
@@ -128,9 +134,102 @@ printf '%s' "$candidate"`);
   });
 
   it.each([
+    ["empty", []], ["multiple", [{}, {}]], ["object_root", {}],
+    ["wrong_id", [{ Id: another, Created: "2026-09-01T00:00:00Z", Size: 1 }]],
+    ["invalid_created", [{ Id: id, Created: { private: "synthetic-private@example.test" }, Size: 1 }]],
+    ["size_bool", [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: true }]],
+    ["size_float", [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: 1.5 }]],
+    ["size_string", [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: "1" }]],
+    ["config_array", [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: 1, Config: [] }]],
+    ["labels_array", [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: 1, Config: { Labels: [] } }]],
+    ["project_number", [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: 1, Config: { Labels: { "com.docker.compose.project": 1 } } }]],
+    ["digests_object", [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: 1, RepoDigests: {} }]],
+    ["digests_nonstrings", [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: 1, RepoDigests: [false] }]],
+  ])("fails closed on actual Python JSON projection scenario=%s without private output", (_scenario, data) => {
+    const result = runIsolated(`timeout() { shift; "$@"; }
+python3() { command ${quote(python)} "$@"; }
+docker() { printf '%s\\n' ${quote(JSON.stringify(data))}; }
+${functionSource("inspect_image_record")}
+inspect_image_record ${quote(id)}`);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("inventory_guard_failed=image_inspection\nimage_inspection_error_kind=record_invalid\nimage_inspection_exit_code=1\n");
+  });
+
+  it("uses actual Python projection and safely encodes delimiters while discarding unrelated private fields", () => {
+    const fixture = [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: 123, Config: {
+      Env: ["SECRET=synthetic-private@example.test"],
+      Labels: { "com.docker.compose.project": "foreign|project\nname", "com.docker.compose.service": "api", private: "synthetic-private@example.test" },
+    }, RepoDigests: ["registry|digest"] }];
+    const result = runIsolated(`timeout() { shift; "$@"; }
+python3() { command ${quote(python)} "$@"; }
+docker() { printf '%s\\n' ${quote(JSON.stringify(fixture))}; }
+${functionSource("inspect_image_record")}
+inspect_image_record ${quote(id)}`);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    const fields = result.stdout.trim().split("|");
+    expect(fields).toHaveLength(6);
+    expect(JSON.parse(fields[3])).toBe("foreign|project\nname");
+    expect(JSON.parse(fields[5])).toEqual(["registry|digest"]);
+    expect(result.stdout).not.toContain("synthetic-private");
+  });
+
+  it.each(["invalid_json", "duplicate_key", "non_json_constant", "response_too_large"])("bounds malformed raw inspect %s before any record output", (scenario) => {
+    const payload = scenario === "duplicate_key" ? `[{"Id":"${id}","Id":"${another}"}]`
+      : scenario === "non_json_constant" ? `[{"Id":"${id}","Created":"2026-09-01T00:00:00Z","Size":1,"private":NaN}]`
+      : "synthetic-private@example.test";
+    const result = runIsolated(`scenario=${quote(scenario)}
+timeout() { shift; "$@"; }
+python3() { command ${quote(python)} "$@"; }
+docker() { if [ "$scenario" = response_too_large ]; then printf '%2097153s' ''; else printf '%s\\n' ${quote(payload)}; fi; }
+${functionSource("inspect_image_record")}
+inspect_image_record ${quote(id)}`);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(`inventory_guard_failed=image_inspection\nimage_inspection_error_kind=${scenario === "response_too_large" ? "response_too_large" : "record_invalid"}\nimage_inspection_exit_code=${scenario === "response_too_large" ? 42 : 1}\n`);
+  });
+
+  it.each([
+    { name: "empty", digests: [] }, { name: "null", digests: null },
+    { name: "absent", digests: undefined }, { name: "registry", digests: ["registry.example/image@sha256:synthetic"] },
+  ])("retains exact known Compose provenance and registry-digest exclusion for $name", ({ digests }) => {
+    const fixture = [{ Id: id, Created: "2026-09-01T00:00:00Z", Size: 123, Config: {
+      Labels: { "com.docker.compose.project": "unit", "com.docker.compose.service": "api" },
+    }, RepoDigests: digests }];
+    const result = runIsolated(`timeout() { shift; "$@"; }
+python3() { command ${quote(python)} "$@"; }
+docker() { printf '%s\\n' ${quote(JSON.stringify(fixture))}; }
+${functionSource("inspect_image_record")}
+inspect_image_record ${quote(id)}`);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    const fields = result.stdout.trim().split("|");
+    expect(fields).toHaveLength(6);
+    const branch = remote.slice(remote.indexOf('if [ "$image_project" = "$project" ]'), remote.indexOf('image_records+='));
+    const candidate = runIsolated(`image_project=${quote(JSON.parse(fields[3]))}; image_service=${quote(JSON.parse(fields[4]))}; project=unit; digests=${quote(fields[5])}; candidate=''
+id=${quote(id)}; created_epoch=1800000000; size=123; image_tags='unit-api:old'; protected_ids=''; inspection_epoch=${now}
+${functionSource("candidate_record")}
+${branch}
+printf '%s' "$candidate"`);
+    expect(candidate.status).toBe(0);
+    expect(Boolean(candidate.stdout)).toBe(!digests || digests.length === 0);
+    if (candidate.stdout) expect(candidate.stdout).toBe(`${id}|1800000000|123|api|unit-api:old`);
+  });
+
+  it.each([
     [1, "nil pointer evaluating config synthetic-private@example.test", "template_nil"],
     [1, "error calling index: index of untyped nil synthetic-private@example.test", "template_nil"],
     [1, "template parsing error synthetic-private@example.test", "template_error"],
+    [1, 'template parsing error map has no entry for key "Config" synthetic-private@example.test', "template_missing_config"],
+    [1, 'template parsing error map has no entry for key "Labels" synthetic-private@example.test', "template_missing_labels"],
+    [1, 'template parsing error map has no entry for key "RepoDigests" synthetic-private@example.test', "template_missing_repo_digests"],
+    [1, 'template parsing error map has no entry for key "ArbitraryPrivate" synthetic-private@example.test', "template_missing_key"],
+    [1, "template parsing error can't evaluate field Config synthetic-private@example.test", "template_field_type"],
+    [1, 'template parsing error function "ArbitraryPrivate" not defined synthetic-private@example.test', "template_function"],
+    [1, 'template parsing error unclosed action synthetic-private@example.test', "template_syntax"],
+    [1, 'template parsing error error calling json synthetic-private@example.test', "template_json"],
     [1, "Error: No such image: synthetic-private@example.test", "image_not_found"],
     [1, "permission denied synthetic-private@example.test", "permission_denied"],
     [1, "Cannot connect to the Docker daemon synthetic-private@example.test", "daemon_unavailable"],
