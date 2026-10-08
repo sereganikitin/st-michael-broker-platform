@@ -8,8 +8,11 @@ const helpers = typeof FIXED_CASE_RECONCILIATION_HELPERS !== "undefined"
   : require("./inspect-amo-fixation-lead-reconciliation.js");
 const CLIENT_ID = "8d082b21-7cba-4778-a6c6-1d80bfe7ed7c";
 const EXPECTED_BROKER_ID = "6e414141-f2ca-4c71-8402-2032c9186568";
+// AMO_CONTACT_FIELDS.IS_BROKER in the reviewed shared field map; regression
+// tests bind this exact checkbox ID, without importing a mutable live module.
+const IS_BROKER_FIELD_ID = 835415;
 const BROKER_SELECT = {
-  id: true, amoContactId: true, role: true, status: true, mergedIntoId: true,
+  id: true, phone: true, amoContactId: true, role: true, status: true, mergedIntoId: true,
   brokerAgencies: { select: { agencyId: true, isPrimary: true }, take: 101 },
 };
 const CLIENT_SELECT = {
@@ -61,24 +64,34 @@ function effectiveBroker(row) {
   if (!row.broker || row.broker.id !== row.brokerId) refused("OWNER_BROKER_UNRESOLVED");
   return { source: "owner_fallback", broker: row.broker };
 }
+function canInspectEffectiveBroker(row, effective = effectiveBroker(row)) {
+  if (effective.broker.role !== "BROKER" || effective.broker.mergedIntoId !== null) return false;
+  if (effective.broker.id === EXPECTED_BROKER_ID) return true;
+  // The additional read-only scope is the stored responsible relation of this
+  // one approved owner's one client, never a guessed/newest duplicate account.
+  return row.brokerId === EXPECTED_BROKER_ID && row.broker?.id === EXPECTED_BROKER_ID &&
+    row.responsibleBrokerId !== null && effective.source === "responsible";
+}
 function validateCase(row, allowOwnershipMismatch = false) {
   if (!row || row.id !== CLIENT_ID) refused("FIXED_CLIENT_MISSING");
   const effective = effectiveBroker(row);
   const expectedParticipant = row.brokerId === EXPECTED_BROKER_ID || row.responsibleBrokerId === EXPECTED_BROKER_ID;
   const expectedEffective = effective.broker.id === EXPECTED_BROKER_ID;
   if (!expectedParticipant || (!expectedEffective && !allowOwnershipMismatch)) refused("EXPECTED_BROKER_MISMATCH");
+  if (row.brokerId === EXPECTED_BROKER_ID && row.broker?.id !== EXPECTED_BROKER_ID) refused("OWNER_BROKER_UNRESOLVED");
   if (expectedEffective && (effective.broker.role !== "BROKER" || effective.broker.mergedIntoId !== null)) refused("EXPECTED_BROKER_NOT_CANONICAL");
   if (!["BROKER", "MANAGER", "ADMIN"].includes(effective.broker.role)) refused("INVALID_CASE_STATE");
   enumValue("brokerStatus", effective.broker.status);
-  if (expectedEffective && !helpers.normalizePhone(row.phone)) refused("INVALID_CLIENT_PHONE");
-  if (expectedEffective && !["ZORGE9", "SILVER_BOR"].includes(row.project)) refused("PROJECT_MAPPING_UNSUPPORTED");
+  const crmReadAllowed = canInspectEffectiveBroker(row, effective);
+  if (crmReadAllowed && !helpers.normalizePhone(row.phone)) refused("INVALID_CLIENT_PHONE");
+  if (crmReadAllowed && !["ZORGE9", "SILVER_BOR"].includes(row.project)) refused("PROJECT_MAPPING_UNSUPPORTED");
   if (!Number.isSafeInteger(row.amoSyncAttempts) || row.amoSyncAttempts < 0) refused("INVALID_SYNC_ATTEMPTS");
   for (const key of ["project", "amoSyncStatus", "uniquenessStatus", "fixationStatus", "status"]) enumValue(key, row[key]);
   for (const key of ["createdAt", "updatedAt"]) iso(row[key]);
   for (const key of ["amoCreatedAt", "amoUpdatedAt", "amoSyncLastAttemptAt", "uniquenessExpiresAt", "fixationExpiresAt"]) iso(row[key], true);
   helpers.optionalStoredAmoLeadId(row.amoLeadId);
-  if (expectedEffective && effective.broker.amoContactId !== null && !positiveId(effective.broker.amoContactId)) refused("INVALID_BROKER_CONTACT_ID");
-  if (expectedEffective && (!Array.isArray(effective.broker.brokerAgencies) || effective.broker.brokerAgencies.length > 100)) refused("AGENCY_SCOPE_TOO_LARGE");
+  if (crmReadAllowed && effective.broker.amoContactId !== null && !positiveId(effective.broker.amoContactId)) refused("INVALID_BROKER_CONTACT_ID");
+  if (crmReadAllowed && (!Array.isArray(effective.broker.brokerAgencies) || effective.broker.brokerAgencies.length > 100)) refused("AGENCY_SCOPE_TOO_LARGE");
   return effective;
 }
 function privateFingerprint(row) {
@@ -107,17 +120,23 @@ async function snapshot(prisma, environment, includeToken) {
     if (!identity || identity.read_only !== "on" || identity.database_name !== "broker_platform" || identity.system_identifier !== environment.PRODUCTION_PG_SYSTEM_IDENTIFIER || !/^[0-9]+$/.test(identity.broker_rows || "") || BigInt(identity.broker_rows) < BigInt(environment.PRODUCTION_MIN_BROKER_ROWS)) refused("DATABASE_IDENTITY_MISMATCH");
     const row = await tx.client.findUnique({ where: { id: CLIENT_ID }, select: CLIENT_SELECT });
     const effective = validateCase(row, true);
-    const tokenRow = includeToken && effective.broker.id === EXPECTED_BROKER_ID ? await tx.systemSetting.findUnique({ where: { key: "AMO_ACCESS_TOKEN" }, select: { value: true } }) : null;
+    const tokenRow = includeToken && canInspectEffectiveBroker(row, effective) ? await tx.systemSetting.findUnique({ where: { key: "AMO_ACCESS_TOKEN" }, select: { value: true } }) : null;
     return { row, token: tokenRow?.value };
   }, { isolationLevel: "RepeatableRead", timeout: 20000, maxWait: 5000 });
 }
 function buildReport(row, evidence, brokerContact, storedLead, metadata) {
-  const effective = validateCase(row);
+  const effective = validateCase(row, true);
+  if (!canInspectEffectiveBroker(row, effective)) refused("EXPECTED_BROKER_NOT_CANONICAL");
+  const expectedBrokerMatched = effective.broker.id === EXPECTED_BROKER_ID;
+  const brokerContactMatchesCurrentBrokerPhone = Boolean(brokerContact && helpers.normalizePhone(effective.broker.phone) && helpers.contactHasExactPhone(brokerContact, helpers.normalizePhone(effective.broker.phone)));
+  const brokerFlag = brokerFlagEvidence(brokerContact);
   const inspected = helpers.inspectQueueRow(row, evidence.byPhone, randomBytes(32));
   const privateRecord = inspected.attestationRecord;
   const candidates = privateRecord.candidates.map((candidate) => ({
     leadId: candidate.leadId, pipelineId: candidate.pipelineId, statusId: candidate.statusId,
-    strength: candidate.strength, expectedBrokerAttachment: candidate.brokerAttachment,
+    strength: candidate.strength,
+    effectiveBrokerAttachment: candidate.brokerAttachment,
+    expectedBrokerAttachment: expectedBrokerMatched ? candidate.brokerAttachment : "not_inspected",
     strictBrokerSourceMarker: candidate.sourceMarker, projectEvidence: candidate.projectEvidence,
     leadCreatedAt: safeTimestamp(candidate.createdAt, row.createdAt),
     brokerRequestAt: safeTimestamp(candidate.requestValidValues, row.createdAt),
@@ -127,7 +146,8 @@ function buildReport(row, evidence, brokerContact, storedLead, metadata) {
   const storedDetail = storedLead ? {
     leadId: storedLead.leadId, pipelineId: storedLead.pipelineId, statusId: storedLead.statusId,
     exactClientContactLinked: storedLead.contactIds.some((id) => exactIds.includes(id)),
-    expectedBrokerLinked: positiveId(effective.broker.amoContactId) !== null && storedLead.contactIds.includes(positiveId(effective.broker.amoContactId)),
+    effectiveBrokerLinked: positiveId(effective.broker.amoContactId) !== null && storedLead.contactIds.includes(positiveId(effective.broker.amoContactId)),
+    expectedBrokerLinked: expectedBrokerMatched ? positiveId(effective.broker.amoContactId) !== null && storedLead.contactIds.includes(positiveId(effective.broker.amoContactId)) : null,
     strictBrokerSourceMarker: storedLead.sourceMarker,
     leadCreatedAt: safeTimestamp(storedLead.createdAt, row.createdAt),
   } : null;
@@ -140,9 +160,21 @@ function buildReport(row, evidence, brokerContact, storedLead, metadata) {
     : "ambiguous_or_incomplete_evidence";
   return {
     schemaVersion: 1, scope: "approved_single_client_case", ...metadata,
-    expectedBrokerMatched: true, mappingSource: effective.source,
+    expectedBrokerMatched,
+    expectedBrokerIsOwner: row.brokerId === EXPECTED_BROKER_ID,
+    expectedBrokerIsResponsible: row.responsibleBrokerId === EXPECTED_BROKER_ID,
+    mappingSource: effective.source,
+    effectiveBrokerRole: effective.broker.role,
+    effectiveBrokerStatus: effective.broker.status,
+    effectiveBrokerMerged: effective.broker.mergedIntoId !== null,
+    effectiveBrokerCanonical: true,
+    crmInspectionPerformed: true,
+    brokerLinkageReference: "stored_effective_broker_contact",
     brokerStatus: effective.broker.status, brokerContactConfigured: positiveId(effective.broker.amoContactId) !== null,
     brokerContactObserved: brokerContact !== null,
+    brokerContactMatchesCurrentBrokerPhone,
+    brokerContactHasBrokerFlag: brokerFlag.value === true,
+    brokerContactBrokerFlagEvidence: brokerFlag.coverage,
     brokerAgencyCount: effective.broker.brokerAgencies.length,
     fixationAgencyConfigured: row.fixationAgencyId !== null,
     fixationAgencyBelongsToBroker: row.fixationAgencyId !== null && effective.broker.brokerAgencies.some((agency) => agency.agencyId === row.fixationAgencyId),
@@ -151,8 +183,18 @@ function buildReport(row, evidence, brokerContact, storedLead, metadata) {
     strongLeadIds: candidates.filter((candidate) => candidate.strength === "strong").map((candidate) => candidate.leadId),
     linkedLeadCounts: inspected.publicRecord.linkedLeadEvidence,
     resolution, conclusion, candidates, rowUnchangedDuringScan: true,
-    advisory: { ...NO_WRITE, candidateLinkEvidenceSufficient: conclusion === "unique_strong_candidate_advisory" && brokerContact !== null && effective.broker.status === "ACTIVE" && candidates.some((candidate) => candidate.strength === "strong" && candidate.strictBrokerSourceMarker) },
+    advisory: { ...NO_WRITE, candidateLinkEvidenceSufficient: expectedBrokerMatched && conclusion === "unique_strong_candidate_advisory" && brokerContactMatchesCurrentBrokerPhone && brokerFlag.value === true && effective.broker.status === "ACTIVE" && candidates.some((candidate) => candidate.strength === "strong" && candidate.strictBrokerSourceMarker) },
   };
+}
+function brokerFlagEvidence(contact) {
+  if (contact === null) return { coverage: "contact_missing", value: null };
+  const fields = contact.custom_fields_values;
+  if (fields === null || fields === undefined) return { coverage: "missing", value: null };
+  if (!Array.isArray(fields) || fields.length > 1000) return { coverage: "invalid", value: null };
+  const flags = fields.filter((field) => field?.field_id === IS_BROKER_FIELD_ID);
+  if (flags.length === 0) return { coverage: "missing", value: null };
+  if (flags.length !== 1 || !Array.isArray(flags[0].values) || flags[0].values.length !== 1 || typeof flags[0].values[0]?.value !== "boolean") return { coverage: "invalid", value: null };
+  return { coverage: "valid", value: flags[0].values[0].value };
 }
 function safeDatabaseState(row) {
   return {
@@ -192,11 +234,11 @@ function safeTimestamp(values, reference) {
 async function run({ prisma, environment = process.env, fetchImpl } = {}) {
   const metadata = runtimeMetadata(environment);
   const initial = await snapshot(prisma, environment, true);
-  if (effectiveBroker(initial.row).broker.id !== EXPECTED_BROKER_ID) return buildOwnershipReport(initial.row, metadata);
+  if (!canInspectEffectiveBroker(initial.row)) return buildOwnershipReport(initial.row, metadata);
   const token = typeof initial.token === "string" && initial.token.trim() ? initial.token : environment.AMO_ACCESS_TOKEN;
   const request = helpers.createGetOnlyRequester(token, fetchImpl);
   await helpers.assertExpectedAccount(request);
-  const effective = validateCase(initial.row);
+  const effective = validateCase(initial.row, true);
   const brokerContactId = positiveId(effective.broker.amoContactId);
   const brokerContact = brokerContactId ? await request(`/api/v4/contacts/${brokerContactId}`, { with: "leads" }) : null;
   if (brokerContact && brokerContact.id !== brokerContactId) refused("BROKER_CONTACT_ID_MISMATCH");
@@ -220,5 +262,5 @@ async function main() {
   try { process.stdout.write(`${JSON.stringify(await run({ prisma }), null, 2)}\n`); }
   finally { await prisma.$disconnect(); }
 }
-module.exports = { CLIENT_ID, EXPECTED_BROKER_ID, CLIENT_SELECT, validateCase, runtimeMetadata, snapshot, buildReport, buildOwnershipReport, run, failureCode, main };
+module.exports = { CLIENT_ID, EXPECTED_BROKER_ID, IS_BROKER_FIELD_ID, CLIENT_SELECT, validateCase, canInspectEffectiveBroker, brokerFlagEvidence, runtimeMetadata, snapshot, buildReport, buildOwnershipReport, run, failureCode, main };
 if (require.main === module) main().catch((error) => { process.stderr.write(`fixed_case_failure_code=${failureCode(error)}\n`); process.exitCode = 1; });
