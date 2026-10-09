@@ -43,6 +43,24 @@ describe('read-only runtime error inspector', () => {
     expect(report.categories).toEqual({ deadlock: 1, authentication_rejected: 1 });
   });
 
+  it('counts post-release API errors without copying raw messages or PII', async () => {
+    const report = await inspector.apiReport(Readable.from([
+      '[Nest] 1 - ERROR [database] request failed PRIVATE@example.ru\n',
+      '[Nest] 1 - ERROR [OpsAlertService] [OpsAlert] Failed to deliver alert: token PRIVATE\n',
+      '[Nest] 1 - ERROR [SchedulerService] Catalog sync failed: PRIVATE_URL\n',
+      '[Nest] 1 - ERROR [OtherService] password=PRIVATE\n[Nest] 1 - LOG [Service] normal\n',
+      '[Nest] 1 - LOG [Service] ignored body ERROR [OtherService] PRIVATE\n',
+    ]));
+    expect(report).toMatchObject({ totalErrorLines: 4, databaseErrorLines: 1, telegramDeliveryErrorLines: 1, catalogSyncErrorLines: 1, otherErrorLines: 1 });
+    expect(JSON.stringify(report)).not.toMatch(/PRIVATE|password|example|token/);
+  });
+
+  it('does not represent a fresh zero-error container as a complete 24-hour history', async () => {
+    const report = await inspector.apiReport(Readable.from(['LOG [HealthService] ready\n']));
+    expect(report.scope).toBe('api_current_container_retained_logs_1h');
+    expect(report.totalErrorLines).toBe(0);
+  });
+
   it('ignores nested error text in DETAIL and STATEMENT', () => {
     expect(inspector.classifyPostgresLine('2026-10-09 DETAIL: ERROR: duplicate key value violates unique constraint')).toBeNull();
     expect(inspector.classifyPostgresLine("2026-10-09 STATEMENT: SELECT 'ERROR: password authentication failed'")).toBeNull();
@@ -115,6 +133,81 @@ describe('read-only runtime error inspector', () => {
 
   it.each(['http://pb123.profitbase.ru/export/profitbase_xml/a', 'https://evil.invalid/export/profitbase_xml/a', 'https://pb123.profitbase.ru/private', 'https://user:pass@pb123.profitbase.ru/export/profitbase_xml/a'])('refuses feed outside fixed public-export scope %s', (url) => {
     expect(() => inspector.feedUrls({ PROFITBASE_FEED_ZORGE: url }, compiled)).toThrow();
+  });
+
+  it.each([
+    ['/app/apps/api/dist/catalog/catalog.service.js', '/app/apps/api/dist/catalog/profitbase-feed.js'],
+    ['/app/apps/api/dist/src/catalog/catalog.service.js', '/app/apps/api/dist/src/catalog/profitbase-feed.js'],
+  ])('validates real feed shape through only the fixed pure sibling of %s', async (catalogPath, helperPath) => {
+    const loadProfitbaseOffers = jest.fn().mockResolvedValueOnce([{ number: 'PRIVATE_LOT', price: 'PRIVATE_PRICE' }, {}]).mockResolvedValueOnce([{}]);
+    const existsSync = jest.fn().mockReturnValue(true), loadModule = jest.fn().mockReturnValue({ loadProfitbaseOffers });
+    const report = await inspector.validatedFeedReport({}, compiled, catalogPath, { existsSync, loadModule });
+    expect(existsSync).toHaveBeenCalledWith(helperPath); expect(loadModule).toHaveBeenCalledTimes(1); expect(loadModule).toHaveBeenCalledWith(helperPath);
+    expect(loadProfitbaseOffers.mock.calls.map(([url]) => new URL(url).hostname)).toEqual(['pb123.profitbase.ru', 'pb123.profitbase.ru']);
+    expect(report).toEqual([{ project: 'ZORGE', validated: true, offerCount: 2 }, { project: 'SILVER', validated: true, offerCount: 1 }]);
+    expect(JSON.stringify(report)).not.toMatch(/PRIVATE|abc123|def456|profitbase\.ru|https|price|number/);
+  });
+
+  it('explicitly reports not_available on old images without importing or invoking a fallback parser', async () => {
+    const loadModule = jest.fn(), existsSync = jest.fn().mockReturnValue(false);
+    const report = await inspector.validatedFeedReport({}, compiled, '/app/apps/api/dist/catalog/catalog.service.js', { existsSync, loadModule });
+    expect(report).toEqual([{ project: 'ZORGE', validated: false, failureCode: 'not_available' }, { project: 'SILVER', validated: false, failureCode: 'not_available' }]);
+    expect(loadModule).not.toHaveBeenCalled();
+  });
+
+  it.each(['FEED_XML_INVALID', 'FEED_OFFERS_INVALID', 'FEED_BODY_INCOMPLETE', 'FEED_HTTP_ERROR', 'FEED_URL_INVALID', 'FEED_TIMEOUT'])('keeps %s as a failed validation without provider/XML contents', async (code) => {
+    const loadProfitbaseOffers = jest.fn().mockRejectedValue({ code, message: 'PRIVATE_URL_TOKEN_XML <realty-feed>secret@example.ru</realty-feed>', status: 500 });
+    const report = await inspector.validatedFeedReport({}, compiled, '/app/apps/api/dist/catalog/catalog.service.js', { existsSync: () => true, loadModule: () => ({ loadProfitbaseOffers }) });
+    expect(report).toEqual([{ project: 'ZORGE', validated: false, failureCode: code }, { project: 'SILVER', validated: false, failureCode: code }]);
+    expect(loadProfitbaseOffers).toHaveBeenCalledTimes(2); // No diagnostic retry; the pure loader owns bounded GET retries.
+    expect(JSON.stringify(report)).not.toMatch(/PRIVATE|secret|realty|status|500|abc123|def456/);
+  });
+
+  it('sanitizes unknown helper errors and continues the other independent project check', async () => {
+    const loadProfitbaseOffers = jest.fn().mockRejectedValueOnce({ code: 'https://PRIVATE_URL', message: 'PRIVATE_XML' }).mockResolvedValueOnce([{}]);
+    const report = await inspector.validatedFeedReport({}, compiled, '/app/apps/api/dist/catalog/catalog.service.js', { existsSync: () => true, loadModule: () => ({ loadProfitbaseOffers }) });
+    expect(report).toEqual([{ project: 'ZORGE', validated: false, failureCode: 'FEED_UNKNOWN_FAILURE' }, { project: 'SILVER', validated: true, offerCount: 1 }]);
+    expect(JSON.stringify(report)).not.toContain('PRIVATE');
+  });
+
+  it.each([['empty array', []], ['non-array', {}], ['oversized array', Array(50_001).fill({})]])('never claims validated for an invalid helper %s', async (_name, offers) => {
+    const report = await inspector.validatedFeedReport({}, compiled, '/app/apps/api/dist/catalog/catalog.service.js', { existsSync: () => true, loadModule: () => ({ loadProfitbaseOffers: jest.fn().mockResolvedValue(offers) }) });
+    expect(report.every((row: any) => row.validated === false && row.failureCode === 'FEED_RESULT_INVALID')).toBe(true);
+  });
+
+  it.each([
+    ['valid XML', '<realty-feed><offer internal-id="1"><area><value>50</value></area><price><value>20000000</value></price></offer></realty-feed>', null],
+    ['truncated XML', '<realty-feed><offer internal-id="1">', 'FEED_XML_INVALID'],
+    ['schema-overflow XML', '<realty-feed><offer internal-id="1"><floor>2147483648</floor></offer></realty-feed>', 'FEED_OFFERS_INVALID'],
+  ])('projects actual pure-helper %s without real network or application imports', async (_name, xml, failureCode) => {
+    const helper = require('../catalog/profitbase-feed');
+    const knownCompiled = compiled.replace(/pb123\.profitbase\.ru/g, 'pb7828.profitbase.ru').replace('abc123', 'a'.repeat(32)).replace('def456', 'b'.repeat(32));
+    const fetchImpl = jest.fn(async (_url, options) => { expect(options.method).toBe('GET'); expect(options.redirect).toBe('error'); return new Response(xml); });
+    const loadProfitbaseOffers = (url: string) => helper.loadProfitbaseOffers(url, { fetchImpl });
+    const report = await inspector.validatedFeedReport({}, knownCompiled, '/app/apps/api/dist/catalog/catalog.service.js', { existsSync: () => true, loadModule: () => ({ loadProfitbaseOffers }) });
+    expect(report).toEqual(['ZORGE', 'SILVER'].map((project) => failureCode ? { project, validated: false, failureCode } : { project, validated: true, offerCount: 1 }));
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(report)).not.toMatch(/realty-feed|2147483648|20000000|https|profitbase\.ru/);
+  });
+
+  it('refuses arbitrary import paths and out-of-scope feed URLs before loading any module', async () => {
+    const loadModule = jest.fn(), existsSync = jest.fn();
+    await expect(inspector.validatedFeedReport({}, compiled, '/tmp/private-helper.js', { existsSync, loadModule })).rejects.toThrow('COMPILED_FEED_SCOPE_REFUSED');
+    await expect(inspector.validatedFeedReport({ PROFITBASE_FEED_ZORGE: 'http://localhost/private' }, compiled, '/app/apps/api/dist/catalog/catalog.service.js', { existsSync, loadModule })).rejects.toThrow('FEED_SCOPE_REFUSED');
+    expect(existsSync).not.toHaveBeenCalled(); expect(loadModule).not.toHaveBeenCalled();
+  });
+
+  it.each([() => { throw new Error('PRIVATE_IMPORT_FAILURE'); }, () => ({})])('does not bootstrap the app or expose a broken helper import', async (loadModule) => {
+    const report = await inspector.validatedFeedReport({}, compiled, '/app/apps/api/dist/catalog/catalog.service.js', { existsSync: () => true, loadModule });
+    expect(report.every((row: any) => row.validated === false && row.failureCode === 'FEED_VALIDATOR_LOAD_FAILED')).toBe(true);
+    expect(JSON.stringify(report)).not.toContain('PRIVATE');
+  });
+
+  it('live report uses the fixed pure helper but never calls catalog sync or mutation methods', () => {
+    const source = readFileSync(join(__dirname, '../../../../scripts/inspect-runtime-errors.js'), 'utf8');
+    expect(source).toContain('validatedFeeds: await validatedFeedReport(environment, compiledText, compiledCatalogPath)');
+    expect(source).toContain('helper.loadProfitbaseOffers(String(url))');
+    expect(source).not.toMatch(/syncFromFeed\(|syncSingleFeed\(|sendMessage|\.\$executeRaw|\.lot\.(?:update|create|delete)/);
   });
 
   it('forces a scoped read-only PostgreSQL connection', () => {
