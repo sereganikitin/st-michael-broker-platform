@@ -267,6 +267,55 @@ describe('read-only runtime error inspector', () => {
       expect(results.every((row: any) => row.numericFieldShapes === undefined)).toBe(true);
     });
 
+    describe('whole-feed blank-numeric candidate preflight without writes', () => {
+      const pure = require('../catalog/profitbase-feed');
+      const xml = '<realty-feed><offer internal-id="PRIVATE_ID"><area><value>50</value></area><price><value/></price><price-meter><value/></price-meter><image type="plan">https://example.test/PRIVATE_IMAGE?a=1&amp;b=2</image></offer></realty-feed>';
+      it('revalidates the entire candidate and reports only safe counts', () => {
+        const result = inspector.blankNumericCompatibility(xml, pure, helperPath);
+        expect(result).toEqual({ validated: true, offerCount: 1, normalizedBlankValues: 2 });
+        expect(JSON.stringify(result)).not.toMatch(/PRIVATE|realty|internal-id|https|50|image/);
+      });
+      it('preserves nonblank numeric values and image/attribute/identity semantics in the private rebuilt feed', () => {
+        const parse = jest.fn((candidate) => {
+          const offers = pure.parseValidatedProfitbaseOffers(candidate);
+          expect(offers[0]['@_internal-id']).toBe('PRIVATE_ID');
+          expect(offers[0].area.value).toBe(50);
+          expect(offers[0].price.value).toBe(0);
+          expect(offers[0]['price-meter'].value).toBe(0);
+          expect(offers[0].image[0]['#text']).toBe('https://example.test/PRIVATE_IMAGE?a=1&b=2');
+          return offers;
+        });
+        expect(inspector.blankNumericCompatibility(xml, { parseValidatedProfitbaseOffers: parse }, helperPath).validated).toBe(true);
+        expect(parse).toHaveBeenCalledTimes(1);
+      });
+      it.each([
+        '<floor><nested>PRIVATE</nested></floor>',
+        '<price><value>-1</value></price>',
+        '<area><value>99999999999999</value></area>',
+      ])('does not conceal a later invalid offer after blank normalization', (invalid) => {
+        const second = '<offer internal-id="SECOND_PRIVATE_ID">' + invalid + '</offer>';
+        expect(inspector.blankNumericCompatibility(xml.replace('</realty-feed>', second + '</realty-feed>'), pure, helperPath)).toEqual({ validated: false, failureCode: 'FEED_OFFERS_INVALID' });
+      });
+      it.each(['<realty-feed>', '<!DOCTYPE realty-feed><realty-feed><offer/></realty-feed>'])('refuses malformed/DTD input before the pure helper', (invalid) => {
+        const parse = jest.fn();
+        expect(inspector.blankNumericCompatibility(invalid, { parseValidatedProfitbaseOffers: parse }, helperPath).validated).toBe(false);
+        expect(parse).not.toHaveBeenCalled();
+      });
+      it('does not normalize missing containers, missing values or arbitrary field contents', () => {
+        const parse = jest.fn();
+        expect(inspector.blankNumericCompatibility('<realty-feed><offer internal-id="1"><price><currency>PRIVATE</currency></price></offer></realty-feed>', { parseValidatedProfitbaseOffers: parse }, helperPath)).toEqual({ validated: false, failureCode: 'NO_BLANK_NUMERIC_VALUES' });
+        expect(parse).not.toHaveBeenCalled();
+      });
+      it('refuses semantic XML round-trip changes before claiming candidate compatibility', () => {
+        const parse = jest.fn();
+        const roundTrip = jest.spyOn(require('node:util'), 'isDeepStrictEqual').mockReturnValue(false);
+        try {
+          expect(inspector.blankNumericCompatibility(xml, { parseValidatedProfitbaseOffers: parse }, helperPath)).toEqual({ validated: false, failureCode: 'ROUNDTRIP_MISMATCH' });
+          expect(parse).not.toHaveBeenCalled();
+        } finally { roundTrip.mockRestore(); }
+      });
+    });
+
     it.each([
       'at Object.parseValidatedProfitbaseOffers (/tmp/evil.js:142:1)',
       'at reject (' + helperPath + ':30:1)',

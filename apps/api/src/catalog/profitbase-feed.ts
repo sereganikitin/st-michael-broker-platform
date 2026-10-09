@@ -4,7 +4,9 @@ import type { ReadableStreamDefaultReader } from 'node:stream/web';
 
 export const FEED_MAX_ATTEMPTS = 3;
 export const FEED_TIMEOUT_MS = 30_000;
-export const FEED_MAX_BYTES = 12 * 1024 * 1024;
+// Protected read-only verification measured a valid Zorge export at 26,466,669
+// decoded bytes. 32MiB keeps an explicit cap with about 27% growth headroom.
+export const FEED_MAX_BYTES = 32 * 1024 * 1024;
 export const FEED_MAX_OFFERS = 50_000;
 const MAX_RETRY_DELAY_MS = 10_000;
 type FailureCode = 'FEED_URL_INVALID' | 'FEED_TLS_CONFIGURATION_INVALID' |
@@ -93,7 +95,10 @@ export function parseValidatedProfitbaseOffers(xml: string): any[] {
     for (const field of ['area', 'price', 'price-meter']) {
       if (offer[field] === undefined) continue;
       const value = offer[field]?.value;
-      if (!object(offer[field]) || !['number', 'string'].includes(typeof value) || (typeof value === 'string' && !value.trim()) || !Number.isFinite(Number(value)) || Number(value) < 0) reject('FEED_OFFERS_INVALID');
+      // ProfitBase can publish <value/> for an unpriced lot. Keep the existing
+      // mapping's blank -> zero / price-per-sqm fallback behavior, while still
+      // rejecting invalid containers, nested values, NaN and negative numbers.
+      if (!object(offer[field]) || !['number', 'string'].includes(typeof value) || !Number.isFinite(Number(value)) || Number(value) < 0) reject('FEED_OFFERS_INVALID');
     }
     const sqm = Number(offer?.area?.value || 0), price = Number(offer?.price?.value || 0);
     const pricePerSqm = Number(offer?.['price-meter']?.value || (sqm > 0 ? Math.round(price / sqm) : 0));

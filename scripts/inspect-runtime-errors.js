@@ -242,6 +242,42 @@ function numericFieldShapes(xml) {
   return counts;
 }
 
+function blankNumericCompatibility(xml, helper, helperPath) {
+  // Read-only candidate preflight: blank numeric values and literal zero have
+  // identical effects in the existing Number(value || 0)/price-meter fallback.
+  // Revalidate the WHOLE privately rebuilt feed with the deployed pure parser;
+  // never return the XML, offers, their values, or raw exceptions.
+  if (typeof xml !== "string" || Buffer.byteLength(xml) > 64 * 1024 * 1024 || /<!DOCTYPE|<!ENTITY/i.test(xml)) return { validated: false, failureCode: "FEED_XML_INVALID" };
+  const { XMLParser, XMLBuilder, XMLValidator } = require("fast-xml-parser");
+  let normalizedBlankValues = 0;
+  try {
+    if (XMLValidator.validate(xml) !== true) return { validated: false, failureCode: "FEED_XML_INVALID" };
+    const parsed = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", maxNestedTags: 64, isArray: (name) => ["offer", "image", "custom-field", "special-offer"].includes(name) }).parse(xml);
+    const offers = parsed?.["realty-feed"]?.offer;
+    if (!Array.isArray(offers) || offers.length < 1 || offers.length > 50_000) return { validated: false, failureCode: "FEED_OFFERS_INVALID" };
+    for (const offer of offers) for (const field of ["area", "price", "price-meter"]) {
+      const container = offer?.[field];
+      if (container && typeof container === "object" && !Array.isArray(container) && typeof container.value === "string" && !container.value.trim()) {
+        container.value = 0;
+        normalizedBlankValues++;
+      }
+    }
+    if (!normalizedBlankValues) return { validated: false, failureCode: "NO_BLANK_NUMERIC_VALUES" };
+    const candidateXml = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: "@_" }).build(parsed);
+    if (Buffer.byteLength(candidateXml) > 64 * 1024 * 1024) return { validated: false, failureCode: "DIAGNOSTIC_BODY_TOO_LARGE" };
+    const roundTrip = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", maxNestedTags: 64, isArray: (name) => ["offer", "image", "custom-field", "special-offer"].includes(name) }).parse(candidateXml);
+    if (!require("node:util").isDeepStrictEqual(parsed, roundTrip)) return { validated: false, failureCode: "ROUNDTRIP_MISMATCH" };
+    const validated = helper.parseValidatedProfitbaseOffers(candidateXml);
+    if (!Array.isArray(validated) || validated.length !== offers.length) return { validated: false, failureCode: "FEED_RESULT_INVALID" };
+    return { validated: true, offerCount: validated.length, normalizedBlankValues };
+  } catch (error) {
+    const result = { validated: false, failureCode: FEED_FAILURE_CODES.has(error?.code) ? error.code : "FEED_UNKNOWN_FAILURE" };
+    const gate = compiledValidationGate(error, helperPath);
+    if (gate !== null) result.compiledGateLine = gate;
+    return result;
+  }
+}
+
 async function feedCompatibilityReport(environment, compiledText, compiledCatalogPath, dependencies = {}) {
   const helperPath = compiledCatalogPath === "/app/apps/api/dist/catalog/catalog.service.js" ? "/app/apps/api/dist/catalog/profitbase-feed.js"
     : compiledCatalogPath === "/app/apps/api/dist/src/catalog/catalog.service.js" ? "/app/apps/api/dist/src/catalog/profitbase-feed.js" : null;
@@ -301,6 +337,7 @@ async function feedCompatibilityReport(environment, compiledText, compiledCatalo
       if (out.failureCode === "FEED_OFFERS_INVALID" && gate === 105) {
         const shapes = numericFieldShapes(xml);
         if (shapes !== null) out.numericFieldShapes = shapes;
+        out.blankNumericCompatibility = blankNumericCompatibility(xml, helper, helperPath);
       }
     } finally {
       clearTimeout(timer); controller.abort();
@@ -335,7 +372,7 @@ async function liveReport(environment = process.env) {
   } finally { await prisma.$disconnect(); }
 }
 
-module.exports = { classifyPostgresLine, postgresReport, apiReport, boundedGet, telegramBase, telegramReport, feedUrls, feedReport, validatedFeedReport, feedCompatibilityReport, compiledValidationGate, numericFieldShapes, readOnlyUrl, liveReport };
+module.exports = { classifyPostgresLine, postgresReport, apiReport, boundedGet, telegramBase, telegramReport, feedUrls, feedReport, validatedFeedReport, feedCompatibilityReport, compiledValidationGate, numericFieldShapes, blankNumericCompatibility, readOnlyUrl, liveReport };
 if (require.main === module) {
   const action = process.argv[2];
   Promise.resolve().then(() => action === "--postgres" ? postgresReport(process.stdin) : action === "--api" ? apiReport(process.stdin) : action === "--live" ? liveReport() : Promise.reject(new Error("MODE_REFUSED")))
