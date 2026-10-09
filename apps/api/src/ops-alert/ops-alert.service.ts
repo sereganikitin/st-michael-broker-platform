@@ -4,6 +4,50 @@ import { ConfigService } from '@nestjs/config';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_DEDUP_COOLDOWN_MS = 5 * 60_000;
+const MAX_RESPONSE_BYTES = 64 * 1024;
+
+type TelegramFailureClass =
+  | 'TIMEOUT_UNKNOWN' | 'NETWORK_UNKNOWN' | 'HTTP_UNKNOWN' | 'INVALID_RESPONSE_UNKNOWN'
+  | 'AUTH_REJECTED' | 'CHAT_FORBIDDEN' | 'CHAT_NOT_FOUND' | 'CHAT_MIGRATED'
+  | 'MESSAGE_TOO_LONG' | 'BAD_REQUEST' | 'RATE_LIMITED' | 'API_REJECTED';
+
+interface TelegramFailure {
+  category: TelegramFailureClass;
+  outcome: 'rejected' | 'unknown';
+  httpStatus?: number;
+  telegramCode?: number;
+  retryAfterSeconds?: number;
+  networkCode?: string;
+}
+
+const SAFE_NETWORK_CODES = new Set([
+  'ENETUNREACH', 'EHOSTUNREACH', 'ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET',
+  'EAI_AGAIN', 'ENOTFOUND', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET',
+  'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+]);
+
+class TelegramChatFailure extends Error {
+  constructor(readonly details: TelegramFailure) {
+    super('Telegram chat delivery was not confirmed');
+  }
+}
+
+class TelegramDeliveryFailure extends Error {}
+
+function boundedInteger(value: unknown, minimum: number, maximum: number): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum
+    ? value : undefined;
+}
+
+function safeFailureSummary(details: TelegramFailure, ordinal: number): string {
+  return [
+    `chat_slot=${ordinal}`, `class=${details.category}`, `outcome=${details.outcome}`,
+    details.httpStatus === undefined ? '' : `http_status=${details.httpStatus}`,
+    details.telegramCode === undefined ? '' : `telegram_code=${details.telegramCode}`,
+    details.retryAfterSeconds === undefined ? '' : `retry_after_s=${details.retryAfterSeconds}`,
+    details.networkCode === undefined ? '' : `network_code=${details.networkCode}`,
+  ].filter(Boolean).join(' ');
+}
 
 const ALERT_CATEGORY_LABELS: Record<string, string> = {
   AMO_AUTH_ERROR: 'ошибка авторизации в amoCRM',
@@ -48,14 +92,11 @@ export interface OpsAlertOptions {
   cooldownMs?: number;
 }
 
-interface TelegramResponse {
-  ok?: boolean;
-}
-
 @Injectable()
 export class OpsAlertService {
   private readonly logger = new Logger(OpsAlertService.name);
   private readonly dedupExpirations = new Map<string, number>();
+  private readonly chatRateLimitedUntil = new Map<string, number>();
 
   constructor(private readonly config: ConfigService) {}
 
@@ -101,11 +142,17 @@ export class OpsAlertService {
     if (failedCount > 0) {
       const successCount = results.length - failedCount;
 
-      // Release the reservation only when nobody received the alert. If even
-      // one chat succeeded, retrying the same fan-out would spam that chat
-      // while a permanently invalid chat keeps failing.
+      const failures = results.flatMap((result, index) => result.status === 'rejected'
+        ? [{ ordinal: index + 1, details: result.reason instanceof TelegramChatFailure
+          ? result.reason.details : { category: 'INVALID_RESPONSE_UNKNOWN', outcome: 'unknown' } as TelegramFailure }]
+        : []);
+
+      // A timeout/relay 502/body failure does not prove the POST was rejected:
+      // Telegram might already have accepted it. Never free that reservation
+      // for an immediate repeat fan-out. Partial success is likewise retained.
       if (
         successCount === 0 &&
+        failures.every(({ details }) => details.outcome === 'rejected' && details.category !== 'RATE_LIMITED') &&
         dedupKey &&
         reservedUntil !== undefined &&
         this.dedupExpirations.get(dedupKey) === reservedUntil
@@ -113,7 +160,10 @@ export class OpsAlertService {
         this.dedupExpirations.delete(dedupKey);
       }
 
-      throw new Error(`Telegram delivery failed for ${failedCount} of ${chatIds.length} configured ops chats`);
+      throw new TelegramDeliveryFailure(
+        `Telegram delivery failed for ${failedCount} of ${chatIds.length} configured ops chats; ` +
+        failures.map(({ ordinal, details }) => safeFailureSummary(details, ordinal)).join('; '),
+      );
     }
 
     return true;
@@ -134,6 +184,13 @@ export class OpsAlertService {
   }
 
   private async sendToChat(token: string, chatId: string, text: string): Promise<void> {
+    const rateLimitKey = `${token}:${chatId}`; // Private memory only; never projected into errors/logs.
+    const rateLimitedUntil = this.chatRateLimitedUntil.get(rateLimitKey) || 0;
+    if (rateLimitedUntil > Date.now()) {
+      throw new TelegramChatFailure({ category: 'RATE_LIMITED', outcome: 'rejected', telegramCode: 429,
+        retryAfterSeconds: Math.min(86_400, Math.ceil((rateLimitedUntil - Date.now()) / 1000)) });
+    }
+    this.chatRateLimitedUntil.delete(rateLimitKey);
     const controller = new AbortController();
     const timeoutMs = this.resolveTimeoutMs();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -146,30 +203,84 @@ export class OpsAlertService {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text }),
           signal: controller.signal,
+          redirect: 'error',
         });
-      } catch {
-        if (controller.signal.aborted) {
-          throw new Error(`Telegram request timed out after ${timeoutMs} ms`);
-        }
-        throw new Error('Telegram network request failed');
+      } catch (error) {
+        const code = (error as { cause?: { code?: unknown }; code?: unknown })?.cause?.code ||
+          (error as { code?: unknown })?.code;
+        throw new TelegramChatFailure({
+          category: controller.signal.aborted ? 'TIMEOUT_UNKNOWN' : 'NETWORK_UNKNOWN',
+          outcome: 'unknown',
+          networkCode: typeof code === 'string' && SAFE_NETWORK_CODES.has(code) ? code : undefined,
+        });
       }
 
-      let payload: TelegramResponse | undefined;
+      const httpStatus = boundedInteger(response.status, 100, 599);
+      let payload: Record<string, unknown>;
       try {
-        payload = (await response.json()) as TelegramResponse;
-      } catch {
-        // The status check below remains useful even when Telegram returned a
-        // proxy/body that was not valid JSON.
+        payload = await this.readResponse(response, controller);
+      } catch (error) {
+        if (error instanceof TelegramChatFailure) throw error;
+        throw new TelegramChatFailure({
+          category: controller.signal.aborted ? 'TIMEOUT_UNKNOWN' : 'INVALID_RESPONSE_UNKNOWN',
+          outcome: 'unknown', httpStatus,
+        });
       }
 
-      if (!response.ok) {
-        throw new Error(`Telegram request failed with HTTP ${response.status}`);
+      if (response.ok && httpStatus !== undefined && httpStatus >= 200 && httpStatus <= 299 && payload.ok === true) return;
+      const telegramCode = boundedInteger(payload.error_code, 400, 499);
+      // The relay itself emits {ok:false} on upstream transport failure. Only
+      // a coherent Telegram 4xx response proves rejection; 5xx is ambiguous.
+      if (payload.ok !== false || telegramCode === undefined || httpStatus === undefined ||
+        !(httpStatus === 200 || httpStatus === telegramCode)) {
+        throw new TelegramChatFailure({ category: 'HTTP_UNKNOWN', outcome: 'unknown', httpStatus });
       }
-      if (!payload || payload.ok !== true) {
-        throw new Error('Telegram API rejected the request');
+      const parameters = payload.parameters && typeof payload.parameters === 'object' && !Array.isArray(payload.parameters)
+        ? payload.parameters as Record<string, unknown> : {};
+      const description = typeof payload.description === 'string' ? payload.description : '';
+      let category: TelegramFailureClass = 'API_REJECTED';
+      if (telegramCode === 401) category = 'AUTH_REJECTED';
+      else if (telegramCode === 403) category = 'CHAT_FORBIDDEN';
+      else if (telegramCode === 429) category = 'RATE_LIMITED';
+      else if (telegramCode === 400) {
+        category = Number.isSafeInteger(parameters.migrate_to_chat_id) ? 'CHAT_MIGRATED'
+          : /\bchat not found\b/i.test(description) ? 'CHAT_NOT_FOUND'
+          : /\bmessage is too long\b/i.test(description) ? 'MESSAGE_TOO_LONG' : 'BAD_REQUEST';
       }
+      const retryAfterSeconds = telegramCode === 429 ? boundedInteger(parameters.retry_after, 1, 86_400) : undefined;
+      if (category === 'RATE_LIMITED') this.chatRateLimitedUntil.set(rateLimitKey, Date.now() + (retryAfterSeconds ?? 60) * 1000);
+      throw new TelegramChatFailure({
+        category, outcome: 'rejected', httpStatus, telegramCode,
+        retryAfterSeconds,
+      });
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  private async readResponse(response: Response, controller: AbortController): Promise<Record<string, unknown>> {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('Telegram response body unavailable');
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const entry = await reader.read();
+        if (entry.done) break;
+        size += entry.value.byteLength;
+        if (size > MAX_RESPONSE_BYTES) {
+          controller.abort();
+          throw new TelegramChatFailure({ category: 'INVALID_RESPONSE_UNKNOWN', outcome: 'unknown',
+            httpStatus: boundedInteger(response.status, 100, 599) });
+        }
+        chunks.push(entry.value);
+      }
+      const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Telegram response shape invalid');
+      return parsed as Record<string, unknown>;
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
     }
   }
 
@@ -195,7 +306,7 @@ export class OpsAlertService {
   }
 
   private resolveTimeoutMs(): number {
-    return this.positiveNumber(this.config.get<string>('OPS_TELEGRAM_TIMEOUT_MS'), DEFAULT_TIMEOUT_MS);
+    return Math.min(this.positiveNumber(this.config.get<string>('OPS_TELEGRAM_TIMEOUT_MS'), DEFAULT_TIMEOUT_MS), 60_000);
   }
 
   private resolveCooldownMs(override?: number): number {
@@ -221,13 +332,8 @@ export class OpsAlertService {
   }
 
   private safeErrorMessage(error: unknown): string {
-    let message = error instanceof Error ? error.message : String(error);
-    for (const secret of [
-      this.config.get<string>('OPS_TELEGRAM_BOT_TOKEN'),
-      this.config.get<string>('TELEGRAM_BOT_TOKEN'),
-    ]) {
-      if (secret) message = message.split(secret).join('[redacted]');
-    }
-    return message;
+    // Only our fixed projection may reach logs; native errors can contain the
+    // bot URL/token, chat ID, outgoing message or an untrusted response body.
+    return error instanceof TelegramDeliveryFailure ? error.message : 'Unclassified Telegram delivery failure';
   }
 }

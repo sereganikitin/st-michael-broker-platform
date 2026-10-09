@@ -1,6 +1,6 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
-import { XMLParser } from 'fast-xml-parser';
+import { loadProfitbaseOffers, ProfitbaseFeedError } from './profitbase-feed';
 
 const FEEDS = [
   {
@@ -35,17 +35,13 @@ export class CatalogService {
   }
 
   private async syncSingleFeed(feedUrl: string, defaultProject: string) {
-    const res = await fetch(feedUrl);
-    if (!res.ok) throw new BadRequestException(`Feed fetch failed: ${res.status}`);
-
-    const xml = await res.text();
-    const parser = new XMLParser({
-      ignoreAttributes: false,
-      attributeNamePrefix: '@_',
-      isArray: (name) => name === 'offer' || name === 'image' || name === 'custom-field' || name === 'special-offer',
-    });
-    const parsed = parser.parse(xml);
-    const offers = parsed?.['realty-feed']?.offer || [];
+    let offers: any[];
+    try { offers = await loadProfitbaseOffers(feedUrl); }
+    catch (error) {
+      // Keep the last good catalog and retain the existing failure/alert path.
+      // Do not expose the export URL/token or raw upstream response in logs.
+      throw new BadRequestException(error instanceof ProfitbaseFeedError ? error.message : 'Feed load failed');
+    }
 
     let created = 0;
     let updated = 0;
