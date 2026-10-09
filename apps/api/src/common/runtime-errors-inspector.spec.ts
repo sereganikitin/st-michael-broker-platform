@@ -235,6 +235,38 @@ describe('read-only runtime error inspector', () => {
       expect(JSON.stringify(result)).not.toMatch(/PRIVATE|SECRET|PHONE|URL|realty|\/app|abc123/);
     });
 
+    it('projects numeric value/container reasons only for exact emitted gate105', async () => {
+      const xml = '<realty-feed><offer internal-id="PRIVATE_ID"><number>PRIVATE_NUMBER</number><price><value/></price><area/></offer></realty-feed>';
+      const parse = jest.fn(() => { throw { code: 'FEED_OFFERS_INVALID', message: 'PRIVATE', stack: 'at Object.parseValidatedProfitbaseOffers (' + helperPath + ':105:17)' }; });
+      const results = await inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(helper(parse), jest.fn(async () => new Response(xml))));
+      expect(results.every((row: any) => JSON.stringify(row.numericFieldShapes) === JSON.stringify({ area: { empty_container: 1 }, price: { empty_value: 1 } }))).toBe(true);
+      expect(JSON.stringify(results)).not.toMatch(/PRIVATE|value><|internal-id|NUMBER|https|profitbase\.ru/);
+    });
+
+    it.each([
+      ['empty_container', '<price/>'],
+      ['empty_value', '<price><value/></price>'],
+      ['missing_value', '<price><currency>PRIVATE</currency></price>'],
+      ['nonnumeric_value', '<price><value>NaN</value></price>'],
+      ['negative_value', '<price><value>-1</value></price>'],
+      ['non_scalar_value', '<price><value><nested>PRIVATE</nested></value></price>'],
+      ['container_type', '<price>PRIVATE</price>'],
+    ])('classifies %s without emitting the numeric/raw value', (reason, extra) => {
+      const report = inspector.numericFieldShapes('<realty-feed><offer internal-id="PRIVATE_ID">' + extra + '</offer><offer internal-id="ANOTHER_PRIVATE_ID">' + extra + '</offer></realty-feed>');
+      expect(report).toEqual({ price: { [reason]: 2 } });
+      expect(JSON.stringify(report)).not.toMatch(/PRIVATE|NaN|-1|nested|currency|internal/);
+    });
+
+    it.each(['<realty-feed>', '<!DOCTYPE realty-feed><realty-feed><offer/></realty-feed>', '<realty-feed/>'])('does not reparse unbounded/untrusted shape input', (xml) => {
+      expect(inspector.numericFieldShapes(xml)).toBeNull();
+    });
+
+    it('does not attach field shapes for any other validation gate', async () => {
+      const parse = jest.fn(() => { throw { code: 'FEED_OFFERS_INVALID', stack: 'at Object.parseValidatedProfitbaseOffers (' + helperPath + ':142:17)' }; });
+      const results = await inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(helper(parse), jest.fn(async () => new Response('<realty-feed><offer internal-id="1"><price/></offer></realty-feed>'))));
+      expect(results.every((row: any) => row.numericFieldShapes === undefined)).toBe(true);
+    });
+
     it.each([
       'at Object.parseValidatedProfitbaseOffers (/tmp/evil.js:142:1)',
       'at reject (' + helperPath + ':30:1)',

@@ -208,6 +208,40 @@ function compiledValidationGate(error, helperPath) {
   return null;
 }
 
+function numericFieldShapes(xml) {
+  // Only fixed schema fields and reason counts; never values, IDs, project names
+  // or XML fragments. This is diagnostic-only and does not normalize the feed.
+  if (typeof xml !== "string" || Buffer.byteLength(xml) > 64 * 1024 * 1024 || /<!DOCTYPE|<!ENTITY/i.test(xml)) return null;
+  const { XMLParser, XMLValidator } = require("fast-xml-parser");
+  let offers;
+  try {
+    if (XMLValidator.validate(xml) !== true) return null;
+    offers = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", maxNestedTags: 64, isArray: (name) => ["offer", "image", "custom-field", "special-offer"].includes(name) }).parse(xml)?.["realty-feed"]?.offer;
+  } catch { return null; }
+  if (!Array.isArray(offers) || offers.length < 1 || offers.length > 50_000) return null;
+  const counts = {};
+  for (const offer of offers) for (const field of ["area", "price", "price-meter"]) {
+    const container = offer?.[field];
+    if (container === undefined) continue;
+    let reason;
+    if (container === "") reason = "empty_container";
+    else if (container === null || typeof container !== "object" || Array.isArray(container)) reason = "container_type";
+    else {
+      const value = container.value;
+      if (value === undefined) reason = "missing_value";
+      else if (typeof value === "string" && !value.trim()) reason = "empty_value";
+      else if (!["number", "string"].includes(typeof value)) reason = "non_scalar_value";
+      else if (!Number.isFinite(Number(value))) reason = "nonnumeric_value";
+      else if (Number(value) < 0) reason = "negative_value";
+    }
+    if (reason) {
+      counts[field] ||= {};
+      counts[field][reason] = (counts[field][reason] || 0) + 1;
+    }
+  }
+  return counts;
+}
+
 async function feedCompatibilityReport(environment, compiledText, compiledCatalogPath, dependencies = {}) {
   const helperPath = compiledCatalogPath === "/app/apps/api/dist/catalog/catalog.service.js" ? "/app/apps/api/dist/catalog/profitbase-feed.js"
     : compiledCatalogPath === "/app/apps/api/dist/src/catalog/catalog.service.js" ? "/app/apps/api/dist/src/catalog/profitbase-feed.js" : null;
@@ -222,7 +256,7 @@ async function feedCompatibilityReport(environment, compiledText, compiledCatalo
   const results = [], fetchImpl = dependencies.fetchImpl || fetch;
   for (const { project, url } of feeds) {
     const out = { project, decodedBytes: 0, declaredBytes: null }, controller = new AbortController();
-    let reader, response, timer;
+    let reader, response, timer, xml;
     const failure = (code) => Object.assign(new Error(code), { code });
     const expired = new Promise((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(failure("FEED_TIMEOUT")); }, 30_000); });
     try {
@@ -252,7 +286,6 @@ async function feedCompatibilityReport(environment, compiledText, compiledCatalo
         }
         const encoding = response.headers.get("content-encoding")?.trim().toLowerCase();
         if ((!encoding || encoding === "identity") && out.declaredBytes !== null && out.decodedBytes !== out.declaredBytes) throw failure("FEED_BODY_INCOMPLETE");
-        let xml;
         try { xml = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)); } catch { throw failure("FEED_BODY_INVALID"); }
         const offers = helper.parseValidatedProfitbaseOffers(xml);
         if (!Array.isArray(offers) || offers.length < 1 || offers.length > 50_000) throw failure("FEED_OFFERS_INVALID");
@@ -263,6 +296,12 @@ async function feedCompatibilityReport(environment, compiledText, compiledCatalo
       out.failureCode = FEED_FAILURE_CODES.has(error?.code) || error?.code === "DIAGNOSTIC_BODY_TOO_LARGE" ? error.code : "FEED_UNKNOWN_FAILURE";
       const gate = compiledValidationGate(error, helperPath);
       if (gate !== null && ["FEED_XML_INVALID", "FEED_OFFERS_INVALID"].includes(out.failureCode)) out.compiledGateLine = gate;
+      // Deployed 23e188's emitted line105 is exactly the area/price/price-meter
+      // container/value gate. Other errors are not interpreted as this shape.
+      if (out.failureCode === "FEED_OFFERS_INVALID" && gate === 105) {
+        const shapes = numericFieldShapes(xml);
+        if (shapes !== null) out.numericFieldShapes = shapes;
+      }
     } finally {
       clearTimeout(timer); controller.abort();
       try { (reader ? reader.cancel() : response?.body?.cancel())?.catch(() => {}); reader?.releaseLock(); } catch {}
@@ -296,7 +335,7 @@ async function liveReport(environment = process.env) {
   } finally { await prisma.$disconnect(); }
 }
 
-module.exports = { classifyPostgresLine, postgresReport, apiReport, boundedGet, telegramBase, telegramReport, feedUrls, feedReport, validatedFeedReport, feedCompatibilityReport, compiledValidationGate, readOnlyUrl, liveReport };
+module.exports = { classifyPostgresLine, postgresReport, apiReport, boundedGet, telegramBase, telegramReport, feedUrls, feedReport, validatedFeedReport, feedCompatibilityReport, compiledValidationGate, numericFieldShapes, readOnlyUrl, liveReport };
 if (require.main === module) {
   const action = process.argv[2];
   Promise.resolve().then(() => action === "--postgres" ? postgresReport(process.stdin) : action === "--api" ? apiReport(process.stdin) : action === "--live" ? liveReport() : Promise.reject(new Error("MODE_REFUSED")))
