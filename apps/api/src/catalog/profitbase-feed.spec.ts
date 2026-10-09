@@ -115,6 +115,15 @@ describe('ProfitBase safe GET-only feed loading', () => {
     }
     expect(declared.reader.read).not.toHaveBeenCalled(); expect(streamed.reader.cancel).toHaveBeenCalledTimes(1);
   });
+  it('accepts the verified legitimate Zorge export size while retaining an explicit 32MiB cap', async () => {
+    const observedBytes = 26_466_669;
+    const paddingBytes = observedBytes - Buffer.byteLength(XML) - Buffer.byteLength('<!-- -->');
+    const xml = XML.replace('</realty-feed>', '<!-- ' + 'x'.repeat(paddingBytes) + '--></realty-feed>');
+    expect(Buffer.byteLength(xml)).toBe(observedBytes); expect(FEED_MAX_BYTES).toBe(32 * 1024 * 1024);
+    const fetchImpl = jest.fn(async () => response(xml, 200, { 'content-length': String(observedBytes) }));
+    expect(await loadProfitbaseOffers(URL, { fetchImpl })).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  }, 20_000);
   it('rejects a truncated declared body and does not compare compressed length to decoded bytes', async () => {
     const fetchImpl = jest.fn(async () => response(XML, 200, { 'content-length': '999999' }));
     await expect(loadProfitbaseOffers(URL, { fetchImpl, wait: async () => {} })).rejects.toMatchObject({ code: 'FEED_BODY_INCOMPLETE' });
@@ -156,5 +165,21 @@ describe('ProfitBase safe GET-only feed loading', () => {
     const extra = '<floor>-2147483648</floor><house><floors-total>2147483647</floors-total></house><price-meter><value>99999999.994</value></price-meter><special-offers><special-offer><discount-price>999999999999.99</discount-price><discount-unit>PERCENT</discount-unit><value>999.994</value></special-offer></special-offers>';
     const xml = '<realty-feed>' + OFFER.replace('<value>50</value>', '<value>99999999.99</value>').replace('20000000', '999999999999.99').replace('</offer>', extra + '</offer>') + '</realty-feed>';
     expect(parseValidatedProfitbaseOffers(xml)).toHaveLength(1);
+  });
+  it.each([
+    ['price', OFFER.replace('<price><value>20000000</value></price>', '<price><value/></price>')],
+    ['price-meter', OFFER.replace('</offer>', '<price-meter><value/></price-meter></offer>')],
+  ])('accepts a proven legitimate blank %s value without normalizing or changing mapping semantics', (_field, offer) => {
+    const parsed = parseValidatedProfitbaseOffers('<realty-feed>' + offer + '</realty-feed>');
+    expect(parsed[0][_field].value).toBe('');
+  });
+  it.each([
+    '<price/>',
+    '<price><currency>RUB</currency></price>',
+    '<price><value>NaN</value></price>',
+    '<price><value>-1</value></price>',
+    '<price><value><nested>10</nested></value></price>',
+  ])('does not relax unproven empty containers or corrupt nonempty numeric values', (price) => {
+    expect(() => parseValidatedProfitbaseOffers('<realty-feed>' + OFFER.replace('<price><value>20000000</value></price>', price) + '</realty-feed>')).toThrow('FEED_OFFERS_INVALID');
   });
 });
