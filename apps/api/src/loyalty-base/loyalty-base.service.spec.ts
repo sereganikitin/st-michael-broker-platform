@@ -5454,66 +5454,73 @@ describe("LoyaltyBaseService", () => {
   });
 
   it("passes the OUR broker deal-count filter from registry deals alone", async () => {
-    const prisma = prismaMock();
-    const service = new LoyaltyBaseService(prisma);
-    const broker = (id: string, phoneSuffix: string) => ({
-      id,
-      fullName: `Broker ${id}`,
-      phone: `+7999000${phoneSuffix}`,
-      email: null,
-      status: "ACTIVE",
-      funnelStage: "NEW_BROKER",
-      region: "MSK",
-      isRegional: false,
-      isCoordinator: false,
-      specialization: null,
-      category: null,
-      amoContactId: null,
-      mergedIntoId: null,
-      brokerTourVisited: false,
-      brokerTourDate: null,
-      lastCallAt: null,
-      updatedAt: new Date("2026-08-20T00:00:00.000Z"),
-      assignedManagerId: null,
-      assignedManager: null,
-      phones: [],
-      brokerAgencies: [],
-      callLogs: [],
-      clients: [],
-      meetings: [],
-      deals: [],
-      _count: { clients: 0, deals: 0, meetings: 0, callLogs: 0 },
-    });
-    prisma.broker.findMany.mockResolvedValue([
-      broker("registry-only", "0011"),
-      broker("no-deals", "0012"),
-    ]);
-    prisma.loyaltyCallAttempt.findMany.mockResolvedValue([]);
-    prisma.loyaltyEngagementEvent.findMany.mockResolvedValue([]);
-    prisma.deal.groupBy.mockResolvedValue([]);
-    prisma.registryDeal.groupBy.mockResolvedValue([
-      {
-        brokerId: "registry-only",
-        _count: { _all: 2 },
-        _sum: { amount: "500000.00" },
-        _max: { paidAt: new Date("2026-07-10T00:00:00.000Z") },
-      },
-    ]);
+    // Keep this deal-source fixture independent of the 90-day dormant boundary.
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
+    try {
+      const prisma = prismaMock();
+      const service = new LoyaltyBaseService(prisma);
+      const broker = (id: string, phoneSuffix: string) => ({
+        id,
+        fullName: `Broker ${id}`,
+        phone: `+7999000${phoneSuffix}`,
+        email: null,
+        status: "ACTIVE",
+        funnelStage: "NEW_BROKER",
+        region: "MSK",
+        isRegional: false,
+        isCoordinator: false,
+        specialization: null,
+        category: null,
+        amoContactId: null,
+        mergedIntoId: null,
+        brokerTourVisited: false,
+        brokerTourDate: null,
+        lastCallAt: null,
+        updatedAt: new Date("2026-08-20T00:00:00.000Z"),
+        assignedManagerId: null,
+        assignedManager: null,
+        phones: [],
+        brokerAgencies: [],
+        callLogs: [],
+        clients: [],
+        meetings: [],
+        deals: [],
+        _count: { clients: 0, deals: 0, meetings: 0, callLogs: 0 },
+      });
+      prisma.broker.findMany.mockResolvedValue([
+        broker("registry-only", "0011"),
+        broker("no-deals", "0012"),
+      ]);
+      prisma.loyaltyCallAttempt.findMany.mockResolvedValue([]);
+      prisma.loyaltyEngagementEvent.findMany.mockResolvedValue([]);
+      prisma.deal.groupBy.mockResolvedValue([]);
+      prisma.registryDeal.groupBy.mockResolvedValue([
+        {
+          brokerId: "registry-only",
+          _count: { _all: 2 },
+          _sum: { amount: "500000.00" },
+          _max: { paidAt: new Date("2026-07-10T00:00:00.000Z") },
+        },
+      ]);
 
-    const result: any = await service.list(
-      "ours",
-      "BROKER",
-      { page: 1, pageSize: 30 } as any,
-      undefined,
-      { dealCount: { min: 1 } } as any,
-    );
+      const result: any = await service.list(
+        "ours",
+        "BROKER",
+        { page: 1, pageSize: 30 } as any,
+        undefined,
+        { dealCount: { min: 1 } } as any,
+      );
 
-    expect(result.items.map((item: any) => item.id)).toEqual([
-      "registry-only",
-    ]);
-    expect(result.items[0].metrics.deals).toBe(2);
-    expect(result.items[0].metrics.dealAmount).toBe("500000.00");
-    expect(result.items[0].computedStatuses).toContain("SELLER");
+      expect(result.items.map((item: any) => item.id)).toEqual([
+        "registry-only",
+      ]);
+      expect(result.items[0].metrics.deals).toBe(2);
+      expect(result.items[0].metrics.dealAmount).toBe("500000.00");
+      expect(result.items[0].computedStatuses).toContain("SELLER");
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("applies the selected period to registry deals by paidAt (paid DDU only)", async () => {

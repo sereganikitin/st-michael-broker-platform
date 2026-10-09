@@ -44,6 +44,7 @@ import {
 } from '../common/amo-sync-retry';
 import { isTestClient } from '../common/test-client-rule';
 import { notHistoricalClientWhere } from '../common/historical-client';
+import { safeDatabaseFailureCode } from '../database/database-failure';
 import {
   AmoFixationPhoneLease,
   AmoFixationPhoneLockService,
@@ -251,7 +252,7 @@ export class SchedulerService {
         }
       } catch (e: any) {
         errors++;
-        if (errors <= 3) this.logger.warn(`[amo-meeting-tasks] lead ${leadId} failed: ${e?.message || e}`);
+        if (errors <= 3) this.logger.warn(`[amo-meeting-tasks] failed code=${safeDatabaseFailureCode(e)}`);
       }
     }
     if (created > 0 || errors > 0) {
@@ -286,7 +287,7 @@ export class SchedulerService {
         WHERE "comment" LIKE 'Тип из amoCRM:%'
       `;
     } catch (e: any) {
-      this.logger.error(`[meetings-status-sync] cleanup «Тип из amoCRM» error: ${e?.message || e}`);
+      this.logger.error(`[meetings-status-sync] cleanup_meeting_comments failed code=${safeDatabaseFailureCode(e)}`);
     }
 
     // 2026-07-01: одноразовая очистка старых записей «[timestamp] amoCRM
@@ -315,7 +316,7 @@ export class SchedulerService {
         WHERE "comment" IS NOT NULL AND TRIM("comment") = ''
       `;
     } catch (e: any) {
-      this.logger.error(`[meetings-status-sync] cleanup «amoCRM статус» error: ${e?.message || e}`);
+      this.logger.error(`[meetings-status-sync] cleanup_client_comments failed code=${safeDatabaseFailureCode(e)}`);
     }
 
     const now = new Date();
@@ -360,12 +361,12 @@ export class SchedulerService {
           }
         } catch (e: any) {
           errors++;
-          if (errors <= 3) this.logger.warn(`[meetings-status-sync] lead ${leadId} failed: ${e?.message || e}`);
+          if (errors <= 3) this.logger.warn(`[meetings-status-sync] failed code=${safeDatabaseFailureCode(e)}`);
         }
       }
       this.logger.log(`[meetings-status-sync] leads=${byLeadId.size} checked=${checked} updated=${updated} errors=${errors}`);
     } catch (e: any) {
-      this.logger.error(`[meetings-status-sync] fatal: ${e?.message || e}`);
+      this.logger.error(`[meetings-status-sync] fatal code=${safeDatabaseFailureCode(e)}`);
     }
   }
 
@@ -389,10 +390,10 @@ export class SchedulerService {
       this.logger.log(
         `[amo-brokers] OK: leads=${r.foundLeads} contacts=${r.uniqueContacts} `
           + `created=${r.created} updated=${r.updated} skipped=${r.skipped}`
-          + (r.errors?.length ? ` errors=${r.errors.length}` : ''),
+          + ((r.errorCount ?? r.errors?.length) ? ` errors=${r.errorCount ?? r.errors?.length}` : ''),
       );
     } catch (e: any) {
-      this.logger.error(`[amo-brokers] FAILED: ${e?.message || e}`);
+      this.logger.error(`[amo-brokers] FAILED code=${safeDatabaseFailureCode(e)}`);
     }
   }
 
@@ -814,7 +815,7 @@ export class SchedulerService {
             select: { id: true, fullName: true },
           });
           if (holder && holder.id !== broker.id) {
-            this.logger.warn(`amo contact ${brokerContact.id} для ${broker.fullName} уже закреплён за карточкой ${holder.fullName} (${holder.id}); оставляем текущую привязку ${amoContactId}`);
+            this.logger.warn('[amo-sync] broker_contact_occupied; existing mapping retained');
             brokerContact = null;
           } else {
             await this.prisma.broker.update({
@@ -891,12 +892,12 @@ export class SchedulerService {
             // Не склеиваем заявки разных брокеров по телефону. Синк может
             // переиспользовать только заявку того же фактического брокера.
             if (!client) client = await this.prisma.client.findFirst({
-              where: { phone, amoLeadId: BigInt(leadRef.id), ...brokerOwnership, ...notHistoricalClientWhere },
+              where: { phone, amoLeadId: BigInt(leadRef.id), AND: [brokerOwnership, notHistoricalClientWhere] },
               orderBy: { createdAt: 'desc' },
             });
             if (!client) {
               client = await this.prisma.client.findFirst({
-                where: { phone, amoLeadId: null, ...brokerOwnership, ...notHistoricalClientWhere },
+                where: { phone, amoLeadId: null, AND: [brokerOwnership, notHistoricalClientWhere] },
                 orderBy: { createdAt: 'desc' },
               });
               if (client) {
@@ -1080,8 +1081,12 @@ export class SchedulerService {
                   }
                 }
               }
-            } catch {}
-          } catch {}
+            } catch (error) {
+              this.logger.warn(`[amo-sync] meeting_failed code=${safeDatabaseFailureCode(error)}`);
+            }
+          } catch (error) {
+            this.logger.warn(`[amo-sync] lead_failed code=${safeDatabaseFailureCode(error)}`);
+          }
         }
         // Пересчёт totalSqmSold у primary agency после синка всех сделок брокера.
         // Иначе level всегда = START. Правка 2026-05-12.
@@ -1101,10 +1106,10 @@ export class SchedulerService {
             // Second-pass recalc убран 2026-05-14: amoCRM теперь авторитет для комиссии.
           }
         } catch (e) {
-          this.logger.error(`Recalc totalSqmSold failed for ${broker.fullName}: ${e}`);
+          this.logger.error(`[amo-sync] agency_recalc_failed code=${safeDatabaseFailureCode(e)}`);
         }
       } catch (e) {
-        this.logger.error(`amoCRM sync failed for broker ${broker.fullName}: ${e}`);
+        this.logger.error(`[amo-sync] broker_failed code=${safeDatabaseFailureCode(e)}`);
       }
     }
     this.logger.log(`amoCRM sync complete: ${totalDeals} new deals, ${totalClients} new clients, ${brokers.length} brokers, ${skippedTestLeads} test leads skipped`);

@@ -42,6 +42,7 @@ import {
 import { normalizeMangoEmployeeNum } from './mango-employee-num';
 import { PUBLIC_CALL_SELECT } from '../common/public-call';
 import { MangoCallSafetyService } from '../common/mango-call-safety.service';
+import { safeDatabaseFailureCode } from '../database/database-failure';
 import type { BrokerCallResultCode } from './admin-mango.dto';
 import {
   AMO_UNIQUENESS_RECHECK_MARKER,
@@ -644,13 +645,21 @@ export class AdminService {
       if (lead.status_id === 143) continue;
       // Take main contact (or first if no main)
       const mainContact = contacts.find((c: any) => c.is_main) || contacts[0];
-      if (mainContact?.id) brokerContactIds.add(Number(mainContact.id));
+      if (mainContact?.id) {
+        const contactId = Number(mainContact.id);
+        if (Number.isSafeInteger(contactId) && contactId > 0) brokerContactIds.add(contactId);
+        else { errors.push('AMO_IMPORT_INVALID_CONTACT_ID'); skipped++; }
+      }
     }
 
     for (const contactId of brokerContactIds) {
+      let stage = 'CONTACT_READ';
       try {
         const contact: any = await this.amo.getContact(contactId);
         if (!contact) { skipped++; continue; }
+        if (Number(contact.id) !== contactId) {
+          errors.push('AMO_IMPORT_CONTACT_ID_MISMATCH'); skipped++; continue;
+        }
 
         // Check if contact has Брокер flag = true
         const fields = contact.custom_fields_values || [];
@@ -664,7 +673,7 @@ export class AdminService {
         if (phone.startsWith('8') && phone.length === 11) phone = '+7' + phone.slice(1);
         if (phone && !phone.startsWith('+')) phone = '+' + phone;
         if (!phone) {
-          errors.push(`Contact ${contactId} (${contact.name}) — нет телефона`);
+          errors.push('AMO_IMPORT_PHONE_MISSING');
           skipped++;
           continue;
         }
@@ -679,23 +688,46 @@ export class AdminService {
         const agencyField = fields.find((f: any) => f.field_id === AMO_CONTACT_FIELDS.AGENCY_NAME);
         const agencyName = agencyField?.values?.[0]?.value || null;
 
-        // Upsert broker by phone
+        // The phone and amoContactId are separate unique identities. Never
+        // transfer a contact from another account, or silently replace an
+        // existing mapping. These collisions otherwise repeat P2002 nightly.
+        stage = 'BROKER_LOOKUP';
         const existing = await this.prisma.broker.findUnique({ where: { phone } });
+        const contactOwner = await this.prisma.broker.findUnique({
+          where: { amoContactId: BigInt(contactId) }, select: { id: true },
+        });
+        if (contactOwner && contactOwner.id !== existing?.id) {
+          errors.push('AMO_IMPORT_CONTACT_OCCUPIED'); skipped++; continue;
+        }
         if (existing) {
+          if (existing.role !== 'BROKER' || existing.mergedIntoId !== null) {
+            errors.push('AMO_IMPORT_ACCOUNT_INELIGIBLE'); skipped++; continue;
+          }
+          if (existing.amoContactId !== null && existing.amoContactId !== BigInt(contactId)) {
+            errors.push('AMO_IMPORT_RELINK_UNSAFE'); skipped++; continue;
+          }
           // 2026-06-18: НЕ перетираем fullName и email брокера данными из amoCRM —
           // внутри amo администраторы любят дописывать к имени служебные пометки
           // («Савицкий Владимир (теперь Антон)»), которые брокеру в кабинете
           // показывать нельзя. Заполняем эти поля ТОЛЬКО если в нашей БД пусто.
-          await this.prisma.broker.update({
-            where: { id: existing.id },
+          stage = 'BROKER_UPDATE';
+          const changed = await this.prisma.broker.updateMany({
+            where: {
+              id: existing.id, phone, role: 'BROKER', mergedIntoId: null,
+              amoContactId: existing.amoContactId, updatedAt: existing.updatedAt,
+            },
             data: {
               ...(existing.fullName ? {} : { fullName: contact.name || 'Без имени' }),
               ...(existing.email ? {} : email ? { email } : {}),
               amoContactId: BigInt(contactId),
             },
           });
+          if (changed.count !== 1) {
+            errors.push('AMO_IMPORT_ACCOUNT_CHANGED'); skipped++; continue;
+          }
           updated++;
         } else {
+          stage = 'BROKER_CREATE';
           const newBroker = await this.prisma.broker.create({
             data: {
               phone,
@@ -711,12 +743,15 @@ export class AdminService {
 
           // Link to agency if INN present
           if (inn) {
+            stage = 'AGENCY_LOOKUP';
             let agency = await this.prisma.agency.findUnique({ where: { inn } });
             if (!agency) {
+              stage = 'AGENCY_CREATE';
               agency = await this.prisma.agency.create({
                 data: { name: agencyName || `Агентство ${inn}`, inn },
               });
             }
+            stage = 'AGENCY_LINK';
             await this.prisma.brokerAgency.create({
               data: { brokerId: newBroker.id, agencyId: agency.id, isPrimary: true },
             });
@@ -745,11 +780,11 @@ export class AdminService {
                 .catch(() => { /* уже связаны — не критично */ });
             }
           } catch (e: any) {
-            errors.push(`Contact ${contactId} company link: ${e?.message || e}`);
+            errors.push(`AMO_IMPORT_COMPANY_LINK_${safeDatabaseFailureCode(e)}`);
           }
         }
       } catch (e: any) {
-        errors.push(`Contact ${contactId}: ${e.message || e}`);
+        errors.push(`AMO_IMPORT_${stage}_${safeDatabaseFailureCode(e)}`);
         skipped++;
       }
     }
@@ -760,6 +795,7 @@ export class AdminService {
       created,
       updated,
       skipped,
+      errorCount: errors.length,
       errors: errors.slice(0, 10),
     };
   }
