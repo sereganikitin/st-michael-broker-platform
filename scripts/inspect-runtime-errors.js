@@ -6,6 +6,11 @@ const fs = require("node:fs");
 const MAX_LOG_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 65536;
 const CONSTRAINTS = ["brokers_amo_contact_id_key", "brokers_phone_key", "clients_amo_lead_id_key", "clients_broker_id_amo_lead_id_key"];
+const FEED_FAILURE_CODES = new Set([
+  "FEED_URL_INVALID", "FEED_TLS_CONFIGURATION_INVALID", "FEED_HTTP_ERROR", "FEED_NETWORK_ERROR", "FEED_TIMEOUT",
+  "FEED_RESPONSE_INVALID", "FEED_BODY_TOO_LARGE", "FEED_BODY_INCOMPLETE", "FEED_BODY_INVALID", "FEED_RETRY_AFTER_LIMIT",
+  "FEED_XML_INVALID", "FEED_OFFERS_INVALID",
+]);
 
 function classifyPostgresLine(line) {
   const severity = line.match(/\b(ERROR|FATAL|PANIC|DETAIL|STATEMENT|CONTEXT|HINT|LOG|WARNING|NOTICE|INFO|DEBUG):/);
@@ -46,6 +51,33 @@ async function postgresReport(input) {
   }
   if (remainder) consume(remainder);
   return { scope: "postgres_retained_docker_logs_24h", total, categories: counts, knownUniqueConstraints: constraints, rawSqlEmitted: false, completeInput: true };
+}
+
+async function apiReport(input) {
+  const report = { scope: "api_current_container_retained_logs_1h", totalErrorLines: 0, databaseErrorLines: 0, telegramDeliveryErrorLines: 0, catalogSyncErrorLines: 0, otherErrorLines: 0, rawLinesEmitted: false, completeInput: true };
+  let bytes = 0, remainder = "";
+  const consume = (raw) => {
+    const line = raw.replace(/\x1b\[[0-9;]*m/g, "");
+    const prefix = line.match(/^\[Nest\]\s+\d+\s+-\s+/);
+    if (!prefix) return;
+    const severity = line.slice(prefix[0].length).match(/\b(LOG|ERROR|WARN|DEBUG|VERBOSE|FATAL)\b/);
+    if (severity?.[1] !== "ERROR") return;
+    report.totalErrorLines++;
+    if (/\[database\] request (?:failed|rejected)/.test(line)) report.databaseErrorLines++;
+    else if (/\[OpsAlertService\].*Failed to deliver alert/.test(line)) report.telegramDeliveryErrorLines++;
+    else if (/\[SchedulerService\].*Catalog sync failed/.test(line)) report.catalogSyncErrorLines++;
+    else report.otherErrorLines++;
+  };
+  for await (const chunk of input) {
+    bytes += Buffer.byteLength(chunk);
+    if (bytes > MAX_LOG_BYTES) throw new Error("LOG_BOUND_EXCEEDED");
+    remainder += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+    const lines = remainder.split("\n"); remainder = lines.pop();
+    for (const line of lines) consume(line);
+    if (Buffer.byteLength(remainder) > MAX_JSON_BYTES) throw new Error("LINE_BOUND_EXCEEDED");
+  }
+  if (remainder) consume(remainder);
+  return report;
 }
 
 async function boundedGet(url, fetchImpl = fetch) {
@@ -133,6 +165,40 @@ async function feedReport(environment, compiledText, fetchImpl = fetch) {
   return results;
 }
 
+async function validatedFeedReport(environment, compiledText, compiledCatalogPath, dependencies = {}) {
+  // Only the reviewed pure sibling loader, never CatalogService/app bootstrap.
+  // Fixed runtime image paths are not caller-controlled module import targets.
+  const helperPath = compiledCatalogPath === "/app/apps/api/dist/catalog/catalog.service.js" ? "/app/apps/api/dist/catalog/profitbase-feed.js"
+    : compiledCatalogPath === "/app/apps/api/dist/src/catalog/catalog.service.js" ? "/app/apps/api/dist/src/catalog/profitbase-feed.js" : null;
+  if (!helperPath) throw new Error("COMPILED_FEED_SCOPE_REFUSED");
+  const feeds = feedUrls(environment, compiledText);
+  const existsSync = dependencies.existsSync || fs.existsSync;
+  const loadModule = dependencies.loadModule || require;
+  if (!existsSync(helperPath)) return feeds.map(({ project }) => ({ project, validated: false, failureCode: "not_available" }));
+  let helper;
+  try {
+    helper = loadModule(helperPath);
+    if (typeof helper?.loadProfitbaseOffers !== "function") throw new Error("VALIDATOR_EXPORT_REFUSED");
+  } catch {
+    return feeds.map(({ project }) => ({ project, validated: false, failureCode: "FEED_VALIDATOR_LOAD_FAILED" }));
+  }
+  const results = [];
+  for (const { project, url } of feeds) {
+    try {
+      // GET-only loader bounds retries/body/time and validates the complete XML
+      // plus mapped DB-field ranges, but performs no catalog or other writes.
+      const offers = await helper.loadProfitbaseOffers(String(url));
+      results.push(Array.isArray(offers) && offers.length > 0 && offers.length <= 50_000
+        ? { project, validated: true, offerCount: offers.length }
+        : { project, validated: false, failureCode: "FEED_RESULT_INVALID" });
+    } catch (error) {
+      // Never copy a URL, XML, provider body, status message or unknown code.
+      results.push({ project, validated: false, failureCode: FEED_FAILURE_CODES.has(error?.code) ? error.code : "FEED_UNKNOWN_FAILURE" });
+    }
+  }
+  return results;
+}
+
 function readOnlyUrl(raw) {
   const url = new URL(raw);
   if (!["postgres:", "postgresql:"].includes(url.protocol) || url.pathname !== "/broker_platform") throw new Error("DATABASE_SCOPE_REFUSED");
@@ -151,15 +217,16 @@ async function liveReport(environment = process.env) {
     // only whether a misleading separate setting exists, never its value.
     const compiledPath = "/app/apps/api/dist/catalog/catalog.service.js";
     const fallbackPath = "/app/apps/api/dist/src/catalog/catalog.service.js";
-    const compiledText = fs.readFileSync(fs.existsSync(compiledPath) ? compiledPath : fallbackPath, "utf8");
-    return { scope: "runtime_readonly_no_send", databaseReadOnly: true, separateTelegramBaseSettingPresent: Boolean(tokenSetting?.value), telegram: await telegramReport(environment), feeds: await feedReport(environment, compiledText), applicationWrites: 0 };
+    const compiledCatalogPath = fs.existsSync(compiledPath) ? compiledPath : fallbackPath;
+    const compiledText = fs.readFileSync(compiledCatalogPath, "utf8");
+    return { scope: "runtime_readonly_no_send", databaseReadOnly: true, separateTelegramBaseSettingPresent: Boolean(tokenSetting?.value), telegram: await telegramReport(environment), feeds: await feedReport(environment, compiledText), validatedFeeds: await validatedFeedReport(environment, compiledText, compiledCatalogPath), applicationWrites: 0 };
   } finally { await prisma.$disconnect(); }
 }
 
-module.exports = { classifyPostgresLine, postgresReport, boundedGet, telegramBase, telegramReport, feedUrls, feedReport, readOnlyUrl, liveReport };
+module.exports = { classifyPostgresLine, postgresReport, apiReport, boundedGet, telegramBase, telegramReport, feedUrls, feedReport, validatedFeedReport, readOnlyUrl, liveReport };
 if (require.main === module) {
   const action = process.argv[2];
-  Promise.resolve().then(() => action === "--postgres" ? postgresReport(process.stdin) : action === "--live" ? liveReport() : Promise.reject(new Error("MODE_REFUSED")))
+  Promise.resolve().then(() => action === "--postgres" ? postgresReport(process.stdin) : action === "--api" ? apiReport(process.stdin) : action === "--live" ? liveReport() : Promise.reject(new Error("MODE_REFUSED")))
     .then((report) => process.stdout.write(`${JSON.stringify(report)}\n`))
     .catch(() => { process.stderr.write("runtime_diagnostic_refused=true\n"); process.exitCode = 1; });
 }
