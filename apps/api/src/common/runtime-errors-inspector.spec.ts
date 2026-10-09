@@ -210,6 +210,109 @@ describe('read-only runtime error inspector', () => {
     expect(source).not.toMatch(/syncFromFeed\(|syncSingleFeed\(|sendMessage|\.\$executeRaw|\.lot\.(?:update|create|delete)/);
   });
 
+  describe('bounded real-feed compatibility evidence', () => {
+    const catalogPath = '/app/apps/api/dist/catalog/catalog.service.js', helperPath = '/app/apps/api/dist/catalog/profitbase-feed.js';
+    const helper = (parseValidatedProfitbaseOffers = jest.fn().mockReturnValue([{}])) => ({ validateProfitbaseFeedUrl: jest.fn((url) => url), parseValidatedProfitbaseOffers });
+    const deps = (loaded: any, fetchImpl: any) => ({ existsSync: () => true, loadModule: jest.fn(() => loaded), fetchImpl });
+    afterEach(() => jest.useRealTimers());
+
+    it('only reports bounded byte counts and successful counts from the fixed runtime pure parser', async () => {
+      const loaded = helper(), xml = '<realty-feed>PRIVATE_XML</realty-feed>';
+      const fetchImpl = jest.fn(async (_url, options) => { expect(options.method).toBe('GET'); expect(options.redirect).toBe('error'); expect(options.signal).toBeInstanceOf(AbortSignal); return new Response(xml, { headers: { 'content-length': String(Buffer.byteLength(xml)) } }); });
+      const dependencies = deps(loaded, fetchImpl);
+      const result = await inspector.feedCompatibilityReport({}, compiled, catalogPath, dependencies);
+      expect(result).toEqual(['ZORGE', 'SILVER'].map((project) => ({ project, decodedBytes: Buffer.byteLength(xml), declaredBytes: Buffer.byteLength(xml), xmlFieldsValidated: true, offerCount: 1 })));
+      expect(dependencies.loadModule).toHaveBeenCalledWith(helperPath);
+      expect(loaded.parseValidatedProfitbaseOffers).toHaveBeenCalledTimes(2); expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(result)).not.toMatch(/PRIVATE|abc123|def456|https|profitbase\.ru/);
+    });
+
+    it('projects only a numeric gate from the exact deployed parser frame, not raw XML/error/URLs', async () => {
+      const error = { code: 'FEED_OFFERS_INVALID', message: 'PRIVATE_NAME_PRICE_PHONE_URL', stack: 'PRIVATE_NAME\n    at reject (' + helperPath + ':30:11)\n    at Object.parseValidatedProfitbaseOffers (' + helperPath + ':142:17)\n    at SECRET_PATH' };
+      const loaded = helper(jest.fn(() => { throw error; }));
+      const result = await inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(loaded, jest.fn(async () => new Response('<realty-feed>PRIVATE</realty-feed>'))));
+      expect(result.every((row: any) => row.failureCode === 'FEED_OFFERS_INVALID' && row.compiledGateLine === 142 && row.xmlFieldsValidated === false)).toBe(true);
+      expect(JSON.stringify(result)).not.toMatch(/PRIVATE|SECRET|PHONE|URL|realty|\/app|abc123/);
+    });
+
+    it.each([
+      'at Object.parseValidatedProfitbaseOffers (/tmp/evil.js:142:1)',
+      'at reject (' + helperPath + ':30:1)',
+      'at parseValidatedProfitbaseOffers (/app/apps/api/dist/src/catalog/profitbase-feed.js:142:1)',
+      'at parseValidatedProfitbaseOffers (' + helperPath + ':999999999999:1)',
+    ])('ignores a non-source-bound parser frame', (stack) => {
+      expect(inspector.compiledValidationGate({ stack }, helperPath)).toBeNull();
+    });
+
+    it('does not call network or import a parser when the old runtime lacks the helper', async () => {
+      const fetchImpl = jest.fn(), loadModule = jest.fn();
+      expect(await inspector.feedCompatibilityReport({}, compiled, catalogPath, { existsSync: () => false, loadModule, fetchImpl })).toEqual(['ZORGE', 'SILVER'].map((project) => ({ project, failureCode: 'not_available' })));
+      expect(fetchImpl).not.toHaveBeenCalled(); expect(loadModule).not.toHaveBeenCalled();
+    });
+
+    it('preserves strict URL/TLS rejection before any diagnostic GET', async () => {
+      const fetchImpl = jest.fn(), loaded = helper();
+      loaded.validateProfitbaseFeedUrl.mockImplementation(() => { throw { code: 'FEED_URL_INVALID', message: 'PRIVATE_URL' }; });
+      const invalid = await inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(loaded, fetchImpl));
+      expect(invalid.every((row: any) => row.failureCode === 'FEED_URL_INVALID')).toBe(true);
+      const tls = await inspector.feedCompatibilityReport({ NODE_TLS_REJECT_UNAUTHORIZED: '0' }, compiled, catalogPath, deps(helper(), fetchImpl));
+      expect(tls.every((row: any) => row.failureCode === 'FEED_TLS_CONFIGURATION_INVALID')).toBe(true);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('refuses disabled TLS in the actual runtime environment even with a supplied clean environment', async () => {
+      const previous = process.env.NODE_TLS_REJECT_UNAUTHORIZED, fetchImpl = jest.fn();
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+      try {
+        const result = await inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(helper(), fetchImpl));
+        expect(result.every((row: any) => row.failureCode === 'FEED_TLS_CONFIGURATION_INVALID')).toBe(true);
+        expect(fetchImpl).not.toHaveBeenCalled();
+      } finally { if (previous === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = previous; }
+    });
+
+    it('fails closed on a declared response over64MiB before body read/parser', async () => {
+      const loaded = helper(), read = jest.fn(), cancel = jest.fn(async () => {});
+      const fetchImpl = jest.fn(async () => ({ status: 200, headers: { get: (key) => key === 'content-length' ? String(64 * 1024 * 1024 + 1) : null }, body: { getReader: () => ({ read, cancel }), cancel } }));
+      const result = await inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(loaded, fetchImpl));
+      expect(result.every((row: any) => row.failureCode === 'DIAGNOSTIC_BODY_TOO_LARGE' && row.decodedBytes === 0)).toBe(true);
+      expect(read).not.toHaveBeenCalled(); expect(loaded.parseValidatedProfitbaseOffers).not.toHaveBeenCalled(); expect(cancel).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails closed on streamed/decompressed bytes over64MiB before parser', async () => {
+      const loaded = helper(), bytes = Buffer.alloc(64 * 1024 * 1024 + 1), cancel = jest.fn(async () => {});
+      const fetchImpl = jest.fn(async () => ({ status: 200, headers: { get: () => null }, body: { getReader: () => ({ read: async () => ({ done: false, value: bytes }), cancel, releaseLock: jest.fn() }) } }));
+      const result = await inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(loaded, fetchImpl));
+      expect(result.every((row: any) => row.failureCode === 'DIAGNOSTIC_BODY_TOO_LARGE' && row.decodedBytes === bytes.byteLength)).toBe(true);
+      expect(loaded.parseValidatedProfitbaseOffers).not.toHaveBeenCalled(); expect(cancel).toHaveBeenCalledTimes(2);
+    });
+
+    it('enforces30s over each request even when fetch ignores AbortSignal, without retry', async () => {
+      jest.useFakeTimers(); const signals: AbortSignal[] = [];
+      const fetchImpl = jest.fn(async (_url, options) => { signals.push(options.signal); return await new Promise(() => {}); });
+      const pending = inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(helper(), fetchImpl));
+      await jest.advanceTimersByTimeAsync(60_000); const result = await pending;
+      expect(result.every((row: any) => row.failureCode === 'FEED_TIMEOUT')).toBe(true);
+      expect(fetchImpl).toHaveBeenCalledTimes(2); expect(signals.every((signal) => signal.aborted)).toBe(true);
+    });
+
+    it('enforces30s across a stalled stream without retry and cancels readers', async () => {
+      jest.useFakeTimers(); const cancel = jest.fn(async () => {}), read = jest.fn(async () => await new Promise(() => {}));
+      const fetchImpl = jest.fn(async () => ({ status: 200, headers: { get: () => null }, body: { getReader: () => ({ read, cancel, releaseLock: jest.fn() }) } }));
+      const pending = inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(helper(), fetchImpl));
+      await jest.advanceTimersByTimeAsync(60_000); const result = await pending;
+      expect(result.every((row: any) => row.failureCode === 'FEED_TIMEOUT')).toBe(true);
+      expect(fetchImpl).toHaveBeenCalledTimes(2); expect(cancel).toHaveBeenCalledTimes(2);
+    });
+
+    it('retains complete-body and strict UTF8 checks without exposing raw bytes', async () => {
+      for (const response of [new Response('PRIVATE', { headers: { 'content-length': '100' } }), new Response(Buffer.from([0xff]))]) {
+        const loaded = helper(); const results = await inspector.feedCompatibilityReport({}, compiled, catalogPath, deps(loaded, jest.fn(async () => response.clone())));
+        expect(results.every((row: any) => ['FEED_BODY_INCOMPLETE', 'FEED_BODY_INVALID'].includes(row.failureCode))).toBe(true);
+        expect(loaded.parseValidatedProfitbaseOffers).not.toHaveBeenCalled(); expect(JSON.stringify(results)).not.toContain('PRIVATE');
+      }
+    });
+  });
+
   it('forces a scoped read-only PostgreSQL connection', () => {
     const url = new URL(inspector.readOnlyUrl('postgresql://private:secret@postgres/broker_platform'));
     expect(url.searchParams.get('options')).toContain('default_transaction_read_only=on');
@@ -220,6 +323,7 @@ describe('read-only runtime error inspector', () => {
     const yaml = require('yaml');
     const text = readFileSync(join(__dirname, '../../../../.github/workflows/inspect-production-runtime-errors.yml'), 'utf8');
     const workflow = yaml.parse(text);
+    expect(workflow.jobs.inspect['timeout-minutes']).toBe(12);
     expect(workflow.on.workflow_dispatch).toEqual({});
     const program = workflow.jobs.inspect.steps.find((step: any) => step.run)?.run;
     expect(program).toContain('StrictHostKeyChecking=yes');
@@ -227,6 +331,7 @@ describe('read-only runtime error inspector', () => {
     expect(program).toContain("'600:0:0'");
     expect(program).toContain('node "$1" --postgres');
     expect(program).toContain('node "$1" --live');
+    expect(program).toContain('timeout --foreground 10m ssh');
     expect(program).not.toMatch(/sendMessage|getUpdates|deleteWebhook|NODE_TLS_REJECT_UNAUTHORIZED|git checkout/);
   });
 });
