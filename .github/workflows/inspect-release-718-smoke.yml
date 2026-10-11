@@ -115,7 +115,12 @@ jobs:
           done
           test "$(printf '%s' "$bundle" | base64 -d | sha256sum | cut -d' ' -f1)" = "$expected_hash"
           test "$(timeout 15 docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$expected_sha"
-          printf '%s' "$bundle" | base64 -d | timeout 140 docker exec -i \
+          # node stdin does not set require.main; explicitly invoke the reviewed
+          # entry point rather than returning a misleading no-op success.
+          {
+            printf '%s' "$bundle" | base64 -d
+            printf '\ninspect().catch(() => { console.error("RELEASE_SMOKE_FAILED"); process.exitCode = 1; });\n'
+          } | timeout 140 docker exec -i \
             -e SMOKE_EXPECTED_SHA="$expected_sha" -e SMOKE_CONFIRM_SEND="$confirm_send" \
             -e PRODUCTION_PG_SYSTEM_IDENTIFIER="$system_identifier" -e PRODUCTION_MIN_BROKER_ROWS="$minimum_broker_rows" \
             st-michael-api node -

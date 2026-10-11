@@ -64,4 +64,5 @@ test('workflow pins SSH host and checks container plus checkout SHA before smoke
   assert.match(workflow, /DOCKER_HOST/);
   assert.match(workflow, /com\.docker\.compose\.service/);
   assert.doesNotMatch(workflow, /docker compose up|restart|git pull|system prune/);
+  assert.match(workflow, /printf '\\ninspect\(\)\.catch/);
 });
