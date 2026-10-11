@@ -5,6 +5,8 @@ export type CommissionMode = 'FLAT' | 'PROGRESSIVE';
 export type CommissionNumericValue = number | string | null | undefined;
 
 export interface CommissionPolicyLevel {
+  minSalesRub?: number;
+  bonusRate?: number;
   level?: string;
   name?: string;
   minSqm?: number | string;
@@ -17,6 +19,7 @@ export interface CommissionPolicyLevel {
  * an API boundary in either form.
  */
 export interface ActiveCommissionPolicy {
+  basis?: string;
   project: CommissionProject;
   mode: CommissionMode;
   flatRate: CommissionNumericValue;
@@ -98,6 +101,7 @@ export function getCommissionMinRate(
   policy: ActiveCommissionPolicy | null | undefined,
 ): number | null {
   if (!policy) return null;
+  if (policy.basis === 'SALES_RUB_2026') return 4.2;
 
   if (policy.mode === 'FLAT') return numericRate(policy.flatRate);
 
@@ -170,6 +174,9 @@ export function buildPaymentTermsText(
   policy: CommissionPaymentTerms | null | undefined,
 ): string {
   if (!policy) return '';
+  if ((policy as ActiveCommissionPolicy).basis === 'SALES_RUB_2026') {
+    return 'Полная оплата и стандартная ипотека — 5%. Рассрочка: ПВ >50% — 4,5%, ПВ ≤50% — 4%. Субсидированная ипотека — 4%. Дополнительно накопительная надбавка 0,2–1% по объёму подписанных договоров в рублях.';
+  }
 
   const parts: string[] = [];
   const installmentDiscount = numericRate(policy.installmentDiscount);
