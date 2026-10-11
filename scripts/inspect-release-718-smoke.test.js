@@ -43,6 +43,22 @@ test('only normalized timestamps escape stored JSON', () => {
   assert.equal(safeTimestamp('secret-value'), null);
   assert.equal(safeTimestamp('2026-10-11T14:00:00Z'), '2026-10-11T14:00:00.000Z');
 });
+
+test('agency SQL uses service UTC date labels, not broker Moscow instant boundaries', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const service = fs.readFileSync(path.join(__dirname, '../apps/api/src/loyalty-base/loyalty-base.service.ts'), 'utf8');
+  const smoke = fs.readFileSync(require.resolve('./inspect-release-718-smoke'), 'utf8');
+  assert.match(service, /toISOString\(\)\.slice\(0, 10\)/);
+  assert.match(service, /p\.fromIso\.slice\(0, 10\)/);
+  assert.match(service, /p\.toIso\.slice\(0, 10\)/);
+  assert.match(smoke, /c\.created_at::date BETWEEN p\.start AND p\.finish/);
+  assert.match(smoke, /m\.date::date BETWEEN p\.start AND p\.finish/);
+  assert.match(smoke, /c\.fixation_status IN \('FIXED','EXPIRED'\) OR c\.uniqueness_status IN \('CONDITIONALLY_UNIQUE','EXPIRED'\)/);
+  // A 00:30 Moscow activity is the prior UTC day: current agency metrics
+  // intentionally follow that UTC label. A Moscow-date SQL rewrite differs.
+  assert.equal(new Date('2026-10-01T00:30:00+03:00').toISOString().slice(0, 10), '2026-09-30');
+});
 test('smoke does not boot Nest or run any migrations', () => {
   const source = readFileSync(require.resolve('./inspect-release-718-smoke'), 'utf8');
   assert.doesNotMatch(source, /NestFactory|createApplicationContext|migrate|\.\$disconnect\(\).*delete/);

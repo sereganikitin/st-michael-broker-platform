@@ -1,5 +1,13 @@
 export type CommissionProject = 'ZORGE9' | 'SILVER_BOR';
 
+/** Exact 30% boundary was clarified by the business owner; not inferred from received payments. */
+export function publishedInstallmentPayoutText(project: CommissionProject): string {
+  const firstStage = project === 'ZORGE9'
+    ? 'Первый этап — 50% вознаграждения после поступления денежных средств на расчётный счёт.'
+    : 'Первый этап — пропорционально фактической оплате после поступления денежных средств на расчётный счёт.';
+  return `При первоначальном взносе 30% и более, включая ровно 30%, комиссия выплачивается полностью и единовременно. При первоначальном взносе менее 30% — в два этапа. ${firstStage} Второй этап — оставшаяся часть после поступления не менее 30% от суммы договора. Порог выплаты 30% не меняет порог 50% для расчёта ставки. Калькулятор не рассчитывает график фактических выплат.`;
+}
+
 export type CommissionMode = 'FLAT' | 'PROGRESSIVE';
 
 export type CommissionNumericValue = number | string | null | undefined;

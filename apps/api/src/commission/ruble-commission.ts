@@ -1,5 +1,6 @@
 /** Current published cooperation terms; historical sqm policies are intentionally separate. */
 export const RUB_COMMISSION_MARKER = 'SALES_RUB_2026';
+export const RUB_TERMS_SOURCE_SHA256 = 'e2161fa26b105b3cec99a2e234315fb64fda1c2fd12b1db13107cc11697ce80d';
 // Activation is prospective: do not recalculate contracts preceding this release.
 export const RUB_DISPLAY_START = new Date('2026-10-10T21:00:00.000Z');
 export const RUB_DISPLAY_END = new Date('2027-01-31T20:59:59.999Z');
@@ -11,10 +12,11 @@ export function currentRubleDisplayPolicies(date = new Date()): any[] | null {
   if (!currentRubleTerms(date)) return null;
   return ['ZORGE9', 'SILVER_BOR'].map(project => ({
     id: null, project, mode:'PROGRESSIVE', basis:RUB_COMMISSION_MARKER,
-    source:'PUBLISHED_COOPERATION_TERMS', sourceUrl:'/files/cooperation/33f2417b-965c-4efb-837d-982cb359d30b.pdf',
+    source:'PUBLISHED_COOPERATION_TERMS', sourceName:'Условия вознаграждения ST MICHAEL.pdf', sourceSha256:RUB_TERMS_SOURCE_SHA256,
+    sourceUrl:'/files/cooperation/rewards-2026-10-11-e2161fa26b105b3c.pdf',
     levels:RUB_COMMISSION_LEVELS, flatRate:null, minRate:4.2, maxRate:6,
     installmentEnabled:true, installmentDiscount:.5, subsidizedMortgageEnabled:true, subsidizedMortgageRate:4,
-    displayNote:'Полная оплата и стандартная ипотека — 5%; рассрочка: ПВ >50% — 4,5%, ПВ ≤50% — 4%; субсидированная ипотека — 4%. Дополнительно 0,2–1% по общему объёму подписанных договоров в рублях. Достигнутый уровень сохраняется до 31.01.2027. Расчёт предварительный; начисления подтверждаются отдельно.',
+    displayNote:'Полная оплата и стандартная ипотека — 5%; рассрочка: ПВ >50% — 4,5%, ПВ ≤50% — 4%; субсидированная ипотека — 4%. Дополнительно 0,2–1% по общему объёму подписанных договоров в рублях. Повышенная надбавка применяется уже к сделке, достигающей порога. Достигнутый по итогам 2026 года уровень сохраняется до 31.01.2027. Расчёт предварительный; начисления подтверждаются отдельно.',
     startDate:RUB_DISPLAY_START, endDate:RUB_DISPLAY_END,
   }));
 }
@@ -35,6 +37,15 @@ export function isRublePolicy(policy: any): boolean {
 export function rubleBonus(volume: number): number {
   if (!Number.isFinite(volume) || volume < 0) throw new Error('Unknown sales volume');
   return [...RUB_COMMISSION_LEVELS].reverse().find(item => volume >= item.minSalesRub)!.bonusRate;
+}
+
+/** A calculator quote is for a NEW, not-yet-included contract. January freezes 2026 volume. */
+export function prospectiveRubleBonus(confirmedSalesRub: number, proposedAmount: number, date = new Date()) {
+  if (!Number.isFinite(proposedAmount) || proposedAmount <= 0) throw new Error('Invalid proposed amount');
+  rubleBonus(confirmedSalesRub); // validates known nonnegative volume
+  const includesProposedDeal = date <= new Date('2026-12-31T20:59:59.999Z');
+  const bonusBasisRub = confirmedSalesRub + (includesProposedDeal ? proposedAmount : 0);
+  return { bonusRate:rubleBonus(bonusBasisRub), bonusBasisRub, includesProposedDeal };
 }
 
 export function rublePaymentRate(paymentMode: string, downPaymentPercent?: number): number {

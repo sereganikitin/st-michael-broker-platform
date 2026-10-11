@@ -5,6 +5,7 @@ import { apiGet, apiPost } from '@/lib/api';
 import {
   ActiveCommissionPolicy,
   buildPaymentTermsText,
+  publishedInstallmentPayoutText,
   resolveCommissionText,
 } from '@/lib/commission-display';
 import { TrendingUp, Wallet, Award, CreditCard, Building2 } from 'lucide-react';
@@ -94,7 +95,8 @@ export default function CommissionPage() {
   const termsCards = useMemo<Array<{ title: string; text: string }>>(() => {
     if (commission?.basis === 'SALES_RUB_2026') return [
       { title: 'Условия оплаты', text: 'Полная оплата и стандартная ипотека — 5%. Рассрочка: первоначальный взнос больше 50% — 4,5%; до 50% включительно — 4%. Субсидированная ипотека — 4%. К базовой ставке добавляется накопительная надбавка.' },
-      { title: 'Накопительная надбавка', text: 'Общий объём подписанных ДДУ, ПДКП и ДКП агентства по обоим проектам за 2026 год, в рублях. Достигнутый уровень сохраняется до 31 января 2027 года. Исторически начисленные комиссии не пересчитываются.' },
+      { title: 'Накопительная надбавка', text: 'Общий объём подписанных ДДУ, ПДКП и ДКП агентства по обоим проектам за 2026 год, в рублях. Повышенная надбавка применяется уже к сделке, достигающей следующего порога. Достигнутый по итогам 2026 года уровень сохраняется до 31 января 2027 года. Исторически начисленные комиссии не пересчитываются.' },
+      { title: 'Порядок выплаты при рассрочке', text: publishedInstallmentPayoutText(selectedProject) },
     ];
     const byProject = cmsCommission?.cardsByProject?.[selectedProject];
     const source = Array.isArray(byProject)
@@ -339,7 +341,7 @@ export default function CommissionPage() {
           <h3 className="text-lg font-semibold mb-4">Калькулятор комиссии</h3>
           <form onSubmit={handleCalculate} className="space-y-4">
             <div>
-              <label className="label">Сумма сделки (₽)</label>
+              <label className="label">{isRuble ? 'Сумма новой планируемой сделки, ещё не включённой в объём (₽)' : 'Сумма сделки (₽)'}</label>
               {/* КБ6: форматируем поле с пробелами между разрядами тысяч.
                   Реальное число хранится в state как digits-only-строка. */}
               <input
@@ -411,6 +413,7 @@ export default function CommissionPage() {
           {calcResult && (
             <div className="mt-4 p-4 bg-surface-secondary rounded-lg">
               {calcResult.isEstimate && <p className="text-xs text-text-muted mb-3">Предварительный расчёт по условиям лендинга. Не является подтверждённым начислением; требуется сверка полного объёма договоров агентства.</p>}
+              {calcResult.bonusBasisNote && <p className="text-xs text-text-muted mb-3">{calcResult.bonusBasisNote} Основание надбавки: {Number(calcResult.bonusBasisRub).toLocaleString('ru-RU')} ₽.</p>}
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-text-muted">Сумма:</span>
                 <span>{Math.round(Number(calcResult.amount)).toLocaleString('ru-RU')} ₽</span>

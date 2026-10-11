@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { ActiveCommissionPolicy, buildPaymentTermsText, getCommissionRateLabel, resolveCommissionText } from './commission-display';
+import { ActiveCommissionPolicy, buildPaymentTermsText, getCommissionRateLabel, publishedInstallmentPayoutText, resolveCommissionText } from './commission-display';
 
 const published: ActiveCommissionPolicy = {
   project:'ZORGE9', mode:'PROGRESSIVE', basis:'SALES_RUB_2026', flatRate:null,
@@ -20,4 +20,11 @@ test('payment terms state both installment boundaries, not a single blanket 0.5%
 });
 test('historical policies stay unchanged', () => {
   assert.equal(getCommissionRateLabel({project:'ZORGE9',mode:'FLAT',flatRate:7,levels:null}), '7%');
+});
+test('payout at exactly 30% is full, separate from rate threshold and actual receipt', () => {
+  assert.match(publishedInstallmentPayoutText('ZORGE9'), /30% и более, включая ровно 30%/);
+  assert.match(publishedInstallmentPayoutText('ZORGE9'), /полностью и единовременно/);
+  assert.match(publishedInstallmentPayoutText('ZORGE9'), /Первый этап — 50% вознаграждения/);
+  assert.match(publishedInstallmentPayoutText('SILVER_BOR'), /пропорционально фактической оплате/);
+  assert.match(publishedInstallmentPayoutText('SILVER_BOR'), /не рассчитывает график/);
 });

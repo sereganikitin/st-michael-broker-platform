@@ -1,6 +1,6 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient, CommissionLevel, CommissionMode } from '@st-michael/database';
-import { confirmedAgencySalesRub, currentRubleTerms, isRublePolicy, RUB_DISPLAY_END, RUB_COMMISSION_LEVELS, rubleBonus, rublePaymentRate } from './ruble-commission';
+import { confirmedAgencySalesRub, currentRubleTerms, isRublePolicy, prospectiveRubleBonus, RUB_DISPLAY_END, RUB_COMMISSION_LEVELS, rubleBonus, rublePaymentRate } from './ruble-commission';
 
 /**
  * Найти активную политику комиссии для проекта на заданную дату.
@@ -370,10 +370,14 @@ export class CommissionService {
       let baseRate: number;
       try { baseRate = rublePaymentRate(data.paymentMode, data.downPaymentPercent); }
       catch { throw new BadRequestException('Укажите первоначальный взнос от 0 до 100% для рассрочки.'); }
-      const bonusRate = rubleBonus(salesRub);
+      const { bonusRate, bonusBasisRub, includesProposedDeal } = prospectiveRubleBonus(salesRub, data.amount);
       const rate = Math.round((baseRate + bonusRate) * 100) / 100;
       return { amount: data.amount, rate, baseRate, bonusRate, commission: data.amount * rate / 100, paymentMode: data.paymentMode,
-        isEstimate:true, mode: 'SALES_RUB_2026', totalSalesRub: salesRub, agencyName: agency?.name || null };
+        isEstimate:true, mode: 'SALES_RUB_2026', totalSalesRub: salesRub, bonusBasisRub, includesProposedDeal,
+        bonusBasisNote: includesProposedDeal
+          ? 'Надбавка рассчитана с учётом этой новой планируемой сделки, ещё не включённой в накопленный объём 2026 года.'
+          : 'В январе 2027 года применяется сохранённый уровень по итогам 2026 года; сумма новой сделки не увеличивает объём для надбавки.',
+        agencyName: agency?.name || null };
     }
     const policy = await findActivePolicy(this.prisma, data.project);
     const commissionCms = await this.prisma.siteContent.findUnique({ where: { key: 'commission' } });

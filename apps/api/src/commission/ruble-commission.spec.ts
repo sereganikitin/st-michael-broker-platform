@@ -1,4 +1,4 @@
-import { confirmedAgencySalesRub, currentRubleDisplayPolicies, isRublePolicy, RUB_COMMISSION_LEVELS, rubleBonus, rublePaymentRate } from './ruble-commission';
+import { confirmedAgencySalesRub, currentRubleDisplayPolicies, isRublePolicy, prospectiveRubleBonus, RUB_COMMISSION_LEVELS, rubleBonus, rublePaymentRate } from './ruble-commission';
 import { CommissionService, rateForWithPolicy } from './commission.service';
 
 describe('Published ruble commission rules', () => {
@@ -57,5 +57,27 @@ describe('Published ruble commission rules', () => {
   });
   it('versioned display rules expire and never pretend an old source was renewed', () => {
     expect(currentRubleDisplayPolicies(new Date('2027-02-01T00:00:00Z'))).toEqual([]);
+  });
+  it('applies the reached threshold already to the proposed new 2026 contract', async () => {
+    const prisma = {
+      broker:{findUnique:async () => ({brokerAgencies:[{agency:{id:'a',name:'A'}}]})},
+      deal:{findMany:async () => [{id:'d',amount:149000000,contractType:'DDU'}]},
+    };
+    const result = await new CommissionService(prisma as any).calculateCommission({brokerId:'b',project:'ZORGE9',amount:1000000,paymentMode:'FULL'});
+    expect(result).toMatchObject({totalSalesRub:149000000,bonusBasisRub:150000000,includesProposedDeal:true,bonusRate:.3,rate:5.3,commission:53000});
+  });
+  it('freezes 2026 level in January and does not count the new 2027 contract', async () => {
+    jest.setSystemTime(new Date('2027-01-15T12:00:00Z'));
+    const prisma = {
+      broker:{findUnique:async () => ({brokerAgencies:[{agency:{id:'a',name:'A'}}]})},
+      deal:{findMany:async () => [{id:'d',amount:149000000,contractType:'DDU'}]},
+    };
+    const result = await new CommissionService(prisma as any).calculateCommission({brokerId:'b',project:'SILVER_BOR',amount:1000000,paymentMode:'FULL'});
+    expect(result).toMatchObject({totalSalesRub:149000000,bonusBasisRub:149000000,includesProposedDeal:false,bonusRate:.2,rate:5.2,commission:52000});
+    expect(result.bonusBasisNote).toMatch(/сохранённый уровень/);
+  });
+  it('uses Moscow year boundary, not UTC year boundary, for bonus volume', () => {
+    expect(prospectiveRubleBonus(149000000,1000000,new Date('2026-12-31T20:59:59.999Z')).bonusRate).toBe(.3);
+    expect(prospectiveRubleBonus(149000000,1000000,new Date('2026-12-31T21:00:00Z')).bonusRate).toBe(.2);
   });
 });
