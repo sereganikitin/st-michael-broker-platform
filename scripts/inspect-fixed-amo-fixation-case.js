@@ -779,7 +779,7 @@ function createArmedRecoveryExtraRequester(token, fetchImpl = globalThis.fetch) 
     } finally { controller.abort(); clearTimeout(timeout); }
   };
 }
-function armedRecoveryExtraDiagnostic(row, payload, field, noteBaseline = null) {
+function armedRecoveryExtraDiagnostic(row, payload, field, noteBaseline = null, leadArmedAt = null) {
   if (!record(field) || field.id !== 833189 || field.entity_type !== "leads" || typeof field.type !== "string") refused("REVIEW_SOURCE_INVALID");
   const notes = payload === null ? [] : payload?._embedded?.notes;
   if (!Array.isArray(notes) || notes.length >= 100 || payload?._links?.next) refused("REVIEW_NOTES_INVALID");
@@ -800,7 +800,14 @@ function armedRecoveryExtraDiagnostic(row, payload, field, noteBaseline = null) 
     fullNoteExactMatchInspected: expectedNote !== null,
     fullNoteExactMatch: expectedNote !== null && exact.length === 1 && matches.length === 1,
     exactNoteCount: exact.length,
-    noteDifference: expectedNote !== null && matches.length === 1 ? armedRecoveryNoteDifference(expectedNote, matches[0].params.text) : { performed: false } };
+    noteDifference: expectedNote !== null && matches.length === 1 ? {
+      ...armedRecoveryNoteDifference(expectedNote, matches[0].params.text),
+      // Current timestamp comparison only; not historical agency reconstruction
+      // and never authority to accept a mismatching fingerprint.
+      agencyTimestampComparedToArmed: Number.isFinite(Date.parse(leadArmedAt)),
+      agencyUpdatedAfterLeadArmed: Number.isFinite(Date.parse(leadArmedAt))
+        ? Date.parse(iso(noteBaseline.agency.updatedAt)) > Date.parse(leadArmedAt) : null,
+    } : { performed: false } };
 }
 // Classification only: none of these normalization comparisons replace the
 // strict full-note check or grant linking/retry authority. Text stays private.
@@ -823,6 +830,10 @@ function armedRecoveryNoteDifference(expected, observed) {
     missingExpectedSections, lineEndingNormalizedExactMatch: normalizeLines(observed) === normalizeLines(expected),
     unicodeNfcNormalizedExactMatch: normalizeLines(observed).normalize("NFC") === normalizeLines(expected).normalize("NFC"),
     observedCrLf: observed.includes("\r\n"),
+    headingWithoutMemoEmojiExactMatch: observedLines[0] === expectedLines[0].replace(/^📝 /, ""),
+    headingWithMemoVariationSelectorExactMatch: observedLines[0] === expectedLines[0].replace(/^📝/, "📝\uFE0F"),
+    headingWithReplacementCharacterExactMatch: observedLines[0] === expectedLines[0].replace(/^📝/, "\uFFFD"),
+    agencyTagHasSingleSha256Value: tag(observedLines).length === 1 && /^Recovery agency tag: [a-f0-9]{64}$/.test(tag(observedLines)[0]),
     agencyTagExactMatch: tag(expectedLines).length === 1 && JSON.stringify(tag(expectedLines)) === JSON.stringify(tag(observedLines)),
     unexpectedLinesPresent: observedLines.some((line) => line && !expectedCounts.has(line)),
     normalizedComparisonsAuthorizeLink: false };
@@ -1101,7 +1112,8 @@ async function run({ prisma, environment = process.env, fetchImpl, now = () => n
     if (armedRecoveryLead.performed) {
       const extra = createArmedRecoveryExtraRequester(token, fetchImpl);
       const notes = await extra("notes"), field = await extra("dateField");
-      Object.assign(armedRecoveryLead, armedRecoveryExtraDiagnostic(initial.row, notes, field, initial.noteBaseline));
+      Object.assign(armedRecoveryLead, armedRecoveryExtraDiagnostic(initial.row, notes, field, initial.noteBaseline,
+        initial.recoveryAudit[3].payload.armedAt));
       const notesAfter = await extra("notes"), fieldAfter = await extra("dateField");
       const rawAfter = await request(`/api/v4/leads/${ARMED_RECOVERY_LEAD_ID}`, { with: "contacts" });
       if (privateFingerprint(stableReviewEntity(raw)) !== privateFingerprint(stableReviewEntity(rawAfter)) ||

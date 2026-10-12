@@ -133,6 +133,30 @@ describe('literal armed recovery lead readonly diagnostic', () => {
     expect(inspector.armedRecoveryExtraDiagnostic(current, notePayload(text), schema,
       { row: current, agency: { ...agency, updatedAt: new Date('2026-10-12T13:03:00Z') } }).fullNoteExactMatch).toBe(false);
   });
+  it('classifies only literal heading variants and agency timestamp chronology without accepting either mismatch', () => {
+    const current = noteRow(); const expected = inspector.armedRecoveryExpectedNote(current, agency);
+    for (const [heading, flag] of [
+      ['Фиксация клиента от брокера', 'headingWithoutMemoEmojiExactMatch'],
+      ['📝\uFE0F Фиксация клиента от брокера', 'headingWithMemoVariationSelectorExactMatch'],
+      ['\uFFFD Фиксация клиента от брокера', 'headingWithReplacementCharacterExactMatch'],
+    ]) {
+      const changed = expected.replace(expected.split('\n')[0], heading);
+      const result = inspector.armedRecoveryExtraDiagnostic(current, notePayload(changed), schema,
+        { row: current, agency }, armedAt);
+      expect(result.fullNoteExactMatch).toBe(false);
+      expect(result.noteDifference).toMatchObject({ [flag]: true, agencyTagHasSingleSha256Value: true,
+        agencyTimestampComparedToArmed: true, agencyUpdatedAfterLeadArmed: false, normalizedComparisonsAuthorizeLink: false });
+      expect(JSON.stringify(result)).not.toMatch(/private|7999|1234567890|Recovery agency|7a8d216e/);
+    }
+    const later = { ...agency, updatedAt: new Date('2026-10-12T13:03:00Z') };
+    const result = inspector.armedRecoveryExtraDiagnostic(current, notePayload(expected), schema,
+      { row: current, agency: later }, armedAt);
+    expect(result).toMatchObject({ fullNoteExactMatch: false,
+      noteDifference: { agencyUpdatedAfterLeadArmed: true, agencyTagExactMatch: false } });
+    expect(inspector.armedRecoveryExtraDiagnostic(current, notePayload(expected), schema,
+      { row: current, agency }).noteDifference).toMatchObject({ agencyTimestampComparedToArmed: false,
+      agencyUpdatedAfterLeadArmed: null });
+  });
   it('binds note expectations exactly to the reviewed writer rather than an abbreviated reconstruction', () => {
     const writer = readFileSync(resolve(__dirname, '../../../../scripts/apply-fixed-amo-fixation-case.js'), 'utf8');
     const extract = (start: string, end: string) => writer.slice(writer.indexOf(start), writer.indexOf(end));
