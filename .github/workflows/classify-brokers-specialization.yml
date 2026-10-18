@@ -27,12 +27,13 @@ concurrency:
 
 jobs:
   classify:
+    if: ${{ false }}
     name: Run Claude classifier on production
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
       - name: SSH to server and run classifier
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -41,7 +42,9 @@ jobs:
           script_stop: true
           command_timeout: 235m
           script: |
-            set -e
+            set -eu
+            # Disabled until classifier writes reviewable proposals instead of production labels.
+            exit 0
             ARGS=""
             if [ "${{ inputs.dry_run }}" = "true" ]; then
               ARGS="$ARGS --dry-run"
