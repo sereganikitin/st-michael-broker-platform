@@ -41,9 +41,14 @@ jobs:
           test -n "$TG_TOKEN" || { echo "нет токена бота"; exit 1; }
           test -n "$TG_CHAT" || { echo "нет OPS_ALERT_CHAT_ID"; exit 1; }
           test -f "$FILE_PATH" || { echo "файл не найден: $FILE_PATH"; exit 1; }
-          RESP=$(curl -s --max-time 30 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendDocument" \
+          RESP=$(curl -H "X-ST-Michael-Delivery-Id: gh-${{ github.run_id }}-${{ github.run_attempt }}" -s --max-time 30 -X POST "https://broker.stmichael.ru/api/ops-telegram/bot${TG_TOKEN}/sendDocument" \
             -F chat_id="$TG_CHAT" \
             -F caption="$CAPTION" \
             -F document=@"$FILE_PATH")
-          echo "$RESP" | grep -q '"ok":true' || { echo "Telegram ответил ошибкой: $RESP" | head -c 300; exit 1; }
-          echo "Отправлено."
+          if printf '%s' "$RESP" | jq -e '.queued == true' >/dev/null; then
+            echo "telegram_queued=true"
+          elif printf '%s' "$RESP" | jq -e '.ok == true' >/dev/null; then
+            echo "telegram_delivery_confirmed=true"
+          else
+            echo "telegram_delivery_unconfirmed=true"; exit 1
+          fi

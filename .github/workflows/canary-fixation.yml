@@ -69,12 +69,13 @@ jobs:
             all=$(printf '%s\n%s\n' "$GH_CHAT" "$server_ids" | grep -E '^-?[0-9]+$' | sort -u)
             test -n "$all" || { echo "не найдено ни одного chat_id к отправке"; exit 1; }
             for chat in $all; do
-              ok=$(curl -sS --max-time 20 -X POST "https://api.telegram.org/bot${BOT}/sendMessage" --data-urlencode chat_id="$chat" --data-urlencode text="$TEXT" | head -c 120)
+              ok=$(curl -H "X-ST-Michael-Delivery-Id: gh-${{ github.run_id }}-${{ github.run_attempt }}" -sS --max-time 20 -X POST "https://broker.stmichael.ru/api/ops-telegram/bot${BOT}/sendMessage" --data-urlencode chat_id="$chat" --data-urlencode text="$TEXT" | head -c 120)
               tail4=$(printf '%s' "$chat" | tail -c 4)
-              if printf '%s' "$ok" | grep -q '"ok":true'; then
+              if printf '%s' "$ok" | grep -q '"queued":true'; then echo "telegram_queued=true";
+              elif printf '%s' "$ok" | grep -q '"ok":true'; then
                 echo "chat ...$tail4: отправлено"
               else
-                echo "chat ...$tail4: ОШИБКА: $ok"
+                echo "telegram_delivery_unconfirmed=true"
               fi
             done
             exit 1

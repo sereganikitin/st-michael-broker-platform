@@ -61,6 +61,9 @@ jobs:
       - name: Run web contract tests
         run: npm test --workspace=@st-michael/web
 
+      - name: Verify durable Telegram quiet-hours contracts
+        run: node --test ops/telegram-quiet-hours.test.js ops/telegram-quiet-gateway.test.js scripts/monitor-plaud-file-names.test.mjs scripts/monitor-plaud-server-runner.test.mjs
+
   deploy:
     name: SSH deploy to production
     needs: verify
@@ -470,7 +473,7 @@ jobs:
             exit 0
           fi
           TOKEN="${{ secrets.OPS_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}"
-          curl -s --max-time 10 -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+          curl -H "X-ST-Michael-Delivery-Id: gh-${{ github.run_id }}-${{ github.run_attempt }}" -s --max-time 10 -X POST "https://broker.stmichael.ru/api/ops-telegram/bot${TOKEN}/sendMessage" \
             -d chat_id="${{ secrets.OPS_ALERT_CHAT_ID }}" \
             -d parse_mode=HTML \
             --data-urlencode text="⚠️ Обновление кабинета проверено, но ещё не опубликовано на рабочем сайте. Для публикации откройте в GitHub раздел автоматических действий, выберите «Публикация кабинета на рабочем сайте», запустите её вручную и подтвердите выкладку. (Повторные обновления в ближайшие 6 часов не будут дублировать это сообщение.)" \

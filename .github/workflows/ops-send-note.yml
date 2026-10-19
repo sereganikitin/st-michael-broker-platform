@@ -29,7 +29,7 @@ jobs:
           test -n "$TG_TOKEN" || { echo "нет токена бота"; exit 1; }
           test -n "$TG_CHAT" || { echo "нет OPS_ALERT_CHAT_ID"; exit 1; }
           python3 - <<'PY'
-          import base64, os, time, urllib.request, urllib.parse
+          import base64, json, os, time, urllib.request, urllib.parse
 
           text = base64.b64decode(os.environ["TEXT_B64"]).decode("utf-8")
           token, chat = os.environ["TG_TOKEN"], os.environ["TG_CHAT"]
@@ -48,12 +48,17 @@ jobs:
           for i, chunk in enumerate(chunks):
               data = urllib.parse.urlencode({"chat_id": chat, "text": chunk}).encode()
               req = urllib.request.Request(
-                  f"https://api.telegram.org/bot{token}/sendMessage", data=data)
-              with urllib.request.urlopen(req, timeout=15) as resp:
-                  ok = b'"ok":true' in resp.read()
-              print(f"chunk {i + 1}/{len(chunks)}: {'ok' if ok else 'FAIL'}")
-              if not ok:
+                  f"https://broker.stmichael.ru/api/ops-telegram/bot{token}/sendMessage", data=data,
+                  headers={"X-ST-Michael-Delivery-Id": f"gh-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}-part-{i}"})
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      result = json.loads(resp.read())
+              except Exception:
+                  raise SystemExit("Telegram delivery unconfirmed") from None
+              state = "queued" if result.get("queued") is True else "delivered" if result.get("ok") is True else "unconfirmed"
+              print(f"chunk {i + 1}/{len(chunks)}: {state}")
+              if state == "unconfirmed":
                   raise SystemExit(1)
               time.sleep(1)
           PY
-          echo "=== Отправлено ==="
+          echo "=== Доставка или приём в очередь подтверждены ==="

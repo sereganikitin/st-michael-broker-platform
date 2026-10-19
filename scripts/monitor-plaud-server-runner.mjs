@@ -176,7 +176,7 @@ async function deliver(plan, chunks, state, config, dependencies) {
       let response;
       let payload;
       try {
-        response = await fetchImpl(`https://api.telegram.org/bot${config.token}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text: chunks[part.part_index], link_preview_options: { is_disabled: true }, protect_content: true }), redirect: 'error', signal: AbortSignal.timeout(10_000) });
+        response = await fetchImpl(`http://172.18.0.1:8082/private/bot${config.token}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-ST-Michael-Delivery-Id': `plaud-${state.job_day}-${plan.report_sha256}-${recipient.recipient_hash}-${part.part_index}` }, body: JSON.stringify({ chat_id: chatId, text: chunks[part.part_index], link_preview_options: { is_disabled: true }, protect_content: true }), redirect: 'error', signal: AbortSignal.timeout(10_000) });
         payload = await telegramJson(response);
       } catch { part.status = 'UNKNOWN'; }
       if (response && part.status !== 'UNKNOWN') {

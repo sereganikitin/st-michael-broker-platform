@@ -1,0 +1,277 @@
+name: Install approved Telegram quiet hours (infrastructure only)
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        type: string
+        required: true
+        description: Type INSTALL_TELEGRAM_QUIET_22_09_MOSCOW
+      expected_checkout_sha:
+        type: string
+        required: true
+        description: Exact checkout SHA verified by the read-only identity report
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '20'
+      - name: Verify source, stage private recipient policy and install under pinned SSH
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          CONFIRM: ${{ inputs.confirmation }}
+          CHECKOUT_SHA: ${{ inputs.expected_checkout_sha }}
+          BOT: ${{ secrets.OPS_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          GH_CHAT: ${{ secrets.OPS_ALERT_CHAT_ID }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -eEuo pipefail
+          umask 077
+          test "$REPOSITORY" = sereganikitin/st-michael-broker-platform
+          test "$REF" = refs/heads/master
+          test "$ACTOR" = mefremov888-ai
+          test "$RUN_ATTEMPT" = 1
+          test "$CONFIRM" = INSTALL_TELEGRAM_QUIET_22_09_MOSCOW
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(gh api "/repos/$REPOSITORY/git/ref/heads/master" --jq '.object.sha' 2>/dev/null)" = "$SOURCE_SHA"
+          ci=$(gh api "/repos/$REPOSITORY/actions/workflows/deploy.yml/runs?head_sha=$SOURCE_SHA&status=completed&per_page=30" 2>/dev/null)
+          printf '%s' "$ci" | jq -e --arg sha "$SOURCE_SHA" 'any(.workflow_runs[]; .head_sha == $sha and .event == "push" and .head_branch == "master" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == .repository.full_name)' >/dev/null
+          live=$(curl --fail --silent --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health | jq -er '.deployedSha | select(test("^[a-f0-9]{40}$"))')
+          comparison=$(gh api "/repos/$REPOSITORY/compare/$live...$SOURCE_SHA" --jq '.status' 2>/dev/null)
+          case "$comparison" in ahead|identical) ;; *) exit 1;; esac
+          [[ "$CHECKOUT_SHA" =~ ^[a-f0-9]{40}$ ]]
+          for pair in "$live...$CHECKOUT_SHA" "$CHECKOUT_SHA...$SOURCE_SHA"; do
+            status=$(gh api "/repos/$REPOSITORY/compare/$pair" --jq '.status' 2>/dev/null)
+            case "$status" in ahead|identical) ;; *) exit 1;; esac
+          done
+          case "$SSH_HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && test "$SSH_PORT" -ge 1 -a "$SSH_PORT" -le 65535
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY_PATH/" in *'/../'*|*'/./'*|*'//'*) exit 1;; esac
+          [[ "$SSH_FINGERPRINT" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
+          node --test ops/telegram-quiet-hours.test.js ops/telegram-quiet-gateway.test.js scripts/monitor-plaud-file-names.test.mjs scripts/monitor-plaud-server-runner.test.mjs
+          stage=$(mktemp -d "${RUNNER_TEMP:-/tmp}/telegram-quiet-stage.XXXXXX")
+          cleanup() { rm -f -- "$stage/policy.json" "$stage/payload.tar" "$stage/key" "$stage/hosts"; rmdir -- "$stage" 2>/dev/null || true; }
+          trap cleanup EXIT
+          POLICY_FILE="$stage/policy.json" node - <<'POLICY'
+          const fs = require('node:fs');
+          const token = process.env.BOT, chatId = process.env.GH_CHAT;
+          if (!/^[1-9][0-9]*:[A-Za-z0-9_-]{20,}$/.test(token || '') || !/^-?[1-9][0-9]*$/.test(chatId || '')) process.exit(1);
+          (async () => {
+            const response = await fetch(`https://api.telegram.org/bot${token}/getMe`, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000) });
+            const observed = await response.json();
+            if (!response.ok || observed.ok !== true || observed.result?.is_bot !== true || String(observed.result.id) !== token.split(':')[0]) throw Error();
+            fs.writeFileSync(process.env.POLICY_FILE, JSON.stringify({ token, policy: {
+              botId: token.split(':')[0], chatId, start: '22:00', end: '09:00', timeZone: 'Europe/Moscow',
+            } }), { mode: 0o600 });
+          })().catch(() => { console.error('telegram_bot_identity_refused=true'); process.exitCode = 1; });
+          POLICY
+          unset BOT GH_CHAT
+          old_nginx=$(gh api "/repos/$REPOSITORY/contents/docker/nginx.conf?ref=$CHECKOUT_SHA" --jq '.content' 2>/dev/null | base64 -d | sha256sum | cut -d' ' -f1)
+          old_relay=$(gh api "/repos/$REPOSITORY/contents/ops/tg-relay.js?ref=$CHECKOUT_SHA" --jq '.content' 2>/dev/null | base64 -d | sha256sum | cut -d' ' -f1)
+          old_plaud_names=$(gh api "/repos/$REPOSITORY/contents/scripts/monitor-plaud-file-names.mjs?ref=$CHECKOUT_SHA" --jq '.content' 2>/dev/null | base64 -d | sha256sum | cut -d' ' -f1)
+          old_plaud_runner=$(gh api "/repos/$REPOSITORY/contents/scripts/monitor-plaud-server-runner.mjs?ref=$CHECKOUT_SHA" --jq '.content' 2>/dev/null | base64 -d | sha256sum | cut -d' ' -f1)
+          new_nginx=$(sha256sum docker/nginx.conf | cut -d' ' -f1)
+          new_relay=$(sha256sum ops/tg-relay.js | cut -d' ' -f1)
+          tar --format=ustar -cf "$stage/payload.tar" ops/telegram-quiet-hours.js ops/telegram-quiet-gateway.js ops/tg-relay.js docker/nginx.conf scripts/monitor-plaud-file-names.mjs scripts/monitor-plaud-server-runner.mjs
+          tar --append --file "$stage/payload.tar" -C "$stage" policy.json
+          archive_hash=$(sha256sum "$stage/payload.tar" | cut -d' ' -f1)
+          printf '%s\n' "$SSH_KEY" > "$stage/key"; chmod 600 "$stage/key"; unset SSH_KEY GH_TOKEN
+          timeout 15 ssh-keyscan -p "$SSH_PORT" -t ed25519 "$SSH_HOST" > "$stage/hosts" 2>/dev/null
+          test "$(ssh-keygen -lf "$stage/hosts" -E sha256 | awk '{print $2}' | sort -u)" = "$SSH_FINGERPRINT"
+          {
+            cat <<'REMOTE'
+          set -eEuo pipefail
+          umask 077
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          deploy_path=$1; source_sha=$2; live=$3; old_nginx=$4; old_relay=$5; new_nginx=$6; new_relay=$7; archive_hash=$8
+          checkout_sha=$9
+          old_plaud_names=${10}; old_plaud_runner=${11}
+          [[ "$checkout_sha" =~ ^[a-f0-9]{40}$ ]]
+          for sha in "$source_sha" "$live"; do [[ "$sha" =~ ^[a-f0-9]{40}$ ]]; done
+          for hash in "$old_nginx" "$old_relay" "$new_nginx" "$new_relay" "$archive_hash"; do [[ "$hash" =~ ^[a-f0-9]{64}$ ]]; done
+          deploy_root=$(readlink -f "$deploy_path"); test "$deploy_root" != / -a -d "$deploy_root"
+          cd "$deploy_root"
+          test "$(git rev-parse --show-toplevel)" = "$deploy_root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git rev-parse HEAD)" = "$checkout_sha"
+          lock=/tmp/st-michael-production-deploy.lock
+          test -f "$lock" -a ! -L "$lock"
+          lock_identity=$(stat -Lc '%d:%i' "$lock")
+          exec 9<"$lock"; flock -x -n 9 || { echo production_lock_busy=true; exit 1; }
+          test "$(stat -Lc '%d:%i' /proc/$$/fd/9)" = "$lock_identity"
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
+          test "$(docker context show)" = default
+          test "$(docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          api_identity=$(docker inspect --format '{{.Id}}:{{.State.StartedAt}}' st-michael-api)
+          assert_live() {
+            test "$(stat -Lc '%d:%i' "$lock")" = "$lock_identity" && flock -x -n 9 &&
+            test "$(git rev-parse HEAD)" = "$checkout_sha" &&
+            test "$(docker inspect --format '{{.Id}}:{{.State.StartedAt}}' st-michael-api)" = "$api_identity" &&
+            test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$live" &&
+            test "$(curl --fail --silent --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health | jq -er '.deployedSha')" = "$live"
+          }
+          assert_live
+          for file in docker/nginx.conf ops/tg-relay.js; do test -f "$file" -a ! -L "$file"; done
+          test "$(sha256sum docker/nginx.conf | cut -d' ' -f1)" = "$old_nginx"
+          test "$(sha256sum ops/tg-relay.js | cut -d' ' -f1)" = "$old_relay"
+          if docker container inspect st-michael-telegram-quiet >/dev/null 2>&1; then echo telegram_quiet_already_present=true; exit 1; fi
+          test "$(docker inspect --format '{{.State.Running}}' st-michael-tg-relay)" = true
+          test "$(docker inspect --format '{{.HostConfig.NetworkMode}}' st-michael-tg-relay)" = host
+          image=$(docker inspect --format '{{.Image}}' st-michael-tg-relay)
+          [[ "$image" =~ ^sha256:[a-f0-9]{64}$ ]]
+          plaud_previous=""; changed_plaud=false; plaud_release=""
+          if [ -e /opt/plaud-name-monitor/current ]; then
+            test -L /opt/plaud-name-monitor/current
+            plaud_previous=$(readlink -f /opt/plaud-name-monitor/current)
+            [[ "$plaud_previous" =~ ^/opt/plaud-name-monitor/releases/[A-Za-z0-9_.-]{1,80}$ ]]
+            test -f /var/lib/plaud-name-monitor/run.lock -a ! -L /var/lib/plaud-name-monitor/run.lock
+            exec 8<>/var/lib/plaud-name-monitor/run.lock
+            flock -x -n 8 || { echo plaud_notification_worker_busy=true; exit 1; }
+            for file in monitor-plaud-file-names.mjs monitor-plaud-server-runner.mjs; do test -f "$plaud_previous/$file" -a ! -L "$plaud_previous/$file"; done
+            test "$(sha256sum "$plaud_previous/monitor-plaud-file-names.mjs" | cut -d' ' -f1)" = "$old_plaud_names"
+            test "$(sha256sum "$plaud_previous/monitor-plaud-server-runner.mjs" | cut -d' ' -f1)" = "$old_plaud_runner"
+            plaud_units_before=$(sha256sum /etc/systemd/system/plaud-name-monitor.service /etc/systemd/system/plaud-name-monitor.timer /etc/systemd/system/plaud-name-monitor-watchdog.service /etc/systemd/system/plaud-name-monitor-watchdog.timer | sha256sum | cut -d' ' -f1)
+          fi
+          work=$(mktemp -d /tmp/st-michael-telegram-quiet.XXXXXX)
+          archive="$work/payload.tar"; changed_nginx=false; changed_relay=false; created=false; committed=false
+          root=/var/lib/stmichael/telegram-quiet
+          release="$root/releases/$source_sha"
+          cleanup_remote() {
+            rc=$?
+            if [ "$committed" != true ]; then
+              if [ "$changed_plaud" = true ]; then ln -s -- "$plaud_previous" "/opt/plaud-name-monitor/current-rollback-$source_sha"; mv -Tf -- "/opt/plaud-name-monitor/current-rollback-$source_sha" /opt/plaud-name-monitor/current; fi
+              if [ "$changed_relay" = true ]; then cp -- "$release/previous-relay.js" "$deploy_root/ops/tg-relay.js"; docker restart st-michael-tg-relay >/dev/null 2>&1 || true; fi
+              if [ "$changed_nginx" = true ]; then cp -- "$release/previous-nginx.conf" "$deploy_root/docker/nginx.conf"; docker exec st-michael-nginx nginx -t >/dev/null 2>&1 && docker exec st-michael-nginx nginx -s reload >/dev/null 2>&1 || true; fi
+              if [ "$created" = true ]; then docker stop st-michael-telegram-quiet >/dev/null 2>&1 || true; docker rm st-michael-telegram-quiet >/dev/null 2>&1 || true; fi
+            fi
+            rm -f -- "$archive"; rmdir -- "$work" 2>/dev/null || true
+            if [ "$rc" -ne 0 ]; then echo telegram_quiet_install_refused=true >&2; fi
+          }
+          trap cleanup_remote EXIT
+          trap 'exit 1' HUP INT TERM
+          base64 -d > "$archive" <<'PAYLOAD'
+          REMOTE
+            base64 -w 0 "$stage/payload.tar"
+            printf '\nPAYLOAD\n'
+            cat <<'REMOTE_END'
+          test "$(sha256sum "$archive" | cut -d' ' -f1)" = "$archive_hash"
+          test "$(tar -tf "$archive")" = $'ops/telegram-quiet-hours.js\nops/telegram-quiet-gateway.js\nops/tg-relay.js\ndocker/nginx.conf\nscripts/monitor-plaud-file-names.mjs\nscripts/monitor-plaud-server-runner.mjs\npolicy.json'
+          test "$(stat -c %s "$archive")" -lt 262144
+          for parent in /var/lib /var/lib/stmichael "$root" "$root/releases"; do if [ -e "$parent" ]; then test -d "$parent" -a ! -L "$parent"; fi; done
+          test ! -e "$release"
+          mkdir -p -- "$release" "$root/policy" "$root/data/outbox"
+          test "$(readlink -f "$root")" = "$root"
+          chmod 700 "$root" "$root/policy" "$root/data" "$root/data/outbox" "$release"
+          tar -xf "$archive" -C "$release"
+          test "$(sha256sum "$release/docker/nginx.conf" | cut -d' ' -f1)" = "$new_nginx"
+          test "$(sha256sum "$release/ops/tg-relay.js" | cut -d' ' -f1)" = "$new_relay"
+          cp -- docker/nginx.conf "$release/previous-nginx.conf"
+          cp -- ops/tg-relay.js "$release/previous-relay.js"
+          if [ -e "$root/policy/policy.json" ]; then cmp -s "$root/policy/policy.json" "$release/policy.json"; else cp -- "$release/policy.json" "$root/policy/policy.json"; fi
+          chmod 600 "$root/policy/policy.json" "$release/policy.json"
+          assert_live
+          docker run -d --name st-michael-telegram-quiet --restart unless-stopped --network host \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 64 --memory 512m \
+            --log-opt max-size=10m --log-opt max-file=2 --label st-michael.operation=telegram-quiet \
+            --label "st-michael.source-sha=$source_sha" \
+            --mount "type=bind,src=$release/ops,dst=/quiet,readonly" \
+            --mount "type=bind,src=$root/policy,dst=/policy,readonly" \
+            --mount "type=bind,src=$root/data,dst=/data" \
+            "$image" node /quiet/telegram-quiet-gateway.js >/dev/null
+          created=true
+          ready=false
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl --fail --silent --max-time 2 http://172.18.0.1:8082/healthz | jq -e '.ok == true and .worker == "enabled" and .quietHours.start == "22:00" and .quietHours.end == "09:00" and .quietHours.timeZone == "Europe/Moscow"' >/dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+          changed_nginx=true; cp -- "$release/docker/nginx.conf" docker/nginx.conf
+          docker exec st-michael-nginx nginx -t >/dev/null 2>&1
+          docker exec st-michael-nginx nginx -s reload >/dev/null 2>&1
+          curl --fail --silent --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/ops-telegram/healthz | jq -e '.ok == true and .worker == "enabled"' >/dev/null
+          changed_relay=true; cp -- "$release/ops/tg-relay.js" ops/tg-relay.js
+          docker restart st-michael-tg-relay >/dev/null
+          test "$(docker inspect --format '{{.State.Running}}' st-michael-tg-relay)" = true
+          if [ -n "$plaud_previous" ]; then
+            plaud_release="/opt/plaud-name-monitor/releases/telegram-quiet-$source_sha"
+            test ! -e "$plaud_release"; mkdir -m 755 -- "$plaud_release"
+            cp -- "$release/scripts/monitor-plaud-file-names.mjs" "$release/scripts/monitor-plaud-server-runner.mjs" "$plaud_release/"
+            chmod 644 "$plaud_release/monitor-plaud-file-names.mjs" "$plaud_release/monitor-plaud-server-runner.mjs"
+            ln -s -- "$plaud_release" "/opt/plaud-name-monitor/current-install-$source_sha"
+            changed_plaud=true; mv -Tf -- "/opt/plaud-name-monitor/current-install-$source_sha" /opt/plaud-name-monitor/current
+            test "$(sha256sum /etc/systemd/system/plaud-name-monitor.service /etc/systemd/system/plaud-name-monitor.timer /etc/systemd/system/plaud-name-monitor-watchdog.service /etc/systemd/system/plaud-name-monitor-watchdog.timer | sha256sum | cut -d' ' -f1)" = "$plaud_units_before"
+          fi
+          assert_live
+          committed=true
+          # Exactly one useful verification notice. At night it MUST remain
+          # pending; in daytime require an actual provider-confirmed SENT state.
+          # An uncertain test never undoes a successfully installed quiet policy.
+          docker exec -i st-michael-telegram-quiet node - "$source_sha" <<'VERIFY'
+          const fs = require('node:fs'), { createHash } = require('node:crypto');
+          const { quietWindow } = require('/quiet/telegram-quiet-hours');
+          const config = JSON.parse(fs.readFileSync('/policy/policy.json', 'utf8'));
+          const source = process.argv[2], deliveryId = `quiet-install-${source}`;
+          const body = JSON.stringify({ chat_id: config.policy.chatId, text: 'Тихое время включено: с 22:00 до 09:00 по Москве уведомления этого бота сохраняются в очередь и отправляются утром.' });
+          const id = createHash('sha256').update(`${deliveryId}:sendMessage:`).update(body).digest('hex');
+          const filename = '/data/outbox/' + createHash('sha256').update(id).digest('hex') + '.json';
+          (async () => {
+            const response = await fetch(`https://broker.stmichael.ru/api/ops-telegram/bot${config.token}/sendMessage`, {
+              method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
+              headers: { 'content-type': 'application/json', 'x-st-michael-delivery-id': deliveryId }, body,
+            });
+            const receipt = await response.json();
+            let state;
+            if (response.status === 200 && receipt.ok === true && Number.isSafeInteger(receipt.result?.message_id) &&
+              receipt.result.message_id > 0 && String(receipt.result.chat?.id) === config.policy.chatId) {
+              state = 'SENT';
+            } else {
+              if (response.status !== 202 || receipt.queued !== true) throw Error();
+              for (let i = 0; i < 15; i++) {
+                state = JSON.parse(fs.readFileSync(filename, 'utf8')).state;
+                if (quietWindow().quiet || !['PENDING', 'SENDING'].includes(state)) break;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+            }
+            const quiet = quietWindow().quiet;
+            if (!['PENDING', 'SENT'].includes(state) || (state === 'PENDING' && !quiet)) throw Error();
+            console.log('TELEGRAM_QUIET_REPORT=' + JSON.stringify({ quietHoursInstalled: true,
+              start: '22:00', end: '09:00', timeZone: 'Europe/Moscow', scope: 'approved_gh_bot_recipient',
+              morningWorkerEnabled: true, durableOutbox: true, oldInfrastructurePreserved: true,
+              applicationUntouched: true, databaseWrites: false, crmWrites: false,
+              testMessageState: state, testDeliveryConfirmed: state === 'SENT', queuedForMorning: state === 'PENDING' }));
+          })().catch(() => { console.error('telegram_quiet_test_unconfirmed=true'); process.exitCode = 1; });
+          VERIFY
+          REMOTE_END
+          } | timeout --foreground 12m ssh -T -i "$stage/key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o NumberOfPasswordPrompts=0 \
+            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$stage/hosts" -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "${SSH_USER}@${SSH_HOST}" \
+            "bash -s -- '$DEPLOY_PATH' '$SOURCE_SHA' '$live' '$old_nginx' '$old_relay' '$new_nginx' '$new_relay' '$archive_hash' '$CHECKOUT_SHA' '$old_plaud_names' '$old_plaud_runner'"
