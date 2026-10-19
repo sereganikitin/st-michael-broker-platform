@@ -1306,15 +1306,21 @@ async function main() {
       process.stdout.write(`${JSON.stringify(await runHistoricalAgency({ prisma, table: Buffer.concat(chunks).toString("utf8") }), null, 2)}\n`);
       return;
     }
+    // This fixed-lead reader never observes or changes a lease. Do not make it
+    // depend on an unused Redis connection (the history reader likewise does
+    // not connect). This grants no retry/link authority and leaves the legacy
+    // broad inspector's attested read-only Redis path unchanged.
+    if (process.env.FIXED_CASE_NARROW_ARMED_ONLY === "true") {
+      process.stdout.write(`${JSON.stringify(await runArmedOnly({ prisma }), null, 2)}\n`);
+      return;
+    }
     const phoneLockKey = attestedRuntimePhoneLock();
     inspectionPhase = "main_redis_configuration";
     redis = createReadOnlyRedis(require("/app/node_modules/ioredis"), process.env);
     redis.on("error", () => {});
     inspectionPhase = "main_redis_connection";
     await redis.connect();
-    const report = process.env.FIXED_CASE_NARROW_ARMED_ONLY === "true"
-      ? await runArmedOnly({ prisma })
-      : await run({ prisma, readRedisLease: (row) => collectReadOnlyRedisLease(redis, row, phoneLockKey) });
+    const report = await run({ prisma, readRedisLease: (row) => collectReadOnlyRedisLease(redis, row, phoneLockKey) });
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } finally { redis?.disconnect(); await prisma.$disconnect(); }
 }
