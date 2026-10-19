@@ -32,7 +32,9 @@ describe("draft exact-case one-shot recovery (all providers/database mocked)", (
   });
   const inspector = loaded.require("./inspect-fixed-amo-fixation-case");
   const helpers = loaded.require("./inspect-amo-fixation-lead-reconciliation");
-  const NOW = new Date();
+  // Historical case fixtures must not expire as the CI wall clock advances.
+  // Production's seven-day scan guard is intentionally unchanged.
+  const NOW = new Date("2026-10-12T13:10:00.000Z");
   const unix = Math.floor(NOW.getTime() / 1000);
   const clone = (value: any): any => value === null || typeof value !== "object" ? value
     : value instanceof Date ? new Date(value) : Array.isArray(value) ? value.map(clone)
@@ -272,6 +274,7 @@ describe("draft exact-case one-shot recovery (all providers/database mocked)", (
   }
   let originals: any;
   beforeEach(() => {
+    jest.spyOn(Date, "now").mockReturnValue(NOW.getTime());
     originals = { get: helpers.createGetOnlyRequester, collect: helpers.collectAmoEvidence, expanded: inspector.collectExpandedEvidence,
       notes: inspector.createReviewNotesRequester, history: inspector.createReviewHistoryRequester };
     inspector.createReviewNotesRequester = jest.fn(() => async () => ({ _embedded: { notes: [] } }));
@@ -280,6 +283,7 @@ describe("draft exact-case one-shot recovery (all providers/database mocked)", (
   afterEach(() => {
     helpers.createGetOnlyRequester = originals.get; helpers.collectAmoEvidence = originals.collect; inspector.collectExpandedEvidence = originals.expanded;
     inspector.createReviewNotesRequester = originals.notes; inspector.createReviewHistoryRequester = originals.history;
+    jest.restoreAllMocks();
   });
   async function execute(options: any = {}) {
     const db = database(options.row || row(), options);
