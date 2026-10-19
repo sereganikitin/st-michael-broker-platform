@@ -38,9 +38,17 @@ test("historical tag proof does not falsely authorize a heading variant or discl
   assert.equal(result.fullHistoricalNoteExactMatch, false); assert.equal(result.fullHistoricalNoteWithoutMemoEmojiExactMatch, true);
   assert.equal(result.headingVariantAuthorizesLink, false); assert.doesNotMatch(JSON.stringify(result), /private|1234567890|Recovery agency|a{64}/);
 });
-test("selected fields and ordering match the original attested writer literally", () => {
+test("selected fields and ordering match the EXECUTED c5 writer, not today's expanded inspector", () => {
   const writer = fs.readFileSync(require.resolve("./apply-fixed-amo-fixation-case"), "utf8");
   const declaration = writer.match(/const CLIENT_SELECT = (\{[\s\S]*?\n\});/)[1];
-  const expected = vm.runInNewContext(`(${declaration})`, { inspector });
+  const base = { ...inspector.CLIENT_SELECT };
+  // These fields were added to the inspector AFTER the 12 October execution.
+  // The executed writer appended them after email/comment/inspectionActSigned.
+  for (const key of ["propertyType", "roomsCount", "amount", "sqm", "purchaseTiming", "readinessLevel"]) delete base[key];
+  const expected = vm.runInNewContext(`(${declaration})`, { inspector: { CLIENT_SELECT: base } });
   assert.equal(JSON.stringify(inspector.originalWriterClientSelection()), JSON.stringify(expected));
+  assert.notEqual(JSON.stringify(inspector.originalWriterClientSelection()), JSON.stringify(vm.runInNewContext(`(${declaration})`, { inspector })));
+  const row = Object.fromEntries(Object.keys(inspector.originalWriterClientSelection()).map(key => [key, null]));
+  const reordered = Object.fromEntries(Object.keys(row).reverse().map(key => [key, row[key]]));
+  assert.notEqual(proof.originalCaseHash(row, {}), proof.originalCaseHash(reordered, {}));
 });
