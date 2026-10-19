@@ -1,19 +1,36 @@
-name: Inspect existing armed amo lead only (read-only)
+name: Inspect or link one existing armed amo lead (no CRM writes)
 
-# Fixed source-bound client/broker scope; no arbitrary operator identifiers,
-# refresh, repair, retry, SMS/email or database/amoCRM mutation.
+# Fixed source-bound client/broker scope. Identity/inspect/history/certify are
+# read-only. Only explicit link mode can CAS this one local row after fresh
+# certificate/backup gates. No provider mutation, creation retry or lease change.
 on:
   workflow_dispatch:
     inputs:
       mode:
         type: choice
-        options: [identity, inspect, history]
+        options: [identity, inspect, history, certify, link]
         default: identity
         required: true
       expected_checkout_sha:
         type: string
         required: false
         description: Exact checkout SHA from the read-only identity report; empty requires live SHA
+      link_confirmation:
+        type: string
+        required: false
+        description: LINK_ONLY_32377125_PRESERVE_STATUS_ALLOW_ONLY_MISSING_MEMO
+      backup_run_id:
+        type: string
+        required: false
+      backup_sha256:
+        type: string
+        required: false
+      certificate_run_id:
+        type: string
+        required: false
+      certificate_sha256:
+        type: string
+        required: false
 concurrency:
   group: production-deploy
   cancel-in-progress: false
@@ -48,7 +65,16 @@ jobs:
           PRODUCTION_MIN_BROKER_ROWS: ${{ vars.PRODUCTION_MIN_BROKER_ROWS }}
           IDENTITY_ONLY: ${{ inputs.mode == 'identity' && 'true' || 'false' }}
           EXPECTED_CHECKOUT_SHA: ${{ inputs.expected_checkout_sha }}
-          HISTORY_ONLY: ${{ inputs.mode == 'history' && 'true' || 'false' }}
+          HISTORY_ONLY: ${{ (inputs.mode == 'history' || inputs.mode == 'certify' || inputs.mode == 'link') && 'true' || 'false' }}
+          LINK_MODE: ${{ inputs.mode == 'certify' && 'certify' || inputs.mode == 'link' && 'link' || '' }}
+          LINK_CONFIRMATION: ${{ inputs.link_confirmation }}
+          BACKUP_RUN_ID: ${{ inputs.backup_run_id }}
+          BACKUP_SHA256: ${{ inputs.backup_sha256 }}
+          CERTIFICATE_RUN_ID: ${{ inputs.certificate_run_id }}
+          CERTIFICATE_SHA256: ${{ inputs.certificate_sha256 }}
+          EXECUTION_ACTOR: ${{ github.actor }}
+          EXECUTION_ATTEMPT: ${{ github.run_attempt }}
+          EXECUTION_RUN: ${{ github.run_id }}
         run: |
           set -eEuo pipefail
           stage=local_validation
@@ -73,6 +99,22 @@ jobs:
           test "$master_sha" = "$EXPECTED_SHA" || exit 1
           source_ci=$(gh api "/repos/$EXPECTED_REPOSITORY/actions/workflows/deploy.yml/runs?head_sha=$EXPECTED_SHA&status=completed&per_page=30" 2>/dev/null) || exit 1
           printf '%s' "$source_ci" | jq -e --arg sha "$EXPECTED_SHA" 'any(.workflow_runs[]; .head_sha == $sha and .event == "push" and .head_branch == "master" and .status == "completed" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == .repository.full_name)' >/dev/null || exit 1
+          backup_created_at=none
+          if [ -n "$LINK_MODE" ]; then
+            test "$EXECUTION_ACTOR" = mefremov888-ai && test "$EXECUTION_ATTEMPT" = 1
+            test "$LINK_CONFIRMATION" = LINK_ONLY_32377125_PRESERVE_STATUS_ALLOW_ONLY_MISSING_MEMO
+            [[ "$BACKUP_RUN_ID" =~ ^[1-9][0-9]{5,19}$ && "$BACKUP_SHA256" =~ ^[a-f0-9]{64}$ ]]
+            fresh_backup=$(gh api "/repos/$EXPECTED_REPOSITORY/actions/runs/$BACKUP_RUN_ID" 2>/dev/null)
+            printf '%s' "$fresh_backup" | jq -e --arg sha "$EXPECTED_SHA" '.head_sha == $sha and .head_branch == "master" and .run_attempt == 1 and .path == ".github/workflows/backup-production-loyalty-predeploy.yml" and .status == "completed" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == .repository.full_name' >/dev/null
+            backup_receipt=$(gh run view "$BACKUP_RUN_ID" --repo "$EXPECTED_REPOSITORY" --log 2>/dev/null | awk '$NF ~ /^backup_sha256=[0-9a-f]+$/ && length($NF)==78 {sub(/^backup_sha256=/,"",$NF); print $NF}')
+            test "$backup_receipt" = "$BACKUP_SHA256"
+            backup_created_at=$(printf '%s' "$fresh_backup" | jq -er '.created_at | select(test("^[0-9TZ:.-]+$"))')
+            if [ "$LINK_MODE" = link ]; then
+              [[ "$CERTIFICATE_RUN_ID" =~ ^[1-9][0-9]{5,19}$ && "$CERTIFICATE_SHA256" =~ ^[a-f0-9]{64}$ ]]
+              certificate_run=$(gh api "/repos/$EXPECTED_REPOSITORY/actions/runs/$CERTIFICATE_RUN_ID" 2>/dev/null)
+              printf '%s' "$certificate_run" | jq -e --arg sha "$EXPECTED_SHA" '.head_sha == $sha and .head_branch == "master" and .run_attempt == 1 and .path == ".github/workflows/inspect-existing-armed-amo-lead.yml" and .event == "workflow_dispatch" and .status == "completed" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == .repository.full_name' >/dev/null
+            else CERTIFICATE_RUN_ID=none; CERTIFICATE_SHA256=none; fi
+          else BACKUP_RUN_ID=none; BACKUP_SHA256=none; CERTIFICATE_RUN_ID=none; CERTIFICATE_SHA256=none; LINK_CONFIRMATION=none; fi
           if [ "$HISTORY_ONLY" = true ]; then
             history_run=$(gh api "/repos/$EXPECTED_REPOSITORY/actions/runs/38251486523" 2>/dev/null) || exit 1
             printf '%s' "$history_run" | jq -e '.head_sha == "c5fe9e89083f45c7df6c3bf3c09401d0452a9158" and .run_attempt == 1 and .path == ".github/workflows/backup-production-loyalty-predeploy.yml" and .status == "completed" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == .repository.full_name' >/dev/null || exit 1
@@ -94,10 +136,12 @@ jobs:
           inspector_path=scripts/inspect-fixed-amo-fixation-case.js
           dependency_path=scripts/inspect-amo-fixation-lead-reconciliation.js
           history_path=scripts/fixed-amo-historical-agency-proof.js
-          for path in "$inspector_path" "$dependency_path" "$history_path"; do test -f "$path" -a ! -L "$path" || exit 1; done
+          link_path=scripts/link-existing-fixed-amo-case.js
+          for path in "$inspector_path" "$dependency_path" "$history_path" "$link_path"; do test -f "$path" -a ! -L "$path" || exit 1; done
           inspector_sha=$(sha256sum -- "$inspector_path" | awk '{print $1}')
           dependency_sha=$(sha256sum -- "$dependency_path" | awk '{print $1}')
           history_sha=$(sha256sum -- "$history_path" | awk '{print $1}')
+          link_sha=$(sha256sum -- "$link_path" | awk '{print $1}')
           [[ "$inspector_sha" =~ ^[0-9a-f]{64}$ && "$dependency_sha" =~ ^[0-9a-f]{64}$ ]] || exit 1
           runner_temp=${RUNNER_TEMP:-/tmp}
           test -d "$runner_temp" -a ! -L "$runner_temp" || exit 1
@@ -108,10 +152,10 @@ jobs:
           trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "fixed_case_failed_stage=%s\nfixed_case_exit_code=%s\n" "$stage" "$rc" >&2; fi; rm -f -- "$known_hosts" "$private_key" "$bundle_path"; rmdir -- "$ssh_root" 2>/dev/null || true' EXIT
           umask 077
           set_stage local_hash_bound_bundle
-          node - "$dependency_path" "$inspector_path" "$dependency_sha" "$inspector_sha" "$history_path" "$history_sha" > "$bundle_path" <<'BUNDLE'
+          node - "$dependency_path" "$inspector_path" "$dependency_sha" "$inspector_sha" "$history_path" "$history_sha" "$link_path" "$link_sha" > "$bundle_path" <<'BUNDLE'
           const fs = require('node:fs');
           const { createHash } = require('node:crypto');
-          const [dependencyPath, inspectorPath, dependencySha, inspectorSha, historyPath, historySha] = process.argv.slice(2);
+          const [dependencyPath, inspectorPath, dependencySha, inspectorSha, historyPath, historySha, linkPath, linkSha] = process.argv.slice(2);
           function source(path, hash) {
             const bytes = fs.readFileSync(path);
             if (bytes.length > 262144 || createHash('sha256').update(bytes).digest('hex') !== hash) throw new Error('Source binding refused');
@@ -122,7 +166,8 @@ jobs:
           const dependency = source(dependencyPath, dependencySha);
           const inspector = source(inspectorPath, inspectorSha);
           const history = source(historyPath, historySha);
-          process.stdout.write(`"use strict";\nconst FIXED_CASE_DEPENDENCY_SOURCE_SHA256=${JSON.stringify(dependencySha)};\nconst FIXED_CASE_INSPECTOR_SOURCE_SHA256=${JSON.stringify(inspectorSha)};\nconst FIXED_CASE_HISTORY_SOURCE_SHA256=${JSON.stringify(historySha)};\nconst FIXED_CASE_HISTORICAL_AGENCY_HELPERS=(()=>{const module={exports:{}};const exports=module.exports;\n${history}\nreturn module.exports;})();\nconst FIXED_CASE_RECONCILIATION_HELPERS=(()=>{const module={exports:{}};const exports=module.exports;\n${dependency}\nreturn module.exports;})();\n${inspector}\n`);
+          const link = source(linkPath, linkSha);
+          process.stdout.write(`"use strict";\nconst FIXED_CASE_LINK_SOURCE_SHA256=${JSON.stringify(linkSha)};\nconst FIXED_CASE_LINK_HELPERS=(()=>{const module={exports:{}};const exports=module.exports;\n${link}\nreturn module.exports;})();\nconst FIXED_CASE_DEPENDENCY_SOURCE_SHA256=${JSON.stringify(dependencySha)};\nconst FIXED_CASE_INSPECTOR_SOURCE_SHA256=${JSON.stringify(inspectorSha)};\nconst FIXED_CASE_HISTORY_SOURCE_SHA256=${JSON.stringify(historySha)};\nconst FIXED_CASE_HISTORICAL_AGENCY_HELPERS=(()=>{const module={exports:{}};const exports=module.exports;\n${history}\nreturn module.exports;})();\nconst FIXED_CASE_RECONCILIATION_HELPERS=(()=>{const module={exports:{}};const exports=module.exports;\n${dependency}\nreturn module.exports;})();\n${inspector}\n`);
           BUNDLE
           bundle_sha=$(sha256sum -- "$bundle_path" | awk '{print $1}')
           [[ "$bundle_sha" =~ ^[0-9a-f]{64}$ ]] || exit 1
@@ -152,6 +197,14 @@ jobs:
           identity_only=$8
           expected_checkout_sha=$9
           history_only=${10}; expected_history_sha=${11}
+          link_mode=${12}; link_confirmation=${13}; source_sha=${14}; backup_run=${15}; backup_sha=${16}; backup_created=${17}; certificate_run=${18}; certificate_sha=${19}; run_id=${20}; link_sha=${21}; actor=${22}; run_attempt=${23}
+          case "$link_mode" in none) link_mode="";; certify|link) ;; *) exit 1;; esac
+          [[ "$source_sha" =~ ^[a-f0-9]{40}$ && "$link_sha" =~ ^[a-f0-9]{64}$ && "$run_id" =~ ^[1-9][0-9]{5,19}$ ]]
+          if [ -n "$link_mode" ]; then
+            test "$actor" = mefremov888-ai && test "$run_attempt" = 1
+            test "$link_confirmation" = LINK_ONLY_32377125_PRESERVE_STATUS_ALLOW_ONLY_MISSING_MEMO
+            [[ "$backup_run" =~ ^[1-9][0-9]{5,19}$ && "$backup_sha" =~ ^[a-f0-9]{64}$ && "$backup_created" =~ ^[0-9TZ:.-]+$ ]]
+          fi
           case "$history_only" in true|false) ;; *) exit 1;; esac
           [[ "$expected_history_sha" =~ ^[a-f0-9]{64}$ ]] || exit 1
           [[ "$expected_checkout_sha" =~ ^[a-f0-9]{40}$ ]] || exit 1
@@ -169,7 +222,7 @@ jobs:
           lock_identity=$(stat -Lc '%d:%i' -- "$lock_path")
           exec 9<"$lock_path"
           test "$(stat -Lc '%d:%i' -- /proc/$$/fd/9)" = "$lock_identity" || exit 1
-          flock -s -n 9 || { echo 'production_lock_busy=true'; exit 1; }
+          if [ "$link_mode" = link ]; then flock -x -n 9; else flock -s -n 9; fi || { echo 'production_lock_busy=true'; exit 1; }
           test "$(stat -Lc '%d:%i' -- "$lock_path")" = "$lock_identity" || exit 1
           set_stage remote_runtime_identity
           cd -- "$deploy_root"
@@ -239,15 +292,45 @@ jobs:
           IFS='|' read -r system_identifier broker_rows <<< "$database_metrics"
           test "$system_identifier" = "$expected_system_identifier" && test "$broker_rows" -ge "$minimum_broker_rows" || exit 1
           unset database_metrics system_identifier broker_rows
+          if [ -n "$link_mode" ]; then
+            set_stage remote_fresh_link_backup_attestation
+            fresh_backup="/var/backups/stmichael/loyalty-predeploy/loyalty-predeploy-$source_sha-run$backup_run-attempt1.dump"
+            test -f "$fresh_backup" -a ! -L "$fresh_backup"
+            test "$(readlink -f "$fresh_backup")" = "$fresh_backup"
+            test "$(stat -c '%a:%u' "$fresh_backup")" = "600:$(id -u)"
+            test "$(sha256sum "$fresh_backup" | cut -d' ' -f1)" = "$backup_sha"
+            certificate_root=/var/lib/stmichael/fixed-amo-link/certificates
+            for parent in /var/lib/stmichael /var/lib/stmichael/fixed-amo-link "$certificate_root"; do
+              if [ -e "$parent" ]; then test -d "$parent" -a ! -L "$parent"; fi
+            done
+            mkdir -p "$certificate_root"; chmod 700 /var/lib/stmichael/fixed-amo-link "$certificate_root"
+          fi
           history_data=""
+          link_cert=""
           cleanup_history() {
             rc=$?
             if [[ "$history_data" =~ ^/app/scripts/\.fixed-history-row\.[A-Za-z0-9]{6}$ ]]; then
               timeout 10 docker exec st-michael-api sh -c 'rm -f -- "$1"' cleanup "$history_data" >/dev/null 2>/dev/null || true
             fi
+            if [[ "$link_cert" =~ ^/app/scripts/\.fixed-link-cert\.[A-Za-z0-9]{6}$ ]]; then
+              timeout 10 docker exec st-michael-api sh -c 'rm -f -- "$1"' cleanup "$link_cert" >/dev/null 2>/dev/null || true
+            fi
             if [ "$rc" -ne 0 ]; then printf 'fixed_case_failed_stage=%s\nfixed_case_exit_code=%s\n' "$stage" "$rc" >&2; fi
           }
           trap cleanup_history EXIT
+          if [ -n "$link_mode" ]; then
+            link_cert=$(timeout 10 docker exec st-michael-api sh -c 'umask 077; mktemp /app/scripts/.fixed-link-cert.XXXXXX')
+            [[ "$link_cert" =~ ^/app/scripts/\.fixed-link-cert\.[A-Za-z0-9]{6}$ ]]
+            if [ "$link_mode" = link ]; then
+              [[ "$certificate_run" =~ ^[1-9][0-9]{5,19}$ && "$certificate_sha" =~ ^[a-f0-9]{64}$ ]]
+              cert_file="$certificate_root/cert-$source_sha-run$certificate_run.json"
+              test -f "$cert_file" -a ! -L "$cert_file"
+              test "$(stat -c '%a:%u' "$cert_file")" = "600:$(id -u)"
+              test "$(sha256sum "$cert_file" | cut -d' ' -f1)" = "$certificate_sha"
+              test "$(stat -c %s "$cert_file")" -le 8192
+              timeout 10 docker exec -i st-michael-api sh -c 'cat > "$1"' certificate "$link_cert" < "$cert_file"
+            fi
+          fi
           if [ "$history_only" = true ]; then
             set_stage remote_historical_backup_attestation
             historical_backup=/var/backups/stmichael/loyalty-predeploy/loyalty-predeploy-c5fe9e89083f45c7df6c3bf3c09401d0452a9158-run38251486523-attempt1.dump
@@ -273,7 +356,21 @@ jobs:
               timeout 20 docker exec -i st-michael-api sh -c 'set -eu; cat > "$1"; test "$(stat -c %s "$1")" -le 16777216; test "$(stat -c %a "$1")" = 600' history "$history_data"
           fi
           set_stage remote_hash_bound_case_inspection
+          if [ "$link_mode" = link ]; then set_stage remote_protected_db_link_only; fi
           base64 -d <<'FIXED_CASE_PAYLOAD' | timeout 7m docker exec -i \
+            -e FIXED_CASE_LINK_MODE="$link_mode" \
+            -e FIXED_CASE_LINK_CONFIRMATION="$link_confirmation" \
+            -e FIXED_CASE_LINK_CI_ATTESTED=true \
+            -e FIXED_CASE_LINK_ACTOR="$actor" \
+            -e FIXED_CASE_LINK_RUN_ATTEMPT="$run_attempt" \
+            -e FIXED_CASE_LINK_SOURCE_SHA="$source_sha" \
+            -e FIXED_CASE_LINK_HELPER_SHA256="$link_sha" \
+            -e FIXED_CASE_LINK_BACKUP_RUN="$backup_run" \
+            -e FIXED_CASE_LINK_BACKUP_SHA256="$backup_sha" \
+            -e FIXED_CASE_LINK_BACKUP_SOURCE_SHA="$source_sha" \
+            -e FIXED_CASE_LINK_BACKUP_CREATED_AT="$backup_created" \
+            -e FIXED_CASE_LINK_CERTIFICATE_FILE="$link_cert" \
+            -e FIXED_CASE_LINK_CERTIFICATE_SHA256="$certificate_sha" \
             -e FIXED_CASE_NARROW_ARMED_ONLY=true \
             -e FIXED_CASE_HISTORICAL_AGENCY="$history_only" \
             -e FIXED_CASE_HISTORY_SHA256="$expected_history_sha" \
@@ -300,6 +397,13 @@ jobs:
             base64 -w 0 -- "$bundle_path"
             printf '\nFIXED_CASE_PAYLOAD\n'
             cat <<'REMOTE_SUFFIX'
+          if [ "$link_mode" = certify ]; then
+            cert_file="$certificate_root/cert-$source_sha-run$run_id.json"
+            test ! -e "$cert_file"
+            timeout 10 docker exec st-michael-api sh -c 'test "$(stat -c %a "$1")" = 600; test "$(stat -c %s "$1")" -le 8192; cat "$1"' certificate "$link_cert" > "$cert_file"
+            chmod 600 "$cert_file"; sync -f "$cert_file"
+            printf 'fixed_link_certificate_persisted=true\n'
+          fi
           set_stage remote_post_inspection_health
           assert_health || exit 1
           test "$(stat -Lc '%d:%i' -- "$lock_path")" = "$lock_identity" || exit 1
@@ -311,4 +415,4 @@ jobs:
             -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             "${SSH_USER}@${SSH_HOST}" \
-            "bash -s -- '$DEPLOY_PATH' '$deployed_sha' '$PRODUCTION_PG_SYSTEM_IDENTIFIER' '$PRODUCTION_MIN_BROKER_ROWS' '$bundle_sha' '$inspector_sha' '$dependency_sha' '$IDENTITY_ONLY' '$checkout_sha' '$HISTORY_ONLY' '$history_sha'"
+            "bash -s -- '$DEPLOY_PATH' '$deployed_sha' '$PRODUCTION_PG_SYSTEM_IDENTIFIER' '$PRODUCTION_MIN_BROKER_ROWS' '$bundle_sha' '$inspector_sha' '$dependency_sha' '$IDENTITY_ONLY' '$checkout_sha' '$HISTORY_ONLY' '$history_sha' '${LINK_MODE:-none}' '$LINK_CONFIRMATION' '$EXPECTED_SHA' '$BACKUP_RUN_ID' '$BACKUP_SHA256' '$backup_created_at' '$CERTIFICATE_RUN_ID' '$CERTIFICATE_SHA256' '$EXECUTION_RUN' '$link_sha' '$EXECUTION_ACTOR' '$EXECUTION_ATTEMPT'"
