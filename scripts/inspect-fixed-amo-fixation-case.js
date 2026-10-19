@@ -52,6 +52,14 @@ const NO_WRITE = Object.freeze({
   executablePayload: false, databaseMutationAuthorized: false,
   amoMutationAuthorized: false, retryAuthorized: false,
 });
+let inspectionPhase = "configuration";
+function safeInspectionFailure(error) {
+  // Do not expose messages, stacks, Prisma metadata, SQL or provider bodies.
+  const type = ["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "PrismaClientKnownRequestError", "PrismaClientValidationError", "PrismaClientInitializationError"].includes(error?.name) ? error.name : "UnclassifiedError";
+  const databaseCode = /^P[0-9]{4}$/.test(String(error?.code || "")) ? error.code : null;
+  return { phase: inspectionPhase, type, databaseCode,
+    moduleMissing: error?.code === "MODULE_NOT_FOUND", fileMissing: error?.code === "ENOENT" };
+}
 
 function refused(code) { const error = new Error("Fixed case inspection refused"); error.safeCode = code; throw error; }
 function positiveId(value) {
@@ -1137,22 +1145,28 @@ async function run({ prisma, environment = process.env, fetchImpl, now = () => n
 // human has explicitly asked us to preserve a later CRM status.
 async function runArmedOnly({ prisma, environment = process.env, fetchImpl, now = () => new Date() } = {}) {
   const metadata = runtimeMetadata(environment);
+  inspectionPhase = "armed_initial_snapshot";
   const initial = await snapshot(prisma, environment, true, true);
   if (!canInspectEffectiveBroker(initial.row) || !armedRecoveryAuditBound(initial.recoveryAudit)) refused("RECOVERY_AUDIT_INVALID");
   const token = initial.token || environment.AMO_ACCESS_TOKEN;
   const request = serializeRequester(helpers.createGetOnlyRequester(token, fetchImpl));
+  inspectionPhase = "armed_account";
   await helpers.assertExpectedAccount(request);
   const extra = createArmedRecoveryExtraRequester(token, fetchImpl);
+  inspectionPhase = "armed_lead";
   const raw = await request(`/api/v4/leads/${ARMED_RECOVERY_LEAD_ID}`, { with: "contacts" });
   const lead = validatedLead(raw, ARMED_RECOVERY_LEAD_ID, initial.row, null, false);
   const contactId = positiveId(initial.recoveryAudit[2].payload.contactId);
   const broker = effectiveBroker(initial.row).broker, brokerId = positiveId(broker.amoContactId);
   if (!contactId || !brokerId || contactId === brokerId) refused("RECOVERY_AUDIT_INVALID");
+  inspectionPhase = "armed_contacts";
   const client = await request(`/api/v4/contacts/${contactId}`, { with: "leads" });
   const brokerContact = await request(`/api/v4/contacts/${brokerId}`, { with: "leads" });
   if (client?.id !== contactId || brokerContact?.id !== brokerId) refused("REVIEW_CONTACT_INVALID");
+  inspectionPhase = "armed_note_and_schema";
   const notes = await extra("notes"), field = await extra("dateField");
   const noteProof = armedRecoveryExtraDiagnostic(initial.row, notes, field, initial.noteBaseline, initial.recoveryAudit[3].payload.armedAt);
+  inspectionPhase = "armed_occupancy";
   const occupancy = await prisma.$transaction(async (tx) => {
     await helpers.assertReadOnlySession(tx);
     const occupied = await tx.client.findMany({ where: { amoLeadId: BigInt(ARMED_RECOVERY_LEAD_ID), id: { not: CLIENT_ID } }, select: { id: true }, take: 2 });
@@ -1182,6 +1196,7 @@ async function runArmedOnly({ prisma, environment = process.env, fetchImpl, now 
       (requestAt + 10800) % 86400 === 0 && Math.floor((requestAt + 10800) / 86400) === Math.floor((armed + 10800000) / 86400000),
     formFields: armedRecoveryFormDiagnostic(raw, initial.row), ...occupancy, ...noteProof,
   };
+  inspectionPhase = "armed_stable_readback";
   const rawAfter = await request(`/api/v4/leads/${ARMED_RECOVERY_LEAD_ID}`, { with: "contacts" });
   const clientAfter = await request(`/api/v4/contacts/${contactId}`, { with: "leads" });
   const brokerAfter = await request(`/api/v4/contacts/${brokerId}`, { with: "leads" });
@@ -1266,6 +1281,7 @@ async function main() {
   const prisma = new PrismaClient({ datasources: { db: { url: helpers.buildReadOnlyDatabaseUrl(process.env.DATABASE_URL) } }, log: [] });
   let redis;
   try {
+    inspectionPhase = "main_history_or_runtime_helper";
     if (process.env.FIXED_CASE_HISTORICAL_AGENCY === "true") {
       if (typeof FIXED_CASE_HISTORY_SOURCE_SHA256 === "undefined" || FIXED_CASE_HISTORY_SOURCE_SHA256 !== process.env.FIXED_CASE_HISTORY_SHA256) refused("SOURCE_ATTESTATION_INVALID");
       let size = 0; const chunks = [];
@@ -1282,8 +1298,10 @@ async function main() {
       return;
     }
     const phoneLockKey = attestedRuntimePhoneLock();
+    inspectionPhase = "main_redis_configuration";
     redis = createReadOnlyRedis(require("/app/node_modules/ioredis"), process.env);
     redis.on("error", () => {});
+    inspectionPhase = "main_redis_connection";
     await redis.connect();
     const report = process.env.FIXED_CASE_NARROW_ARMED_ONLY === "true"
       ? await runArmedOnly({ prisma })
@@ -1302,4 +1320,5 @@ Object.assign(module.exports, { armedRecoveryNoteDifference });
 Object.assign(module.exports, { attestedRuntimePhoneLock, createReadOnlyRedis, collectReadOnlyRedisLease });
 Object.assign(module.exports, { runArmedOnly });
 Object.assign(module.exports, { runHistoricalAgency, originalWriterClientSelection });
-if (require.main === module) main().catch((error) => { process.stderr.write(`fixed_case_failure_code=${failureCode(error)}\n`); process.exitCode = 1; });
+Object.assign(module.exports, { safeInspectionFailure });
+if (require.main === module) main().catch((error) => { process.stderr.write(`fixed_case_failure_code=${failureCode(error)}\nFIXED_CASE_SAFE_FAILURE=${JSON.stringify(safeInspectionFailure(error))}\n`); process.exitCode = 1; });

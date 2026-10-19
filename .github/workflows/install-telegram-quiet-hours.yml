@@ -232,7 +232,15 @@ jobs:
           docker exec st-michael-nginx nginx -t >/dev/null 2>&1
           docker exec st-michael-nginx nginx -s reload >/dev/null 2>&1
           quiet_phase=nginx_https
-          curl --fail --silent --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/ops-telegram/healthz | jq -e '.ok == true and .worker == "enabled"' >/dev/null
+          # nginx reload is asynchronous: an immediately reused old worker can
+          # still return the old route. Retry ONLY this read-only health GET,
+          # never the notification POST or installation itself.
+          https_ready=false
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl --fail --silent --max-time 5 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/ops-telegram/healthz | jq -e '.ok == true and .worker == "enabled" and .quietHours.start == "22:00" and .quietHours.end == "09:00" and .quietHours.timeZone == "Europe/Moscow"' >/dev/null; then https_ready=true; break; fi
+            sleep 2
+          done
+          test "$https_ready" = true
           changed_relay=true; cp -- "$release/ops/tg-relay.js" ops/tg-relay.js
           quiet_phase=relay_restart
           docker restart st-michael-tg-relay >/dev/null
