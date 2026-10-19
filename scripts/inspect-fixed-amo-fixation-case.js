@@ -60,10 +60,12 @@ function armedPrivateReadback(report) {
 }
 function safeInspectionFailure(error) {
   // Do not expose messages, stacks, Prisma metadata, SQL or provider bodies.
+  try {
   const type = ["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "PrismaClientKnownRequestError", "PrismaClientValidationError", "PrismaClientInitializationError"].includes(error?.name) ? error.name : "UnclassifiedError";
   const databaseCode = /^P[0-9]{4}$/.test(String(error?.code || "")) ? error.code : null;
   return { phase: inspectionPhase, type, databaseCode,
     moduleMissing: error?.code === "MODULE_NOT_FOUND", fileMissing: error?.code === "ENOENT" };
+  } catch { return { phase: inspectionPhase, type: "UnclassifiedError", databaseCode: null, moduleMissing: false, fileMissing: false }; }
 }
 
 function refused(code) { const error = new Error("Fixed case inspection refused"); error.safeCode = code; throw error; }
@@ -1284,7 +1286,8 @@ async function runHistoricalAgency({ prisma, table, environment = process.env, f
     }, stableReadback: true, ...NO_WRITE, linkAuthorized: false };
 }
 function failureCode(error) {
-  if (/^LINK_[A-Z_]{1,80}$/.test(error?.safeCode || "")) return error.safeCode;
+  try { if (/^LINK_[A-Z_]{1,80}$/.test(error?.safeCode || "")) return error.safeCode; }
+  catch { return "UNKNOWN_FAILURE"; }
   const allowed = ["INVALID_CASE_TIMESTAMP", "INVALID_CASE_STATE", "RESPONSIBLE_BROKER_UNRESOLVED", "OWNER_BROKER_UNRESOLVED", "FIXED_CLIENT_MISSING", "EXPECTED_BROKER_MISMATCH", "EXPECTED_BROKER_NOT_CANONICAL", "INVALID_CLIENT_PHONE", "PROJECT_MAPPING_UNSUPPORTED", "INVALID_SYNC_ATTEMPTS", "INVALID_BROKER_CONTACT_ID", "AGENCY_SCOPE_TOO_LARGE", "SOURCE_ATTESTATION_INVALID", "DATABASE_ATTESTATION_INVALID", "UNSAFE_TLS_CONFIGURATION", "DATABASE_IDENTITY_MISMATCH", "BROKER_CONTACT_ID_MISMATCH", "CASE_CHANGED_DURING_SCAN", "INVALID_CASE_NAME", "CASE_SCAN_WINDOW_UNSAFE", "WINDOW_REQUEST_CONFIGURATION_INVALID", "WINDOW_PAGE_BOUND_EXCEEDED", "WINDOW_REQUEST_REJECTED", "WINDOW_REQUEST_FAILED", "EXPANDED_LEAD_INVALID", "WINDOW_LEAD_OUT_OF_SCOPE", "WINDOW_PAGE_INVALID", "WINDOW_LEAD_DUPLICATED", "WINDOW_PAGINATION_INCOMPLETE", "BROKER_LINK_SCAN_UNAVAILABLE", "BROKER_LINK_SCAN_INVALID", "EXPANDED_CONTACT_EVIDENCE_INVALID", "EXPANDED_LEAD_CHANGED_DURING_SCAN", "EXPANDED_EVIDENCE_INCOMPLETE", "EXPANDED_POSSIBLE_LEAD_PRESENT"];
   allowed.push("REVIEW_REQUEST_CONFIGURATION_INVALID", "REVIEW_NOTES_REQUEST_REJECTED", "REVIEW_NOTES_REQUEST_FAILED", "REVIEW_CONTACT_INVALID", "REVIEW_NOTES_INVALID", "REVIEW_HISTORY_SCOPE_INVALID", "REVIEW_EVENTS_INVALID", "REVIEW_CONTACT_SCOPE_EXCEEDED");
   allowed.push("REVIEW_SOURCE_INVALID", "CASE_AUDIT_INVALID", "CASE_AUDIT_SCOPE_EXCEEDED");
