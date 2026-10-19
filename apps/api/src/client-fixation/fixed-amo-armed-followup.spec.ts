@@ -25,6 +25,9 @@ describe('aged case direct armed-lead follow-up is read-only', () => {
     expect(JSON.stringify(result)).not.toMatch(/private|token|secret|column/);
     expect(inspector.safeInspectionFailure({ name: 'private-name', code: 'private-code' }).type).toBe('UnclassifiedError');
     expect(inspector.safeInspectionFailure({ code: 'private-code' }).databaseCode).toBeNull();
+    const malicious = Object.defineProperty({}, 'name', { get: () => { throw new Error('private-token'); } });
+    expect(inspector.safeInspectionFailure(malicious).type).toBe('UnclassifiedError');
+    expect(JSON.stringify(inspector.safeInspectionFailure(malicious))).not.toContain('private');
   });
   const armedAt = '2026-10-12T13:02:39.000Z', armed = Date.parse(armedAt) / 1000;
   const agency = { id: 'private-agency', name: 'private-agency-name', inn: '1234567890', updatedAt: new Date(armedAt) };
