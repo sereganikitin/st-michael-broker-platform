@@ -103,6 +103,8 @@ describe('aged case direct armed-lead follow-up is read-only', () => {
         requestDateOnlyMoscowDayMatchesArmed: true, fullNoteExactMatch: true, leadUnoccupiedByOtherClient: true } });
     expect(JSON.stringify(report)).not.toMatch(/private|7999|800001|900001|1234567890|Recovery UUID/);
     expect(f.fetchImpl).toHaveBeenCalledTimes(11);
+    expect(inspector.armedPrivateReadback(report).raw.id).toBe(32377125);
+    expect(() => inspector.armedPrivateReadback(JSON.parse(JSON.stringify(report)))).toThrow();
   });
   it('never relaxes creation freshness to the later inspection date', async () => {
     const report = await fixture({ created_at: Date.parse('2026-10-19T17:00:00Z') / 1000 }).run();

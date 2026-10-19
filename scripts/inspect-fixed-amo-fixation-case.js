@@ -53,6 +53,11 @@ const NO_WRITE = Object.freeze({
   amoMutationAuthorized: false, retryAuthorized: false,
 });
 let inspectionPhase = "configuration";
+const armedPrivateReadbacks = new WeakMap();
+function armedPrivateReadback(report) {
+  if (!armedPrivateReadbacks.has(report)) refused("REVIEW_SOURCE_INVALID");
+  return armedPrivateReadbacks.get(report);
+}
 function safeInspectionFailure(error) {
   // Do not expose messages, stacks, Prisma metadata, SQL or provider bodies.
   const type = ["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "PrismaClientKnownRequestError", "PrismaClientValidationError", "PrismaClientInitializationError"].includes(error?.name) ? error.name : "UnclassifiedError";
@@ -1206,9 +1211,13 @@ async function runArmedOnly({ prisma, environment = process.env, fetchImpl, now 
     [raw, rawAfter], [client, clientAfter], [brokerContact, brokerAfter], [notes, notesAfter], [field, fieldAfter]]
     .every(([before, after]) => privateFingerprint(before) === privateFingerprint(after));
   if (!stable) refused("CASE_CHANGED_DURING_SCAN");
-  return { schemaVersion: 1, scope: "literal_armed_lead_followup_only", ...metadata,
+  const report = { schemaVersion: 1, scope: "literal_armed_lead_followup_only", ...metadata,
     capturedAt: iso(now()), leadId: ARMED_RECOVERY_LEAD_ID, database: safeDatabaseState(final.row),
     proof, stableReadback: true, ...NO_WRITE, identityConfirmed: false, linkAuthorized: false };
+  // In-process only; a serialized/public report is not a trusted certificate.
+  armedPrivateReadbacks.set(report, { row: final.row, noteBaseline: final.noteBaseline,
+    recoveryAudit: final.recoveryAudit, raw, client, brokerContact, notes, field });
+  return report;
 }
 function originalWriterClientSelection() {
   // Freeze the EXECUTED c5fe9e8 inspector selection, not today's inspector.
@@ -1275,6 +1284,7 @@ async function runHistoricalAgency({ prisma, table, environment = process.env, f
     }, stableReadback: true, ...NO_WRITE, linkAuthorized: false };
 }
 function failureCode(error) {
+  if (/^LINK_[A-Z_]{1,80}$/.test(error?.safeCode || "")) return error.safeCode;
   const allowed = ["INVALID_CASE_TIMESTAMP", "INVALID_CASE_STATE", "RESPONSIBLE_BROKER_UNRESOLVED", "OWNER_BROKER_UNRESOLVED", "FIXED_CLIENT_MISSING", "EXPECTED_BROKER_MISMATCH", "EXPECTED_BROKER_NOT_CANONICAL", "INVALID_CLIENT_PHONE", "PROJECT_MAPPING_UNSUPPORTED", "INVALID_SYNC_ATTEMPTS", "INVALID_BROKER_CONTACT_ID", "AGENCY_SCOPE_TOO_LARGE", "SOURCE_ATTESTATION_INVALID", "DATABASE_ATTESTATION_INVALID", "UNSAFE_TLS_CONFIGURATION", "DATABASE_IDENTITY_MISMATCH", "BROKER_CONTACT_ID_MISMATCH", "CASE_CHANGED_DURING_SCAN", "INVALID_CASE_NAME", "CASE_SCAN_WINDOW_UNSAFE", "WINDOW_REQUEST_CONFIGURATION_INVALID", "WINDOW_PAGE_BOUND_EXCEEDED", "WINDOW_REQUEST_REJECTED", "WINDOW_REQUEST_FAILED", "EXPANDED_LEAD_INVALID", "WINDOW_LEAD_OUT_OF_SCOPE", "WINDOW_PAGE_INVALID", "WINDOW_LEAD_DUPLICATED", "WINDOW_PAGINATION_INCOMPLETE", "BROKER_LINK_SCAN_UNAVAILABLE", "BROKER_LINK_SCAN_INVALID", "EXPANDED_CONTACT_EVIDENCE_INVALID", "EXPANDED_LEAD_CHANGED_DURING_SCAN", "EXPANDED_EVIDENCE_INCOMPLETE", "EXPANDED_POSSIBLE_LEAD_PRESENT"];
   allowed.push("REVIEW_REQUEST_CONFIGURATION_INVALID", "REVIEW_NOTES_REQUEST_REJECTED", "REVIEW_NOTES_REQUEST_FAILED", "REVIEW_CONTACT_INVALID", "REVIEW_NOTES_INVALID", "REVIEW_HISTORY_SCOPE_INVALID", "REVIEW_EVENTS_INVALID", "REVIEW_CONTACT_SCOPE_EXCEEDED");
   allowed.push("REVIEW_SOURCE_INVALID", "CASE_AUDIT_INVALID", "CASE_AUDIT_SCOPE_EXCEEDED");
@@ -1303,7 +1313,21 @@ async function main() {
       } else {
         for await (const chunk of process.stdin) { size += chunk.length; if (size > 16 * 1024 * 1024) refused("REVIEW_SOURCE_INVALID"); chunks.push(chunk); }
       }
-      process.stdout.write(`${JSON.stringify(await runHistoricalAgency({ prisma, table: Buffer.concat(chunks).toString("utf8") }), null, 2)}\n`);
+      const table = Buffer.concat(chunks).toString("utf8");
+      if (process.env.FIXED_CASE_LINK_MODE) {
+        const fs = require("node:fs"), filename = process.env.FIXED_CASE_LINK_CERTIFICATE_FILE;
+        if (typeof FIXED_CASE_LINK_SOURCE_SHA256 === "undefined" || FIXED_CASE_LINK_SOURCE_SHA256 !== process.env.FIXED_CASE_LINK_HELPER_SHA256 ||
+          !/^\/app\/scripts\/\.fixed-link-cert\.[A-Za-z0-9]{6}$/.test(filename || "")) refused("SOURCE_ATTESTATION_INVALID");
+        const stat = fs.lstatSync(filename);
+        if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) || stat.size > 8192) refused("REVIEW_SOURCE_INVALID");
+        const linking = process.env.FIXED_CASE_LINK_MODE === "link", bytes = fs.readFileSync(filename);
+        if (linking && createHash("sha256").update(bytes).digest("hex") !== process.env.FIXED_CASE_LINK_CERTIFICATE_SHA256) refused("LINK_CERTIFICATE_HASH_MISMATCH");
+        const result = await FIXED_CASE_LINK_HELPERS.run({ mode: process.env.FIXED_CASE_LINK_MODE, readPrisma: prisma,
+          createWritePrisma: () => new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } }, log: [] }),
+          inspector: module.exports, helpers, table, env: process.env, certificate: linking ? JSON.parse(bytes.toString("utf8")) : null });
+        if (result.certificate) fs.writeFileSync(filename, JSON.stringify(result.certificate), { mode: 0o600 });
+        process.stdout.write(`FIXED_CASE_LINK_REPORT=${JSON.stringify(result.report)}\n`);
+      } else process.stdout.write(`${JSON.stringify(await runHistoricalAgency({ prisma, table }), null, 2)}\n`);
       return;
     }
     // This fixed-lead reader never observes or changes a lease. Do not make it
@@ -1336,4 +1360,5 @@ Object.assign(module.exports, { attestedRuntimePhoneLock, createReadOnlyRedis, c
 Object.assign(module.exports, { runArmedOnly });
 Object.assign(module.exports, { runHistoricalAgency, originalWriterClientSelection });
 Object.assign(module.exports, { safeInspectionFailure });
+Object.assign(module.exports, { armedPrivateReadback });
 if (require.main === module) main().catch((error) => { process.stderr.write(`fixed_case_failure_code=${failureCode(error)}\nFIXED_CASE_SAFE_FAILURE=${JSON.stringify(safeInspectionFailure(error))}\n`); process.exitCode = 1; });
