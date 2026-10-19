@@ -16,6 +16,7 @@ function equal(a, b) { return hash(a) === hash(b); }
 function gate(env, now) {
   if (env.FIXED_CASE_LINK_CONFIRMATION !== CONFIRM || env.FIXED_CASE_LINK_CI_ATTESTED !== "true" ||
     env.FIXED_CASE_LINK_ACTOR !== "mefremov888-ai" || env.FIXED_CASE_LINK_RUN_ATTEMPT !== "1" ||
+    !/^[1-9][0-9]{5,19}$/.test(env.FIXED_CASE_LINK_RUN_ID || "") ||
     env.FIXED_CASE_DEPLOYED_GIT_SHA !== LIVE || !/^[a-f0-9]{40}$/.test(env.FIXED_CASE_LINK_SOURCE_SHA || "") ||
     !/^[1-9][0-9]{5,19}$/.test(env.FIXED_CASE_LINK_BACKUP_RUN || "") ||
     !/^[a-f0-9]{64}$/.test(env.FIXED_CASE_LINK_BACKUP_SHA256 || "") ||
@@ -143,9 +144,14 @@ async function run({ mode, readPrisma, createWritePrisma, inspector, helpers, ta
       if (!equal(business(updated), business(current)) || updated.amoLeadId !== BigInt(LEAD) || updated.amoSyncStatus !== "SYNCED" || updated.amoSyncError !== null) fail("LINK_POSTWRITE_INVARIANT_FAILED");
       await tx.auditLog.create({ data: { action: ACTION, entity: ENTITY, entityId: CASE, payload: {
         source: "fixed-existing-amo-link-v1", originalApplyRun: "38252692034", originalPlanRun: "38252028798",
+        actor: "mefremov888-ai", runId: env.FIXED_CASE_LINK_RUN_ID,
         ...binding, certificateSha256: hash(certificate), leadId: LEAD, preservedCrmStatusId: certificate.statusId,
         approvedMissingMemoOnly: true, providerWrites: 0, originalRecoveryAuditUnchanged: true,
       } } });
+      const preservedAudit = await tx.auditLog.findMany({ where: { entity: "AmoFixedCaseRecovery", entityId: CASE },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 17,
+        select: { id: true, entity: true, entityId: true, action: true, createdAt: true, payload: true } });
+      if (!equal(allRecovery, preservedAudit)) fail("LINK_ORIGINAL_AUDIT_CHANGED");
     }, { isolationLevel: "Serializable", maxWait: 5000, timeout: 120000 });
     committed = true;
     const row = await readFull(readPrisma, inspector, helpers);

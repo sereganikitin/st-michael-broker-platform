@@ -363,6 +363,7 @@ jobs:
             -e FIXED_CASE_LINK_CI_ATTESTED=true \
             -e FIXED_CASE_LINK_ACTOR="$actor" \
             -e FIXED_CASE_LINK_RUN_ATTEMPT="$run_attempt" \
+            -e FIXED_CASE_LINK_RUN_ID="$run_id" \
             -e FIXED_CASE_LINK_SOURCE_SHA="$source_sha" \
             -e FIXED_CASE_LINK_HELPER_SHA256="$link_sha" \
             -e FIXED_CASE_LINK_BACKUP_RUN="$backup_run" \
