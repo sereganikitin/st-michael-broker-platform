@@ -119,6 +119,7 @@ jobs:
           cd "$deploy_root"
           test "$(git rev-parse --show-toplevel)" = "$deploy_root"
           test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
           test "$(git rev-parse HEAD)" = "$checkout_sha"
           lock=/tmp/st-michael-production-deploy.lock
           test -f "$lock" -a ! -L "$lock"
@@ -143,6 +144,9 @@ jobs:
           if docker container inspect st-michael-telegram-quiet >/dev/null 2>&1; then echo telegram_quiet_already_present=true; exit 1; fi
           test "$(docker inspect --format '{{.State.Running}}' st-michael-tg-relay)" = true
           test "$(docker inspect --format '{{.HostConfig.NetworkMode}}' st-michael-tg-relay)" = host
+          test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/relay/tg-relay.js"}}{{.Source}}{{end}}{{end}}' st-michael-tg-relay)" = "$deploy_root/ops/tg-relay.js"
+          test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/conf.d/default.conf"}}{{.Source}}{{end}}{{end}}' st-michael-nginx)" = "$deploy_root/docker/nginx.conf"
+          docker exec st-michael-tg-relay node -e 'if ((process.env.RELAY_BIND || "172.18.0.1") !== "172.18.0.1" || (process.env.RELAY_PORT || "8081") !== "8081") process.exit(1)'
           image=$(docker inspect --format '{{.Image}}' st-michael-tg-relay)
           [[ "$image" =~ ^sha256:[a-f0-9]{64}$ ]]
           plaud_previous=""; changed_plaud=false; plaud_release=""
