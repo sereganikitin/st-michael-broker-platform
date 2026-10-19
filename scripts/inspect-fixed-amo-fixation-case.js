@@ -1131,6 +1131,70 @@ async function run({ prisma, environment = process.env, fetchImpl, now = () => n
     armedRecoveryLead = { performed: false, reason: "recovery_audit_changed_during_scan", retryAuthorized: false };
   return { ...buildReport(initial.row, evidence, brokerContact, storedLead, metadata, expanded), reviewLeadComparison, reviewLeadHistory, armedRecoveryLead, caseAudit: auditReport(initial.audit, initial.row, privateFingerprint(initial.audit) === privateFingerprint(final.audit)), recoveryAudit: recoveryAuditReport(initial.recoveryAudit, privateFingerprint(initial.recoveryAudit) === privateFingerprint(final.recoveryAudit)), redisLease };
 }
+// Direct, fixed-identity follow-up after the broad seven-day creation scan has
+// expired. No extended collection/window and no inference that an expired lease
+// permits retry. This certificate remains advisory/read-only, including when a
+// human has explicitly asked us to preserve a later CRM status.
+async function runArmedOnly({ prisma, environment = process.env, fetchImpl, now = () => new Date() } = {}) {
+  const metadata = runtimeMetadata(environment);
+  const initial = await snapshot(prisma, environment, true, true);
+  if (!canInspectEffectiveBroker(initial.row) || !armedRecoveryAuditBound(initial.recoveryAudit)) refused("RECOVERY_AUDIT_INVALID");
+  const token = initial.token || environment.AMO_ACCESS_TOKEN;
+  const request = serializeRequester(helpers.createGetOnlyRequester(token, fetchImpl));
+  await helpers.assertExpectedAccount(request);
+  const extra = createArmedRecoveryExtraRequester(token, fetchImpl);
+  const raw = await request(`/api/v4/leads/${ARMED_RECOVERY_LEAD_ID}`, { with: "contacts" });
+  const lead = validatedLead(raw, ARMED_RECOVERY_LEAD_ID, initial.row, null, false);
+  const contactId = positiveId(initial.recoveryAudit[2].payload.contactId);
+  const broker = effectiveBroker(initial.row).broker, brokerId = positiveId(broker.amoContactId);
+  if (!contactId || !brokerId || contactId === brokerId) refused("RECOVERY_AUDIT_INVALID");
+  const client = await request(`/api/v4/contacts/${contactId}`, { with: "leads" });
+  const brokerContact = await request(`/api/v4/contacts/${brokerId}`, { with: "leads" });
+  if (client?.id !== contactId || brokerContact?.id !== brokerId) refused("REVIEW_CONTACT_INVALID");
+  const notes = await extra("notes"), field = await extra("dateField");
+  const noteProof = armedRecoveryExtraDiagnostic(initial.row, notes, field, initial.noteBaseline, initial.recoveryAudit[3].payload.armedAt);
+  const occupancy = await prisma.$transaction(async (tx) => {
+    await helpers.assertReadOnlySession(tx);
+    const occupied = await tx.client.findMany({ where: { amoLeadId: BigInt(ARMED_RECOVERY_LEAD_ID), id: { not: CLIENT_ID } }, select: { id: true }, take: 2 });
+    const collision = await tx.broker.findMany({ where: { amoContactId: BigInt(contactId) }, select: { id: true }, take: 2 });
+    return { leadUnoccupiedByOtherClient: occupied.length === 0, clientContactNotBroker: collision.length === 0 };
+  }, { isolationLevel: "RepeatableRead", timeout: 20000, maxWait: 5000 });
+  const armed = Date.parse(initial.recoveryAudit[3].payload.armedAt);
+  if (!Number.isFinite(armed) || armed < Date.parse("2026-10-12T13:00:00Z") || armed > Date.parse("2026-10-12T13:05:00Z")) refused("RECOVERY_AUDIT_INVALID");
+  const requestField = raw.custom_fields_values.filter((value) => value?.field_id === 833189);
+  const requestAt = requestField.length === 1 && requestField[0]?.values?.length === 1 ? requestField[0].values[0]?.value : null;
+  const proof = {
+    auditBindingConfirmed: true,
+    exactGeneratedNameMatches: lead.exactGeneratedName,
+    exactLeadContactsMatch: JSON.stringify([...lead.contactIds].sort((a, b) => a - b)) === JSON.stringify([contactId, brokerId].sort((a, b) => a - b)),
+    pipelineMatches: lead.pipelineId === KC_PIPELINE_ID,
+    currentStatusId: lead.statusId, originalStatusMatches: lead.statusId === 62907118,
+    // Strict creation-time proof is not relaxed to today's timestamp.
+    createdWithinOriginalArmedWindow: lead.createdAt >= Math.floor(armed / 1000) - 120 && lead.createdAt <= Math.floor(armed / 1000) + 120,
+    exactClientPhoneMatches: helpers.contactHasExactPhone(client, helpers.normalizePhone(initial.row.phone)),
+    exactClientNameMatches: client.name === initial.row.fullName,
+    currentBrokerPhoneMatches: helpers.contactHasExactPhone(brokerContact, helpers.normalizePhone(broker.phone)),
+    brokerFlagMatches: brokerFlagEvidence(brokerContact).value === true,
+    clientNotMarkedBroker: brokerFlagEvidence(client).value !== true,
+    strictSourceMarkerMatches: lead.sourceMarker === true,
+    exactProjectMatches: JSON.stringify(lead.projectValues) === JSON.stringify([initial.row.project === "ZORGE9" ? "Зорге 9" : "Берзарина 37"]),
+    requestDateOnlyMoscowDayMatchesArmed: field?.type === "date" && Number.isSafeInteger(requestAt) &&
+      (requestAt + 10800) % 86400 === 0 && Math.floor((requestAt + 10800) / 86400) === Math.floor((armed + 10800000) / 86400000),
+    formFields: armedRecoveryFormDiagnostic(raw, initial.row), ...occupancy, ...noteProof,
+  };
+  const rawAfter = await request(`/api/v4/leads/${ARMED_RECOVERY_LEAD_ID}`, { with: "contacts" });
+  const clientAfter = await request(`/api/v4/contacts/${contactId}`, { with: "leads" });
+  const brokerAfter = await request(`/api/v4/contacts/${brokerId}`, { with: "leads" });
+  const notesAfter = await extra("notes"), fieldAfter = await extra("dateField");
+  const final = await snapshot(prisma, environment, false, true);
+  const stable = [[initial.row, final.row], [initial.noteBaseline, final.noteBaseline], [initial.recoveryAudit, final.recoveryAudit],
+    [raw, rawAfter], [client, clientAfter], [brokerContact, brokerAfter], [notes, notesAfter], [field, fieldAfter]]
+    .every(([before, after]) => privateFingerprint(before) === privateFingerprint(after));
+  if (!stable) refused("CASE_CHANGED_DURING_SCAN");
+  return { schemaVersion: 1, scope: "literal_armed_lead_followup_only", ...metadata,
+    capturedAt: iso(now()), leadId: ARMED_RECOVERY_LEAD_ID, database: safeDatabaseState(final.row),
+    proof, stableReadback: true, ...NO_WRITE, identityConfirmed: false, linkAuthorized: false };
+}
 function failureCode(error) {
   const allowed = ["INVALID_CASE_TIMESTAMP", "INVALID_CASE_STATE", "RESPONSIBLE_BROKER_UNRESOLVED", "OWNER_BROKER_UNRESOLVED", "FIXED_CLIENT_MISSING", "EXPECTED_BROKER_MISMATCH", "EXPECTED_BROKER_NOT_CANONICAL", "INVALID_CLIENT_PHONE", "PROJECT_MAPPING_UNSUPPORTED", "INVALID_SYNC_ATTEMPTS", "INVALID_BROKER_CONTACT_ID", "AGENCY_SCOPE_TOO_LARGE", "SOURCE_ATTESTATION_INVALID", "DATABASE_ATTESTATION_INVALID", "UNSAFE_TLS_CONFIGURATION", "DATABASE_IDENTITY_MISMATCH", "BROKER_CONTACT_ID_MISMATCH", "CASE_CHANGED_DURING_SCAN", "INVALID_CASE_NAME", "CASE_SCAN_WINDOW_UNSAFE", "WINDOW_REQUEST_CONFIGURATION_INVALID", "WINDOW_PAGE_BOUND_EXCEEDED", "WINDOW_REQUEST_REJECTED", "WINDOW_REQUEST_FAILED", "EXPANDED_LEAD_INVALID", "WINDOW_LEAD_OUT_OF_SCOPE", "WINDOW_PAGE_INVALID", "WINDOW_LEAD_DUPLICATED", "WINDOW_PAGINATION_INCOMPLETE", "BROKER_LINK_SCAN_UNAVAILABLE", "BROKER_LINK_SCAN_INVALID", "EXPANDED_CONTACT_EVIDENCE_INVALID", "EXPANDED_LEAD_CHANGED_DURING_SCAN", "EXPANDED_EVIDENCE_INCOMPLETE", "EXPANDED_POSSIBLE_LEAD_PRESENT"];
   allowed.push("REVIEW_REQUEST_CONFIGURATION_INVALID", "REVIEW_NOTES_REQUEST_REJECTED", "REVIEW_NOTES_REQUEST_FAILED", "REVIEW_CONTACT_INVALID", "REVIEW_NOTES_INVALID", "REVIEW_HISTORY_SCOPE_INVALID", "REVIEW_EVENTS_INVALID", "REVIEW_CONTACT_SCOPE_EXCEEDED");
@@ -1150,7 +1214,10 @@ async function main() {
     redis = createReadOnlyRedis(require("/app/node_modules/ioredis"), process.env);
     redis.on("error", () => {});
     await redis.connect();
-    process.stdout.write(`${JSON.stringify(await run({ prisma, readRedisLease: (row) => collectReadOnlyRedisLease(redis, row, phoneLockKey) }), null, 2)}\n`);
+    const report = process.env.FIXED_CASE_NARROW_ARMED_ONLY === "true"
+      ? await runArmedOnly({ prisma })
+      : await run({ prisma, readRedisLease: (row) => collectReadOnlyRedisLease(redis, row, phoneLockKey) });
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } finally { redis?.disconnect(); await prisma.$disconnect(); }
 }
 module.exports = { CLIENT_ID, EXPECTED_BROKER_ID, IS_BROKER_FIELD_ID, CLIENT_SELECT, KC_PIPELINE_ID, WINDOW_PAGE_LIMIT, WINDOW_MAX_PAGES, BROKER_MAX_LINKED_LEADS, privateFingerprint, expectedGeneratedName, makeEvidenceWindow, createKcWindowRequester, collectWindowLeads, collectBrokerLeads, collectExpandedEvidence, assertCompleteNegativeEvidence, validateCase, canInspectEffectiveBroker, brokerFlagEvidence, runtimeMetadata, snapshot, buildReport, buildOwnershipReport, run, failureCode, main };
@@ -1162,4 +1229,5 @@ Object.assign(module.exports, { armedRecoveryFormDiagnostic, createArmedRecovery
 Object.assign(module.exports, { ARMED_NOTE_SELECT, armedRecoveryAuditBound, armedRecoveryExpectedNote });
 Object.assign(module.exports, { armedRecoveryNoteDifference });
 Object.assign(module.exports, { attestedRuntimePhoneLock, createReadOnlyRedis, collectReadOnlyRedisLease });
+Object.assign(module.exports, { runArmedOnly });
 if (require.main === module) main().catch((error) => { process.stderr.write(`fixed_case_failure_code=${failureCode(error)}\n`); process.exitCode = 1; });
