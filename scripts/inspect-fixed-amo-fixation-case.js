@@ -1211,13 +1211,22 @@ async function runArmedOnly({ prisma, environment = process.env, fetchImpl, now 
     proof, stableReadback: true, ...NO_WRITE, identityConfirmed: false, linkAuthorized: false };
 }
 function originalWriterClientSelection() {
-  // Keep exactly the original writer's selection/key insertion order: its
-  // historical case fingerprint includes every immutable selected field.
-  return { ...CLIENT_SELECT, email: true, comment: true, uniquenessReason: true,
+  // Freeze the EXECUTED c5fe9e8 inspector selection, not today's inspector.
+  // Later read-only form fields moved keys in the spread-based writer's
+  // selection. JSON fingerprints are insertion-order-sensitive even when all
+  // values are unchanged. Never normalize or skip a mismatching case hash.
+  const originalBroker = { id: true, phone: true, amoContactId: true, role: true, status: true, mergedIntoId: true,
+    brokerAgencies: { select: { agencyId: true, isPrimary: true }, take: 101 }, fullName: true };
+  return { id: true, brokerId: true, responsibleBrokerId: true, phone: true, fullName: true,
+    project: true, fixationAgencyId: true, createdAt: true, updatedAt: true,
+    amoLeadId: true, amoCreatedAt: true, amoUpdatedAt: true,
+    amoSyncStatus: true, amoSyncAttempts: true, amoSyncLastAttemptAt: true,
+    amoSyncError: true, uniquenessStatus: true, uniquenessExpiresAt: true,
+    fixationStatus: true, fixationExpiresAt: true, status: true,
+    broker: { select: originalBroker }, responsibleBroker: { select: originalBroker },
+    email: true, comment: true, uniquenessReason: true,
     inspectionActSigned: true, propertyType: true, roomsCount: true, amount: true,
-    sqm: true, clientRegion: true, purchaseTiming: true, readinessLevel: true,
-    broker: { select: { ...CLIENT_SELECT.broker.select, fullName: true } },
-    responsibleBroker: { select: { ...CLIENT_SELECT.responsibleBroker.select, fullName: true } } };
+    sqm: true, clientRegion: true, purchaseTiming: true, readinessLevel: true };
 }
 function projectSelection(row, selection) {
   if (row === null) return null;
