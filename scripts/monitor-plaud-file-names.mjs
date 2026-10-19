@@ -170,14 +170,14 @@ export async function sendTelegram(message, env = process.env, fetchImpl = fetch
 
   for (const chatId of chatIds) {
     for (const text of splitTelegramMessage(message)) {
-      const response = await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
+      const response = await fetchImpl(`https://broker.stmichael.ru/api/ops-telegram/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, text }),
         signal: AbortSignal.timeout(10_000),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok || payload?.ok !== true) {
+      if (!response.ok || (payload?.ok !== true && !(response.status === 202 && payload?.queued === true))) {
         throw new Error(`Telegram отклонил сообщение: HTTP ${response.status}`);
       }
     }

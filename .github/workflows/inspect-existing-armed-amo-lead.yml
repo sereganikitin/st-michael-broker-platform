@@ -3,7 +3,17 @@ name: Inspect existing armed amo lead only (read-only)
 # Fixed source-bound client/broker scope; no arbitrary operator identifiers,
 # refresh, repair, retry, SMS/email or database/amoCRM mutation.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [identity, inspect]
+        default: identity
+        required: true
+      expected_checkout_sha:
+        type: string
+        required: false
+        description: Exact checkout SHA from the read-only identity report; empty requires live SHA
 concurrency:
   group: production-deploy
   cancel-in-progress: false
@@ -36,6 +46,8 @@ jobs:
           EXPECTED_SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
           PRODUCTION_PG_SYSTEM_IDENTIFIER: ${{ vars.PRODUCTION_PG_SYSTEM_IDENTIFIER }}
           PRODUCTION_MIN_BROKER_ROWS: ${{ vars.PRODUCTION_MIN_BROKER_ROWS }}
+          IDENTITY_ONLY: ${{ inputs.mode == 'identity' && 'true' || 'false' }}
+          EXPECTED_CHECKOUT_SHA: ${{ inputs.expected_checkout_sha }}
         run: |
           set -eEuo pipefail
           stage=local_validation
@@ -63,6 +75,14 @@ jobs:
           set_stage local_source_ancestry
           compare_status=$(gh api "/repos/$EXPECTED_REPOSITORY/compare/$deployed_sha...$EXPECTED_SHA" --jq '.status' 2>/dev/null) || exit 1
           case "$compare_status" in ahead|identical) ;; *) exit 1;; esac
+          checkout_sha=${EXPECTED_CHECKOUT_SHA:-$deployed_sha}
+          [[ "$checkout_sha" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          # Working-tree metadata may legitimately be ahead after TLS/ops-only
+          # releases. Authenticate it independently; never call it live API code.
+          for pair in "$deployed_sha...$checkout_sha" "$checkout_sha...$EXPECTED_SHA"; do
+            status=$(gh api "/repos/$EXPECTED_REPOSITORY/compare/$pair" --jq '.status' 2>/dev/null) || exit 1
+            case "$status" in ahead|identical) ;; *) exit 1;; esac
+          done
           unset master_sha compare_status GH_TOKEN
           inspector_path=scripts/inspect-fixed-amo-fixation-case.js
           dependency_path=scripts/inspect-amo-fixation-lead-reconciliation.js
@@ -119,6 +139,10 @@ jobs:
           expected_bundle_sha=$5
           expected_inspector_sha=$6
           expected_dependency_sha=$7
+          identity_only=$8
+          expected_checkout_sha=$9
+          [[ "$expected_checkout_sha" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          case "$identity_only" in true|false) ;; *) exit 1;; esac
           for tool in awk base64 curl docker flock git jq readlink sha256sum stat timeout; do command -v "$tool" >/dev/null || exit 1; done
           [[ "$deploy_path" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 1
           case "$deploy_path/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
@@ -136,10 +160,19 @@ jobs:
           test "$(stat -Lc '%d:%i' -- "$lock_path")" = "$lock_identity" || exit 1
           set_stage remote_runtime_identity
           cd -- "$deploy_root"
+          checkout=$(git rev-parse HEAD 2>/dev/null || true)
+          [[ "$checkout" =~ ^[a-f0-9]{40}$ ]] || checkout=invalid
+          root_matches=false; remote_matches=false; branch_matches=false; checkout_matches=false
+          test "$(git rev-parse --show-toplevel 2>/dev/null || true)" = "$deploy_root" && root_matches=true
+          test "$(git remote get-url origin 2>/dev/null || true)" = https://github.com/sereganikitin/st-michael-broker-platform.git && remote_matches=true
+          test "$(git symbolic-ref --short HEAD 2>/dev/null || true)" = master && branch_matches=true
+          test "$checkout" = "$expected_deployed_sha" && checkout_matches=true
+          printf 'FIXED_CASE_RUNTIME_IDENTITY={"rootMatches":%s,"remoteMatches":%s,"branchMatches":%s,"checkoutMatchesLive":%s,"checkoutSha":"%s","liveSha":"%s","databaseRead":false,"crmRead":false,"writes":false}\n' "$root_matches" "$remote_matches" "$branch_matches" "$checkout_matches" "$checkout" "$expected_deployed_sha"
+          if [ "$identity_only" = true ]; then exit 0; fi
           test "$(git rev-parse --show-toplevel)" = "$deploy_root" || exit 1
           test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git || exit 1
           test "$(git symbolic-ref --short HEAD)" = master || exit 1
-          test "$(git rev-parse HEAD)" = "$expected_deployed_sha" || exit 1
+          test "$(git rev-parse HEAD)" = "$expected_checkout_sha" || exit 1
           test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}" || exit 1
           test "$(timeout 15 docker context show 2>/dev/null)" = default || exit 1
           test "$(timeout 15 docker context inspect default --format '{{.Endpoints.docker.Host}}' 2>/dev/null)" = unix:///var/run/docker.sock || exit 1
@@ -195,7 +228,7 @@ jobs:
           set_stage remote_post_inspection_health
           assert_health || exit 1
           test "$(stat -Lc '%d:%i' -- "$lock_path")" = "$lock_identity" || exit 1
-          test "$(git rev-parse HEAD)" = "$expected_deployed_sha" || exit 1
+          test "$(git rev-parse HEAD)" = "$expected_checkout_sha" || exit 1
           REMOTE_SUFFIX
           } | timeout --foreground 9m ssh -T -i "$private_key" -p "$SSH_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o NumberOfPasswordPrompts=0 \
@@ -203,4 +236,4 @@ jobs:
             -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             "${SSH_USER}@${SSH_HOST}" \
-            "bash -s -- '$DEPLOY_PATH' '$deployed_sha' '$PRODUCTION_PG_SYSTEM_IDENTIFIER' '$PRODUCTION_MIN_BROKER_ROWS' '$bundle_sha' '$inspector_sha' '$dependency_sha'"
+            "bash -s -- '$DEPLOY_PATH' '$deployed_sha' '$PRODUCTION_PG_SYSTEM_IDENTIFIER' '$PRODUCTION_MIN_BROKER_ROWS' '$bundle_sha' '$inspector_sha' '$dependency_sha' '$IDENTITY_ONLY' '$checkout_sha'"

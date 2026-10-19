@@ -23,6 +23,10 @@ const UPSTREAM_HOST = "api.telegram.org";
 const MAX_BODY = 25 * 1024 * 1024;
 
 const agent = new https.Agent({ keepAlive: true, maxSockets: 16 });
+// Notification POSTs must pass through the durable, recipient-scoped policy.
+// No direct Telegram fallback if the quiet gateway is down (fail closed).
+const QUIET_HOST = "172.18.0.1";
+const QUIET_PORT = 8082;
 
 function maskPath(path) {
   return String(path).replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot***");
@@ -47,14 +51,16 @@ const server = http.createServer((req, res) => {
   if (req.headers["content-type"]) headers["content-type"] = req.headers["content-type"];
   if (req.headers["content-length"]) headers["content-length"] = req.headers["content-length"];
   const started = Date.now();
-  const upstream = https.request(
+  const notification = req.method === "POST" && /^\/bot\d+:[A-Za-z0-9_-]+\/(?:send[A-Za-z]+|forwardMessages?|copyMessages?)$/.test(url);
+  const transport = notification ? http : https;
+  const upstream = transport.request(
     {
-      host: UPSTREAM_HOST,
-      port: 443,
+      host: notification ? QUIET_HOST : UPSTREAM_HOST,
+      port: notification ? QUIET_PORT : 443,
       method: req.method,
-      path: url,
+      path: notification ? `/private${url}` : url,
       headers,
-      agent,
+      agent: notification ? undefined : agent,
       // IPv6 первым (IPv4 до Telegram с этого хоста не ходит); при отсутствии
       // IPv6 node сам вернётся к IPv4 благодаря autoSelectFamily.
       autoSelectFamily: true,
@@ -73,10 +79,10 @@ const server = http.createServer((req, res) => {
     },
   );
   upstream.on("timeout", () => upstream.destroy(new Error("upstream timeout")));
-  upstream.on("error", (error) => {
-    console.warn(`${req.method} ${maskPath(url).slice(0, 80)} -> ошибка: ${error.message}`);
+  upstream.on("error", () => {
+    console.warn("telegram_relay_upstream_unconfirmed=true");
     if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: false, description: `relay: ${error.message}` }));
+    res.end(JSON.stringify({ ok: false, description: "relay: upstream unconfirmed" }));
   });
   let received = 0;
   req.on("data", (chunk) => {

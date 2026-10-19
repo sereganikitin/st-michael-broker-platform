@@ -53,7 +53,7 @@ jobs:
             send() {
               chat="$1"
               body=$(curl -sS --connect-timeout 10 --max-time 25 -X POST \
-                "https://api.telegram.org/bot${BOT}/sendMessage" \
+                "https://broker.stmichael.ru/api/ops-telegram/bot${BOT}/sendMessage" \
                 --data-urlencode chat_id="$chat" \
                 --data-urlencode text="Проверка связи от кабинета брокера" 2>&1 | head -c 200)
               echo "chat ...$(printf '%s' "$chat" | tail -c 4): $body"
