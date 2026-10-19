@@ -117,6 +117,7 @@ jobs:
           for hash in "$old_nginx" "$old_relay" "$new_nginx" "$new_relay" "$archive_hash"; do [[ "$hash" =~ ^[a-f0-9]{64}$ ]]; done
           deploy_root=$(readlink -f "$deploy_path"); test "$deploy_root" != / -a -d "$deploy_root"
           cd "$deploy_root"
+          for tool in docker git flock ss stat sha256sum tar readlink curl jq; do command -v "$tool" >/dev/null || exit 1; done
           test "$(git rev-parse --show-toplevel)" = "$deploy_root"
           test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
           test "$(git symbolic-ref --short HEAD)" = master
@@ -138,6 +139,7 @@ jobs:
             test "$(curl --fail --silent --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health | jq -er '.deployedSha')" = "$live"
           }
           assert_live
+          if test -n "$(ss -ltnH 'sport = :18082' 2>/dev/null)"; then echo telegram_quiet_port_busy=true; exit 1; fi
           for file in docker/nginx.conf ops/tg-relay.js; do test -f "$file" -a ! -L "$file"; done
           test "$(sha256sum docker/nginx.conf | cut -d' ' -f1)" = "$old_nginx"
           test "$(sha256sum ops/tg-relay.js | cut -d' ' -f1)" = "$old_relay"
@@ -163,19 +165,25 @@ jobs:
             plaud_units_before=$(sha256sum /etc/systemd/system/plaud-name-monitor.service /etc/systemd/system/plaud-name-monitor.timer /etc/systemd/system/plaud-name-monitor-watchdog.service /etc/systemd/system/plaud-name-monitor-watchdog.timer | sha256sum | cut -d' ' -f1)
           fi
           work=$(mktemp -d /tmp/st-michael-telegram-quiet.XXXXXX)
+          quiet_phase=archive_read
           archive="$work/payload.tar"; changed_nginx=false; changed_relay=false; created=false; committed=false
           root=/var/lib/stmichael/telegram-quiet
           release="$root/releases/$source_sha"
           cleanup_remote() {
             rc=$?
             if [ "$committed" != true ]; then
+              if [ "$created" = true ]; then
+                docker logs st-michael-telegram-quiet 2>&1 | grep -E '^telegram_quiet_[a-z_]+=true$' || true
+                killed=$(docker inspect --format '{{.State.OOMKilled}}' st-michael-telegram-quiet 2>/dev/null || true)
+                case "$killed" in true|false) printf 'telegram_quiet_oom_killed=%s\n' "$killed";; esac
+              fi
               if [ "$changed_plaud" = true ]; then ln -s -- "$plaud_previous" "/opt/plaud-name-monitor/current-rollback-$source_sha"; mv -Tf -- "/opt/plaud-name-monitor/current-rollback-$source_sha" /opt/plaud-name-monitor/current; fi
               if [ "$changed_relay" = true ]; then cp -- "$release/previous-relay.js" "$deploy_root/ops/tg-relay.js"; docker restart st-michael-tg-relay >/dev/null 2>&1 || true; fi
               if [ "$changed_nginx" = true ]; then cp -- "$release/previous-nginx.conf" "$deploy_root/docker/nginx.conf"; docker exec st-michael-nginx nginx -t >/dev/null 2>&1 && docker exec st-michael-nginx nginx -s reload >/dev/null 2>&1 || true; fi
               if [ "$created" = true ]; then docker stop st-michael-telegram-quiet >/dev/null 2>&1 || true; docker rm st-michael-telegram-quiet >/dev/null 2>&1 || true; fi
             fi
             rm -f -- "$archive"; rmdir -- "$work" 2>/dev/null || true
-            if [ "$rc" -ne 0 ]; then echo telegram_quiet_install_refused=true >&2; fi
+            if [ "$rc" -ne 0 ]; then printf 'telegram_quiet_failed_phase=%s\ntelegram_quiet_install_refused=true\n' "$quiet_phase" >&2; fi
           }
           trap cleanup_remote EXIT
           trap 'exit 1' HUP INT TERM
@@ -187,6 +195,7 @@ jobs:
           test "$(sha256sum "$archive" | cut -d' ' -f1)" = "$archive_hash"
           test "$(tar -tf "$archive")" = $'ops/telegram-quiet-hours.js\nops/telegram-quiet-gateway.js\nops/tg-relay.js\ndocker/nginx.conf\nscripts/monitor-plaud-file-names.mjs\nscripts/monitor-plaud-server-runner.mjs\npolicy.json'
           test "$(stat -c %s "$archive")" -lt 262144
+          quiet_phase=release_stage
           for parent in /var/lib /var/lib/stmichael "$root" "$root/releases"; do if [ -e "$parent" ]; then test -d "$parent" -a ! -L "$parent"; fi; done
           test ! -e "$release"
           mkdir -p -- "$release" "$root/policy" "$root/data/outbox"
@@ -200,7 +209,9 @@ jobs:
           if [ -e "$root/policy/policy.json" ]; then cmp -s "$root/policy/policy.json" "$release/policy.json"; else cp -- "$release/policy.json" "$root/policy/policy.json"; fi
           chmod 600 "$root/policy/policy.json" "$release/policy.json"
           assert_live
+          quiet_phase=gateway_start
           docker run -d --name st-michael-telegram-quiet --restart unless-stopped --network host \
+            --user 0:0 \
             --read-only --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 64 --memory 512m \
             --log-opt max-size=10m --log-opt max-file=2 --label st-michael.operation=telegram-quiet \
             --label "st-michael.source-sha=$source_sha" \
@@ -209,20 +220,25 @@ jobs:
             --mount "type=bind,src=$root/data,dst=/data" \
             "$image" node /quiet/telegram-quiet-gateway.js >/dev/null
           created=true
+          quiet_phase=gateway_health
           ready=false
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if curl --fail --silent --max-time 2 http://172.18.0.1:8082/healthz | jq -e '.ok == true and .worker == "enabled" and .quietHours.start == "22:00" and .quietHours.end == "09:00" and .quietHours.timeZone == "Europe/Moscow"' >/dev/null; then ready=true; break; fi
+            if curl --fail --silent --max-time 2 http://172.18.0.1:18082/healthz | jq -e '.ok == true and .worker == "enabled" and .quietHours.start == "22:00" and .quietHours.end == "09:00" and .quietHours.timeZone == "Europe/Moscow"' >/dev/null; then ready=true; break; fi
             sleep 1
           done
           test "$ready" = true
+          quiet_phase=nginx_validation
           changed_nginx=true; cp -- "$release/docker/nginx.conf" docker/nginx.conf
           docker exec st-michael-nginx nginx -t >/dev/null 2>&1
           docker exec st-michael-nginx nginx -s reload >/dev/null 2>&1
+          quiet_phase=nginx_https
           curl --fail --silent --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/ops-telegram/healthz | jq -e '.ok == true and .worker == "enabled"' >/dev/null
           changed_relay=true; cp -- "$release/ops/tg-relay.js" ops/tg-relay.js
+          quiet_phase=relay_restart
           docker restart st-michael-tg-relay >/dev/null
           test "$(docker inspect --format '{{.State.Running}}' st-michael-tg-relay)" = true
           if [ -n "$plaud_previous" ]; then
+            quiet_phase=plaud_route
             plaud_release="/opt/plaud-name-monitor/releases/telegram-quiet-$source_sha"
             test ! -e "$plaud_release"; mkdir -m 755 -- "$plaud_release"
             cp -- "$release/scripts/monitor-plaud-file-names.mjs" "$release/scripts/monitor-plaud-server-runner.mjs" "$plaud_release/"
@@ -233,6 +249,7 @@ jobs:
           fi
           assert_live
           committed=true
+          quiet_phase=delivery_verification
           # Exactly one useful verification notice. At night it MUST remain
           # pending; in daytime require an actual provider-confirmed SENT state.
           # An uncertain test never undoes a successfully installed quiet policy.

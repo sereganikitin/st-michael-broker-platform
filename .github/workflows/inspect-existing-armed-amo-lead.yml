@@ -7,7 +7,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [identity, inspect]
+        options: [identity, inspect, history]
         default: identity
         required: true
       expected_checkout_sha:
@@ -48,6 +48,7 @@ jobs:
           PRODUCTION_MIN_BROKER_ROWS: ${{ vars.PRODUCTION_MIN_BROKER_ROWS }}
           IDENTITY_ONLY: ${{ inputs.mode == 'identity' && 'true' || 'false' }}
           EXPECTED_CHECKOUT_SHA: ${{ inputs.expected_checkout_sha }}
+          HISTORY_ONLY: ${{ inputs.mode == 'history' && 'true' || 'false' }}
         run: |
           set -eEuo pipefail
           stage=local_validation
@@ -70,6 +71,12 @@ jobs:
           set_stage local_master_identity
           master_sha=$(gh api "/repos/$EXPECTED_REPOSITORY/git/ref/heads/master" --jq '.object.sha' 2>/dev/null) || exit 1
           test "$master_sha" = "$EXPECTED_SHA" || exit 1
+          source_ci=$(gh api "/repos/$EXPECTED_REPOSITORY/actions/workflows/deploy.yml/runs?head_sha=$EXPECTED_SHA&status=completed&per_page=30" 2>/dev/null) || exit 1
+          printf '%s' "$source_ci" | jq -e --arg sha "$EXPECTED_SHA" 'any(.workflow_runs[]; .head_sha == $sha and .event == "push" and .head_branch == "master" and .status == "completed" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == .repository.full_name)' >/dev/null || exit 1
+          if [ "$HISTORY_ONLY" = true ]; then
+            history_run=$(gh api "/repos/$EXPECTED_REPOSITORY/actions/runs/38251486523" 2>/dev/null) || exit 1
+            printf '%s' "$history_run" | jq -e '.head_sha == "c5fe9e89083f45c7df6c3bf3c09401d0452a9158" and .run_attempt == 1 and .path == ".github/workflows/backup-production-loyalty-predeploy.yml" and .status == "completed" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == .repository.full_name' >/dev/null || exit 1
+          fi
           set_stage local_https_health
           deployed_sha=$(curl --fail --silent --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health | jq -er '.deployedSha | select(type == "string" and test("^[0-9a-f]{40}$"))') || exit 1
           set_stage local_source_ancestry
@@ -86,9 +93,11 @@ jobs:
           unset master_sha compare_status GH_TOKEN
           inspector_path=scripts/inspect-fixed-amo-fixation-case.js
           dependency_path=scripts/inspect-amo-fixation-lead-reconciliation.js
-          for path in "$inspector_path" "$dependency_path"; do test -f "$path" -a ! -L "$path" || exit 1; done
+          history_path=scripts/fixed-amo-historical-agency-proof.js
+          for path in "$inspector_path" "$dependency_path" "$history_path"; do test -f "$path" -a ! -L "$path" || exit 1; done
           inspector_sha=$(sha256sum -- "$inspector_path" | awk '{print $1}')
           dependency_sha=$(sha256sum -- "$dependency_path" | awk '{print $1}')
+          history_sha=$(sha256sum -- "$history_path" | awk '{print $1}')
           [[ "$inspector_sha" =~ ^[0-9a-f]{64}$ && "$dependency_sha" =~ ^[0-9a-f]{64}$ ]] || exit 1
           runner_temp=${RUNNER_TEMP:-/tmp}
           test -d "$runner_temp" -a ! -L "$runner_temp" || exit 1
@@ -99,10 +108,10 @@ jobs:
           trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "fixed_case_failed_stage=%s\nfixed_case_exit_code=%s\n" "$stage" "$rc" >&2; fi; rm -f -- "$known_hosts" "$private_key" "$bundle_path"; rmdir -- "$ssh_root" 2>/dev/null || true' EXIT
           umask 077
           set_stage local_hash_bound_bundle
-          node - "$dependency_path" "$inspector_path" "$dependency_sha" "$inspector_sha" > "$bundle_path" <<'BUNDLE'
+          node - "$dependency_path" "$inspector_path" "$dependency_sha" "$inspector_sha" "$history_path" "$history_sha" > "$bundle_path" <<'BUNDLE'
           const fs = require('node:fs');
           const { createHash } = require('node:crypto');
-          const [dependencyPath, inspectorPath, dependencySha, inspectorSha] = process.argv.slice(2);
+          const [dependencyPath, inspectorPath, dependencySha, inspectorSha, historyPath, historySha] = process.argv.slice(2);
           function source(path, hash) {
             const bytes = fs.readFileSync(path);
             if (bytes.length > 262144 || createHash('sha256').update(bytes).digest('hex') !== hash) throw new Error('Source binding refused');
@@ -112,7 +121,8 @@ jobs:
           }
           const dependency = source(dependencyPath, dependencySha);
           const inspector = source(inspectorPath, inspectorSha);
-          process.stdout.write(`"use strict";\nconst FIXED_CASE_DEPENDENCY_SOURCE_SHA256=${JSON.stringify(dependencySha)};\nconst FIXED_CASE_INSPECTOR_SOURCE_SHA256=${JSON.stringify(inspectorSha)};\nconst FIXED_CASE_RECONCILIATION_HELPERS=(()=>{const module={exports:{}};const exports=module.exports;\n${dependency}\nreturn module.exports;})();\n${inspector}\n`);
+          const history = source(historyPath, historySha);
+          process.stdout.write(`"use strict";\nconst FIXED_CASE_DEPENDENCY_SOURCE_SHA256=${JSON.stringify(dependencySha)};\nconst FIXED_CASE_INSPECTOR_SOURCE_SHA256=${JSON.stringify(inspectorSha)};\nconst FIXED_CASE_HISTORY_SOURCE_SHA256=${JSON.stringify(historySha)};\nconst FIXED_CASE_HISTORICAL_AGENCY_HELPERS=(()=>{const module={exports:{}};const exports=module.exports;\n${history}\nreturn module.exports;})();\nconst FIXED_CASE_RECONCILIATION_HELPERS=(()=>{const module={exports:{}};const exports=module.exports;\n${dependency}\nreturn module.exports;})();\n${inspector}\n`);
           BUNDLE
           bundle_sha=$(sha256sum -- "$bundle_path" | awk '{print $1}')
           [[ "$bundle_sha" =~ ^[0-9a-f]{64}$ ]] || exit 1
@@ -141,6 +151,9 @@ jobs:
           expected_dependency_sha=$7
           identity_only=$8
           expected_checkout_sha=$9
+          history_only=${10}; expected_history_sha=${11}
+          case "$history_only" in true|false) ;; *) exit 1;; esac
+          [[ "$expected_history_sha" =~ ^[a-f0-9]{64}$ ]] || exit 1
           [[ "$expected_checkout_sha" =~ ^[a-f0-9]{40}$ ]] || exit 1
           case "$identity_only" in true|false) ;; *) exit 1;; esac
           for tool in awk base64 curl docker flock git jq readlink sha256sum stat timeout; do command -v "$tool" >/dev/null || exit 1; done
@@ -168,6 +181,31 @@ jobs:
           test "$(git symbolic-ref --short HEAD 2>/dev/null || true)" = master && branch_matches=true
           test "$checkout" = "$expected_deployed_sha" && checkout_matches=true
           printf 'FIXED_CASE_RUNTIME_IDENTITY={"rootMatches":%s,"remoteMatches":%s,"branchMatches":%s,"checkoutMatchesLive":%s,"checkoutSha":"%s","liveSha":"%s","databaseRead":false,"crmRead":false,"writes":false}\n' "$root_matches" "$remote_matches" "$branch_matches" "$checkout_matches" "$checkout" "$expected_deployed_sha"
+          host_unset=false; context_unset=false; default_context=false; trusted_socket=false; socket_present=false; privileged_engine=false
+          test -z "${DOCKER_HOST:-}" && host_unset=true
+          test -z "${DOCKER_CONTEXT:-}" && context_unset=true
+          test "$(timeout 15 docker context show 2>/dev/null || true)" = default && default_context=true
+          test "$(timeout 15 docker context inspect default --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)" = unix:///var/run/docker.sock && trusted_socket=true
+          test -S /var/run/docker.sock && socket_present=true
+          timeout 15 docker info --format '{{json .SecurityOptions}}' 2>/dev/null | jq -e 'type == "array" and all(.[]; type == "string" and (contains("rootless") | not))' >/dev/null && privileged_engine=true
+          pg_project=$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' st-michael-postgres 2>/dev/null || true)
+          project_valid=false; [[ "$pg_project" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] && project_valid=true
+          service_states=""
+          for item in api postgres redis; do
+            running=false; project_matches=false; service_matches=false
+            test "$(timeout 15 docker inspect --format '{{.State.Running}}' "st-michael-$item" 2>/dev/null || true)" = true && running=true
+            test "$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "st-michael-$item" 2>/dev/null || true)" = "$pg_project" && project_matches=true
+            test "$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "st-michael-$item" 2>/dev/null || true)" = "$item" && service_matches=true
+            service_states="${service_states}${service_states:+,}\"$item\":{\"running\":$running,\"projectMatches\":$project_matches,\"serviceMatches\":$service_matches}"
+          done
+          printf 'FIXED_CASE_DOCKER_IDENTITY={"hostOverrideUnset":%s,"contextOverrideUnset":%s,"defaultContext":%s,"trustedSocket":%s,"socketPresent":%s,"privilegedEngine":%s,"projectValid":%s,"services":{%s},"databaseRead":false,"crmRead":false,"writes":false}\n' "$host_unset" "$context_unset" "$default_context" "$trusted_socket" "$socket_present" "$privileged_engine" "$project_valid" "$service_states"
+          port_busy=false; quiet_present=false
+          test -z "$(ss -ltnH 'sport = :8082' 2>/dev/null || true)" || port_busy=true
+          docker container inspect st-michael-telegram-quiet >/dev/null 2>&1 && quiet_present=true
+          printf 'FIXED_CASE_QUIET_INFRA={"port8082Busy":%s,"quietContainerPresent":%s,"writes":false}\n' "$port_busy" "$quiet_present"
+          alternate_port_busy=false
+          test -z "$(ss -ltnH 'sport = :18082' 2>/dev/null || true)" || alternate_port_busy=true
+          printf 'FIXED_CASE_QUIET_PORT={"port18082Busy":%s,"writes":false}\n' "$alternate_port_busy"
           if [ "$identity_only" = true ]; then exit 0; fi
           test "$(git rev-parse --show-toplevel)" = "$deploy_root" || exit 1
           test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git || exit 1
@@ -201,9 +239,46 @@ jobs:
           IFS='|' read -r system_identifier broker_rows <<< "$database_metrics"
           test "$system_identifier" = "$expected_system_identifier" && test "$broker_rows" -ge "$minimum_broker_rows" || exit 1
           unset database_metrics system_identifier broker_rows
+          history_data=""
+          cleanup_history() {
+            rc=$?
+            if [[ "$history_data" =~ ^/app/scripts/\.fixed-history-row\.[A-Za-z0-9]{6}$ ]]; then
+              timeout 10 docker exec st-michael-api sh -c 'rm -f -- "$1"' cleanup "$history_data" >/dev/null 2>/dev/null || true
+            fi
+            if [ "$rc" -ne 0 ]; then printf 'fixed_case_failed_stage=%s\nfixed_case_exit_code=%s\n' "$stage" "$rc" >&2; fi
+          }
+          trap cleanup_history EXIT
+          if [ "$history_only" = true ]; then
+            set_stage remote_historical_backup_attestation
+            historical_backup=/var/backups/stmichael/loyalty-predeploy/loyalty-predeploy-c5fe9e89083f45c7df6c3bf3c09401d0452a9158-run38251486523-attempt1.dump
+            test -f "$historical_backup" -a ! -L "$historical_backup"
+            test "$(readlink -f "$historical_backup")" = "$historical_backup"
+            test "$(stat -c '%a:%u' "$historical_backup")" = "600:$(id -u)"
+            test "$(stat -c %s "$historical_backup")" = 49149893
+            test "$(sha256sum "$historical_backup" | cut -d' ' -f1)" = db170493aa746ad7ff8aa802edc99dd27aa255d41cd1cf48baaeac12eb527015
+            history_agency=$(timeout 20 docker exec st-michael-api node -e '
+              const {PrismaClient}=require("@st-michael/database"); const url=new URL(process.env.DATABASE_URL);
+              url.searchParams.set("options","-c default_transaction_read_only=on");
+              const p=new PrismaClient({datasources:{db:{url:url.toString()}},log:[]});
+              p.$transaction(async tx=>{
+                const row=await tx.client.findUnique({where:{id:"8d082b21-7cba-4778-a6c6-1d80bfe7ed7c"},select:{fixationAgencyId:true}});
+                if(!/^[A-Za-z0-9-]{1,80}$/.test(row?.fixationAgencyId||""))throw Error(); process.stdout.write(row.fixationAgencyId);
+              }).catch(()=>{process.exitCode=1}).finally(()=>p.$disconnect());
+            ' 2>/dev/null) || exit 1
+            [[ "$history_agency" =~ ^[A-Za-z0-9-]{1,80}$ ]] || exit 1
+            history_data=$(timeout 10 docker exec st-michael-api sh -c 'umask 077; mktemp /app/scripts/.fixed-history-row.XXXXXX')
+            [[ "$history_data" =~ ^/app/scripts/\.fixed-history-row\.[A-Za-z0-9]{6}$ ]] || exit 1
+            timeout 2m docker exec -i st-michael-postgres pg_restore --data-only --schema=public --table=agencies --file=- < "$historical_backup" 2>/dev/null |
+              awk -v id="$history_agency" 'BEGIN{FS="\t";found=0;inside=0} /^COPY public.agencies \(id, /{print;inside=1;next} inside && $0=="\\."{print;inside=0;next} inside && $1==id{print;found++} END{if(found!=1)exit 1}' |
+              timeout 20 docker exec -i st-michael-api sh -c 'set -eu; cat > "$1"; test "$(stat -c %s "$1")" -le 16777216; test "$(stat -c %a "$1")" = 600' history "$history_data"
+          fi
           set_stage remote_hash_bound_case_inspection
           base64 -d <<'FIXED_CASE_PAYLOAD' | timeout 7m docker exec -i \
             -e FIXED_CASE_NARROW_ARMED_ONLY=true \
+            -e FIXED_CASE_HISTORICAL_AGENCY="$history_only" \
+            -e FIXED_CASE_HISTORY_SHA256="$expected_history_sha" \
+            -e FIXED_CASE_HISTORICAL_TABLE_FILE="$history_data" \
+            -e FIXED_CASE_HISTORICAL_BACKUP_SHA256=db170493aa746ad7ff8aa802edc99dd27aa255d41cd1cf48baaeac12eb527015 \
             -e FIXED_CASE_INSPECTOR_SHA256="$expected_inspector_sha" \
             -e FIXED_CASE_DEPENDENCY_SHA256="$expected_dependency_sha" \
             -e FIXED_CASE_DEPLOYED_GIT_SHA="$expected_deployed_sha" \
@@ -236,4 +311,4 @@ jobs:
             -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             "${SSH_USER}@${SSH_HOST}" \
-            "bash -s -- '$DEPLOY_PATH' '$deployed_sha' '$PRODUCTION_PG_SYSTEM_IDENTIFIER' '$PRODUCTION_MIN_BROKER_ROWS' '$bundle_sha' '$inspector_sha' '$dependency_sha' '$IDENTITY_ONLY' '$checkout_sha'"
+            "bash -s -- '$DEPLOY_PATH' '$deployed_sha' '$PRODUCTION_PG_SYSTEM_IDENTIFIER' '$PRODUCTION_MIN_BROKER_ROWS' '$bundle_sha' '$inspector_sha' '$dependency_sha' '$IDENTITY_ONLY' '$checkout_sha' '$HISTORY_ONLY' '$history_sha'"

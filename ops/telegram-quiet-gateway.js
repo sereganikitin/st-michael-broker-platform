@@ -122,7 +122,7 @@ function main() {
     finally { busy = false; }
   }, 1200);
   server.on("error", () => { clearInterval(timer); console.error("telegram_quiet_start_refused=true"); process.exitCode = 1; });
-  server.listen(Number(process.env.RELAY_PORT || 8082), process.env.RELAY_BIND || "172.18.0.1", () => {
+  server.listen(Number(process.env.RELAY_PORT || 18082), process.env.RELAY_BIND || "172.18.0.1", () => {
     try { gateway.recoverAfterExclusiveBind(true); ready = true; }
     catch { clearInterval(timer); server.close(); console.error("telegram_quiet_recovery_refused=true"); process.exitCode = 1; }
   });

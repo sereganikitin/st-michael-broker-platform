@@ -64,6 +64,9 @@ jobs:
       - name: Verify durable Telegram quiet-hours contracts
         run: node --test ops/telegram-quiet-hours.test.js ops/telegram-quiet-gateway.test.js scripts/monitor-plaud-file-names.test.mjs scripts/monitor-plaud-server-runner.test.mjs
 
+      - name: Verify immutable historical amo agency proof
+        run: node --test scripts/fixed-amo-historical-agency-proof.test.js
+
   deploy:
     name: SSH deploy to production
     needs: verify

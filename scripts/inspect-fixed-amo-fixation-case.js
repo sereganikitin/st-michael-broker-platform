@@ -1195,12 +1195,68 @@ async function runArmedOnly({ prisma, environment = process.env, fetchImpl, now 
     capturedAt: iso(now()), leadId: ARMED_RECOVERY_LEAD_ID, database: safeDatabaseState(final.row),
     proof, stableReadback: true, ...NO_WRITE, identityConfirmed: false, linkAuthorized: false };
 }
+function originalWriterClientSelection() {
+  // Keep exactly the original writer's selection/key insertion order: its
+  // historical case fingerprint includes every immutable selected field.
+  return { ...CLIENT_SELECT, email: true, comment: true, uniquenessReason: true,
+    inspectionActSigned: true, propertyType: true, roomsCount: true, amount: true,
+    sqm: true, clientRegion: true, purchaseTiming: true, readinessLevel: true,
+    broker: { select: { ...CLIENT_SELECT.broker.select, fullName: true } },
+    responsibleBroker: { select: { ...CLIENT_SELECT.responsibleBroker.select, fullName: true } } };
+}
+function projectSelection(row, selection) {
+  if (row === null) return null;
+  return Object.fromEntries(Object.entries(selection).map(([key, select]) => [key,
+    select === true ? row[key] : Array.isArray(row[key]) ? row[key].map(value => projectSelection(value, select.select)) : projectSelection(row[key], select.select)]));
+}
+async function runHistoricalAgency({ prisma, table, environment = process.env, fetchImpl, now = () => new Date() } = {}) {
+  const history = typeof FIXED_CASE_HISTORICAL_AGENCY_HELPERS !== "undefined" ? FIXED_CASE_HISTORICAL_AGENCY_HELPERS : require("./fixed-amo-historical-agency-proof");
+  if (environment.FIXED_CASE_HISTORICAL_BACKUP_SHA256 !== history.BACKUP_SHA256) refused("REVIEW_SOURCE_INVALID");
+  const metadata = runtimeMetadata(environment), initial = await snapshot(prisma, environment, true, true);
+  if (!canInspectEffectiveBroker(initial.row) || !armedRecoveryAuditBound(initial.recoveryAudit)) refused("RECOVERY_AUDIT_INVALID");
+  const readFull = async () => prisma.$transaction(async (tx) => {
+    await helpers.assertReadOnlySession(tx);
+    const row = await tx.client.findUnique({ where: { id: CLIENT_ID }, select: originalWriterClientSelection() });
+    if (privateFingerprint(projectSelection(row, CLIENT_SELECT)) !== privateFingerprint(initial.row)) refused("CASE_CHANGED_DURING_SCAN");
+    return row;
+  }, { isolationLevel: "RepeatableRead", timeout: 20000, maxWait: 5000 });
+  const full = await readFull(), archived = history.parseHistoricalAgency(table, full.fixationAgencyId);
+  const request = helpers.createGetOnlyRequester(initial.token || environment.AMO_ACCESS_TOKEN, fetchImpl);
+  await helpers.assertExpectedAccount(request);
+  const extra = createArmedRecoveryExtraRequester(initial.token || environment.AMO_ACCESS_TOKEN, fetchImpl);
+  const notes = await extra("notes");
+  const batch = notes?._embedded?.notes;
+  if (!Array.isArray(batch) || batch.length >= 100 || notes?._links?.next) refused("REVIEW_NOTES_INVALID");
+  const matches = batch.filter(note => {
+    if (!record(note) || !positiveId(note.id) || note.entity_id !== ARMED_RECOVERY_LEAD_ID || !record(note.params)) refused("REVIEW_NOTES_INVALID");
+    if (note.params.text === undefined) return false;
+    if (typeof note.params.text !== "string" || Buffer.byteLength(note.params.text, "utf8") > 120000) refused("REVIEW_NOTES_INVALID");
+    return note.note_type === "common" && note.params.text.includes(`Cabinet case UUID: ${CLIENT_ID}`) &&
+      note.params.text.includes("Recovery UUID: 7a8d216e-1637-43eb-985b-19b75fd2b9ed") &&
+      note.params.text.includes("Recovery source: st-michael-fixed-amo-case-recovery-v1");
+  });
+  if (matches.length !== 1) refused("REVIEW_NOTES_INVALID");
+  const expected = armedRecoveryExpectedNote(full, archived.agency);
+  const proof = history.compareHistoricalProof(full, archived.agency, expected, matches[0].params.text);
+  const fullAfter = await readFull(), notesAfter = await extra("notes"), final = await snapshot(prisma, environment, false, true);
+  if ([[full, fullAfter], [notes, notesAfter], [initial.row, final.row], [initial.noteBaseline, final.noteBaseline], [initial.recoveryAudit, final.recoveryAudit]]
+    .some(([first, second]) => privateFingerprint(first) !== privateFingerprint(second))) refused("CASE_CHANGED_DURING_SCAN");
+  return { schemaVersion: 1, scope: "fixed_case_archived_agency_provenance_only", ...metadata,
+    capturedAt: iso(now()), leadId: ARMED_RECOVERY_LEAD_ID, backupRunId: history.BACKUP_RUN,
+    backupAuthenticated: true, archiveAgencyRowsRead: archived.tableRowsRead,
+    database: safeDatabaseState(final.row), proof: { ...proof,
+      currentAgencyIdNameInnMatchHistorical: initial.noteBaseline.agency.id === archived.agency.id &&
+        initial.noteBaseline.agency.name === archived.agency.name && initial.noteBaseline.agency.inn === archived.agency.inn,
+      currentAgencyTimestampMatchesHistorical: iso(initial.noteBaseline.agency.updatedAt) === iso(archived.agency.updatedAt),
+    }, stableReadback: true, ...NO_WRITE, linkAuthorized: false };
+}
 function failureCode(error) {
   const allowed = ["INVALID_CASE_TIMESTAMP", "INVALID_CASE_STATE", "RESPONSIBLE_BROKER_UNRESOLVED", "OWNER_BROKER_UNRESOLVED", "FIXED_CLIENT_MISSING", "EXPECTED_BROKER_MISMATCH", "EXPECTED_BROKER_NOT_CANONICAL", "INVALID_CLIENT_PHONE", "PROJECT_MAPPING_UNSUPPORTED", "INVALID_SYNC_ATTEMPTS", "INVALID_BROKER_CONTACT_ID", "AGENCY_SCOPE_TOO_LARGE", "SOURCE_ATTESTATION_INVALID", "DATABASE_ATTESTATION_INVALID", "UNSAFE_TLS_CONFIGURATION", "DATABASE_IDENTITY_MISMATCH", "BROKER_CONTACT_ID_MISMATCH", "CASE_CHANGED_DURING_SCAN", "INVALID_CASE_NAME", "CASE_SCAN_WINDOW_UNSAFE", "WINDOW_REQUEST_CONFIGURATION_INVALID", "WINDOW_PAGE_BOUND_EXCEEDED", "WINDOW_REQUEST_REJECTED", "WINDOW_REQUEST_FAILED", "EXPANDED_LEAD_INVALID", "WINDOW_LEAD_OUT_OF_SCOPE", "WINDOW_PAGE_INVALID", "WINDOW_LEAD_DUPLICATED", "WINDOW_PAGINATION_INCOMPLETE", "BROKER_LINK_SCAN_UNAVAILABLE", "BROKER_LINK_SCAN_INVALID", "EXPANDED_CONTACT_EVIDENCE_INVALID", "EXPANDED_LEAD_CHANGED_DURING_SCAN", "EXPANDED_EVIDENCE_INCOMPLETE", "EXPANDED_POSSIBLE_LEAD_PRESENT"];
   allowed.push("REVIEW_REQUEST_CONFIGURATION_INVALID", "REVIEW_NOTES_REQUEST_REJECTED", "REVIEW_NOTES_REQUEST_FAILED", "REVIEW_CONTACT_INVALID", "REVIEW_NOTES_INVALID", "REVIEW_HISTORY_SCOPE_INVALID", "REVIEW_EVENTS_INVALID", "REVIEW_CONTACT_SCOPE_EXCEEDED");
   allowed.push("REVIEW_SOURCE_INVALID", "CASE_AUDIT_INVALID", "CASE_AUDIT_SCOPE_EXCEEDED");
   allowed.push("RECOVERY_AUDIT_INVALID", "RECOVERY_AUDIT_SCOPE_EXCEEDED");
   allowed.push("REDIS_HELPER_ATTESTATION_INVALID", "REDIS_IDENTITY_INVALID", "REDIS_LEASE_SCOPE_INVALID", "REDIS_LEASE_OBSERVATION_INVALID");
+  allowed.push("HISTORICAL_AGENCY_PROOF_REFUSED");
   try { return allowed.includes(error?.safeCode) ? error.safeCode : helpers.classifyFailure(error); } catch { return "UNKNOWN_FAILURE"; }
 }
 async function main() {
@@ -1210,6 +1266,21 @@ async function main() {
   const prisma = new PrismaClient({ datasources: { db: { url: helpers.buildReadOnlyDatabaseUrl(process.env.DATABASE_URL) } }, log: [] });
   let redis;
   try {
+    if (process.env.FIXED_CASE_HISTORICAL_AGENCY === "true") {
+      if (typeof FIXED_CASE_HISTORY_SOURCE_SHA256 === "undefined" || FIXED_CASE_HISTORY_SOURCE_SHA256 !== process.env.FIXED_CASE_HISTORY_SHA256) refused("SOURCE_ATTESTATION_INVALID");
+      let size = 0; const chunks = [];
+      if (process.env.FIXED_CASE_HISTORICAL_TABLE_FILE) {
+        const fs = require("node:fs"), filename = process.env.FIXED_CASE_HISTORICAL_TABLE_FILE;
+        if (!/^\/app\/scripts\/\.fixed-history-row\.[A-Za-z0-9]{6}$/.test(filename)) refused("REVIEW_SOURCE_INVALID");
+        const stat = fs.lstatSync(filename);
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 16 * 1024 * 1024 || (stat.mode & 0o077)) refused("REVIEW_SOURCE_INVALID");
+        chunks.push(fs.readFileSync(filename));
+      } else {
+        for await (const chunk of process.stdin) { size += chunk.length; if (size > 16 * 1024 * 1024) refused("REVIEW_SOURCE_INVALID"); chunks.push(chunk); }
+      }
+      process.stdout.write(`${JSON.stringify(await runHistoricalAgency({ prisma, table: Buffer.concat(chunks).toString("utf8") }), null, 2)}\n`);
+      return;
+    }
     const phoneLockKey = attestedRuntimePhoneLock();
     redis = createReadOnlyRedis(require("/app/node_modules/ioredis"), process.env);
     redis.on("error", () => {});
@@ -1230,4 +1301,5 @@ Object.assign(module.exports, { ARMED_NOTE_SELECT, armedRecoveryAuditBound, arme
 Object.assign(module.exports, { armedRecoveryNoteDifference });
 Object.assign(module.exports, { attestedRuntimePhoneLock, createReadOnlyRedis, collectReadOnlyRedisLease });
 Object.assign(module.exports, { runArmedOnly });
+Object.assign(module.exports, { runHistoricalAgency, originalWriterClientSelection });
 if (require.main === module) main().catch((error) => { process.stderr.write(`fixed_case_failure_code=${failureCode(error)}\n`); process.exitCode = 1; });
