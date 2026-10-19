@@ -69,6 +69,9 @@ describe('aged case direct armed-lead follow-up is read-only', () => {
       throw new Error('unapproved endpoint');
     });
     return { current, entries, lead, client, broker, notes, tx, fetchImpl,
+      history: (table: string) => inspector.runHistoricalAgency({ prisma: { $transaction: async (fn: any) => fn(tx) }, table,
+        environment: { ...environment, FIXED_CASE_HISTORICAL_BACKUP_SHA256: 'db170493aa746ad7ff8aa802edc99dd27aa255d41cd1cf48baaeac12eb527015' }, fetchImpl,
+        now: () => new Date('2026-10-19T18:00:00Z') }),
       run: () => inspector.runArmedOnly({ prisma: { $transaction: async (fn: any) => fn(tx) }, environment, fetchImpl,
         now: () => new Date('2026-10-19T18:00:00Z') }) };
   }
@@ -100,5 +103,16 @@ describe('aged case direct armed-lead follow-up is read-only', () => {
     const f = fixture(); let reads = 0;
     f.tx.client.findUnique.mockImplementation(async (query: any) => { reads++; return project({ ...f.current, updatedAt: new Date(Date.parse(armedAt) + (reads > 2 ? 1 : 0)) }, query.select); });
     await expect(f.run()).rejects.toMatchObject({ safeCode: 'CASE_CHANGED_DURING_SCAN' });
+  });
+  it('compares an authenticated historical agency without claiming an arbitrary fixture matches the real armed plan', async () => {
+    const f = fixture();
+    const table = 'COPY public.agencies (id, name, inn, updated_at) FROM stdin;\nprivate-agency\tprivate-agency-name\t1234567890\t2026-10-12 13:02:39\n\\.\n';
+    const report = await f.history(table);
+    expect(report).toMatchObject({ scope: 'fixed_case_archived_agency_provenance_only', backupAuthenticated: true,
+      stableReadback: true, linkAuthorized: false, databaseMutationAuthorized: false,
+      proof: { originalCaseHashMatchesArmedPlan: false, historicalAgencyTagExactMatch: true,
+        fullHistoricalNoteExactMatch: true, headingVariantAuthorizesLink: false } });
+    expect(JSON.stringify(report)).not.toMatch(/private|7999|1234567890|Recovery agency/);
+    expect(f.fetchImpl).toHaveBeenCalledTimes(3);
   });
 });

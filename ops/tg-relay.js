@@ -26,7 +26,7 @@ const agent = new https.Agent({ keepAlive: true, maxSockets: 16 });
 // Notification POSTs must pass through the durable, recipient-scoped policy.
 // No direct Telegram fallback if the quiet gateway is down (fail closed).
 const QUIET_HOST = "172.18.0.1";
-const QUIET_PORT = 8082;
+const QUIET_PORT = 18082;
 
 function maskPath(path) {
   return String(path).replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot***");
