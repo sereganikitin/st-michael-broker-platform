@@ -35,6 +35,14 @@ describe("draft exact-case one-shot recovery (all providers/database mocked)", (
   // Historical case fixtures must not expire as the CI wall clock advances.
   // Production's seven-day scan guard is intentionally unchanged.
   const NOW = new Date("2026-10-12T13:10:00.000Z");
+  // _compile deliberately loads trusted JS outside Jest's transform realm.
+  // Freeze that realm too; a spy on Jest's Date alone does not affect it.
+  const nativeGlobal = loaded.require("node:vm").runInThisContext("globalThis");
+  const NativeDate = nativeGlobal.Date;
+  class HistoricalDate extends NativeDate {
+    constructor(value?: any) { super(arguments.length ? value : NOW.getTime()); }
+    static now() { return NOW.getTime(); }
+  }
   const unix = Math.floor(NOW.getTime() / 1000);
   const clone = (value: any): any => value === null || typeof value !== "object" ? value
     : value instanceof Date ? new Date(value) : Array.isArray(value) ? value.map(clone)
@@ -274,6 +282,7 @@ describe("draft exact-case one-shot recovery (all providers/database mocked)", (
   }
   let originals: any;
   beforeEach(() => {
+    nativeGlobal.Date = HistoricalDate;
     jest.spyOn(Date, "now").mockReturnValue(NOW.getTime());
     originals = { get: helpers.createGetOnlyRequester, collect: helpers.collectAmoEvidence, expanded: inspector.collectExpandedEvidence,
       notes: inspector.createReviewNotesRequester, history: inspector.createReviewHistoryRequester };
@@ -284,6 +293,7 @@ describe("draft exact-case one-shot recovery (all providers/database mocked)", (
     helpers.createGetOnlyRequester = originals.get; helpers.collectAmoEvidence = originals.collect; inspector.collectExpandedEvidence = originals.expanded;
     inspector.createReviewNotesRequester = originals.notes; inspector.createReviewHistoryRequester = originals.history;
     jest.restoreAllMocks();
+    nativeGlobal.Date = NativeDate;
   });
   async function execute(options: any = {}) {
     const db = database(options.row || row(), options);
