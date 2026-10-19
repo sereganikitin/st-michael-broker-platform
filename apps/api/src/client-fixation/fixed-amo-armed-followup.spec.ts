@@ -8,6 +8,15 @@ describe('aged case direct armed-lead follow-up is read-only', () => {
   loaded.filename = sourcePath; loaded.paths = NodeModule._nodeModulePaths(dirname(sourcePath));
   loaded._compile(readFileSync(sourcePath, 'utf8'), sourcePath);
   const inspector = loaded.exports;
+  it('direct fixed-lead mode returns before the unused Redis connection; broad mode retains it', () => {
+    const source = readFileSync(sourcePath, 'utf8');
+    const main = source.slice(source.indexOf('async function main()'));
+    const direct = main.indexOf('if (process.env.FIXED_CASE_NARROW_ARMED_ONLY === "true")');
+    expect(direct).toBeGreaterThan(0);
+    expect(main.slice(direct, main.indexOf('const phoneLockKey', direct))).toContain('return;');
+    expect(main.indexOf('await redis.connect()')).toBeGreaterThan(direct);
+    expect(main).toContain('collectReadOnlyRedisLease(redis, row, phoneLockKey)');
+  });
   it('failure diagnostics never expose raw errors or metadata', () => {
     const error = Object.assign(new TypeError('private-note token secret'), { code: 'P2022', meta: { column: 'private-column' } });
     const result = inspector.safeInspectionFailure(error);
