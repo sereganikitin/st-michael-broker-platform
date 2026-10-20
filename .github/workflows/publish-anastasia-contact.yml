@@ -4,7 +4,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [plan, photo, invite]
+        options: [plan, photo, invite, invite-status]
         default: plan
         required: true
 concurrency:
@@ -45,7 +45,7 @@ jobs:
           test "$REF" = refs/heads/master
           test "$ACTOR" = mefremov888-ai
           test "$ATTEMPT" = 1
-          case "$MODE" in plan|photo|invite) ;; *) exit 1;; esac
+          case "$MODE" in plan|photo|invite|invite-status) ;; *) exit 1;; esac
           test "$(git rev-parse HEAD)" = "$SOURCE"
           test "$(gh api /repos/$REPO/git/ref/heads/master --jq '.object.sha')" = "$SOURCE"
           gh api "/repos/$REPO/actions/workflows/deploy.yml/runs?head_sha=$SOURCE&status=completed&per_page=30" | jq -e --arg sha "$SOURCE" 'any(.workflow_runs[]; .head_sha==$sha and .head_branch=="master" and .event=="push" and .conclusion=="success")' >/dev/null
@@ -96,8 +96,8 @@ jobs:
           tar -xf "$work/payload.tar" -C "$work"
           script="$work/scripts/anastasia-contact-publication.cjs"
           test "$(sha256sum "$script" | cut -d' ' -f1)" = "$script_sha"
-          if [ "$mode" = invite ]; then
-            docker exec -i -w /app -e CONTACT_EXECUTE=1 -e MODE=invite -e RECIPIENT_HASH=9794e54229e642cc581d8515e53f09bc39ba4f26b5596e3fb0db0def73b78054 -e PHONE_HASH=b9a6f0710e42c35da3c7cd27ce2ae9a7e2f03e9ddbc1a8d1eb9efc8aeac5b01e st-michael-api node < "$script"
+          if [[ "$mode" = invite* ]]; then
+            docker exec -i -w /app -e CONTACT_EXECUTE=1 -e MODE="$mode" -e RECIPIENT_HASH=9794e54229e642cc581d8515e53f09bc39ba4f26b5596e3fb0db0def73b78054 -e PHONE_HASH=b9a6f0710e42c35da3c7cd27ce2ae9a7e2f03e9ddbc1a8d1eb9efc8aeac5b01e st-michael-api node < "$script"
           else
             photo="$work/apps/web/public/v2/img/manager-daria.webp"
             test "$(sha256sum "$photo" | cut -d' ' -f1)" = 33c3296e0b596d68742829e3986b38f41c239b99ce5dc0a4dab0514d222bba94
