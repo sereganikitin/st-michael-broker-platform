@@ -644,7 +644,7 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
   const email: string = contact.email || 'broker@stmichael.ru';
   const telegram: string = contact.telegram || 'https://t.me/stmichaelBroker';
   const telegramLabel = telegram.replace(/^https?:\/\//, '');
-  const manager = contact.manager || contact.managers?.[0] || { name: 'Вишневская Анастасия', role: 'Руководитель отдела по работе с партнёрами', phone: '+7 (968) 756-16-39' };
+  const manager = contact.manager || contact.managers?.[0] || { name: 'Вишневская Анастасия', role: 'Руководитель отдела по работе с партнёрами', phone: '+7 (930) 012-94-52', additionalPhones: ['+7 (906) 061-78-00'] };
   const managerPhones = partnerPhones(manager);
   const hours: string = contact.phoneHours || 'Ежедневно с 9:00 до 21:00';
   // Заголовок горячей линии в макете — две строки; если в CMS стандартный текст, переносим как в макете.
