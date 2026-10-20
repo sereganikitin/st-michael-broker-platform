@@ -13,7 +13,9 @@ function config(env){
 function failure(e){
  const codes=['EAUTH','ESOCKET','ETLS','ETIMEDOUT','ETIMEOUT','ECONNRESET','ECONNREFUSED','ENOTFOUND','EAI_AGAIN','CERT_HAS_EXPIRED','DEPTH_ZERO_SELF_SIGNED_CERT','SELF_SIGNED_CERT_IN_CHAIN','ERR_TLS_CERT_ALTNAME_INVALID','EEXIST','EACCES'];
  const reasons=['CERTIFICATE_REFUSED','CONFIG_REFUSED','MODE_REFUSED','RECIPIENT_REFUSED','SMTP_VERIFY_FAILED'];
- return {code:codes.includes(e?.code)?e.code:null,reason:reasons.includes(e?.message)?e.message:'CONNECTION_OR_SEND_FAILED'};
+ const hint=String(e?.message||'');
+ const certificateReason=/self.signed/i.test(hint)?'SELF_SIGNED':/unable to verify|unable to get local issuer/i.test(hint)?'CHAIN_UNVERIFIED':/expired/i.test(hint)?'EXPIRED':/CERTIFICATE_PIN_MISMATCH/.test(hint)?'PEER_PIN_MISMATCH':/altname|hostname|altnames/i.test(hint)?'HOSTNAME_MISMATCH':/certificate/i.test(hint)?'OTHER_CERTIFICATE_FAILURE':null;
+ return {code:codes.includes(e?.code)?e.code:null,reason:reasons.includes(e?.message)?e.message:'CONNECTION_OR_SEND_FAILED',certificateReason};
 }
 async function run(env=process.env,dependencies={}){
  let transport,p,armed=false,sendInvoked=false;const dir=env.MAIL_MODE==='reset'?'/app/uploads/owner-reset-certificate-20261020':'/app/uploads/contact-invitation-certificate-20261020';

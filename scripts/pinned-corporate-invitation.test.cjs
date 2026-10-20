@@ -28,7 +28,9 @@ test('reset uses deployed recovery method and limits writes to its two token fie
  assert.match(source,/Object.keys\(query.data\).sort\(\).join\(','\)!=='passwordResetExpiresAt,passwordResetToken'/);
 });
 test('exceptions cannot disclose SMTP data or token URLs',()=>{
- assert.deepEqual(failure({message:'PRIVATE password token',code:'UNKNOWN'}),{code:null,reason:'CONNECTION_OR_SEND_FAILED'});
+ assert.deepEqual(failure({message:'PRIVATE password token',code:'UNKNOWN'}),{code:null,reason:'CONNECTION_OR_SEND_FAILED',certificateReason:null});
+ assert.equal(failure({message:'self-signed certificate',code:'ESOCKET'}).certificateReason,'SELF_SIGNED');
+ assert.equal(failure({message:'CERTIFICATE_PIN_MISMATCH',code:'ESOCKET'}).certificateReason,'PEER_PIN_MISMATCH');
  assert.match(source,/console.error=\(\)=>\{\}/);
  assert.match(workflow,/StrictHostKeyChecking=yes/);
 });
