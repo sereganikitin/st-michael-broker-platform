@@ -488,7 +488,7 @@ function CommissionEditor({ content, updateField }: any) {
 // ── CONTACT ───────────────────────────────────────────
 function ContactEditor({ content, updateField }: any) {
   const manager = content.manager || {};
-  const updateManager = (field: string, value: string) => {
+  const updateManager = (field: string, value: string | string[]) => {
     updateField('contact', 'manager', { ...manager, [field]: value });
   };
   return (
@@ -512,6 +512,7 @@ function ContactEditor({ content, updateField }: any) {
         <FieldText label="Имя менеджера" value={manager.name || ''} onChange={(v) => updateManager('name', v)} />
         <FieldText label="Должность" value={manager.role || ''} onChange={(v) => updateManager('role', v)} hint="Например: Руководитель отдела по работе с партнёрами" />
         <FieldText label="Телефон менеджера" value={manager.phone || ''} onChange={(v) => updateManager('phone', v)} />
+        <FieldTextarea label="Дополнительные телефоны менеджера" value={Array.isArray(manager.additionalPhones) ? manager.additionalPhones.join('\n') : ''} onChange={(v) => updateManager('additionalPhones', v.split('\n').map((line) => line.trim()).filter(Boolean))} />
       </div>
     </div>
   );

@@ -236,14 +236,13 @@
 .v2-cta-left .v2-btn--cta { position: absolute; left: 50px; bottom: 49px; }
 .v2-cta-right { height: 668px; border-radius: 24px; background: var(--v2-dark); color: #fff; padding: 50px; position: relative; }
 .v2 .v2-contact-block--person { display: flex; align-items: center; gap: 20px; }
-.v2 .v2-contact-photo { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; flex: none; }
+.v2 .v2-contact-photo { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; object-position: center 22%; flex: none; }
+.v2 .v2-contact-main .v2-partner-phone { display: flex; white-space: nowrap; }
 .v2-cta-right h2 { font-size: 44px; line-height: 51px; font-weight: 500; }
 .v2-contact-block { position: absolute; left: 50px; right: 50px; }
-/* 01.10 (владелец, по макету Рината): снизу вверх — горячая линия (110 высоты, низ на 50 → верх 508),
-   разделитель на 24 выше (484), блок менеджера (100 по замеру) на 24 выше разделителя (360–460). Так
-   промежутки равные; «верх менеджера ≈420 / линия ≈560» из референса с двухстрочным заголовком горячей
-   линии физически не помещаются (блок горячей линии сам начинается на 508). */
-.v2 .v2-contact-block--person { top: 360px; }
+/* Three independent contact numbers need extra height above the divider.
+   Mobile layout below uses normal flow; desktop keeps the approved hotline position. */
+.v2 .v2-contact-block--person { top: 270px; }
 .v2 .v2-divider--contacts { top: 484px; width: auto; right: 50px; }
 .v2 .v2-contact-block--hot { bottom: 50px; }
 .v2 .v2-contact-icons { position: absolute; top: 50px; right: 50px; display: flex; gap: 14px; }
