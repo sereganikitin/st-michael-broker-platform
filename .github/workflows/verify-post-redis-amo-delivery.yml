@@ -1,0 +1,108 @@
+name: Verify real amo deliveries after Redis recovery
+on:
+  workflow_dispatch: {}
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read bounded Redis and API connection evidence over pinned SSH
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SOURCE: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PIN: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          DEPLOY: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = sereganikitin/st-michael-broker-platform
+          test "$REF" = refs/heads/master
+          test "$ACTOR" = mefremov888-ai
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          [[ "$SOURCE" =~ ^[a-f0-9]{40}$ && "$PIN" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
+          case "$HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$DEPLOY" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY/" in *'/../'*|*'/./'*|*'//'*) exit 1;; esac
+          work=$(mktemp -d); umask 077
+          trap 'rm -f -- "$work/key" "$work/hosts"; rmdir -- "$work"' EXIT
+          printf '%s\n' "$KEY" > "$work/key"; chmod 600 "$work/key"; unset KEY
+          timeout 15 ssh-keyscan -p "$PORT" -t ed25519 "$HOST" > "$work/hosts" 2>/dev/null
+          test "$(ssh-keygen -lf "$work/hosts" -E sha256 | awk '{print $2}' | sort -u)" = "$PIN"
+          timeout 4m ssh -T -i "$work/key" -p "$PORT" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" -o ConnectTimeout=15 \
+            "$SSH_USER@$HOST" "bash -s -- '$DEPLOY'" <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          root=$(readlink -f "$1"); test "$root" != / -a -d "$root"; cd "$root"
+          test "$(git rev-parse --show-toplevel)" = "$root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock
+          exec 9</tmp/st-michael-production-deploy.lock; flock -s -n 9
+          test "$(docker context show)" = default
+          test "$(docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
+          api_sha=$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')
+          test "$api_sha" = 50c88ff5cef87894394c2d563904e2befafd781a
+          docker exec -i st-michael-api node <<'VERIFY'
+          const {PrismaClient}=require('@st-michael/database');
+          const since=new Date('2026-10-20T05:50:00Z');
+          const url=new URL(process.env.DATABASE_URL);
+          url.searchParams.set('options','-c default_transaction_read_only=on -c statement_timeout=15000');
+          const p=new PrismaClient({datasources:{db:{url:url.toString()}}});
+          (async()=>{
+            const mode=await p.$queryRawUnsafe("SELECT current_setting('default_transaction_read_only') AS mode");
+            if(mode.length!==1||mode[0].mode!=='on')throw new Error('READONLY_REQUIRED');
+            const rows=await p.client.findMany({where:{createdAt:{gte:since}},select:{id:true,createdAt:true,amoLeadId:true,amoSyncStatus:true,amoSyncError:true},orderBy:{createdAt:'asc'},take:101});
+            if(rows.length>100)throw new Error('BOUNDED_COVERAGE_EXCEEDED');
+            const counts={};for(const r of rows)counts[r.amoSyncStatus]=(counts[r.amoSyncStatus]||0)+1;
+            const settings=await p.systemSetting.findMany({where:{key:'AMO_ACCESS_TOKEN'},select:{value:true}});
+            const token=settings[0]?.value||process.env.AMO_ACCESS_TOKEN;
+            if(!token)throw new Error('TOKEN_MISSING');
+            const domain=process.env.AMO_API_DOMAIN||'stmichael.amocrm.ru';
+            if(domain!=='stmichael.amocrm.ru')throw new Error('DOMAIN_MISMATCH');
+            async function get(path){
+              const res=await fetch('https://stmichael.amocrm.ru/api/v4'+path,{method:'GET',headers:{Authorization:'Bearer '+token,'User-Agent':'Mozilla/5.0'},redirect:'error',signal:AbortSignal.timeout(10000)});
+              if(res.status===204)return {_embedded:{leads:[]}};
+              if(!res.ok)throw new Error('AMO_READ_FAILED');
+              return res.json();
+            }
+            await get('/account');
+            let verified=0,duplicateCandidates=0,coverageComplete=true;
+            const newSynced=rows.filter(r=>r.amoSyncStatus==='SYNCED'&&r.amoLeadId&&!r.amoSyncError);
+            if(newSynced.length>10)throw new Error('LEAD_VERIFICATION_LIMIT');
+            for(const r of newSynced){
+              const id=Number(r.amoLeadId);
+              if(!Number.isSafeInteger(id)||id<=0)throw new Error('LEAD_ID_INVALID');
+              const lead=await get('/leads/'+id+'?with=contacts');
+              if(lead.id!==id)throw new Error('LEAD_BINDING_MISMATCH');
+              verified++;
+              const q=await get('/leads?limit=250&with=contacts&query='+encodeURIComponent(lead.name||''));
+              if(q._links?.next)coverageComplete=false;
+              const ids=x=>(x._embedded?.contacts||[]).map(c=>c.id).sort((a,b)=>a-b).join(',');
+              const contacts=ids(lead);
+              if(!contacts){coverageComplete=false;continue;}
+              duplicateCandidates+=(q._embedded?.leads||[]).filter(x=>x.id!==id&&x.name===lead.name&&x.pipeline_id===lead.pipeline_id&&Math.abs(x.created_at-lead.created_at)<=120&&ids(x)===contacts).length;
+            }
+            console.log('AMO_POST_REDIS_VERIFICATION='+JSON.stringify({since:since.toISOString(),newRequests:rows.length,statusCounts:counts,newSynced:newSynced.length,verifiedExistingLeads:verified,duplicateCandidates,duplicateSearchCoverageComplete:coverageComplete,amoReadConnection:true,deliveryObserved:verified>0,crmWrites:0,databaseWrites:0,redisWrites:0,testRequestsCreated:0}));
+          })().catch(()=>{console.log('AMO_POST_REDIS_VERIFICATION={"verified":false,"error":"READONLY_VERIFICATION_REFUSED"}');process.exitCode=1}).finally(()=>p.$disconnect());
+          VERIFY
+          test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$api_sha"
+          REMOTE
