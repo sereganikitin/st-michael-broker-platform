@@ -18,11 +18,15 @@ function failure(e){
  return {code:codes.includes(e?.code)?e.code:null,reason:reasons.includes(e?.message)?e.message:'CONNECTION_OR_SEND_FAILED',certificateReason};
 }
 async function run(env=process.env,dependencies={}){
- let transport,p,armed=false,sendInvoked=false;const dir=env.MAIL_MODE==='reset'?'/app/uploads/owner-reset-certificate-20261020':'/app/uploads/contact-invitation-certificate-20261020';
+ let transport,p,armed=false,sendInvoked=false;const tlsEvidence={peerObserved:false,peerPinMatches:null,peerHostnameMatches:null};const dir=env.MAIL_MODE==='reset'?'/app/uploads/owner-reset-certificate-20261020':'/app/uploads/contact-invitation-certificate-20261020';
  try{
   if(!['inspect','send','reset'].includes(env.MAIL_MODE)||(env.MAIL_MODE!=='inspect'&&env.CONFIRM_SEND!=='true'))throw Error('MODE_REFUSED');
   transport=(dependencies.createTransport||require('nodemailer').createTransport)(config(env));
-  if(await transport.verify()!==true)throw Error('SMTP_VERIFY_FAILED');
+  // Observe the public peer certificate before Node's ordinary authorization
+  // check. Preserve every TLS argument and all verification/error behavior.
+  const originalConnect=tls.connect;
+  tls.connect=function(...args){const socket=Reflect.apply(originalConnect,this,args);socket.prependOnceListener('secure',()=>{try{const peer=socket.getPeerCertificate();if(peer?.raw){tlsEvidence.peerObserved=true;tlsEvidence.peerPinMatches=hash(peer.raw)===PIN;tlsEvidence.peerHostnameMatches=!!new crypto.X509Certificate(peer.raw).checkHost(NAME);}}catch{}});return socket;};
+  try{if(await transport.verify()!==true)throw Error('SMTP_VERIFY_FAILED');}finally{tls.connect=originalConnect;}
   if(env.MAIL_MODE==='inspect'){const report={ok:true,mode:'inspect',certificatePinMatched:true,hostnameVerified:NAME,tlsVerified:true,smtpVerified:true,emailSent:false};emit(report);return report;}
   const {PrismaClient}=dependencies.database||require('@st-michael/database');
   const u=new URL(env.DATABASE_URL);u.searchParams.set('options',(env.MAIL_MODE==='reset'?'':'-c default_transaction_read_only=on ')+'-c statement_timeout=15000');
@@ -57,7 +61,7 @@ async function run(env=process.env,dependencies={}){
   const accepted=Array.isArray(result.accepted)&&result.accepted.length===1&&String(result.accepted[0]).toLowerCase()===String(b.email).toLowerCase()&&Array.isArray(result.rejected)&&result.rejected.length===0;
   const report={ok:accepted,mode:'send',providerAccepted:accepted,mailboxDeliveryVerified:false,tlsVerified:true,certificatePinMatched:true,hostnameVerified:NAME,sendAttempts:1,automaticRetry:false,passwordChanged:false,databaseWrites:0};
   fs.writeFileSync(dir+'/receipt.json',JSON.stringify({...report,at:new Date().toISOString()}),{flag:'wx',mode:0o600});emit(report);return report;
- }catch(e){const report={ok:false,mode:env.MAIL_MODE,...failure(e),armed,sendInvoked,automaticRetry:false};if(armed){try{fs.writeFileSync(dir+'/failure.json',JSON.stringify(report),{flag:'wx',mode:0o600});}catch{}}emit(report);return report;}
+ }catch(e){const report={ok:false,mode:env.MAIL_MODE,...failure(e),...tlsEvidence,armed,sendInvoked,automaticRetry:false};if(armed){try{fs.writeFileSync(dir+'/failure.json',JSON.stringify(report),{flag:'wx',mode:0o600});}catch{}}emit(report);return report;}
  finally{try{transport?.close();}catch{}try{await p?.$disconnect();}catch{}}
 }
 module.exports={config,failure,run,PIN,NAME};
