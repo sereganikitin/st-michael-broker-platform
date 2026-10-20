@@ -84,6 +84,19 @@ jobs:
           console.log('REDIS_PROCESS='+JSON.stringify({localExit:Number(process.env.LOCAL_EXIT),connectionClosed:/server closed|connection reset|connection closed/i.test(reply),connectionRefused:/connection refused/i.test(reply),maxClients:/max.*clients/i.test(reply),redisServerPid1:/^redis-server\n/.test(proc),fdCount:number(/FD_COUNT=\s*(\d+)/),rdbBytes:number(/RDB_SIZE=(\d+)/),rdbMtime:number(/RDB_MTIME=(\d+)/),aofPresent:proc.includes('AOF_PRESENT=yes'),openFileLimit:meta.openFileLimit,memoryLimit:meta.memoryLimit,dataVolumeMounted:meta.dataVolumeMounted,healthTestExpected:meta.healthTestExpected,logTooManyFiles:/too many open files/i.test(logs),logMaxClients:/max.*clients.*reached/i.test(logs),logOOM:/out of memory|oom command not allowed/i.test(logs),logPersistenceError:/failed.*sav|error.*sav|short read|permission denied|no space left/i.test(logs),logLoading:/loading.*dataset|loading rdb/i.test(logs)}));
           CLASSIFY
           unset LOCAL_PING_REPLY LOCAL_INFO_REPLY LOCAL_EXIT REDIS_META REDIS_PROC REDIS_LOG local_info local_reply redis_meta redis_proc redis_log
+          export REDIS_IDENTITY="$(docker inspect st-michael-redis | jq -ce '.[0] | {commandExpected:(.Config.Cmd==["redis-server"]),entrypointExpected:(.Config.Entrypoint==["docker-entrypoint.sh"]),imageTagExpected:(.Config.Image=="redis:7-alpine"),paused:.State.Paused,startedAt:.State.StartedAt,healthExit:(.State.Health.Log[-1].ExitCode // null),healthEnd:(.State.Health.Log[-1].End // null)}')"
+          export REDIS_COMMANDS="$(docker top st-michael-redis -eo comm 2>/dev/null || true)"
+          export REDIS_DETAILS="$(timeout 5 docker exec st-michael-redis sh -c 'cat /proc/1/comm; readlink /proc/1/exe; cat /proc/net/tcp; cat /proc/net/tcp6' 2>/dev/null || true)"
+          export REDIS_DIFF="$(docker diff st-michael-redis 2>/dev/null || true)"
+          export REDIS_RDB_CHECK="$(timeout 10 docker exec st-michael-redis redis-check-rdb /data/dump.rdb 2>&1 || true)"
+          docker exec -i -e REDIS_IDENTITY -e REDIS_COMMANDS -e REDIS_DETAILS -e REDIS_DIFF -e REDIS_RDB_CHECK st-michael-api node <<'IDENTITY'
+          const identity=JSON.parse(process.env.REDIS_IDENTITY), known=['redis-server','sh','bash','sleep','tail','tini','docker-init'];
+          const commands=(process.env.REDIS_COMMANDS||'').trim().split(/\r?\n/).slice(1).map(s=>s.trim());
+          const details=process.env.REDIS_DETAILS||'', diff=process.env.REDIS_DIFF||'', check=process.env.REDIS_RDB_CHECK||'';
+          const listeners=details.split('\n').filter(s=>/^\s*\d+:/.test(s)).map(s=>s.trim().split(/\s+/)).filter(a=>a[3]==='0A');
+          console.log('REDIS_IDENTITY='+JSON.stringify({...identity,processCount:commands.length,processes:Object.fromEntries(known.map(n=>[n,commands.filter(c=>c===n).length])),otherProcesses:commands.filter(c=>!known.includes(c)).length,pid1KnownName:known.includes(details.split('\n')[0])?details.split('\n')[0]:'other',redisListenerCount:listeners.filter(a=>a[1].endsWith(':18EB')).length,totalTcpListeners:listeners.length,systemBinaryChanged:/^[ACD] \/(?:usr\/local\/bin|usr\/bin|bin)\//m.test(diff),rdbChecksumOK:/Checksum OK/i.test(check),rdbValid:/RDB looks OK/i.test(check),rdbKeys:(check.match(/(\d+) keys read/)||[])[1]?Number(check.match(/(\d+) keys read/)[1]):null}));
+          IDENTITY
+          unset REDIS_IDENTITY REDIS_COMMANDS REDIS_DETAILS REDIS_DIFF REDIS_RDB_CHECK
           if [ "$local_ok" = true ]; then
             timeout 5 docker exec st-michael-redis redis-cli --raw INFO persistence 2>/dev/null | awk -F: '/^(loading|rdb_changes_since_last_save|rdb_last_bgsave_status|aof_enabled|aof_last_write_status):/{gsub(/\r/,"",$2); if($2 ~ /^[a-z0-9_]+$/)print "redis_persistence_"$1"="$2}'
             timeout 5 docker exec st-michael-redis redis-cli --raw INFO clients 2>/dev/null | awk -F: '/^(connected_clients|blocked_clients):/{gsub(/\r/,"",$2); if($2 ~ /^[0-9]+$/)print "redis_clients_"$1"="$2}'
