@@ -10,7 +10,7 @@ async function run(rows=[],duplicate=false,next=false){
   class PrismaClient{
     constructor(options){assert.match(new URL(options.datasources.db.url).searchParams.get('options'),/default_transaction_read_only=on/);}
     $queryRawUnsafe(sql){assert.equal(sql,"SELECT current_setting('default_transaction_read_only') AS mode");return [{mode:'on'}];}
-    client={findMany:async()=>rows};
+    client={findMany:async()=>rows.map(r=>({createdAt:'2026-10-20T05:53:00Z',...r}))};
     systemSetting={findMany:async()=>[{value:'PRIVATE_TOKEN'}]};
     async $disconnect(){}
   }
@@ -36,4 +36,15 @@ test('duplicate candidate and truncated coverage are never hidden',async()=>{
 });
 test('failed or pending request is not represented as delivered',async()=>{
   const {report,calls}=await run([{amoSyncStatus:'FAILED',amoLeadId:null,amoSyncError:'private-error'}]);assert.equal(report.deliveryObserved,false);assert.equal(calls.length,1);
+});
+test('uniqueness log classifier emits only fixed codes and timestamps',()=>{
+  const part=workflow.split("st-michael-api node -e '\n")[1];
+  const program=part.slice(0,part.indexOf("});'")+3);
+  const handlers={}, output=[];
+  vm.runInNewContext(program,{Set,JSON,process:{stdin:{on:(event,fn)=>handlers[event]=fn},exit:()=>{throw Error('BOUNDS');}},console:{log:s=>output.push(s)}});
+  handlers.data('2026-10-20T05:54:00Z [fixClient] amo checkUniqueness giving up on attempt 3/3: AMO_SYNC_FAILED (errClass=Error, httpStatus=n/a) PRIVATE_PHONE_TOKEN\n2026-10-20T05:54:00Z [fixClient] amo checkUniqueness failed; lead creation is blocked: AMO_SYNC_FAILED\n');
+  handlers.end();
+  assert.doesNotMatch(output[0],/PRIVATE_PHONE_TOKEN/);
+  const result=JSON.parse(output[0].split('=')[1]);
+  assert.equal(result.blocked,1);assert.equal(result.failures.AMO_SYNC_FAILED,1);
 });

@@ -61,6 +61,22 @@ jobs:
           test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
           api_sha=$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')
           test "$api_sha" = 50c88ff5cef87894394c2d563904e2befafd781a
+          # Consume recent application logs privately; only fixed classifications leave stdin.
+          docker logs --since 2026-10-20T05:50:00Z --timestamps --tail 5000 st-michael-api 2>&1 | docker exec -i st-michael-api node -e '
+            let text="", bytes=0;
+            process.stdin.on("data",c=>{bytes+=c.length;if(bytes>16777216)process.exit(1);text+=c});
+            process.stdin.on("end",()=>{
+              const allowed=new Set(["AMO_AUTH_401","AMO_FORBIDDEN_403","AMO_RATE_LIMIT_429","AMO_TEMPORARY_UNAVAILABLE","AMO_NETWORK_ERROR","AMO_CONFIGURATION_ERROR","AMO_INVALID_RESPONSE","FIXATION_AGENCY_MISSING","BROKER_AMO_CONTACT_MISSING","AMO_SYNC_FAILED"]);
+              const failures={}, statuses={}; let blocked=0,lastFailureAt=null,retries=0;
+              for(const line of text.split("\n")){
+                if(!line.includes("[fixClient] amo checkUniqueness"))continue;
+                if(line.includes("retrying in"))retries++;
+                if(line.includes("lead creation is blocked:"))blocked++;
+                const m=line.match(/giving up on attempt [0-9]+\/[0-9]+: ([A-Z0-9_]+) \(errClass=[^,]+, httpStatus=([0-9]{3}|n\/a)\)/);
+                if(m){const code=allowed.has(m[1])?m[1]:"OTHER";failures[code]=(failures[code]||0)+1;statuses[m[2]]=(statuses[m[2]]||0)+1;const t=line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);if(t)lastFailureAt=t[1]+"Z";}
+              }
+              console.log("AMO_UNIQUENESS_ERRORS="+JSON.stringify({boundedRecentLogWindow:true,blocked,retries,failures,statuses,lastFailureAt,rawLogsEmitted:false}));
+            });'
           docker exec -i st-michael-api node <<'VERIFY'
           const {PrismaClient}=require('@st-michael/database');
           const since=new Date('2026-10-20T05:50:00Z');
@@ -70,7 +86,7 @@ jobs:
           (async()=>{
             const mode=await p.$queryRawUnsafe("SELECT current_setting('default_transaction_read_only') AS mode");
             if(mode.length!==1||mode[0].mode!=='on')throw new Error('READONLY_REQUIRED');
-            const rows=await p.client.findMany({where:{createdAt:{gte:since}},select:{id:true,createdAt:true,amoLeadId:true,amoSyncStatus:true,amoSyncError:true},orderBy:{createdAt:'asc'},take:101});
+            const rows=await p.client.findMany({where:{createdAt:{gte:since}},select:{id:true,createdAt:true,brokerId:true,amoLeadId:true,amoSyncStatus:true,amoSyncError:true},orderBy:{createdAt:'asc'},take:101});
             if(rows.length>100)throw new Error('BOUNDED_COVERAGE_EXCEEDED');
             const counts={};for(const r of rows)counts[r.amoSyncStatus]=(counts[r.amoSyncStatus]||0)+1;
             const settings=await p.systemSetting.findMany({where:{key:'AMO_ACCESS_TOKEN'},select:{value:true}});
@@ -101,7 +117,7 @@ jobs:
               if(!contacts){coverageComplete=false;continue;}
               duplicateCandidates+=(q._embedded?.leads||[]).filter(x=>x.id!==id&&x.name===lead.name&&x.pipeline_id===lead.pipeline_id&&Math.abs(x.created_at-lead.created_at)<=120&&ids(x)===contacts).length;
             }
-            console.log('AMO_POST_REDIS_VERIFICATION='+JSON.stringify({since:since.toISOString(),newRequests:rows.length,statusCounts:counts,newSynced:newSynced.length,verifiedExistingLeads:verified,duplicateCandidates,duplicateSearchCoverageComplete:coverageComplete,amoReadConnection:true,deliveryObserved:verified>0,crmWrites:0,databaseWrites:0,redisWrites:0,testRequestsCreated:0}));
+            console.log('AMO_POST_REDIS_VERIFICATION='+JSON.stringify({since:since.toISOString(),newRequests:rows.length,createdAtMinute:rows.map(r=>new Date(r.createdAt).toISOString().slice(0,16)+'Z'),knownActorRequestCount:rows.filter(r=>r.brokerId==='6e414141-f2ca-4c71-8402-2032c9186568').length,statusCounts:counts,newSynced:newSynced.length,verifiedExistingLeads:verified,duplicateCandidates,duplicateSearchCoverageComplete:coverageComplete,amoReadConnection:true,deliveryObserved:verified>0,crmWrites:0,databaseWrites:0,redisWrites:0,testRequestsCreated:0}));
           })().catch(()=>{console.log('AMO_POST_REDIS_VERIFICATION={"verified":false,"error":"READONLY_VERIFICATION_REFUSED"}');process.exitCode=1}).finally(()=>p.$disconnect());
           VERIFY
           test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$api_sha"
