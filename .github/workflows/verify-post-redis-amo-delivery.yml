@@ -86,7 +86,7 @@ jobs:
           (async()=>{
             const mode=await p.$queryRawUnsafe("SELECT current_setting('default_transaction_read_only') AS mode");
             if(mode.length!==1||mode[0].mode!=='on')throw new Error('READONLY_REQUIRED');
-            const rows=await p.client.findMany({where:{createdAt:{gte:since}},select:{id:true,createdAt:true,brokerId:true,amoLeadId:true,amoSyncStatus:true,amoSyncError:true},orderBy:{createdAt:'asc'},take:101});
+            const rows=await p.client.findMany({where:{createdAt:{gte:since}},select:{id:true,createdAt:true,brokerId:true,phone:true,amoLeadId:true,amoSyncStatus:true,amoSyncError:true},orderBy:{createdAt:'asc'},take:101});
             if(rows.length>100)throw new Error('BOUNDED_COVERAGE_EXCEEDED');
             const counts={};for(const r of rows)counts[r.amoSyncStatus]=(counts[r.amoSyncStatus]||0)+1;
             const settings=await p.systemSetting.findMany({where:{key:'AMO_ACCESS_TOKEN'},select:{value:true}});
@@ -96,8 +96,8 @@ jobs:
             if(domain!=='stmichael.amocrm.ru')throw new Error('DOMAIN_MISMATCH');
             async function get(path){
               const res=await fetch('https://stmichael.amocrm.ru/api/v4'+path,{method:'GET',headers:{Authorization:'Bearer '+token,'User-Agent':'Mozilla/5.0'},redirect:'error',signal:AbortSignal.timeout(10000)});
-              if(res.status===204)return {_embedded:{leads:[]}};
-              if(!res.ok)throw new Error('AMO_READ_FAILED');
+              if(res.status===204)return path.startsWith('/contacts')?null:{_embedded:{leads:[]}};
+              if(!res.ok)throw new Error('AMO_READ_HTTP_'+res.status);
               return res.json();
             }
             await get('/account');
@@ -117,7 +117,41 @@ jobs:
               if(!contacts){coverageComplete=false;continue;}
               duplicateCandidates+=(q._embedded?.leads||[]).filter(x=>x.id!==id&&x.name===lead.name&&x.pipeline_id===lead.pipeline_id&&Math.abs(x.created_at-lead.created_at)<=120&&ids(x)===contacts).length;
             }
-            console.log('AMO_POST_REDIS_VERIFICATION='+JSON.stringify({since:since.toISOString(),newRequests:rows.length,createdAtMinute:rows.map(r=>new Date(r.createdAt).toISOString().slice(0,16)+'Z'),knownActorRequestCount:rows.filter(r=>r.brokerId==='6e414141-f2ca-4c71-8402-2032c9186568').length,statusCounts:counts,newSynced:newSynced.length,verifiedExistingLeads:verified,duplicateCandidates,duplicateSearchCoverageComplete:coverageComplete,amoReadConnection:true,deliveryObserved:verified>0,crmWrites:0,databaseWrites:0,redisWrites:0,testRequestsCreated:0}));
+            const targets=rows.filter(r=>r.brokerId==='6e414141-f2ca-4c71-8402-2032c9186568'&&String(r.phone||'').replace(/\D/g,'').endsWith('9999'));
+            const targetUniqueness={matchingRecentRequests:targets.length,performed:false,requests:0};
+            let probePhone=targets.length===1?targets[0].phone:null;
+            if(targets.length===0){
+              const phones=new Map();let complete=false;
+              for(let page=1;page<=5;page++){
+                const data=await get('/contacts?query=9999&limit=250&page='+page);
+                if(data===null){complete=true;break;}
+                const contacts=data?._embedded?.contacts;
+                if(!Array.isArray(contacts))throw new Error('CONTACT_RESPONSE_INVALID');
+                for(const c of contacts){
+                  const fields=c.custom_fields_values||[];
+                  if(fields.some(f=>f.field_id===835415&&f.values?.some(v=>v.value===true)))continue;
+                  for(const f of fields.filter(f=>f.field_code==='PHONE'||f.field_id===557903))for(const v of f.values||[]){
+                    const value=String(v.value||'').replace(/\D/g,'');
+                    if(value.length>=10&&value.endsWith('9999'))phones.set(value.slice(-10),value);
+                  }
+                }
+                if(!data._links?.next){complete=true;break;}
+              }
+              targetUniqueness.suffixSearchComplete=complete;targetUniqueness.suffixCandidatePhones=phones.size;
+              if(complete&&phones.size===1)probePhone=phones.values().next().value;
+            }
+            if(probePhone){
+              const {AmoCrmAdapter}=require('/app/packages/integrations/dist/amo-crm.adapter');
+              const adapter=new AmoCrmAdapter();
+              adapter.request=async(path,init={})=>{
+                if((init.method&&init.method!=='GET')||!/^\/(contacts|leads)(\/[1-9][0-9]*)?(\?|$)/.test(path)||++targetUniqueness.requests>25)throw new Error('READONLY_SCOPE_REFUSED');
+                return get(path);
+              };
+              targetUniqueness.performed=true;
+              try{const v=await adapter.checkUniqueness(probePhone);targetUniqueness.succeeded=true;targetUniqueness.rule=['RULE_1','RULE_2','RULE_3','NO_CONFLICT','RULE_EXCEPTION_AFTER_SALES_MEETING','RULE_REJECT_SALES_DEAL'].includes(v.rule)?v.rule:'OTHER';}
+              catch(e){targetUniqueness.succeeded=false;const code=String(e?.message||'');const allowed=new Set(['AMBIGUOUS_EXACT_CONTACT','READONLY_SCOPE_REFUSED','AMO_EXACT_CONTACT_PAGE_INVALID','AMO_EXACT_CONTACT_PAGE_ID_INVALID','AMO_EXACT_CONTACT_PAGE_BOUND_EXCEEDED','AMO_UNIQUENESS_CONTACT_ID_INVALID','AMO_UNIQUENESS_CONTACTS_PAGE_INVALID','AMO_UNIQUENESS_CONTACT_ID_UNREQUESTED','AMO_UNIQUENESS_CONTACT_ID_DUPLICATE','AMO_UNIQUENESS_CONTACTS_INCOMPLETE','AMO_UNIQUENESS_CONTACT_LEADS_INVALID','AMO_UNIQUENESS_LEAD_ID_INVALID','AMO_UNIQUENESS_LEAD_ID_DUPLICATE','AMO_UNIQUENESS_LEAD_ID_UNREQUESTED','AMO_UNIQUENESS_LEADS_PAGE_INVALID','AMO_UNIQUENESS_LEAD_FIELDS_INVALID','AMO_UNIQUENESS_LEAD_STAGE_UNRECOGNIZED','AMO_UNIQUENESS_LEAD_STAGE_UNCLASSIFIED','AMO_UNIQUENESS_LEAD_CONTACTS_INVALID','AMO_UNIQUENESS_LEAD_CONTACT_ID_INVALID','AMO_UNIQUENESS_LEAD_CONTACT_ID_DUPLICATE','AMO_UNIQUENESS_LEAD_CONTACT_INCOMPLETE','AMO_UNIQUENESS_LEADS_INCOMPLETE']);targetUniqueness.errorCode=allowed.has(code)||/^AMO_READ_HTTP_[1-5][0-9]{2}$/.test(code)?code:'UNCLASSIFIED';}
+            }
+            console.log('AMO_POST_REDIS_VERIFICATION='+JSON.stringify({since:since.toISOString(),newRequests:rows.length,createdAtMinute:rows.map(r=>new Date(r.createdAt).toISOString().slice(0,16)+'Z'),knownActorRequestCount:rows.filter(r=>r.brokerId==='6e414141-f2ca-4c71-8402-2032c9186568').length,targetUniqueness,statusCounts:counts,newSynced:newSynced.length,verifiedExistingLeads:verified,duplicateCandidates,duplicateSearchCoverageComplete:coverageComplete,amoReadConnection:true,deliveryObserved:verified>0,crmWrites:0,databaseWrites:0,redisWrites:0,testRequestsCreated:0}));
           })().catch(()=>{console.log('AMO_POST_REDIS_VERIFICATION={"verified":false,"error":"READONLY_VERIFICATION_REFUSED"}');process.exitCode=1}).finally(()=>p.$disconnect());
           VERIFY
           test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$api_sha"
