@@ -1,0 +1,119 @@
+name: Publish approved partner contact and send one invitation
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [plan, photo, invite]
+        default: plan
+        required: true
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Exact source CI and pinned production operation
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SOURCE: ${{ github.sha }}
+          ATTEMPT: ${{ github.run_attempt }}
+          ACTOR: ${{ github.actor }}
+          MODE: ${{ inputs.mode }}
+          GH_TOKEN: ${{ github.token }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PIN: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          DEPLOY: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = sereganikitin/st-michael-broker-platform
+          test "$REF" = refs/heads/master
+          test "$ACTOR" = mefremov888-ai
+          test "$ATTEMPT" = 1
+          case "$MODE" in plan|photo|invite) ;; *) exit 1;; esac
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          test "$(gh api /repos/$REPO/git/ref/heads/master --jq '.object.sha')" = "$SOURCE"
+          gh api "/repos/$REPO/actions/workflows/deploy.yml/runs?head_sha=$SOURCE&status=completed&per_page=30" | jq -e --arg sha "$SOURCE" 'any(.workflow_runs[]; .head_sha==$sha and .head_branch=="master" and .event=="push" and .conclusion=="success")' >/dev/null
+          [[ "$SOURCE" =~ ^[a-f0-9]{40}$ && "$PIN" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
+          case "$HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$DEPLOY" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY/" in *'/../'*|*'/./'*|*'//'*) exit 1;; esac
+          node --test scripts/anastasia-contact-publication.test.cjs
+          script=scripts/anastasia-contact-publication.cjs
+          photo=apps/web/public/v2/img/manager-daria.webp
+          script_sha=$(sha256sum "$script" | cut -d' ' -f1)
+          test "$(sha256sum "$photo" | cut -d' ' -f1)" = 33c3296e0b596d68742829e3986b38f41c239b99ce5dc0a4dab0514d222bba94
+          work=$(mktemp -d); umask 077
+          trap 'rm -f -- "$work/key" "$work/hosts" "$work/payload.tar"; rmdir -- "$work"' EXIT
+          tar -cf "$work/payload.tar" "$script" "$photo"
+          payload_sha=$(sha256sum "$work/payload.tar" | cut -d' ' -f1)
+          printf '%s\n' "$KEY" > "$work/key"; chmod 600 "$work/key"; unset KEY
+          timeout 15 ssh-keyscan -p "$PORT" -t ed25519 "$HOST" > "$work/hosts" 2>/dev/null
+          test "$(ssh-keygen -lf "$work/hosts" -E sha256 | awk '{print $2}' | sort -u)" = "$PIN"
+          {
+            cat <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          root=$(readlink -f "$1"); mode=$2; payload_sha=$3; script_sha=$4
+          test "$root" != / -a -d "$root"; cd "$root"
+          test "$(git rev-parse --show-toplevel)" = "$root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock
+          exec 9</tmp/st-michael-production-deploy.lock; flock -x -n 9
+          test "$(docker context show)" = default
+          test "$(docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
+          api_sha=$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')
+          test "$api_sha" = 50c88ff5cef87894394c2d563904e2befafd781a
+          api_identity=$(docker inspect --format '{{.Id}}:{{.State.StartedAt}}' st-michael-api)
+          web_identity=$(docker inspect --format '{{.Id}}:{{.State.StartedAt}}' st-michael-web)
+          work=$(mktemp -d /tmp/stm-contact.XXXXXX)
+          trap 'rm -f -- "$work/payload.tar" "$work/scripts/anastasia-contact-publication.cjs" "$work/apps/web/public/v2/img/manager-daria.webp"; rmdir -- "$work/scripts" "$work/apps/web/public/v2/img" "$work/apps/web/public/v2" "$work/apps/web/public" "$work/apps/web" "$work/apps" "$work"' EXIT
+          base64 -d > "$work/payload.tar" <<'PAYLOAD'
+          REMOTE
+            base64 -w 0 "$work/payload.tar"
+            printf '\nPAYLOAD\n'
+            cat <<'REMOTE'
+          test "$(sha256sum "$work/payload.tar" | cut -d' ' -f1)" = "$payload_sha"
+          test "$(tar -tf "$work/payload.tar")" = $'scripts/anastasia-contact-publication.cjs\napps/web/public/v2/img/manager-daria.webp'
+          tar -xf "$work/payload.tar" -C "$work"
+          script="$work/scripts/anastasia-contact-publication.cjs"
+          test "$(sha256sum "$script" | cut -d' ' -f1)" = "$script_sha"
+          if [ "$mode" = invite ]; then
+            docker exec -i -w /app -e CONTACT_EXECUTE=1 -e MODE=invite -e RECIPIENT_HASH=9794e54229e642cc581d8515e53f09bc39ba4f26b5596e3fb0db0def73b78054 -e PHONE_HASH=b9a6f0710e42c35da3c7cd27ce2ae9a7e2f03e9ddbc1a8d1eb9efc8aeac5b01e st-michael-api node < "$script"
+          else
+            photo="$work/apps/web/public/v2/img/manager-daria.webp"
+            test "$(sha256sum "$photo" | cut -d' ' -f1)" = 33c3296e0b596d68742829e3986b38f41c239b99ce5dc0a4dab0514d222bba94
+            if [ "$mode" = photo ]; then
+              docker exec -i st-michael-web sh -c 'umask 022; set -C; cat > /tmp/stm-contact-20261020.webp' < "$photo"
+            fi
+            docker exec -i -e CONTACT_EXECUTE=1 -e MODE="$mode" -e PORTRAIT=/tmp/stm-contact-20261020.webp st-michael-web node < "$script"
+            if [ "$mode" = photo ]; then
+              test "$(curl --fail --silent --max-time 20 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/v2/img/manager-daria.webp | sha256sum | cut -d' ' -f1)" = 33c3296e0b596d68742829e3986b38f41c239b99ce5dc0a4dab0514d222bba94
+              echo 'CONTACT_HTTPS_VERIFIED=true'
+            fi
+          fi
+          test "$(docker inspect --format '{{.Id}}:{{.State.StartedAt}}' st-michael-api)" = "$api_identity"
+          test "$(docker inspect --format '{{.Id}}:{{.State.StartedAt}}' st-michael-web)" = "$web_identity"
+          test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$api_sha"
+          REMOTE
+          } | timeout 6m ssh -T -i "$work/key" -p "$PORT" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" -o ConnectTimeout=15 \
+            "$SSH_USER@$HOST" "bash -s -- '$DEPLOY' '$MODE' '$payload_sha' '$script_sha'"
