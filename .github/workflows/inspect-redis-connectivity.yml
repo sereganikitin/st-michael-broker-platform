@@ -24,7 +24,7 @@ jobs:
           SOURCE: ${{ github.sha }}
           ACTOR: ${{ github.actor }}
           HOST: ${{ secrets.DEPLOY_HOST }}
-          USER: ${{ secrets.DEPLOY_USER }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
           PORT: ${{ secrets.DEPLOY_PORT || '22' }}
           KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           PIN: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
@@ -36,7 +36,7 @@ jobs:
           test "$ACTOR" = mefremov888-ai
           test "$(git rev-parse HEAD)" = "$SOURCE"
           [[ "$SOURCE" =~ ^[a-f0-9]{40}$ && "$PIN" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
-          [[ "$USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
           case "$HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
           [[ "$DEPLOY" =~ ^/[A-Za-z0-9._/-]+$ ]]
           case "$DEPLOY/" in *'/../'*|*'/./'*|*'//'*) exit 1;; esac
@@ -47,7 +47,7 @@ jobs:
           test "$(ssh-keygen -lf "$work/hosts" -E sha256 | awk '{print $2}' | sort -u)" = "$PIN"
           timeout 4m ssh -T -i "$work/key" -p "$PORT" -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" -o ConnectTimeout=15 \
-            "$USER@$HOST" "bash -s -- '$DEPLOY'" <<'REMOTE'
+            "$SSH_USER@$HOST" "bash -s -- '$DEPLOY'" <<'REMOTE'
           set -euo pipefail
           export LC_ALL=C GIT_OPTIONAL_LOCKS=0
           root=$(readlink -f "$1"); test "$root" != / -a -d "$root"; cd "$root"
