@@ -1,0 +1,133 @@
+name: Recover stopped Redis process preserving existing container and data
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run:
+        description: Successful canonical push CI for this exact source
+        required: true
+        type: string
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Snapshot data then restart exact existing Redis container once
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SOURCE: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN: ${{ inputs.ci_run }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PIN: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          DEPLOY: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = sereganikitin/st-michael-broker-platform
+          test "$REF" = refs/heads/master
+          test "$ACTOR" = mefremov888-ai
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          [[ "$SOURCE" =~ ^[a-f0-9]{40}$ && "$CI_RUN" =~ ^[0-9]+$ ]]
+          ci=$(gh api "repos/$REPO/actions/runs/$CI_RUN")
+          test "$(jq -r '.head_sha' <<<"$ci")" = "$SOURCE"
+          test "$(jq -r '.path' <<<"$ci")" = .github/workflows/deploy.yml
+          test "$(jq -r '.event' <<<"$ci")" = push
+          test "$(jq -r '.status+":"+.conclusion' <<<"$ci")" = completed:success
+          unset ci GH_TOKEN
+          [[ "$PIN" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
+          case "$HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$DEPLOY" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY/" in *'/../'*|*'/./'*|*'//'*) exit 1;; esac
+          work=$(mktemp -d); umask 077
+          trap 'rm -f -- "$work/key" "$work/hosts"; rmdir -- "$work"' EXIT
+          printf '%s\n' "$KEY" > "$work/key"; chmod 600 "$work/key"; unset KEY
+          timeout 15 ssh-keyscan -p "$PORT" -t ed25519 "$HOST" > "$work/hosts" 2>/dev/null
+          test "$(ssh-keygen -lf "$work/hosts" -E sha256 | awk '{print $2}' | sort -u)" = "$PIN"
+          timeout 6m ssh -T -i "$work/key" -p "$PORT" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" -o ConnectTimeout=15 \
+            "$SSH_USER@$HOST" "bash -s -- '$DEPLOY'" <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          umask 077
+          root=$(readlink -f "$1"); test "$root" != / -a -d "$root"; cd "$root"
+          test "$(git rev-parse --show-toplevel)" = "$root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock
+          exec 9</tmp/st-michael-production-deploy.lock; flock -x -n 9
+          test "$(docker context show)" = default
+          test "$(docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
+          api_sha=$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')
+          test "$api_sha" = 50c88ff5cef87894394c2d563904e2befafd781a
+          before=$(docker inspect st-michael-redis | jq -ce '.[0] | {id:.Id,image:.Image,mounts:.Mounts,command:.Config.Cmd,entrypoint:.Config.Entrypoint,tag:.Config.Image}')
+          test "$(jq -r '.tag' <<<"$before")" = redis:7-alpine
+          test "$(jq -c '.command' <<<"$before")" = '["redis-server"]'
+          test "$(jq -c '.entrypoint' <<<"$before")" = '["docker-entrypoint.sh"]'
+          test "$(jq '[.mounts[]|select(.Destination=="/data" and .Type=="volume" and .RW==true)]|length' <<<"$before")" = 1
+          # Refuse to restart a live Redis process: its unsaved memory cannot be discarded.
+          live=$(docker exec st-michael-redis sh -c 'n=0; for f in /proc/[0-9]*/comm; do read -r c < "$f" || continue; case "$c" in redis-server*) n=$((n+1));; esac; done; printf "%s" "$n"')
+          test "$live" = 0
+          listeners=$(docker exec st-michael-redis sh -c 'cat /proc/net/tcp /proc/net/tcp6' | awk '$4=="0A" && $2 ~ /:18EB$/ {n++} END {print n+0}')
+          test "$listeners" = 0
+          check=$(timeout 10 docker exec st-michael-redis redis-check-rdb /data/dump.rdb 2>&1)
+          grep -q 'RDB looks OK' <<<"$check"
+          grep -Eq '(^|[^0-9])0 keys read' <<<"$check"
+          unset check
+          base=/var/backups/st-michael/redis-recovery
+          for d in /var/backups /var/backups/st-michael "$base"; do test ! -L "$d"; done
+          install -d -m 700 "$base"
+          test "$(readlink -f "$base")" = "$base"
+          backup="$base/incident-20261020"
+          test ! -e "$backup"
+          mkdir -m 700 "$backup"
+          printf '%s\n' "$before" > "$backup/container-identity.json"
+          timeout 30 docker exec st-michael-redis tar -C /data -cf - . > "$backup/redis-data.tar"
+          test -s "$backup/redis-data.tar"
+          tar -tf "$backup/redis-data.tar" | grep -qx './dump.rdb'
+          archive_sha=$(sha256sum "$backup/redis-data.tar" | awk '{print $1}')
+          archive_bytes=$(stat -c %s "$backup/redis-data.tar")
+          printf '%s\n' "$archive_sha" > "$backup/redis-data.sha256"
+          # Persistent single-attempt marker is written BEFORE process control.
+          (set -C; printf 'existing-container-restart\n' > "$backup/restart.attempted")
+          timeout 60 docker restart --time 30 st-michael-redis >/dev/null
+          after=$(docker inspect st-michael-redis | jq -ce '.[0] | {id:.Id,image:.Image,mounts:.Mounts,command:.Config.Cmd,entrypoint:.Config.Entrypoint,tag:.Config.Image}')
+          test "$before" = "$after"
+          pong=false
+          for attempt in $(seq 1 20); do
+            if test "$(timeout 3 docker exec st-michael-redis redis-cli --raw PING 2>/dev/null || true)" = PONG; then pong=true; break; fi
+            sleep 2
+          done
+          test "$pong" = true
+          count=$(timeout 5 docker exec st-michael-redis redis-cli --raw DBSIZE)
+          [[ "$count" =~ ^[0-9]+$ ]]
+          test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$api_sha"
+          printf 'REDIS_RECOVERY={"restarted":true,"sameContainer":true,"sameImage":true,"sameVolume":true,"dataArchiveBytes":%s,"dataArchiveSha256":"%s","liveRedisProcessesBefore":0,"persistedKeysBefore":0,"redisPong":true,"keysAfter":%s,"keysDeleted":0,"queueCleared":false,"applicationRestarted":false,"crmWrites":0}\n' "$archive_bytes" "$archive_sha" "$count"
+          for attempt in $(seq 1 12); do
+            body=$(curl --silent --show-error --max-time 10 http://127.0.0.1:4000/api/health/ready || true)
+            if test "$(jq -r '.status // "error"' <<<"$body")" = ok; then break; fi
+            sleep 3
+          done
+          printf 'REDIS_READINESS=%s\n' "$(jq -ce '{status,checks}' <<<"$body")"
+          test "$(jq -r .status <<<"$body")" = ok
+          REMOTE
+          body=$(curl --fail --silent --show-error --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health/ready)
+          printf 'REDIS_PUBLIC_READINESS=%s\n' "$(jq -ce '{status,checks}' <<<"$body")"
+          test "$(jq -r .status <<<"$body")" = ok
