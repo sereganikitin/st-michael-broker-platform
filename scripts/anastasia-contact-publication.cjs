@@ -8,8 +8,8 @@ const NEW = '33c3296e0b596d68742829e3986b38f41c239b99ce5dc0a4dab0514d222bba94';
 const emit = x => console.log('CONTACT_PUBLICATION=' + JSON.stringify(x));
 async function main() {
   const mode = process.env.MODE;
-  if (!['plan', 'photo', 'invite'].includes(mode)) throw Error('MODE');
-  if (mode !== 'invite') {
+  if (!['plan', 'photo', 'invite', 'invite-status'].includes(mode)) throw Error('MODE');
+  if (!mode.startsWith('invite')) {
     const target = '/app/apps/web/public/v2/img/manager-daria.webp';
     const backup = '/app/data/contact-publication-20261020';
     if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink()) throw Error('TARGET');
@@ -38,6 +38,14 @@ async function main() {
     const rows=await p.$queryRawUnsafe("SELECT current_setting('default_transaction_read_only') AS mode");
     if(rows.length!==1||rows[0].mode!=='on')throw Error('READONLY');
     const b=await p.broker.findUnique({where:{id:'2d935f82-2cf4-4cd2-878e-685cb77defe3'},select:{phone:true,email:true,role:true,status:true,mergedIntoId:true}});
+    if(mode==='invite-status') {
+      const dir='/app/uploads/contact-invitation-20261020';
+      const receiptPath=dir+'/receipt.json';
+      let accepted=null;
+      if(fs.existsSync(receiptPath)) accepted=JSON.parse(fs.readFileSync(receiptPath,'utf8')).providerAccepted===true;
+      emit({mode,accountExists:!!b,admin:b?.role==='ADMIN',active:b?.status==='ACTIVE',emailMatches:!!b?.email&&digest(b.email.toLowerCase())===process.env.RECIPIENT_HASH,phoneMatches:!!b?.phone&&digest(b.phone.replace(/\D/g,''))===process.env.PHONE_HASH,smtpConfigured:!!(process.env.SMTP_HOST&&process.env.SMTP_USER&&process.env.SMTP_PASS),armed:fs.existsSync(dir+'/armed.json'),providerAccepted:accepted,sendAttempts:0,databaseWrites:0});
+      return;
+    }
     // Exact recipient is read privately from the already verified account.
     if(!b||b.role!=='ADMIN'||b.status!=='ACTIVE'||b.mergedIntoId||digest(b.email.toLowerCase())!==process.env.RECIPIENT_HASH||digest(b.phone.replace(/\D/g,''))!==process.env.PHONE_HASH)throw Error('RECIPIENT');
     if(!process.env.SMTP_HOST||!process.env.SMTP_USER||!process.env.SMTP_PASS)throw Error('SMTP_CONFIG');
@@ -53,5 +61,5 @@ async function main() {
     if(!ok)process.exitCode=1;
   } finally {try{transport?.close()}catch{} await p.$disconnect();}
 }
-if(require.main===module||process.env.CONTACT_EXECUTE==='1')main().catch(()=>{emit({ok:false,error:'SCOPED_OPERATION_REFUSED_OR_UNCONFIRMED',automaticRetry:false});process.exitCode=1;});
+if(require.main===module||process.env.CONTACT_EXECUTE==='1')main().catch(e=>{const allowed=['MODE','TARGET','OLD_HASH','PORTRAIT','BACKUP','DRIFT','VERIFY','READONLY','RECIPIENT','SMTP_CONFIG','SMTP_PORT'];emit({ok:false,error:allowed.includes(e?.message)?e.message:'SCOPED_OPERATION_REFUSED_OR_UNCONFIRMED',code:['EEXIST','ENOENT','EACCES','MODULE_NOT_FOUND','EAUTH','ESOCKET','ETIMEDOUT'].includes(e?.code)?e.code:null,automaticRetry:false});process.exitCode=1;});
 module.exports={digest,OLD,NEW,main};
