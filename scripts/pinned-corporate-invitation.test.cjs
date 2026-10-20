@@ -13,6 +13,12 @@ test('certificate input is mandatory and cannot silently fall back',()=>{
 test('transport validates the exact peer pin as well as hostname',()=>{
  assert.match(source,/hash\(peer.raw\)!==PIN/);assert.match(source,/tls.checkServerIdentity\(NAME,peer\)/);
 });
+test('peer observation preserves the real TLS call and restores it after verify',()=>{
+ assert.match(source,/Reflect.apply\(originalConnect,this,args\)/);
+ assert.match(source,/prependOnceListener\('secure'/);
+ assert.match(source,/finally\{tls.connect=originalConnect;\}/);
+ assert.doesNotMatch(source,/authorizationError\s*=|\.authorized\s*=|emit\('secure/);
+});
 test('inspection returns before account access and all sends are once-only',()=>{
  assert.ok(source.indexOf("env.MAIL_MODE==='inspect'")<source.indexOf('const {PrismaClient}'));
  assert.match(source,/fs.mkdirSync\(dir,\{mode:0o700\}\)/);
