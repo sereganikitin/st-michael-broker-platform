@@ -63,17 +63,27 @@ jobs:
           test "$api_sha" = 50c88ff5cef87894394c2d563904e2befafd781a
           state=$(docker inspect st-michael-redis | jq -ce '.[0] | {running:.State.Running,restarting:.State.Restarting,oomKilled:.State.OOMKilled,restartCount:.RestartCount,health:(.State.Health.Status // "unknown")}')
           printf 'REDIS_CONTAINER=%s\n' "$state"
-          local_ping=$(timeout 5 docker exec st-michael-redis redis-cli --raw PING 2>/dev/null || true)
+          set +e
+          local_reply=$(timeout 5 docker exec st-michael-redis redis-cli --raw PING 2>&1)
+          local_exit=$?
+          set -e
+          local_ping=$local_reply
           local_ok=false; test "$local_ping" = PONG && local_ok=true
           printf 'REDIS_LOCAL_PING={"pong":%s}\n' "$local_ok"
           # Classify replies privately: never print Redis errors or values verbatim.
           local_info=$(timeout 5 docker exec st-michael-redis redis-cli --raw INFO server 2>/dev/null || true)
-          export LOCAL_PING_REPLY="$local_ping" LOCAL_INFO_REPLY="$local_info"
-          docker exec -i -e LOCAL_PING_REPLY -e LOCAL_INFO_REPLY st-michael-api node <<'CLASSIFY'
+          redis_meta=$(docker inspect st-michael-redis | jq -ce '.[0] | {pid:.State.Pid,openFileLimit:[.HostConfig.Ulimits[]? | select(.Name=="nofile") | .Hard],memoryLimit:.HostConfig.Memory,dataVolumeMounted:any(.Mounts[]; .Destination=="/data" and .Type=="volume"),healthTestExpected:(.Config.Healthcheck.Test==["CMD","redis-cli","ping"])}')
+          redis_proc=$(timeout 5 docker exec st-michael-redis sh -c 'cat /proc/1/comm; printf "FD_COUNT="; ls /proc/1/fd | wc -l; if test -f /data/dump.rdb; then stat -c "RDB_SIZE=%s RDB_MTIME=%Y" /data/dump.rdb; fi; if test -d /data/appendonlydir; then printf "AOF_PRESENT=yes\n"; fi' 2>/dev/null || true)
+          redis_log=$(docker logs --tail 200 st-michael-redis 2>&1 || true)
+          export LOCAL_PING_REPLY="$local_ping" LOCAL_INFO_REPLY="$local_info" LOCAL_EXIT="$local_exit" REDIS_META="$redis_meta" REDIS_PROC="$redis_proc" REDIS_LOG="$redis_log"
+          docker exec -i -e LOCAL_PING_REPLY -e LOCAL_INFO_REPLY -e LOCAL_EXIT -e REDIS_META -e REDIS_PROC -e REDIS_LOG st-michael-api node <<'CLASSIFY'
           const category=s=>s==='PONG'?'pong':/^NOAUTH\b/.test(s)?'authentication':/^LOADING\b/.test(s)?'loading':/^BUSY\b/.test(s)?'busy':/^MISCONF\b/.test(s)?'persistence_refusal':/^DENIED\b/.test(s)?'protected_mode':/^ERR unknown command\b/.test(s)?'unknown_command':/^ERR.*max.*clients/i.test(s)?'client_limit':s.includes('# Server')?'server_info':s.length===0?'empty':'other';
           console.log('REDIS_PROTOCOL='+JSON.stringify({pingCategory:category(process.env.LOCAL_PING_REPLY||''),infoCategory:category(process.env.LOCAL_INFO_REPLY||'')}));
+          const reply=process.env.LOCAL_PING_REPLY||'', proc=process.env.REDIS_PROC||'', logs=process.env.REDIS_LOG||'', meta=JSON.parse(process.env.REDIS_META);
+          const number=re=>{const m=proc.match(re);return m?Number(m[1]):null;};
+          console.log('REDIS_PROCESS='+JSON.stringify({localExit:Number(process.env.LOCAL_EXIT),connectionClosed:/server closed|connection reset|connection closed/i.test(reply),connectionRefused:/connection refused/i.test(reply),maxClients:/max.*clients/i.test(reply),redisServerPid1:/^redis-server\n/.test(proc),fdCount:number(/FD_COUNT=\s*(\d+)/),rdbBytes:number(/RDB_SIZE=(\d+)/),rdbMtime:number(/RDB_MTIME=(\d+)/),aofPresent:proc.includes('AOF_PRESENT=yes'),openFileLimit:meta.openFileLimit,memoryLimit:meta.memoryLimit,dataVolumeMounted:meta.dataVolumeMounted,healthTestExpected:meta.healthTestExpected,logTooManyFiles:/too many open files/i.test(logs),logMaxClients:/max.*clients.*reached/i.test(logs),logOOM:/out of memory|oom command not allowed/i.test(logs),logPersistenceError:/failed.*sav|error.*sav|short read|permission denied|no space left/i.test(logs),logLoading:/loading.*dataset|loading rdb/i.test(logs)}));
           CLASSIFY
-          unset LOCAL_PING_REPLY LOCAL_INFO_REPLY local_info
+          unset LOCAL_PING_REPLY LOCAL_INFO_REPLY LOCAL_EXIT REDIS_META REDIS_PROC REDIS_LOG local_info local_reply redis_meta redis_proc redis_log
           if [ "$local_ok" = true ]; then
             timeout 5 docker exec st-michael-redis redis-cli --raw INFO persistence 2>/dev/null | awk -F: '/^(loading|rdb_changes_since_last_save|rdb_last_bgsave_status|aof_enabled|aof_last_write_status):/{gsub(/\r/,"",$2); if($2 ~ /^[a-z0-9_]+$/)print "redis_persistence_"$1"="$2}'
             timeout 5 docker exec st-michael-redis redis-cli --raw INFO clients 2>/dev/null | awk -F: '/^(connected_clients|blocked_clients):/{gsub(/\r/,"",$2); if($2 ~ /^[0-9]+$/)print "redis_clients_"$1"="$2}'
