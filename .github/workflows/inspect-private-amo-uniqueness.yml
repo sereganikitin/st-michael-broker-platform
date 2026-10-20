@@ -1,0 +1,131 @@
+name: Inspect private exact amo uniqueness without writes
+on:
+  workflow_dispatch: {}
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read bounded Redis and API connection evidence over pinned SSH
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SOURCE: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PIN: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          DEPLOY: ${{ secrets.DEPLOY_PATH }}
+          TARGET: ${{ secrets.AMO_DIAG_EXACT_PHONE_20261020 }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = sereganikitin/st-michael-broker-platform
+          test "$REF" = refs/heads/master
+          test "$ACTOR" = mefremov888-ai
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          [[ "$SOURCE" =~ ^[a-f0-9]{40}$ && "$PIN" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
+          case "$HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$DEPLOY" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY/" in *'/../'*|*'/./'*|*'//'*) exit 1;; esac
+          work=$(mktemp -d); umask 077
+          trap 'rm -f -- "$work/key" "$work/hosts"; rmdir -- "$work"' EXIT
+          printf '%s\n' "$KEY" > "$work/key"; chmod 600 "$work/key"; unset KEY
+          timeout 15 ssh-keyscan -p "$PORT" -t ed25519 "$HOST" > "$work/hosts" 2>/dev/null
+          test "$(ssh-keygen -lf "$work/hosts" -E sha256 | awk '{print $2}' | sort -u)" = "$PIN"
+          [[ "$TARGET" =~ ^[78][0-9]{10}$ ]]
+          {
+            printf "export AMO_DIAG_EXACT_PHONE='%s'\n" "$TARGET"
+            cat <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          root=$(readlink -f "$1"); test "$root" != / -a -d "$root"; cd "$root"
+          test "$(git rev-parse --show-toplevel)" = "$root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock
+          exec 9</tmp/st-michael-production-deploy.lock; flock -s -n 9
+          test "$(docker context show)" = default
+          test "$(docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
+          api_sha=$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')
+          test "$api_sha" = 50c88ff5cef87894394c2d563904e2befafd781a
+          docker exec -i -e AMO_DIAG_EXACT_PHONE st-michael-api node <<'PROBE'
+          const {PrismaClient}=require('@st-michael/database');
+          const {AmoCrmAdapter}=require('/app/packages/integrations/dist/amo-crm.adapter');
+          const fields=require('/app/packages/integrations/dist/amo-crm.fields');
+          const normalize=s=>String(s||'').replace(/\D/g,'').slice(-10);
+          const raw=process.env.AMO_DIAG_EXACT_PHONE||'';
+          if(!/^[78][0-9]{10}$/.test(raw))throw Error('PRIVATE_TARGET_REQUIRED');
+          const phone='7'+normalize(raw);
+          const u=new URL(process.env.DATABASE_URL);
+          u.searchParams.set('options','-c default_transaction_read_only=on -c statement_timeout=15000');
+          const p=new PrismaClient({datasources:{db:{url:u.toString()}},log:[]});
+          (async()=>{
+            const mode=await p.$queryRawUnsafe("SELECT current_setting('default_transaction_read_only') AS mode");
+            if(mode.length!==1||mode[0].mode!=='on')throw Error('READONLY_REQUIRED');
+            const rows=await p.client.findMany({where:{phone:{endsWith:normalize(phone)}},select:{phone:true,amoSyncStatus:true,amoLeadId:true},take:21});
+            if(rows.length>20)throw Error('LOCAL_MATCH_LIMIT');
+            const exactRows=rows.filter(r=>normalize(r.phone)===normalize(phone));
+            const settings=await p.systemSetting.findMany({where:{key:'AMO_ACCESS_TOKEN'},select:{value:true}});
+            const token=settings[0]?.value||process.env.AMO_ACCESS_TOKEN;
+            if(!token||(process.env.AMO_API_DOMAIN||'stmichael.amocrm.ru')!=='stmichael.amocrm.ru')throw Error('CONFIG_REFUSED');
+            let requests=0;const stages=new Map(),missing=new Set(),responseShapes=[];
+            async function get(path,init={}){
+              if((init.method&&init.method!=='GET')||!/^\/(contacts|leads)(\/[1-9][0-9]*)?(\?|$)/.test(path)||++requests>30)throw Error('READONLY_SCOPE_REFUSED');
+              const res=await fetch('https://stmichael.amocrm.ru/api/v4'+path,{method:'GET',headers:{Authorization:'Bearer '+token,'User-Agent':'Mozilla/5.0',Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(10000)});
+              if(!res.ok&&res.status!==204)throw Error('AMO_READ_HTTP_'+res.status);
+              if(res.status===204)return null;
+              const text=await res.text();if(Buffer.byteLength(text)>4194304)throw Error('BODY_BOUND');
+              const data=JSON.parse(text);
+              const parsed=new URL(path,'https://stmichael.amocrm.ru');
+              if(parsed.pathname==='/leads'){
+                const list=data?._embedded?.leads;
+                const ids=parsed.searchParams.getAll('filter[id][]').map(Number);
+                if(Array.isArray(list)){
+                  responseShapes.push({kind:'leads',requested:ids.length,returned:list.length});
+                  for(const l of list){
+                    const key=l.pipeline_id+':'+l.status_id;
+                    stages.set(key,{pipelineId:l.pipeline_id,statusId:l.status_id,known:fields.isKnownUniquenessLeadStage(l.pipeline_id,l.status_id),classified:fields.isClassifiedUniquenessLeadStage(l.pipeline_id,l.status_id)});
+                  }
+                  for(const id of ids)if(!list.some(l=>l.id===id))missing.add(id);
+                }
+              }else if(parsed.pathname==='/contacts'&&parsed.searchParams.has('filter[id][]')){
+                responseShapes.push({kind:'contacts',requested:parsed.searchParams.getAll('filter[id][]').length,returned:Array.isArray(data?._embedded?.contacts)?data._embedded.contacts.length:null});
+              }
+              return data;
+            }
+            const adapter=new AmoCrmAdapter();adapter.request=get;
+            let result;
+            try{
+              const v=await adapter.checkUniqueness(phone);
+              result={succeeded:true,rule:['RULE_1','RULE_2','RULE_3','NO_CONFLICT','RULE_EXCEPTION_AFTER_SALES_MEETING','RULE_REJECT_SALES_DEAL'].includes(v.rule)?v.rule:'OTHER',contactFound:!!v.contactId,leadCount:v.leads?.length||0};
+            }catch(e){
+              const c=String(e?.message||'');
+              const allowed=new Set(['AMBIGUOUS_EXACT_CONTACT','READONLY_SCOPE_REFUSED','BODY_BOUND','AMO_EXACT_CONTACT_PAGE_INVALID','AMO_EXACT_CONTACT_PAGE_ID_INVALID','AMO_EXACT_CONTACT_PAGE_BOUND_EXCEEDED','AMO_UNIQUENESS_CONTACT_ID_INVALID','AMO_UNIQUENESS_CONTACTS_PAGE_INVALID','AMO_UNIQUENESS_CONTACT_ID_UNREQUESTED','AMO_UNIQUENESS_CONTACT_ID_DUPLICATE','AMO_UNIQUENESS_CONTACTS_INCOMPLETE','AMO_UNIQUENESS_CONTACT_LEADS_INVALID','AMO_UNIQUENESS_LEAD_ID_INVALID','AMO_UNIQUENESS_LEAD_ID_DUPLICATE','AMO_UNIQUENESS_LEAD_ID_UNREQUESTED','AMO_UNIQUENESS_LEADS_PAGE_INVALID','AMO_UNIQUENESS_LEAD_FIELDS_INVALID','AMO_UNIQUENESS_LEAD_STAGE_UNRECOGNIZED','AMO_UNIQUENESS_LEAD_STAGE_UNCLASSIFIED','AMO_UNIQUENESS_LEAD_CONTACTS_INVALID','AMO_UNIQUENESS_LEAD_CONTACT_ID_INVALID','AMO_UNIQUENESS_LEAD_CONTACT_ID_DUPLICATE','AMO_UNIQUENESS_LEAD_CONTACT_INCOMPLETE','AMO_UNIQUENESS_LEADS_INCOMPLETE']);
+              result={succeeded:false,errorCode:allowed.has(c)||/^AMO_READ_HTTP_[1-5][0-9]{2}$/.test(c)?c:'UNCLASSIFIED'};
+            }
+            const missingReadback={count:missing.size,found:0,notFound:0,otherError:0};
+            if(missing.size<=5)for(const id of missing){try{const lead=await get('/leads/'+id+'?with=contacts');if(lead?.id===id)missingReadback.found++;else missingReadback.otherError++;}catch(e){if(e.message==='AMO_READ_HTTP_404')missingReadback.notFound++;else missingReadback.otherError++;}}
+            console.log('EXACT_AMO_UNIQUENESS='+JSON.stringify({result,requests,localMatches:exactRows.length,localStatusCounts:exactRows.reduce((o,r)=>(o[r.amoSyncStatus]=(o[r.amoSyncStatus]||0)+1,o),{}),stages:[...stages.values()],responseShapes,missingReadback,crmWrites:0,databaseWrites:0,redisWrites:0}));
+          })().catch(()=>{console.log('EXACT_AMO_UNIQUENESS={"error":"READONLY_PROBE_REFUSED"}');process.exitCode=1}).finally(()=>p.$disconnect());
+          PROBE
+          test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$api_sha"
+          REMOTE
+          } | timeout 5m ssh -T -i "$work/key" -p "$PORT" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" -o ConnectTimeout=15 \
+            "$SSH_USER@$HOST" "bash -s -- '$DEPLOY'"
+          unset TARGET
