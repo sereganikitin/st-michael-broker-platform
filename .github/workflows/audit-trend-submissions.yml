@@ -1,0 +1,150 @@
+name: Audit exact Trend submissions privately without writes
+on:
+  workflow_dispatch: {}
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read bounded Redis and API connection evidence over pinned SSH
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SOURCE: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PIN: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          DEPLOY: ${{ secrets.DEPLOY_PATH }}
+          TARGET: ${{ secrets.AMO_TREND_BATCH_20261020 }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = sereganikitin/st-michael-broker-platform
+          test "$REF" = refs/heads/master
+          test "$ACTOR" = mefremov888-ai
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          [[ "$SOURCE" =~ ^[a-f0-9]{40}$ && "$PIN" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
+          case "$HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$DEPLOY" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY/" in *'/../'*|*'/./'*|*'//'*) exit 1;; esac
+          work=$(mktemp -d); umask 077
+          trap 'rm -f -- "$work/key" "$work/hosts"; rmdir -- "$work"' EXIT
+          printf '%s\n' "$KEY" > "$work/key"; chmod 600 "$work/key"; unset KEY
+          timeout 15 ssh-keyscan -p "$PORT" -t ed25519 "$HOST" > "$work/hosts" 2>/dev/null
+          test "$(ssh-keygen -lf "$work/hosts" -E sha256 | awk '{print $2}' | sort -u)" = "$PIN"
+          [[ "$TARGET" =~ ^[A-Za-z0-9+/=]+$ ]]
+          {
+            printf "export AMO_TREND_BATCH='%s'\n" "$TARGET"
+            cat <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          root=$(readlink -f "$1"); test "$root" != / -a -d "$root"; cd "$root"
+          test "$(git rev-parse --show-toplevel)" = "$root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock
+          exec 9</tmp/st-michael-production-deploy.lock; flock -s -n 9
+          test "$(docker context show)" = default
+          test "$(docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
+          api_sha=$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')
+          test "$api_sha" = 50c88ff5cef87894394c2d563904e2befafd781a
+          docker exec -i -e AMO_TREND_BATCH st-michael-api node <<'AUDIT'
+          const {PrismaClient}=require('@st-michael/database');
+          const {AmoCrmAdapter}=require('/app/packages/integrations/dist/amo-crm.adapter');
+          const fields=require('/app/packages/integrations/dist/amo-crm.fields');
+          const norm=s=>String(s||'').replace(/\D/g,'').slice(-10);
+          const cases=JSON.parse(Buffer.from(process.env.AMO_TREND_BATCH||'','base64').toString('utf8'));
+          if(!Array.isArray(cases)||cases.length!==8||cases.some((c,i)=>c.case!==i+1||!/^7[0-9]{10}$/.test(c.client)||!/^7[0-9]{10}$/.test(c.agent)||!Array.isArray(c.projects)||c.projects.some(p=>!['ZORGE9','SILVER_BOR'].includes(p))))throw Error('INPUT_REFUSED');
+          const u=new URL(process.env.DATABASE_URL);u.searchParams.set('options','-c default_transaction_read_only=on -c statement_timeout=15000');
+          const p=new PrismaClient({datasources:{db:{url:u.toString()}},log:[]});
+          const safeCode=e=>{const x=String(e?.message||'');return /^AMO_READ_HTTP_[1-5][0-9]{2}$/.test(x)?x:/^AMO_(UNIQUENESS|EXACT_CONTACT)_[A-Z_]+$/.test(x)?x:x==='AMBIGUOUS_EXACT_CONTACT'?x:'READ_CHECK_FAILED';};
+          (async()=>{
+            const mode=await p.$queryRawUnsafe("SELECT current_setting('default_transaction_read_only') AS mode");
+            if(mode.length!==1||mode[0].mode!=='on')throw Error('READONLY_REQUIRED');
+            const settings=await p.systemSetting.findMany({where:{key:'AMO_ACCESS_TOKEN'},select:{value:true}});
+            const token=settings[0]?.value||process.env.AMO_ACCESS_TOKEN;
+            if(!token||(process.env.AMO_API_DOMAIN||'stmichael.amocrm.ru')!=='stmichael.amocrm.ru')throw Error('CONFIG_REFUSED');
+            let requests=0;const agentIds=new Set(),reports=[];
+            for(const item of cases){
+              const cache=new Map();
+              async function get(path,init={}){
+                if((init.method&&init.method!=='GET')||!/^\/(contacts|leads)(\/[1-9][0-9]*)?(\?|$)/.test(path))throw Error('READ_SCOPE_REFUSED');
+                if(cache.has(path))return cache.get(path);
+                if(++requests>180)throw Error('REQUEST_LIMIT');
+                const res=await fetch('https://stmichael.amocrm.ru/api/v4'+path,{method:'GET',headers:{Authorization:'Bearer '+token,'User-Agent':'Mozilla/5.0',Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(10000)});
+                if(!res.ok&&res.status!==204)throw Error('AMO_READ_HTTP_'+res.status);
+                if(res.status===204){cache.set(path,null);return null;}
+                const body=await res.text();if(Buffer.byteLength(body)>4194304)throw Error('BODY_LIMIT');
+                const data=JSON.parse(body);cache.set(path,data);return data;
+              }
+              const agents=await p.broker.findMany({where:{OR:[{phone:{endsWith:norm(item.agent)}},{phones:{some:{phone:{endsWith:norm(item.agent)}}}}]},select:{id:true,phone:true,role:true,status:true,mergedIntoId:true,amoContactId:true,createdAt:true},take:21});
+              if(agents.length>20)throw Error('AGENT_LIMIT');
+              agents.forEach(a=>agentIds.add(a.mergedIntoId||a.id));
+              const records=await p.client.findMany({where:{phone:{endsWith:norm(item.client)}},select:{id:true,phone:true,brokerId:true,responsibleBrokerId:true,project:true,comment:true,amoLeadId:true,amoSyncStatus:true,amoSyncError:true,uniquenessStatus:true,fixationStatus:true,inspectionActSigned:true,uniquenessExpiresAt:true,createdAt:true},orderBy:{createdAt:'desc'},take:51});
+              if(records.length>50)throw Error('CLIENT_LIMIT');
+              const exact=records.filter(c=>norm(c.phone)===norm(item.client));
+              const allIds=new Set(agents.flatMap(a=>[a.id,a.mergedIntoId].filter(Boolean)));
+              const assigned=exact.filter(c=>allIds.has(c.responsibleBrokerId||c.brokerId));
+              const localRecords=assigned.map(c=>({project:c.project,sync:c.amoSyncStatus,errorPresent:!!c.amoSyncError,leadId:c.amoLeadId?Number(c.amoLeadId):null,leadConfirmed:null,uniqueness:c.uniquenessStatus,fixation:c.fixationStatus,signedAct:c.inspectionActSigned,expired:!!c.uniquenessExpiresAt&&new Date(c.uniquenessExpiresAt)<new Date(),historical:String(c.comment||'').startsWith('[old-cabinet:'),visibleToAgent:!String(c.comment||'').startsWith('[old-cabinet:')&&(allIds.has(c.brokerId)||allIds.has(c.responsibleBrokerId)),createdDate:new Date(c.createdAt).toISOString().slice(0,10)}));
+              const report={case:item.case,agentMatches:agents.length,agentStatuses:agents.map(a=>({role:a.role,status:a.status,merged:!!a.mergedIntoId,hasAmoContact:!!a.amoContactId})),localMatches:exact.length,assignedMatches:assigned.length,requestedProjects:item.projects,localRecords,amo:{complete:false}};
+              const adapter=new AmoCrmAdapter();adapter.request=get;
+              try{
+                const contacts=await adapter.findContactsByPhoneExact(item.client);
+                report.amo.exactContactCount=contacts.length;
+                if(contacts.length>5)throw Error('CONTACT_LIMIT');
+                const leads=[];
+                for(const c of contacts){
+                  const full=await get('/contacts/'+c.id+'?with=leads');
+                  const refs=full?._embedded?.leads;
+                  if(!Array.isArray(refs))throw Error('LEAD_REFS_INVALID');
+                  const ids=[...new Set(refs.map(x=>Number(x.id)))];
+                  if(ids.length>50||ids.some(x=>!Number.isSafeInteger(x)||x<=0))throw Error('LEAD_LIMIT');
+                  if(ids.length){
+                    const data=await get('/leads?'+ids.map(id=>'filter[id][]='+id).join('&')+'&with=contacts&limit=250');
+                    const list=data?._embedded?.leads;
+                    if(!Array.isArray(list)||ids.some(id=>!list.some(l=>l.id===id)))throw Error('LEADS_INCOMPLETE');
+                    leads.push(...list);
+                  }
+                }
+                const unique=[...new Map(leads.map(l=>[l.id,l])).values()];
+                report.amo.leads=unique.map(l=>({leadId:l.id,pipelineId:l.pipeline_id,statusId:l.status_id,agentContactAttached:agents.some(a=>a.amoContactId&&(l._embedded?.contacts||[]).some(c=>c.id===Number(a.amoContactId))),knownStage:fields.isKnownUniquenessLeadStage(l.pipeline_id,l.status_id),classifiedStage:fields.isClassifiedUniquenessLeadStage(l.pipeline_id,l.status_id)}));
+                report.amo.complete=true;
+                try{const v=await adapter.checkUniqueness(item.client);report.amo.uniqueness={success:true,rule:v.rule};}catch(e){report.amo.uniqueness={success:false,errorCode:safeCode(e)};}
+                report.localRecords=localRecords.map(c=>({...c,leadConfirmed:unique.some(l=>l.id===c.leadId)}));
+              }catch(e){report.amo.errorCode=safeCode(e);}
+              reports.push(report);
+            }
+            const history=await p.client.findMany({where:{responsibleBrokerId:{in:[...agentIds]}},select:{brokerId:true,responsibleBrokerId:true},take:1001});
+            const ownerIds=[...new Set(history.filter(c=>c.brokerId!==c.responsibleBrokerId).map(c=>c.brokerId))];
+            const candidateRows=await p.broker.findMany({where:{mergedIntoId:null,OR:[{id:{in:ownerIds}},{isCoordinator:true,OR:[{coordinatorAgency:{contains:'trend',mode:'insensitive'}},{coordinatorAgency:{contains:'тренд',mode:'insensitive'}},{brokerAgencies:{some:{agency:{OR:[{name:{contains:'trend',mode:'insensitive'}},{name:{contains:'тренд',mode:'insensitive'}}]}}}}]}]},select:{id:true,role:true,status:true,isCoordinator:true,coordinatorAgency:true,brokerAgencies:{select:{agency:{select:{name:true}}}}},take:101});
+            if(candidateRows.length>100)throw Error('COORDINATOR_LIMIT');
+            const coordinators=[];
+            for(const c of candidateRows){
+              const delegated=await p.client.findMany({where:{brokerId:c.id,responsibleBrokerId:{not:null}},select:{responsibleBrokerId:true,createdAt:true},orderBy:{createdAt:'desc'},take:201});
+              const rows=delegated.filter(r=>r.responsibleBrokerId!==c.id);
+              if(c.isCoordinator||rows.length)coordinators.push({candidate:coordinators.length+1,role:c.role,status:c.status,coordinatorFlag:c.isCoordinator,trendAgencyMatch:/trend|тренд/i.test([c.coordinatorAgency,...c.brokerAgencies.map(x=>x.agency.name)].join(' ')),delegatedAtLeast:rows.length,toListedAgents:rows.filter(r=>agentIds.has(r.responsibleBrokerId)).length,latestDelegation:rows[0]?new Date(rows[0].createdAt).toISOString().slice(0,10):null,bounded:delegated.length<=200});
+            }
+            console.log('TREND_SUBMISSION_AUDIT='+JSON.stringify({cases:reports,coordinators,coordinatorHistoryComplete:history.length<=1000,requests,crmWrites:0,databaseWrites:0,redisWrites:0}));
+          })().catch(()=>{console.log('TREND_SUBMISSION_AUDIT={"error":"READONLY_AUDIT_REFUSED"}');process.exitCode=1}).finally(()=>p.$disconnect());
+          AUDIT
+          test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$api_sha"
+          REMOTE
+          } | timeout 10m ssh -T -i "$work/key" -p "$PORT" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" -o ConnectTimeout=15 \
+            "$SSH_USER@$HOST" "bash -s -- '$DEPLOY'"
+          unset TARGET

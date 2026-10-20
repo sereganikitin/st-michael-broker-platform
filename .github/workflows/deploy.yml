@@ -68,7 +68,7 @@ jobs:
         run: node --test scripts/fixed-amo-historical-agency-proof.test.js scripts/link-existing-fixed-amo-case.test.js
 
       - name: Verify preservation guards for Redis recovery
-        run: node --test scripts/redis-preserving-recovery.test.js scripts/post-redis-verification.test.js scripts/private-amo-uniqueness.test.js
+        run: node --test scripts/redis-preserving-recovery.test.js scripts/post-redis-verification.test.js scripts/private-amo-uniqueness.test.js scripts/trend-submissions-audit.test.js
 
   deploy:
     name: SSH deploy to production
