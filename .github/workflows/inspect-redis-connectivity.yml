@@ -66,6 +66,14 @@ jobs:
           local_ping=$(timeout 5 docker exec st-michael-redis redis-cli --raw PING 2>/dev/null || true)
           local_ok=false; test "$local_ping" = PONG && local_ok=true
           printf 'REDIS_LOCAL_PING={"pong":%s}\n' "$local_ok"
+          # Classify replies privately: never print Redis errors or values verbatim.
+          local_info=$(timeout 5 docker exec st-michael-redis redis-cli --raw INFO server 2>/dev/null || true)
+          export LOCAL_PING_REPLY="$local_ping" LOCAL_INFO_REPLY="$local_info"
+          docker exec -i -e LOCAL_PING_REPLY -e LOCAL_INFO_REPLY st-michael-api node <<'CLASSIFY'
+          const category=s=>s==='PONG'?'pong':/^NOAUTH\b/.test(s)?'authentication':/^LOADING\b/.test(s)?'loading':/^BUSY\b/.test(s)?'busy':/^MISCONF\b/.test(s)?'persistence_refusal':/^DENIED\b/.test(s)?'protected_mode':/^ERR unknown command\b/.test(s)?'unknown_command':/^ERR.*max.*clients/i.test(s)?'client_limit':s.includes('# Server')?'server_info':s.length===0?'empty':'other';
+          console.log('REDIS_PROTOCOL='+JSON.stringify({pingCategory:category(process.env.LOCAL_PING_REPLY||''),infoCategory:category(process.env.LOCAL_INFO_REPLY||'')}));
+          CLASSIFY
+          unset LOCAL_PING_REPLY LOCAL_INFO_REPLY local_info
           if [ "$local_ok" = true ]; then
             timeout 5 docker exec st-michael-redis redis-cli --raw INFO persistence 2>/dev/null | awk -F: '/^(loading|rdb_changes_since_last_save|rdb_last_bgsave_status|aof_enabled|aof_last_write_status):/{gsub(/\r/,"",$2); if($2 ~ /^[a-z0-9_]+$/)print "redis_persistence_"$1"="$2}'
             timeout 5 docker exec st-michael-redis redis-cli --raw INFO clients 2>/dev/null | awk -F: '/^(connected_clients|blocked_clients):/{gsub(/\r/,"",$2); if($2 ~ /^[0-9]+$/)print "redis_clients_"$1"="$2}'
@@ -78,12 +86,13 @@ jobs:
           const dns = require('node:dns').promises, net = require('node:net');
           const Redis = require('/app/node_modules/ioredis');
           const host = process.env.REDIS_HOST || 'localhost', port = Number(process.env.REDIS_PORT || 6379);
-          const classify = e => /NOAUTH|WRONGPASS/i.test(e?.message || '') ? 'authentication' : /DENIED|protected mode/i.test(e?.message || '') ? 'protected_mode' : /MISCONF/i.test(e?.message || '') ? 'persistence_refusal' : /max.*clients/i.test(e?.message || '') ? 'client_limit' : ['ECONNREFUSED','ETIMEDOUT','ENOTFOUND','EHOSTUNREACH'].includes(e?.code) ? e.code : 'connection_failed';
+          const classify = e => /NOAUTH|WRONGPASS/i.test(e?.message || '') ? 'authentication' : /DENIED|protected mode/i.test(e?.message || '') ? 'protected_mode' : /MISCONF/i.test(e?.message || '') ? 'persistence_refusal' : /LOADING/i.test(e?.message || '') ? 'loading' : /BUSY/i.test(e?.message || '') ? 'busy' : /unknown command/i.test(e?.message || '') ? 'unknown_command' : /max.*clients/i.test(e?.message || '') ? 'client_limit' : /command timed out/i.test(e?.message || '') ? 'command_timeout' : /connection is closed|socket closed/i.test(e?.message || '') ? 'connection_closed' : ['ECONNREFUSED','ETIMEDOUT','ENOTFOUND','EHOSTUNREACH','ECONNRESET'].includes(e?.code) ? e.code : 'connection_failed';
           async function ping(target) {
             const r = new Redis({host:target,port,lazyConnect:true,enableReadyCheck:false,maxRetriesPerRequest:0,connectTimeout:3000,commandTimeout:3000,retryStrategy:()=>null});
             r.on('error',()=>{});
-            try { await r.connect(); return {pong:await r.ping()==='PONG'}; }
-            catch(e) { return {pong:false,category:classify(e)}; }
+            let phase='connect';
+            try { await r.connect(); phase='ping'; return {pong:await r.ping()==='PONG'}; }
+            catch(e) { return {pong:false,phase,category:classify(e),replyError:e?.name==='ReplyError'}; }
             finally {r.disconnect();}
           }
           (async()=>{
