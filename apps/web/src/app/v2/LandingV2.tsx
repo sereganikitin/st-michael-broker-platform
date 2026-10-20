@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { PublicHeader } from '@/components/public/PublicHeader';
 import { findInstallmentCalculator } from '@/lib/materials-actions';
 import { materialHref } from '@/lib/materials-folder-tree';
+import { PARTNER_PHOTO, partnerPhones } from '@/lib/partner-contact';
 import { allTourSlots, bookingForTourDate, bookingFromSlot, calendarDate, defaultTourBooking, isAvailableTourBooking, isCalendarDate, moscowDateTime, nextTourSlot, projectsKey, slotsForTourDay, tourBookingMessage, tourMonthGrid, tourWorkWeek, type TourBooking, type TourEvent } from '@/lib/broker-tour-booking';
 
 export interface LandingV2Data {
@@ -643,7 +644,8 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
   const email: string = contact.email || 'broker@stmichael.ru';
   const telegram: string = contact.telegram || 'https://t.me/stmichaelBroker';
   const telegramLabel = telegram.replace(/^https?:\/\//, '');
-  const manager = contact.manager || contact.managers?.[0] || { name: 'Дарья Великанова', role: 'Менеджер по работе с брокерами', phone: '+7 (930) 012-94-52' };
+  const manager = contact.manager || contact.managers?.[0] || { name: 'Вишневская Анастасия', role: 'Руководитель отдела по работе с партнёрами', phone: '+7 (968) 756-16-39' };
+  const managerPhones = partnerPhones(manager);
   const hours: string = contact.phoneHours || 'Ежедневно с 9:00 до 21:00';
   // Заголовок горячей линии в макете — две строки; если в CMS стандартный текст, переносим как в макете.
   const hotTitleRaw = String(contact.blockTitle || '').trim().replace(/\s+/g, ' ');
@@ -886,9 +888,9 @@ export default function LandingV2({ data }: { data: LandingV2Data }) {
                   <a href={telegram} target="_blank" rel="noopener noreferrer" aria-label="Telegram" title={telegramLabel}><img src="/v2/svg/icon-telegram.svg" alt="" /></a>
                 </div>
                 <div className="v2-contact-block v2-contact-block--person">
-                  <img className="v2-contact-photo" src="/v2/img/manager-daria.webp" alt="" />
+                  <img className="v2-contact-photo" src={PARTNER_PHOTO} alt={manager.name || ''} />
                   <div>
-                    <div className="v2-contact-main">{manager.name}<br /><a href={'tel:' + String(manager.phone || '').replace(/[^\d+]/g, '')}>{String(manager.phone || '').replace(/[()]/g, '')}</a></div>
+                    <div className="v2-contact-main">{manager.name}{managerPhones.map(item => <a className="v2-partner-phone" key={item.href} href={item.href}>{item.label}</a>)}</div>
                     <div className="v2-contact-sub">{manager.role}</div>
                   </div>
                 </div>
