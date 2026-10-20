@@ -1,0 +1,101 @@
+name: Inspect Redis connectivity without changing keys or queues
+on:
+  workflow_dispatch: {}
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read bounded Redis and API connection evidence over pinned SSH
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SOURCE: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PIN: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          DEPLOY: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = sereganikitin/st-michael-broker-platform
+          test "$REF" = refs/heads/master
+          test "$ACTOR" = mefremov888-ai
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          [[ "$SOURCE" =~ ^[a-f0-9]{40}$ && "$PIN" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
+          case "$HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$DEPLOY" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY/" in *'/../'*|*'/./'*|*'//'*) exit 1;; esac
+          work=$(mktemp -d); umask 077
+          trap 'rm -f -- "$work/key" "$work/hosts"; rmdir -- "$work"' EXIT
+          printf '%s\n' "$KEY" > "$work/key"; chmod 600 "$work/key"; unset KEY
+          timeout 15 ssh-keyscan -p "$PORT" -t ed25519 "$HOST" > "$work/hosts" 2>/dev/null
+          test "$(ssh-keygen -lf "$work/hosts" -E sha256 | awk '{print $2}' | sort -u)" = "$PIN"
+          timeout 4m ssh -T -i "$work/key" -p "$PORT" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" -o ConnectTimeout=15 \
+            "$SSH_USER@$HOST" "bash -s -- '$DEPLOY'" <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          root=$(readlink -f "$1"); test "$root" != / -a -d "$root"; cd "$root"
+          test "$(git rev-parse --show-toplevel)" = "$root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock
+          exec 9</tmp/st-michael-production-deploy.lock; flock -s -n 9
+          test "$(docker context show)" = default
+          test "$(docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
+          api_sha=$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')
+          test "$api_sha" = 50c88ff5cef87894394c2d563904e2befafd781a
+          state=$(docker inspect st-michael-redis | jq -ce '.[0] | {running:.State.Running,restarting:.State.Restarting,oomKilled:.State.OOMKilled,restartCount:.RestartCount,health:(.State.Health.Status // "unknown")}')
+          printf 'REDIS_CONTAINER=%s\n' "$state"
+          local_ping=$(timeout 5 docker exec st-michael-redis redis-cli --raw PING 2>/dev/null || true)
+          local_ok=false; test "$local_ping" = PONG && local_ok=true
+          printf 'REDIS_LOCAL_PING={"pong":%s}\n' "$local_ok"
+          if [ "$local_ok" = true ]; then
+            timeout 5 docker exec st-michael-redis redis-cli --raw INFO persistence 2>/dev/null | awk -F: '/^(loading|rdb_changes_since_last_save|rdb_last_bgsave_status|aof_enabled|aof_last_write_status):/{gsub(/\r/,"",$2); if($2 ~ /^[a-z0-9_]+$/)print "redis_persistence_"$1"="$2}'
+            timeout 5 docker exec st-michael-redis redis-cli --raw INFO clients 2>/dev/null | awk -F: '/^(connected_clients|blocked_clients):/{gsub(/\r/,"",$2); if($2 ~ /^[0-9]+$/)print "redis_clients_"$1"="$2}'
+            timeout 5 docker exec st-michael-redis redis-cli --raw INFO stats 2>/dev/null | awk -F: '/^(rejected_connections|evicted_keys):/{gsub(/\r/,"",$2); if($2 ~ /^[0-9]+$/)print "redis_stats_"$1"="$2}'
+            count=$(timeout 5 docker exec st-michael-redis redis-cli --raw DBSIZE 2>/dev/null)
+            [[ "$count" =~ ^[0-9]+$ ]]; printf 'redis_key_count=%s\n' "$count"
+          fi
+          ips=$(docker inspect st-michael-redis | jq -ce '[.[0].NetworkSettings.Networks[].IPAddress | select(length>0)]')
+          docker exec -i -e EXPECTED_REDIS_IPS="$ips" st-michael-api node <<'NODE'
+          const dns = require('node:dns').promises, net = require('node:net');
+          const Redis = require('/app/node_modules/ioredis');
+          const host = process.env.REDIS_HOST || 'localhost', port = Number(process.env.REDIS_PORT || 6379);
+          const classify = e => /NOAUTH|WRONGPASS/i.test(e?.message || '') ? 'authentication' : /DENIED|protected mode/i.test(e?.message || '') ? 'protected_mode' : /MISCONF/i.test(e?.message || '') ? 'persistence_refusal' : /max.*clients/i.test(e?.message || '') ? 'client_limit' : ['ECONNREFUSED','ETIMEDOUT','ENOTFOUND','EHOSTUNREACH'].includes(e?.code) ? e.code : 'connection_failed';
+          async function ping(target) {
+            const r = new Redis({host:target,port,lazyConnect:true,enableReadyCheck:false,maxRetriesPerRequest:0,connectTimeout:3000,commandTimeout:3000,retryStrategy:()=>null});
+            r.on('error',()=>{});
+            try { await r.connect(); return {pong:await r.ping()==='PONG'}; }
+            catch(e) { return {pong:false,category:classify(e)}; }
+            finally {r.disconnect();}
+          }
+          (async()=>{
+            const result={hostExpected:host==='redis',portExpected:port===6379,passwordConfigured:!!process.env.REDIS_PASSWORD, writes:0};
+            if (!['redis','localhost'].includes(host)||port!==6379) {console.log('REDIS_API_DIAGNOSTIC='+JSON.stringify(result));return;}
+            const ips=JSON.parse(process.env.EXPECTED_REDIS_IPS);
+            try { const addresses=await dns.lookup(host,{all:true}); result.dnsMatchesContainer=addresses.some(a=>ips.includes(a.address)); }
+            catch(e){result.dnsMatchesContainer=false;result.dnsCategory=classify(e);}
+            result.configuredEndpoint=await ping(host);
+            if(ips.length===1&&net.isIP(ips[0]))result.containerEndpoint=await ping(ips[0]);
+            console.log('REDIS_API_DIAGNOSTIC='+JSON.stringify(result));
+          })().catch(()=>{console.error('redis_diagnostic_refused=true');process.exitCode=1});
+          NODE
+          test "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$api_sha"
+          REMOTE
