@@ -86,3 +86,32 @@ test("only coherent provider receipts count as delivered", () => {
   assert.deepEqual(deliveryOutcome({ status: 429, payload: { ok: false, error_code: 429, parameters: { retry_after: 10 } } }, "456"),
     { outcome: "rate_limited", retryAfterSeconds: 10 });
 });
+
+test("separate recipient policy preserves owner queue and other recipients", async (t) => {
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),"tg-multi-test-"));
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const extra={...policy,chatId:"789",start:"19:00",end:"10:00"};
+  let now=new Date("2026-10-21T16:00:00Z"),calls=[];
+  const options={token,policy,additionalPolicies:[extra],directory,clock:()=>now,post:async(_,__,body)=>{
+    const id=JSON.parse(body).chat_id; calls.push(id);
+    return {status:200,payload:{ok:true,result:{message_id:calls.length,chat:{id}}}};
+  }};
+  const gateway=createGateway(options),server=http.createServer(gateway.handle);
+  await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+  t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
+  const send=id=>fetch(`http://127.0.0.1:${server.address().port}/bot${token}/sendMessage`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chat_id:id,text:"fixture"})});
+  assert.equal((await send("789")).status,202);
+  assert.equal((await send("456")).status,200);
+  assert.equal((await send("999")).status,200);
+  now=new Date("2026-10-21T19:00:00Z");
+  assert.equal((await send("456")).status,202);
+  const oldFiles=fs.readdirSync(directory).filter(n=>n.endsWith(".json"));assert.equal(oldFiles.length,1);
+  const restarted=createGateway(options);restarted.recoverAfterExclusiveBind(true);
+  now=new Date("2026-10-22T06:00:00Z");
+  assert.equal((await restarted.tick()).sent,1);assert.deepEqual(calls,["456","999","456"]);
+  now=new Date("2026-10-22T07:00:00Z");
+  assert.equal((await restarted.tick()).sent,1);assert.deepEqual(calls,["456","999","456","789"]);
+  assert.equal((await restarted.tick()).sent,0);
+  assert.throws(()=>createGateway({...options,additionalPolicies:[policy]}));
+  assert.throws(()=>createGateway({...options,additionalPolicies:[{...extra,botId:"999"}]}));
+});

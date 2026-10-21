@@ -23,6 +23,23 @@ test("Moscow boundaries are 22:00 inclusive and 09:00 exclusive", () => {
     if (resume) assert.equal(window.resumeAt.toISOString(), resume);
   }
 });
+
+test("additional approved policy is 19:00 inclusive through 10:00 exclusive", async (t) => {
+  const extra = {...policy, chatId:"789", start:"19:00", end:"10:00"};
+  for (const [instant, expected] of [["2026-10-21T15:59:59Z",false],["2026-10-21T16:00:00Z",true],["2026-10-22T06:59:59Z",true],["2026-10-22T07:00:00Z",false]]) {
+    assert.equal(quietWindow(new Date(instant),extra).quiet,expected);
+  }
+  assert.equal(quietWindow(new Date("2026-12-31T16:00:00Z"),extra).resumeAt.toISOString(),"2027-01-01T07:00:00.000Z");
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),"tg-additional-test-"));
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  let now=new Date("2026-10-21T16:00:00Z");
+  const make=()=>makeOutbox({directory,policy:extra,clock:()=>now});
+  assert.equal((await make().enqueue({...message(),chatId:"789"})).resumeAt,"2026-10-22T07:00:00.000Z");
+  now=new Date("2026-10-22T06:00:00Z");
+  assert.equal((await make().flush(()=>assert.fail("before 10 Moscow"))).pending,1);
+  now=new Date("2026-10-22T07:00:00Z");
+  assert.equal((await make().flush(async()=>({outcome:"confirmed"}))).sent,1);
+});
 test("policy cannot silently broaden to other recipients or time zones", () => {
   assert.throws(() => validatePolicy({ ...policy, timeZone: "UTC" }));
   assert.throws(() => validatePolicy({ ...policy, end: "08:00" }));
