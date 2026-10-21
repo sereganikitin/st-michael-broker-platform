@@ -75,6 +75,7 @@ describe("SchedulerService.handleAmoFailedRetry", () => {
       },
       systemSetting: {
         findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({}),
       },
       auditLog: {
         create: jest.fn().mockResolvedValue({}),
@@ -83,7 +84,10 @@ describe("SchedulerService.handleAmoFailedRetry", () => {
         findMany: jest.fn().mockResolvedValue([{ id: "manager-1" }]),
       },
       $queryRaw: jest.fn().mockResolvedValue([]),
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $transaction: jest.fn(),
     };
+    prisma.$transaction.mockImplementation(async fn => fn(prisma));
     const notificationQueue = { add: jest.fn().mockResolvedValue({}) };
     const opsAlerts = { sendSafely: jest.fn().mockResolvedValue(true) };
     const createFixationRequest = jest.fn().mockResolvedValue({ id: 32270001 });
@@ -492,7 +496,7 @@ describe("SchedulerService.handleAmoFailedRetry", () => {
     });
     prisma.client.findMany.mockImplementation(async (args: any) => {
       if (args?.where?.amoSyncError?.startsWith) {
-        return reconciliationRows.slice(0, 20);
+        return reconciliationRows;
       }
       return [];
     });
@@ -1395,15 +1399,15 @@ describe("SchedulerService.handleAmoFailedRetry", () => {
 
     await service.handleAmoFailedRetry();
 
-    expect(prisma.client.count).toHaveBeenCalledWith({
+    expect(prisma.client.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         amoLeadId: null,
         amoSyncError: {
           startsWith: AMO_CREATE_RECONCILIATION_REQUIRED_MARKER,
         },
       },
-    });
-    expect(prisma.client.findMany).not.toHaveBeenCalled();
+    }));
+    expect(prisma.client.findMany).toHaveBeenCalledTimes(1);
     expect(opsAlerts.sendSafely).toHaveBeenCalledWith(
       expect.stringContaining("Данные доступа отсутствуют"),
       {
@@ -1428,7 +1432,7 @@ describe("SchedulerService.handleAmoFailedRetry", () => {
 
     await service.handleAmoFailedRetry();
 
-    expect(prisma.client.count).toHaveBeenCalledTimes(2);
+    expect(prisma.client.count).toHaveBeenCalledTimes(1);
     expect(prisma.client.findMany).toHaveBeenCalledTimes(1);
     expect(opsAlerts.sendSafely).toHaveBeenCalledWith(
       expect.stringContaining(candidate.id),
