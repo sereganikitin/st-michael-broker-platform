@@ -76,6 +76,12 @@ jobs:
             cat <<'REMOTE'
           test "$(sha256sum "$work/script.cjs" | cut -d' ' -f1)" = "$expected"
           printf 'CHECKOUT_STATE={"trackedChanges":%s}\n' "$(git diff HEAD --name-only | wc -l)"
+          # Only tracked paths and hashes; never file contents or environment.
+          git diff HEAD --name-only -z | while IFS= read -r -d '' path; do
+            case "$path" in *[!A-Za-z0-9_./-]*) exit 1;; esac
+            test -f "$path" -a ! -L "$path"
+            printf 'TRACKED_CHANGE={"path":"%s","sha256":"%s"}\n' "$path" "$(sha256sum -- "$path" | cut -d' ' -f1)"
+          done
           docker exec -i -w /app -e EXEC_EXACT_CASE=1 st-michael-api node < "$work/script.cjs"
           test "$(docker inspect --format '{{.Id}}:{{.State.StartedAt}}' st-michael-api)" = "$identity"
           REMOTE
