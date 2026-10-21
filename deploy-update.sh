@@ -140,11 +140,6 @@ export COMPOSE_PROJECT_NAME
 # 1) Pull latest master
 echo ""
 echo "==> [1/5] Pulling latest master..."
-if ! git diff --quiet --exit-code || ! git diff --cached --quiet --exit-code; then
-    echo "    ✗ Production checkout has tracked local changes."
-    echo "      Deployment will not erase an unreviewed hotfix/configuration; reconcile it through a reviewed commit first."
-    exit 1
-fi
 EXPECTED_ORIGIN_URL="https://github.com/sereganikitin/st-michael-broker-platform.git"
 CURRENT_ORIGIN_URL=$(git remote get-url origin)
 if [ "$CURRENT_ORIGIN_URL" != "$EXPECTED_ORIGIN_URL" ]; then
@@ -165,6 +160,42 @@ if [ "$ACTUAL_MASTER_SHA" != "$EXPECTED_DEPLOY_SHA" ]; then
     echo "      Refusing to deploy an unverified commit."
     exit 1
 fi
+# BEGIN reviewed runtime overlay guard
+verify_reviewed_runtime_overlays() {
+    git diff --cached --quiet --exit-code || return 1
+    git diff --quiet --exit-code && return 0
+    # Quiet-hours installer wrote these approved bytes without an app deploy.
+    # Any other path, staged change or byte remains a hard stop.
+    local paths path expected actual target
+    paths=$(git diff --name-only | LC_ALL=C sort)
+    [ "$paths" = $'docker/nginx.conf\nops/tg-relay.js' ] || return 1
+    for path in docker/nginx.conf ops/tg-relay.js; do
+        test -f "$path" -a ! -L "$path" || return 1
+        case "$path" in
+            docker/nginx.conf) expected=4b3d2282810bc3dda64076edd5243114aba1d44155a6c6909c7e6447a2d3268d ;;
+            ops/tg-relay.js) expected=61ae3bf0dbf0ed8e75e88a83a8d9d865b5d9860470ee16e2d0144dfbe83251a0 ;;
+        esac
+        actual=$(sha256sum -- "$path" | awk '{print $1}')
+        target=$(git show "$EXPECTED_DEPLOY_SHA:$path" | sha256sum | awk '{print $1}') || return 1
+        [ "$actual" = "$expected" ] && [ "$target" = "$expected" ] || return 1
+    done
+}
+# END reviewed runtime overlay guard
+if ! verify_reviewed_runtime_overlays; then
+    echo "    ✗ Unreviewed tracked changes or runtime overlay mismatch; preserving checkout."
+    exit 1
+fi
+if ! git diff --quiet --exit-code; then
+    overlay_parent=/var/backups/stmichael/reconciled-runtime
+    sudo install -d -m 700 -o "$(id -u)" -g "$(id -g)" "$overlay_parent"
+    overlay_backup="$overlay_parent/$EXPECTED_DEPLOY_SHA-$(date -u +%Y%m%dT%H%M%SZ)"
+    (umask 077; mkdir -m 700 -- "$overlay_backup";
+      cp --parents -- docker/nginx.conf ops/tg-relay.js "$overlay_backup";
+      git rev-parse HEAD > "$overlay_backup/previous-head.txt";
+      sha256sum -- docker/nginx.conf ops/tg-relay.js > "$overlay_backup/files.sha256")
+    echo "    ✓ Exact reviewed quiet-hours overlays preserved in a private backup."
+fi
+
 git reset --hard origin/master
 echo "    HEAD: $(git log --oneline -1)"
 
