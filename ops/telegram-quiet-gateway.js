@@ -5,6 +5,7 @@
 const http = require("node:http");
 const https = require("node:https");
 const fs = require("node:fs");
+const path = require("node:path");
 const { createHash, timingSafeEqual, randomUUID } = require("node:crypto");
 const { makeOutbox, quietWindow, validatePolicy, SEND_METHODS, MAX_BODY_BYTES } = require("./telegram-quiet-hours");
 
@@ -56,10 +57,18 @@ function deliveryOutcome(response, chatId) {
   if (status >= 400 && status < 500 && payload?.ok === false && payload.error_code === status) return { outcome: "rejected" };
   return { outcome: "unknown" };
 }
-function createGateway({ token, policy, directory, clock, post = postTelegram }) {
+function createGateway({ token, policy, additionalPolicies = [], directory, clock, post = postTelegram }) {
   policy = validatePolicy(policy);
   if (typeof token !== "string" || !new RegExp(`^${policy.botId}:[A-Za-z0-9_-]{20,}$`).test(token)) refused();
-  const outbox = makeOutbox({ directory, policy, clock });
+  if (!Array.isArray(additionalPolicies) || additionalPolicies.length > 10) refused();
+  const policies = [policy, ...additionalPolicies.map(validatePolicy)];
+  if (policies.some(p => p.botId !== policy.botId) || new Set(policies.map(p => p.chatId)).size !== policies.length) refused();
+  // Keep the original recipient's durable directory unchanged. Additional
+  // recipients get separate, identity-bound queues, not a migrated shared queue.
+  const boxes = policies.map((p, i) => ({ policy: p, outbox: makeOutbox({
+    directory: i === 0 ? directory : path.join(directory, "recipients", createHash("sha256").update(`${p.botId}:${p.chatId}`).digest("hex")),
+    policy: p, clock,
+  }) }));
   // Single process serialises durable operations, including its morning worker.
   // No port-independent second sender, no token or payload in logs/receipts.
   let tail = Promise.resolve();
@@ -67,7 +76,7 @@ function createGateway({ token, policy, directory, clock, post = postTelegram })
   const handle = async (req, res) => {
     const answer = (status, payload) => { res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(payload)); };
     try {
-      if (req.url === "/healthz" && req.method === "GET") { answer(200, { ok: true, quietHours: { start: "22:00", end: "09:00", timeZone: "Europe/Moscow" }, worker: "enabled" }); return; }
+      if (req.url === "/healthz" && req.method === "GET") { answer(200, { ok: true, quietHours: { start: policy.start, end: policy.end, timeZone: policy.timeZone }, additionalQuietHours: additionalPolicies.map(({start,end,timeZone})=>({start,end,timeZone})), worker: "enabled" }); return; }
       // /private is reachable ONLY from the existing private relay. nginx's
       // public location admits the literal /bot... shape, never this prefix.
       const privateRequest = (req.url || "").startsWith("/private/");
@@ -79,8 +88,9 @@ function createGateway({ token, policy, directory, clock, post = postTelegram })
       for await (const chunk of req) { size += chunk.length; if (size > MAX_BODY_BYTES) refused(); chunks.push(chunk); }
       const body = Buffer.concat(chunks), contentType = req.headers["content-type"] || "";
       const chatId = await recipient(body, contentType);
-      if (chatId === policy.chatId && match[1].split(":")[0] === policy.botId && !equal(match[1], token)) refused();
-      if (chatId !== policy.chatId || match[1].split(":")[0] !== policy.botId || !quietWindow(clock ? clock() : new Date()).quiet) {
+      const scoped = boxes.find(b => b.policy.chatId === chatId && match[1].split(":")[0] === b.policy.botId);
+      if (scoped && !equal(match[1], token)) refused();
+      if (!scoped || !quietWindow(clock ? clock() : new Date(), scoped.policy).quiet) {
         // Authentication grants exactly the same bot rights as Telegram. Quiet
         // hours only affect the human's approved recipient at night. In daytime
         // return the REAL Telegram response (legacy callers require Message IDs).
@@ -90,23 +100,28 @@ function createGateway({ token, policy, directory, clock, post = postTelegram })
       const supplied = req.headers["x-st-michael-delivery-id"];
       if (supplied !== undefined && (typeof supplied !== "string" || !/^[A-Za-z0-9_.:-]{1,180}$/.test(supplied))) refused();
       const id = supplied ? createHash("sha256").update(`${supplied}:${match[2]}:`).update(body).digest("hex") : randomUUID();
-      const receipt = await serial(() => outbox.enqueue({ id, botId: policy.botId, chatId, method: match[2], contentType, body }));
+      const receipt = await serial(() => scoped.outbox.enqueue({ id, botId: scoped.policy.botId, chatId, method: match[2], contentType, body }));
       // 202 means durably accepted; workflows must say queued, not delivered.
       answer(202, { ok: false, queued: true, deliveryConfirmed: receipt.deliveryConfirmed, state: receipt.state, resumeAt: receipt.resumeAt });
     } catch { if (!res.headersSent) answer(503, { ok: false, gatewayRejected: true }); else res.end(); }
   };
   const tick = () => serial(async () => {
-    await outbox.pruneConfirmed();
-    return outbox.flush(async (message) => deliveryOutcome(await post(token, message.method, message.body, message.contentType), message.chatId), 1);
+    const total = {sent:0,pending:0,unknown:0,rejected:0};
+    for (const {outbox} of boxes) {
+      await outbox.pruneConfirmed();
+      const result = await outbox.flush(async (message) => deliveryOutcome(await post(token, message.method, message.body, message.contentType), message.chatId), 1);
+      for (const key of Object.keys(total)) total[key] += result[key];
+    }
+    return total;
   });
-  return { handle, tick, recoverAfterExclusiveBind: outbox.recoverAfterExclusiveBind };
+  return { handle, tick, recoverAfterExclusiveBind: owned => boxes.map(({outbox})=>outbox.recoverAfterExclusiveBind(owned)) };
 }
 function main() {
   const filename = process.env.TELEGRAM_QUIET_POLICY || "/policy/policy.json";
   const stat = fs.lstatSync(filename);
   if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077)) refused();
   const config = JSON.parse(fs.readFileSync(filename, "utf8"));
-  if (Object.keys(config).sort().join() !== "policy,token") refused();
+  if (!["policy,token", "additionalPolicies,policy,token"].includes(Object.keys(config).sort().join())) refused();
   const gateway = createGateway({ ...config, directory: process.env.TELEGRAM_QUIET_DIRECTORY || "/data/outbox" });
   const server = http.createServer(gateway.handle);
   server.requestTimeout = 15000; server.headersTimeout = 10000;

@@ -16,22 +16,30 @@ const MOSCOW = new Intl.DateTimeFormat("en-GB", {
 });
 
 function refuse() { throw new Error("Telegram quiet-hours operation refused"); }
-function quietWindow(now = new Date()) {
+function quietWindow(now = new Date(), schedule = { start: "22:00", end: "09:00", timeZone: "Europe/Moscow" }) {
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) refuse();
+  if (!approvedSchedule(schedule)) refuse();
   const parts = Object.fromEntries(MOSCOW.formatToParts(now).map(({ type, value }) => [type, value]));
   const hour = Number(parts.hour);
-  const quiet = hour >= 22 || hour < 9;
+  const start = Number(schedule.start.slice(0, 2)), end = Number(schedule.end.slice(0, 2));
+  const quiet = hour >= start || hour < end;
   // Moscow is UTC+03:00 for this fixed policy. Intl is used for the local day,
   // never the host timezone. UTC date arithmetic handles month/year rollover.
   const resumeAt = quiet ? new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1,
-    Number(parts.day) + (hour >= 22 ? 1 : 0), 6)) : now;
+    Number(parts.day) + (hour >= start ? 1 : 0), end - 3)) : now;
   return { quiet, resumeAt };
+}
+
+function approvedSchedule(policy) {
+  return policy?.timeZone === "Europe/Moscow" &&
+    ((policy.start === "22:00" && policy.end === "09:00") ||
+     (policy.start === "19:00" && policy.end === "10:00"));
 }
 
 function validatePolicy(policy) {
   if (!policy || Object.keys(policy).sort().join() !== "botId,chatId,end,start,timeZone" ||
     !/^[1-9][0-9]{0,19}$/.test(policy.botId) || !/^-?[1-9][0-9]{0,19}$/.test(policy.chatId) ||
-    policy.start !== "22:00" || policy.end !== "09:00" || policy.timeZone !== "Europe/Moscow") refuse();
+    !approvedSchedule(policy)) refuse();
   return Object.freeze({ ...policy });
 }
 
@@ -107,14 +115,14 @@ function makeOutbox({ directory, policy, clock = () => new Date() }) {
       const entry = { version: 1, state: "PENDING", botId: policy.botId, chatId: policy.chatId,
         createdAt: now.toISOString(), message: { ...message, body: message.body.toString("base64") } };
       write(target, entry, true);
-      return { accepted: true, deliveryConfirmed: false, state: "PENDING", resumeAt: quietWindow(now).resumeAt.toISOString() };
+      return { accepted: true, deliveryConfirmed: false, state: "PENDING", resumeAt: quietWindow(now, policy).resumeAt.toISOString() };
     });
   }
 
   async function flush(send, limit = MAX_PENDING) {
     if (typeof send !== "function" || !Number.isSafeInteger(limit) || limit < 1 || limit > MAX_PENDING) refuse();
     return lock(async () => {
-      const result = { sent: 0, pending: 0, unknown: 0, rejected: 0, quiet: quietWindow(clock()).quiet };
+      const result = { sent: 0, pending: 0, unknown: 0, rejected: 0, quiet: quietWindow(clock(), policy).quiet };
       const batch = entries().sort((a, b) => a.value.createdAt.localeCompare(b.value.createdAt) || a.target.localeCompare(b.target));
       let attempted = 0;
       for (const { target, value } of batch) {
@@ -123,7 +131,7 @@ function makeOutbox({ directory, policy, clock = () => new Date() }) {
         if (value.state === "UNKNOWN") { result.unknown++; continue; }
         if (value.state === "REJECTED") { result.rejected++; continue; }
         if (value.state !== "PENDING") continue;
-        if (quietWindow(clock()).quiet || attempted >= limit || (value.notBefore && Date.parse(value.notBefore) > clock().getTime())) { result.pending++; continue; }
+        if (quietWindow(clock(), policy).quiet || attempted >= limit || (value.notBefore && Date.parse(value.notBefore) > clock().getTime())) { result.pending++; continue; }
         attempted++;
         value.state = "SENDING"; write(target, value);
         let receipt;
