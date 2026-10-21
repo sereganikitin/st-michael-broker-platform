@@ -44,6 +44,7 @@ import {
 } from '../common/amo-sync-retry';
 import { isTestClient } from '../common/test-client-rule';
 import { notHistoricalClientWhere } from '../common/historical-client';
+import { claimReconciliationAlert } from './reconciliation-alert-state';
 import { safeDatabaseFailureCode } from '../database/database-failure';
 import {
   AmoFixationPhoneLease,
@@ -1194,17 +1195,17 @@ export class SchedulerService {
 
   private async alertRemainingAmoCreateReconciliation(): Promise<void> {
     const reconciliationWhere = this.amoCreateReconciliationWhere();
-    const reconciliationCount = await this.prisma.client.count({
-      where: reconciliationWhere,
-    });
-    if (reconciliationCount === 0) return;
     const reconciliationRows = await this.prisma.client.findMany({
       where: reconciliationWhere,
-      select: { id: true },
+      select: { id: true, amoSyncStatus: true, amoSyncError: true },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 20,
     });
-    const sampleIds = reconciliationRows.map((row) => String(row.id));
+    let notify = false;
+    try { notify = await claimReconciliationAlert(this.prisma, reconciliationRows); }
+    catch { this.logger.error('Reconciliation alert state could not be claimed'); }
+    if (!notify) return;
+    const reconciliationCount = reconciliationRows.length;
+    const sampleIds = reconciliationRows.slice(0, 20).map((row) => String(row.id));
     await this.sendOpsAlert(
       `🔴 Рабочий сайт: автоматический повтор фиксаций остановлен\nЗаявок для ручной проверки: ${reconciliationCount}\nПоследние номера заявок: ${sampleIds.join(', ') || 'нет'}\nСделки могли уже появиться в amoCRM. Перед повторной отправкой нужно вручную сверить их с amoCRM.`,
       `scheduler:amo-retry:reconciliation-summary:${reconciliationCount}:${sampleIds[0] || 'none'}`,
