@@ -701,8 +701,8 @@ describe("AmoCrmAdapter broker contact safety", () => {
   it("GET-recovers exactly one KC lead with the broker attached in the window", async () => {
     const adapter = new AmoCrmAdapter();
     jest
-      .spyOn(adapter, "findContactByPhone")
-      .mockResolvedValue({ id: 47202051 } as any);
+      .spyOn(adapter, "findContactsByPhoneExact")
+      .mockResolvedValue([{ id: 47202051 }] as any);
     jest.spyOn(adapter, "getLeadsByContact").mockResolvedValue([
       {
         id: 32233521,
@@ -715,7 +715,8 @@ describe("AmoCrmAdapter broker contact safety", () => {
         id: 1,
         pipeline_id: AMO_PIPELINES.ZORGE9,
         created_at: 1_000,
-        _embedded: { contacts: [{ id: 9001 }] },
+        status_id: 143,
+        _embedded: { contacts: [{ id: 47202051 }, { id: 9001 }] },
       },
     ] as any);
 
