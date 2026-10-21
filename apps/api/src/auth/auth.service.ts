@@ -11,6 +11,7 @@ import {
 import { sessionVersionMatches } from "./session-version";
 import { SAFE_MESSAGES } from "../common/safe-messages";
 import { getPublicWebOrigin } from "../common/public-web-origin";
+import { BROKER_CONTACT_EMAIL, CONTACT_EMAIL_TERMS_VERSION } from "../common/broker-contact-email";
 import { OTP_INVALID_MESSAGE, OtpService } from "../sms/otp.service";
 import { SmsService } from "../sms/sms.service";
 import type { OtpPurpose } from "../sms/sms-templates";
@@ -149,7 +150,7 @@ function renderEmailLayout(opts: {
           <p style="margin:0;font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#3a3a3a;">
             Telegram&nbsp;<a href="https://t.me/stmichael_broker" style="color:#B4936F;text-decoration:none;">@stmichael_broker</a>
             &nbsp;·&nbsp;
-            <a href="mailto:info@zorge9.com" style="color:#B4936F;text-decoration:none;">info@zorge9.com</a>
+            <a href="mailto:${BROKER_CONTACT_EMAIL}" style="color:#B4936F;text-decoration:none;">${BROKER_CONTACT_EMAIL}</a>
           </p>
         </td></tr>
       </table>
@@ -402,7 +403,7 @@ export class AuthService {
           where: { key: "offer_terms" },
         });
         const offerVersion =
-          ((offerCurrent?.value as any)?.version as string) || "2026-06-15";
+          ((offerCurrent?.value as any)?.version as string) || CONTACT_EMAIL_TERMS_VERSION;
         await this.prisma.offerAcceptance.create({
           data: {
             brokerId: broker.id,
@@ -424,7 +425,7 @@ export class AuthService {
           where: { key: "privacy_terms" },
         });
         const privacyVersion =
-          ((privacyCurrent?.value as any)?.version as string) || "2026-06-15";
+          ((privacyCurrent?.value as any)?.version as string) || CONTACT_EMAIL_TERMS_VERSION;
         await this.prisma.privacyAcceptance.create({
           data: {
             brokerId: broker.id,
