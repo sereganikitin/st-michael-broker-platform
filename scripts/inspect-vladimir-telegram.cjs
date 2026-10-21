@@ -1,5 +1,6 @@
 'use strict';
-const USERNAME='wladimirvarrior';
+const USERNAME=process.env.TARGET_TELEGRAM_USERNAME||'wladimirvarrior';
+if(!['wladimirvarrior','vishstmichael'].includes(USERNAME))throw Error('TARGET_REFUSED');
 const equalName=value=>String(value||'').replace(/^@/,'').toLowerCase()===USERNAME;
 function candidateIds(inbox,state){
  const ids=new Set();
@@ -21,7 +22,8 @@ async function main(){
   const me=await tg('getMe');let verified=0,privateInboxSeen=false,supportUserSeen=false,alreadyRecipient=false;
   const current=new Set([process.env.OPS_ALERT_CHAT_ID,process.env.OPS_ALERT_CHAT_IDS].flatMap(v=>String(v||'').split(/[\s,;]+/)).filter(Boolean));
   for(const id of ids){const chat=await tg('getChat','?chat_id='+id);if(String(chat.id)===id&&chat.type==='private'&&equalName(chat.username)){verified++;privateInboxSeen||=inbox.some(r=>String(r.chatId)===id);supportUserSeen||=state.users?.[id]?.active===true;alreadyRecipient||=current.has(id);}}
-  console.log('VLADIMIR_TELEGRAM='+JSON.stringify({ok:true,readOnly:true,botUsername:String(me.username||''),candidateCount:ids.length,verifiedTargetCount:verified,privateInboxSeen,supportUserSeen,currentRecipientCount:current.size,alreadyRecipient,canConfigure:verified===1&&(privateInboxSeen||supportUserSeen),messagesSent:0,getUpdatesCalled:false,requestedQuietHours:{start:'19:00',end:'10:00',timeZone:'Europe/Moscow'}}));
+  const schedule=USERNAME==='vishstmichael'?{start:'22:00',end:'09:00'}:{start:'19:00',end:'10:00'};
+  console.log('VLADIMIR_TELEGRAM='+JSON.stringify({ok:true,readOnly:true,targetUsername:USERNAME,botUsername:String(me.username||''),candidateCount:ids.length,verifiedTargetCount:verified,privateInboxSeen,supportUserSeen,currentRecipientCount:current.size,alreadyRecipient,canConfigure:verified===1&&(privateInboxSeen||supportUserSeen),messagesSent:0,getUpdatesCalled:false,requestedQuietHours:{...schedule,timeZone:'Europe/Moscow'}}));
  }finally{await p.$disconnect();}
 }
 module.exports={candidateIds,equalName};
