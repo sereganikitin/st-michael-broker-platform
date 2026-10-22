@@ -152,6 +152,13 @@ jobs:
           report['leaseFiles']=leases
           code,out,err=call('journalctl','-u','systemd-networkd','--since','-20min','--no-pager','-o','cat','-n','300')
           report['recentNetworkdEvents']={term:sum(term.lower() in line.lower() for line in out.splitlines()) for term in ['DHCPv6','IPv6','advertisement','Failed','Could not','Gained carrier','Lost carrier','DHCPv4']}
+          code,out,err=call('journalctl','-u','systemd-networkd','--since','2026-10-22 08:00:00 UTC','--until','2026-10-22 13:00:00 UTC','--no-pager','-o','json','-n','1000')
+          trace=[]
+          for raw in out.splitlines():
+              event=json.loads(raw); message=event.get('MESSAGE','')
+              terms=[term for term in ['DHCPv6','IPv6','advertisement','Reconfiguring','Configuring','Failed','Could not','Gained carrier','Lost carrier','DHCPv4'] if term.lower() in message.lower()]
+              if terms:trace.append({'unixMicroseconds':event.get('__REALTIME_TIMESTAMP'),'categories':terms,'leaseLost':'lease lost' in message.lower()})
+          report['networkdAroundRollout']=trace
           report['netplanFileTimes']=[{'name':p.name,'mtime':int(p.stat().st_mtime)} for p in pathlib.Path('/etc/netplan').glob('*.yaml') if p.is_file() and not p.is_symlink()]
           print('IPV6_DIAGNOSTIC='+json.dumps(report))
           NETWORK
@@ -199,11 +206,18 @@ jobs:
                   stamp=re.match(r'([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z) ',line)
                   if stamp:event['at']=stamp[1]
                   events.append(event)
-          print(json.dumps({'kind':kind,'totalMatches':len(events),'last':events[-(15 if kind=='relay' else 10):],'rawLogsEmitted':False}))
+          from collections import Counter
+          success=[e for e in events if e.get('status')==200 and e.get('operation')=='getUpdates']
+          failures=[e for e in events if e.get('upstreamUnconfirmed') or e.get('status',0)>=400]
+          before=[e for e in events if e.get('at','')<'2026-10-22T11:24:00Z']
+          after=[e for e in events if '2026-10-22T11:24:00Z'<=e.get('at','')<'2026-10-22T19:24:00Z']
+          hourly=Counter((e.get('at','')[:13], 'success' if e.get('status')==200 else 'failure') for e in events)
+          timeline={'firstSuccess':success[0].get('at') if success else None,'lastSuccess':success[-1].get('at') if success else None,'firstFailure':failures[0].get('at') if failures else None,'lastFailure':failures[-1].get('at') if failures else None,'beforeRollout':dict(Counter(str(e.get('status','upstreamUnconfirmed')) for e in before)),'afterRolloutBeforeRecovery':dict(Counter(str(e.get('status','upstreamUnconfirmed')) for e in after)),'hourly':[{'hourUtc':h,'category':c,'count':n} for (h,c),n in sorted(hourly.items())]}
+          print(json.dumps({'kind':kind,'totalMatches':len(events),'last':events[-(15 if kind=='relay' else 10):],'timeline':timeline,'rawLogsEmitted':False}))
           PY
           )
-          docker logs --timestamps --since 3h --tail 30000 st-michael-tg-relay 2>&1 | python3 -c "$classifier" relay
-          docker logs --timestamps --since 3h --tail 30000 st-michael-api 2>&1 | python3 -c "$classifier" api
+          docker logs --timestamps --since 24h --tail 30000 st-michael-tg-relay 2>&1 | python3 -c "$classifier" relay
+          docker logs --timestamps --since 24h --tail 30000 st-michael-api 2>&1 | python3 -c "$classifier" api
           # Read-only identity request. No getUpdates, webhook, or send method.
           docker exec -i st-michael-api node <<'JS'
           const allowed=new Set(['https://api.telegram.org','http://172.18.0.1:8081']);
