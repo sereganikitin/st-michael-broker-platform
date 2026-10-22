@@ -1,0 +1,104 @@
+name: Inspect production self HTTPS (read-only)
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Inspect production public and loopback HTTPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - name: Checkout exact reviewed diagnostic
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Validate source and report over pinned SSH
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_REF: ${{ github.ref }}
+          EXPECTED_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          EXPECTED_SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          test "$EXPECTED_REPOSITORY" = sereganikitin/st-michael-broker-platform || exit 1
+          test "$EXPECTED_REF" = refs/heads/master || exit 1
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || exit 1
+          test -n "$SSH_HOST" -a -n "$SSH_USER" -a -n "$SSH_PRIVATE_KEY" -a -n "$DEPLOY_PATH" || exit 1
+          case "$SSH_HOST" in ""|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ ]] || exit 1
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && test "$SSH_PORT" -ge 1 -a "$SSH_PORT" -le 65535 || exit 1
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 1
+          case "$DEPLOY_PATH/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          [[ "$EXPECTED_SSH_FINGERPRINT" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || exit 1
+          ssh_root=$(mktemp -d)
+          known_hosts="$ssh_root/known_hosts"
+          private_key="$ssh_root/deploy-key"
+          trap 'rm -f -- "$known_hosts" "$private_key"; rmdir -- "$ssh_root" 2>/dev/null || true' EXIT
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$private_key"
+          chmod 600 "$private_key"
+          timeout 15 ssh-keyscan -p "$SSH_PORT" -t ed25519 "$SSH_HOST" > "$known_hosts" 2>/dev/null
+          chmod 600 "$known_hosts"
+          mapfile -t fingerprints < <(ssh-keygen -lf "$known_hosts" -E sha256 | awk '{print $2}' | sort -u)
+          test "${#fingerprints[@]}" -eq 1 || exit 1
+          test "${fingerprints[0]}" = "$EXPECTED_SSH_FINGERPRINT" || exit 1
+          timeout --foreground 6m ssh -T -i "$private_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o NumberOfPasswordPrompts=0 \
+            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "${SSH_USER}@${SSH_HOST}" \
+            "bash -s -- '$DEPLOY_PATH' '$EXPECTED_SHA'" <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          root=$(readlink -f -- "$1"); source=$2
+          test -n "$root" -a "$root" != / -a -d "$root"
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock
+          exec 9</tmp/st-michael-production-deploy.lock; flock -s -n 9
+          cd -- "$root"
+          test "$(git rev-parse --show-toplevel)" = "$root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
+          printf 'CHECKOUT_SHA=%s\n' "$(git rev-parse HEAD)"
+          printf 'WORKFLOW_SHA=%s\n' "$source"
+          printf 'API_SHA=%s\n' "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')"
+          docker ps --format 'CONTAINER={{.Names}} STATUS={{.Status}}'
+          echo 'DNS address families (no address values):'
+          getent ahosts broker.stmichael.ru | awk '{print $2}' | sort | uniq -c || true
+          for family in auto ipv4 ipv6 loopback; do
+            for endpoint in / /api/health; do
+              options=()
+              case "$family" in ipv4) options=(-4);; ipv6) options=(-6);; loopback) options=(--resolve broker.stmichael.ru:443:127.0.0.1);; esac
+              printf 'PROBE family=%s endpoint=%s ' "$family" "$endpoint"
+              set +e
+              curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                "${options[@]}" --output /dev/null \
+                --write-out 'http=%{http_code} dns=%{time_namelookup} connect=%{time_connect} tls=%{time_appconnect} first_byte=%{time_starttransfer} total=%{time_total} verify=%{ssl_verify_result}\n' \
+                "https://broker.stmichael.ru${endpoint}"
+              result=$?
+              set -e
+              printf 'PROBE_EXIT=%s\n' "$result"
+            done
+          done
+          echo 'Listener counts:'
+          ss -ltn | awk '$4 ~ /:443$/ {n++} END {print "HTTPS_LISTENERS=" n+0}'
+          REMOTE
