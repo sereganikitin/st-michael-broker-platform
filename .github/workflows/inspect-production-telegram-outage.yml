@@ -133,6 +133,26 @@ jobs:
                           if k in ['Address','Gateway','Destination','IPv6AcceptRA','DHCP']:values.append((k,v))
                   saved.append({'source':str(filename),'ipv6AddressCount':sum(k=='Address' and is6(v) for k,v in values),'ipv6GatewayCount':sum(k=='Gateway' and is6(v) for k,v in values),'ipv6DefaultCount':sum(k=='Destination' and v=='::/0' for k,v in values),'acceptRA':[v for k,v in values if k=='IPv6AcceptRA'],'dhcp':[v for k,v in values if k=='DHCP']})
           report['savedNetworkConfig']=saved
+          provider={}
+          metadata=pathlib.Path('/run/cloud-init/instance-data.json')
+          if metadata.is_file():
+              data=json.loads(metadata.read_text()).get('v1',{})
+              for key in ['cloud_name','platform','subplatform']:
+                  value=str(data.get(key,''))
+                  if re.fullmatch('[A-Za-z0-9_ .:/()-]{0,100}',value):provider[key]=value
+          report['provider']=provider
+          processes=call('ps','-eo','comm')[1].splitlines()
+          report['networkProcesses']={name:processes.count(name) for name in ['systemd-network','NetworkManager','dhclient','dhcpcd']}
+          leases=[]
+          for directory in ['/var/lib/dhcp','/var/lib/NetworkManager']:
+              for filename in pathlib.Path(directory).glob('*lease*'):
+                  if filename.is_file() and not filename.is_symlink():
+                      content=filename.read_text(errors='replace')
+                      leases.append({'name':filename.name,'containsIPv6Lease':bool(re.search(r'iaaddr\s+[0-9a-f:]+|ip6_address|ADDRESS6=',content)),'mtime':int(filename.stat().st_mtime)})
+          report['leaseFiles']=leases
+          code,out,err=call('journalctl','-u','systemd-networkd','--since','-20min','--no-pager','-o','cat','-n','300')
+          report['recentNetworkdEvents']={term:sum(term.lower() in line.lower() for line in out.splitlines()) for term in ['DHCPv6','IPv6','advertisement','Failed','Could not','Gained carrier','Lost carrier','DHCPv4']}
+          report['netplanFileTimes']=[{'name':p.name,'mtime':int(p.stat().st_mtime)} for p in pathlib.Path('/etc/netplan').glob('*.yaml') if p.is_file() and not p.is_symlink()]
           print('IPV6_DIAGNOSTIC='+json.dumps(report))
           NETWORK
           for endpoint in https://www.google.com/generate_204 https://example.com/; do
