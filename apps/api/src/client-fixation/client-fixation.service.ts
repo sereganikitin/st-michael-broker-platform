@@ -103,6 +103,18 @@ function isTransientAmoLookupError(error: unknown): boolean {
   return !NON_RETRYABLE_AMO_LOOKUP_ERRORS.has(sanitizeAmoSyncError(error));
 }
 
+// 2026-10-22: AMO_SYNC_FAILED в логе скрывал точную причину отказа проверки
+// (этап amoCRM, дубли контактов, неполный ответ). Добавляем наш внутренний код
+// и id воронки/этапа amoCRM — это константы и целые числа без PII: телефон,
+// имя и id сделки сюда не попадают.
+export function uniquenessFailureDetail(error: unknown): string {
+  const raw = String((error as any)?.message || "");
+  const code = /^(?:AMO_UNIQUENESS_[A-Z_]{3,60}|AMBIGUOUS_EXACT_CONTACT)$/.test(raw) ? raw : "n/a";
+  const id = (value: unknown) =>
+    typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? String(value) : "n/a";
+  return `uniqueness=${code} pipeline=${id((error as any)?.amoPipelineId)} status=${id((error as any)?.amoStatusId)}`;
+}
+
 function safePositiveAmoContactId(value: unknown): number | null {
   const contactId =
     typeof value === "number" || typeof value === "bigint"
@@ -255,7 +267,7 @@ export class ClientFixationService {
           // Диагностика без PII: класс ошибки и HTTP-статус, чтобы по коду
           // AMO_SYNC_FAILED в логе было видно фактическую природу отказа.
           console.error(
-            `[fixClient] amo checkUniqueness giving up on attempt ${attempt}/${totalAttempts}: ${sanitizeAmoSyncError(e)} (errClass=${e?.constructor?.name || typeof e}, httpStatus=${e?.status ?? e?.response?.status ?? "n/a"})`,
+            `[fixClient] amo checkUniqueness giving up on attempt ${attempt}/${totalAttempts}: ${sanitizeAmoSyncError(e)} (errClass=${e?.constructor?.name || typeof e}, httpStatus=${e?.status ?? e?.response?.status ?? "n/a"}) ${uniquenessFailureDetail(e)}`,
           );
           throw e;
         }

@@ -187,6 +187,15 @@ function uniquePositiveIds(ids: number[], errorCode: string): number[] {
   return out;
 }
 
+/**
+ * 2026-10-22: отказ по этапу несёт только id воронки и этапа amoCRM (без
+ * телефона, имени и id сделки), чтобы 503 у брокера можно было разобрать по
+ * логу. Текст ошибки не меняется — на него опираются вызывающие места.
+ */
+function uniquenessStageError(code: string, pipelineId: number, statusId: number): Error {
+  return Object.assign(new Error(code), { amoPipelineId: pipelineId, amoStatusId: statusId });
+}
+
 /** Есть ли следующая страница: по _links.next или пока страница полная. */
 function hasNextPage(data: any, itemsOnPage: number, limit: number): boolean {
   if (itemsOnPage === 0) return false;
@@ -2104,10 +2113,10 @@ export class AmoCrmAdapter {
           throw new Error("AMO_UNIQUENESS_LEAD_FIELDS_INVALID");
         }
         if (!isKnownUniquenessLeadStage(pipelineId, statusId)) {
-          throw new Error("AMO_UNIQUENESS_LEAD_STAGE_UNRECOGNIZED");
+          throw uniquenessStageError("AMO_UNIQUENESS_LEAD_STAGE_UNRECOGNIZED", pipelineId, statusId);
         }
         if (!isClassifiedUniquenessLeadStage(pipelineId, statusId)) {
-          throw new Error("AMO_UNIQUENESS_LEAD_STAGE_UNCLASSIFIED");
+          throw uniquenessStageError("AMO_UNIQUENESS_LEAD_STAGE_UNCLASSIFIED", pipelineId, statusId);
         }
         const contactRefs = (lead as any)?._embedded?.contacts;
         if (!Array.isArray(contactRefs)) {
