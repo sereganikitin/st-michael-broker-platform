@@ -112,7 +112,7 @@ jobs:
                       entry['ipv6'].append(result)
               except OSError:entry['dnsError']=True
               report['destinations'].append(entry)
-          import ipaddress,configparser
+          import ipaddress,configparser,re
           saved=[]
           def is6(value):
               try:return ipaddress.ip_interface(str(value)).version==6
