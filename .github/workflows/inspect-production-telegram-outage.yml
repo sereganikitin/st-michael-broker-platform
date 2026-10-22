@@ -157,7 +157,7 @@ jobs:
           for raw in out.splitlines():
               event=json.loads(raw); message=event.get('MESSAGE','')
               terms=[term for term in ['DHCPv6','IPv6','advertisement','Reconfiguring','Configuring','Failed','Could not','Gained carrier','Lost carrier','DHCPv4'] if term.lower() in message.lower()]
-              if terms:trace.append({'unixMicroseconds':event.get('__REALTIME_TIMESTAMP'),'categories':terms,'leaseLost':'lease lost' in message.lower()})
+              if terms:trace.append({'interface':'eth0' if message.startswith('eth0:') else 'eth1' if message.startswith('eth1:') else 'other','unixMicroseconds':event.get('__REALTIME_TIMESTAMP'),'categories':terms,'leaseLost':'lease lost' in message.lower()})
           report['networkdAroundRollout']=trace
           report['netplanFileTimes']=[{'name':p.name,'mtime':int(p.stat().st_mtime)} for p in pathlib.Path('/etc/netplan').glob('*.yaml') if p.is_file() and not p.is_symlink()]
           print('IPV6_DIAGNOSTIC='+json.dumps(report))
@@ -209,10 +209,13 @@ jobs:
           from collections import Counter
           success=[e for e in events if e.get('status')==200 and e.get('operation')=='getUpdates']
           failures=[e for e in events if e.get('upstreamUnconfirmed') or e.get('status',0)>=400]
+          priorSuccess=[e for e in success if e.get('at','')<'2026-10-22T19:24:00Z']
+          lastPrior=priorSuccess[-1].get('at') if priorSuccess else None
+          sustained=[e for e in failures if lastPrior and lastPrior<e.get('at','')<'2026-10-22T19:24:00Z']
           before=[e for e in events if e.get('at','')<'2026-10-22T11:24:00Z']
           after=[e for e in events if '2026-10-22T11:24:00Z'<=e.get('at','')<'2026-10-22T19:24:00Z']
           hourly=Counter((e.get('at','')[:13], 'success' if e.get('status')==200 else 'failure') for e in events)
-          timeline={'firstSuccess':success[0].get('at') if success else None,'lastSuccess':success[-1].get('at') if success else None,'firstFailure':failures[0].get('at') if failures else None,'lastFailure':failures[-1].get('at') if failures else None,'beforeRollout':dict(Counter(str(e.get('status','upstreamUnconfirmed')) for e in before)),'afterRolloutBeforeRecovery':dict(Counter(str(e.get('status','upstreamUnconfirmed')) for e in after)),'hourly':[{'hourUtc':h,'category':c,'count':n} for (h,c),n in sorted(hourly.items())]}
+          timeline={'lastSuccessBeforeOutage':lastPrior,'firstFailureAfterLastSuccess':sustained[0].get('at') if sustained else None,'firstSuccess':success[0].get('at') if success else None,'lastSuccess':success[-1].get('at') if success else None,'firstFailure':failures[0].get('at') if failures else None,'lastFailure':failures[-1].get('at') if failures else None,'beforeRollout':dict(Counter(str(e.get('status','upstreamUnconfirmed')) for e in before)),'afterRolloutBeforeRecovery':dict(Counter(str(e.get('status','upstreamUnconfirmed')) for e in after)),'hourly':[{'hourUtc':h,'category':c,'count':n} for (h,c),n in sorted(hourly.items())]}
           print(json.dumps({'kind':kind,'totalMatches':len(events),'last':events[-(15 if kind=='relay' else 10):],'timeline':timeline,'rawLogsEmitted':False}))
           PY
           )
@@ -227,4 +230,21 @@ jobs:
           console.log('BOT_CONFIG='+JSON.stringify({relayConfigured:base.startsWith('http:'),tokenPresent:!!token,recipientCount:new Set(String(process.env.OPS_ALERT_CHAT_IDS||'').split(/[\s,;]+/).filter(Boolean)).size}));
           (async()=>{if(!token)return;try{const r=await fetch(base+'/bot'+token+'/getMe',{method:'GET',redirect:'error',signal:AbortSignal.timeout(15000)});const p=await r.json();console.log('BOT_IDENTITY='+JSON.stringify({httpStatus:r.status,ok:p.ok===true,expectedBot:p.result?.username==='brokerStMichaelbot',messagesSent:0}));}catch(e){const code=e?.cause?.code;console.log('BOT_IDENTITY='+JSON.stringify({ok:false,networkCode:/^[A-Z_]{3,40}$/.test(code||'')?code:'UNKNOWN',aborted:e?.name==='TimeoutError',messagesSent:0}));}})();
           JS
+          # Inspect the sender using read-only getMe; never invoke sendMessage.
+          docker exec -i st-michael-telegram-quiet node <<'QUIET'
+          const fs=require('node:fs'),path=require('node:path'),{createHash}=require('node:crypto');
+          const config=JSON.parse(fs.readFileSync('/policy/policy.json','utf8'));
+          const {postTelegram}=require('/quiet/telegram-quiet-gateway.js');
+          const {quietWindow}=require('/quiet/telegram-quiet-hours.js');
+          const policies=[config.policy,...(config.additionalPolicies||[])];
+          const queues=policies.map((p,i)=>{
+            const directory=i===0?'/data/outbox':path.join('/data/outbox/recipients',createHash('sha256').update(p.botId+':'+p.chatId).digest('hex'));
+            const counts={},recent=[];
+            if(fs.existsSync(directory))for(const name of fs.readdirSync(directory)){if(!/^[a-f0-9]{64}\.json$/.test(name))continue;const stat=fs.lstatSync(path.join(directory,name));if(!stat.isFile()||stat.isSymbolicLink()||stat.size>40*1024*1024)throw Error('QUEUE_FILE_REFUSED');const value=JSON.parse(fs.readFileSync(path.join(directory,name),'utf8'));if(!['PENDING','SENDING','SENT','UNKNOWN','REJECTED'].includes(value.state))throw Error('QUEUE_STATE_REFUSED');counts[value.state]=(counts[value.state]||0)+1;recent.push({state:value.state,createdAt:value.createdAt});}
+            recent.sort((a,b)=>a.createdAt.localeCompare(b.createdAt));const w=quietWindow(new Date(),p);
+            return {quietHours:{start:p.start,end:p.end,timeZone:p.timeZone},quietNow:w.quiet,resumeAt:w.resumeAt,counts,recent:recent.slice(-5)};
+          });
+          console.log('QUIET_OUTBOX='+JSON.stringify({queues,rawMessagesEmitted:false}));
+          (async()=>{const started=Date.now();const result=await postTelegram(config.token,'getMe',Buffer.from('{}'),'application/json');console.log('QUIET_LIBRARY_IDENTITY='+JSON.stringify({httpStatus:result.status,ok:result.payload?.ok===true,expectedBot:result.payload?.result?.username==='brokerStMichaelbot',milliseconds:Date.now()-started,messagesSent:0,nodeVersion:process.version}));})();
+          QUIET
           REMOTE
