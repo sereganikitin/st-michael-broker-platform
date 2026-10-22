@@ -192,6 +192,22 @@ export function isClosedLostStatus(statusId: number): boolean {
 }
 
 /**
+ * 2026-10-22 (владелец): карточки воронки «Брокеры» на этапах «Новый брокер» и
+ * «Брокер-тур» описывают человека как партнёра (регистрация, запись на
+ * брокер-тур с лендинга), а не его покупку. Когда тот же телефон проверяют как
+ * клиента, такая карточка в уникальности не участвует. Раньше проверка падала
+ * с AMO_UNIQUENESS_LEAD_STAGE_UNRECOGNIZED и брокер получал 503 (случай 20.10).
+ * Остальные этапы воронки («Фиксации на уникальность», «Встреча», «Сделка»)
+ * по-прежнему блокируют проверку до отдельного решения.
+ */
+export function isBrokerOnboardingLead(pipelineId: number, statusId: number): boolean {
+  return (
+    pipelineId === AMO_PIPELINES.BROKERS &&
+    (statusId === AMO_BROKER_STAGE.NEW || statusId === AMO_BROKER_STAGE.TOUR)
+  );
+}
+
+/**
  * A new/renamed active stage must not silently fall through to RULE_3. Closed
  * terminal ids remain global amoCRM ids; active stages must belong to one of
  * the explicitly modelled client pipelines.
@@ -201,6 +217,7 @@ export function isKnownUniquenessLeadStage(
   statusId: number,
 ): boolean {
   if (isClosedLostStatus(statusId)) return true;
+  if (isBrokerOnboardingLead(pipelineId, statusId)) return true;
   const statuses =
     pipelineId === AMO_PIPELINES.KC
       ? Object.values(AMO_KC_STATUS)
@@ -220,6 +237,7 @@ export function isClassifiedUniquenessLeadStage(
   statusId: number,
 ): boolean {
   if (isClosedLostStatus(statusId)) return true;
+  if (isBrokerOnboardingLead(pipelineId, statusId)) return true;
   if (isSalesPipeline(pipelineId)) {
     return (
       isSalesMeetingScheduledStatus(pipelineId, statusId) ||
@@ -515,6 +533,8 @@ export function evaluateUniqueness(
   for (const lead of leads) {
     // 143 / 142 — финал, не блокирует.
     if (isClosedLostStatus(lead.status_id)) continue;
+    // Карточка человека как партнёра, не его покупки (см. isBrokerOnboardingLead).
+    if (isBrokerOnboardingLead(lead.pipeline_id, lead.status_id)) continue;
 
     // 2026-06-16: разные стадии sales-pipeline → разные правила.
     if (isSalesPipeline(lead.pipeline_id)) {
