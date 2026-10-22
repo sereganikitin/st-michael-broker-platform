@@ -1,4 +1,6 @@
-export const PARTNER_PHOTO = '/v2/img/manager-anastasia-20261020.webp';
+// 22.10.2026 (владелец): квадратный кадр с лицом по центру (вариант C), новое
+// имя файла — чтобы браузеры не показывали закэшированную старую обрезку.
+export const PARTNER_PHOTO = '/v2/img/manager-anastasia-20261022.webp';
 
 export function partnerPhones(manager: { phone?: unknown; additionalPhones?: unknown }) {
   const extra = Array.isArray(manager.additionalPhones) ? manager.additionalPhones : [];
