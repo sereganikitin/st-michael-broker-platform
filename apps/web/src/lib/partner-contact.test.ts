@@ -14,6 +14,7 @@ test('legacy contacts keep their phone and malformed extras are ignored', () => 
 });
 test('new portrait URL avoids the previously cached asset', () => {
   assert.notEqual(PARTNER_PHOTO,'/v2/img/manager-daria.webp');
+  assert.notEqual(PARTNER_PHOTO,'/v2/img/manager-anastasia-20261020.webp');
   const photo=readFileSync(new URL('../../public'+PARTNER_PHOTO,import.meta.url));
   assert.equal(photo.toString('ascii',8,12),'WEBP');
   const component=readFileSync(new URL('../app/v2/LandingV2.tsx',import.meta.url),'utf8');
