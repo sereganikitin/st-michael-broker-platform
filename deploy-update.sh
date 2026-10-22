@@ -569,6 +569,7 @@ if ! printf '%s' "$PREVIOUS_DEPLOY_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
     exit 1
 fi
 if ! curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+    --retry 2 --retry-delay 2 --retry-max-time 50 \
     https://broker.stmichael.ru/ > /dev/null; then
     echo "    ✗ Existing external site is unavailable; use the incident runbook, not normal deployment."
     exit 1
