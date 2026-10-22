@@ -112,6 +112,27 @@ jobs:
                       entry['ipv6'].append(result)
               except OSError:entry['dnsError']=True
               report['destinations'].append(entry)
+          import ipaddress,configparser
+          saved=[]
+          def is6(value):
+              try:return ipaddress.ip_interface(str(value)).version==6
+              except ValueError:return False
+          try:
+              import yaml
+              for filename in sorted(pathlib.Path('/etc/netplan').glob('*.yaml')):
+                  data=yaml.safe_load(filename.read_text()) or {}
+                  for name,config in (data.get('network',{}).get('ethernets',{}) or {}).items():
+                      saved.append({'source':str(filename),'interface':name,'ipv6AddressCount':sum(is6(a) for a in config.get('addresses',[])),'gateway6Present':bool(config.get('gateway6')),'ipv6DefaultRouteCount':sum(str(r.get('to')) in ['::/0','default'] and is6(r.get('via','')) for r in config.get('routes',[])),'dhcp6':config.get('dhcp6'),'acceptRA':config.get('accept-ra'),'matchByMac':bool(config.get('match',{}).get('macaddress'))})
+          except (ImportError,OSError,ValueError):saved.append({'netplanRead':'unavailable'})
+          for directory in ['/etc/systemd/network','/run/systemd/network']:
+              for filename in sorted(pathlib.Path(directory).glob('*.network')):
+                  values=[]
+                  for line in filename.read_text().splitlines():
+                      if '=' in line and not line.strip().startswith('#'):
+                          k,v=line.strip().split('=',1)
+                          if k in ['Address','Gateway','Destination','IPv6AcceptRA','DHCP']:values.append((k,v))
+                  saved.append({'source':str(filename),'ipv6AddressCount':sum(k=='Address' and is6(v) for k,v in values),'ipv6GatewayCount':sum(k=='Gateway' and is6(v) for k,v in values),'ipv6DefaultCount':sum(k=='Destination' and v=='::/0' for k,v in values),'acceptRA':[v for k,v in values if k=='IPv6AcceptRA'],'dhcp':[v for k,v in values if k=='DHCP']})
+          report['savedNetworkConfig']=saved
           print('IPV6_DIAGNOSTIC='+json.dumps(report))
           NETWORK
           for endpoint in https://www.google.com/generate_204 https://example.com/; do
