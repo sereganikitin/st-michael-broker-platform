@@ -81,6 +81,47 @@ jobs:
           printf 'CHECKOUT_SHA=%s\n' "$(git rev-parse HEAD)"
           printf 'WORKFLOW_SHA=%s\n' "$source"
           printf 'API_SHA=%s\n' "$(docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')"
+          python3 - <<'NETWORK'
+          import socket,json,subprocess,pathlib,errno
+          def call(*args):
+              r=subprocess.run(args,capture_output=True,text=True,timeout=8)
+              return r.returncode,r.stdout,r.stderr
+          report={'interfaces':[],'destinations':[]}
+          code,out,err=call('ip','-j','-6','address','show')
+          if code==0:
+              for entry in json.loads(out):
+                  name=entry['ifname']; settings={}
+                  for key in ['disable_ipv6','forwarding','accept_ra','autoconf','accept_ra_defrtr']:
+                      p=pathlib.Path('/proc/sys/net/ipv6/conf')/name/key
+                      if p.is_file():settings[key]=p.read_text().strip()
+                  report['interfaces'].append({'name':name,'globalAddresses':sum(a.get('scope')=='global' for a in entry.get('addr_info',[])),'settings':settings})
+          code,out,err=call('ip','-j','-6','route','show','default')
+          report['defaultRouteCount']=len(json.loads(out)) if code==0 else None
+          for target in ['api.telegram.org','www.google.com','example.com']:
+              entry={'host':target,'ipv6':[]}
+              try:
+                  addresses=sorted(set(x[4][0] for x in socket.getaddrinfo(target,443,socket.AF_INET6,socket.SOCK_STREAM)))
+                  entry['aaaaCount']=len(addresses)
+                  for address in addresses[:2]:
+                      rcode,rout,rerr=call('ip','-6','route','get',address)
+                      result={'routeFound':rcode==0,'routeUnreachable':'unreachable' in (rout+rerr).lower()}
+                      s=socket.socket(socket.AF_INET6,socket.SOCK_STREAM);s.settimeout(3)
+                      try:s.connect((address,443));result['tcp']='connected'
+                      except OSError as e:result['tcp']=errno.errorcode.get(e.errno,'TIMEOUT' if isinstance(e,TimeoutError) else 'OTHER')
+                      finally:s.close()
+                      entry['ipv6'].append(result)
+              except OSError:entry['dnsError']=True
+              report['destinations'].append(entry)
+          print('IPV6_DIAGNOSTIC='+json.dumps(report))
+          NETWORK
+          for endpoint in https://www.google.com/generate_204 https://example.com/; do
+            printf 'IPV6_CONTROL endpoint=%s ' "$endpoint"
+            set +e
+            curl -6 --silent --show-error --output /dev/null --connect-timeout 5 --max-time 10 --write-out 'http=%{http_code} total=%{time_total}\n' "$endpoint"
+            result=$?
+            set -e
+            printf 'IPV6_CONTROL_EXIT=%s\n' "$result"
+          done
           for name in st-michael-api st-michael-tg-relay st-michael-telegram-quiet; do
             docker inspect "$name" --format 'CONTAINER={{.Name}} RUNNING={{.State.Running}} RESTARTS={{.RestartCount}}'
           done
