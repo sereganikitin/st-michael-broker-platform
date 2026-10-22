@@ -16,7 +16,8 @@ if(process.argv[2]==='generate'){
  const matches=[...log.matchAll(/TECHNICAL_RECIPIENT_RESULT=(\{"ok"[^\r\n]+\})/g)];if(matches.length!==1)throw Error('REPORT');
  const report=JSON.parse(matches[0][1]);if(!report.ok||!report.configured)throw Error('INSTALL_NOT_CONFIRMED');
  const value=JSON.parse(crypto.privateDecrypt({key:fs.readFileSync(path.join(dir,'private.pem')),oaepHash:'sha256'},Buffer.from(report.sealedRecipients,'base64')).toString());
- if(Object.keys(value).join()!=='OPS_ALERT_CHAT_IDS'||!/^\d+(,\d+){2}$/.test(value.OPS_ALERT_CHAT_IDS))throw Error('SCOPE');
+ // 3 ids after the vishstmichael install (21.10), 4 after wladimirvarrior (22.10).
+ if(Object.keys(value).join()!=='OPS_ALERT_CHAT_IDS'||!/^\d+(,\d+){2,3}$/.test(value.OPS_ALERT_CHAT_IDS)||value.OPS_ALERT_CHAT_IDS.split(',').length!==report.recipientCount)throw Error('SCOPE');
  call(['secret','set','OPS_ALERT_CHAT_IDS','--repo','sereganikitin/st-michael-broker-platform'],value.OPS_ALERT_CHAT_IDS);
  delete report.sealedRecipients;report.githubRecipientsSynchronized=true;
  fs.unlinkSync(path.join(dir,'private.pem'));fs.rmdirSync(dir);

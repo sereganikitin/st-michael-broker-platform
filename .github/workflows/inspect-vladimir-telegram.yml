@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           test "$REPO" = sereganikitin/st-michael-broker-platform
           test "$REF" = refs/heads/master
-          test "$ACTOR" = mefremov888-ai
+          case "$ACTOR" in mefremov888-ai|VKalashnikov-afk|sereganikitin) ;; *) exit 1;; esac
           test "$ATTEMPT" = 1
           case "$TARGET" in wladimirvarrior|vishstmichael) ;; *) exit 1;; esac
           test "$(git rev-parse HEAD)" = "$SOURCE"
