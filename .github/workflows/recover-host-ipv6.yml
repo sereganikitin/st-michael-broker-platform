@@ -1,4 +1,4 @@
-name: Recover provider-managed host IPv6
+name: Recover panel-confirmed Timeweb host IPv6
 
 on:
   workflow_dispatch:
@@ -65,7 +65,7 @@ jobs:
           [[ "$EXPECTED_SSH_FINGERPRINT" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || exit 1
           test "$ACTOR" = sereganikitin
           test "$ATTEMPT" = 1
-          case "$MODE" in inspect) ;; apply) test "$CONFIRMATION" = RESTORE_ETH0_DHCP6_RA_WITH_ROLLBACK;; *) exit 1;; esac
+          case "$MODE" in inspect) ;; apply) test "$CONFIRMATION" = RESTORE_CONFIRMED_TIMEWEB_IPV6_WITH_ROLLBACK;; *) exit 1;; esac
           python3 scripts/recover-host-ipv6.test.py
           digest=$(sha256sum scripts/recover-host-ipv6.py | cut -d' ' -f1)
           payload=$(base64 -w0 scripts/recover-host-ipv6.py)
