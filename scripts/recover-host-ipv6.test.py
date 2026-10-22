@@ -15,6 +15,8 @@ CONFIG = {'network': {'version': 2, 'ethernets': {
     'eth0': {'dhcp4': True, 'dhcp6': False, 'accept-ra': False,
              'match': {'macaddress': '00:00:00:00:00:01'},
              'dhcp4-overrides': {'use-dns': False},
+             'addresses': ['192.0.2.3/24'],
+             'routes': [{'to': '0.0.0.0/0', 'via': '192.0.2.1'}],
              'nameservers': {'addresses': ['192.0.2.1']}, 'link-local': []},
     'eth1': {'dhcp4': False, 'addresses': ['192.0.2.2/24']},
 }}}
@@ -28,10 +30,14 @@ class RecoveryTests(unittest.TestCase):
         before = original['network']['ethernets']['eth0']
         after = expected['network']['ethernets']['eth0']
         for key in before:
-            if key not in ['dhcp6', 'accept-ra', 'link-local']:
+            if key not in ['addresses', 'routes', 'link-local']:
                 self.assertEqual(before[key], after[key])
         self.assertEqual(after['link-local'], ['ipv6'])
-        self.assertEqual(after['dhcp6-overrides'], before['dhcp4-overrides'])
+        self.assertEqual(after['addresses'][:-1], before['addresses'])
+        self.assertEqual(after['addresses'][-1], recovery.ASSIGNED_ADDRESS)
+        self.assertEqual(after['routes'][:-1], before['routes'])
+        self.assertEqual(after['routes'][-1]['via'], recovery.HISTORICAL_GATEWAY)
+        self.assertEqual(after['routes'][-1]['to'], '::/0')
         self.assertEqual(set(overlay['network']['ethernets']), {'eth0'})
 
     def test_does_not_add_link_local_override_when_default_is_already_ipv6(self):
@@ -41,7 +47,8 @@ class RecoveryTests(unittest.TestCase):
         self.assertNotIn('link-local', overlay['network']['ethernets']['eth0'])
 
     def test_refuses_unexpected_network_backend_or_state(self):
-        for change in [{'renderer': 'NetworkManager'}, {'dhcp4': False}, {'dhcp6': True}, {'accept-ra': True}]:
+        for change in [{'renderer': 'NetworkManager'}, {'dhcp4': False}, {'dhcp6': True}, {'accept-ra': True},
+                       {'addresses': [recovery.ASSIGNED_ADDRESS]}, {'routes': [{'to': '::/0', 'via': 'fe80::1'}]}]:
             config = copy.deepcopy(CONFIG)
             config['network']['ethernets']['eth0'].update(change)
             with self.assertRaises(RuntimeError):

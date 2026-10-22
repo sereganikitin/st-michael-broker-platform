@@ -1,4 +1,4 @@
-"""Restore provider-managed IPv6 on eth0; preserve IPv4 and application containers."""
+"""Restore the Timeweb-panel-confirmed IPv6 and historical route on eth0."""
 import copy
 import hashlib
 import json
@@ -13,6 +13,10 @@ import yaml
 OVERLAY = Path('/etc/netplan/99-stm-restore-ipv6.yaml')
 BACKUP_ROOT = Path('/var/backups/stm-ipv6-recovery')
 PHASE = 'preflight'
+# Confirmed in the owner's Timeweb server panel and in production run
+# 34365070582: the same address was /128, with this RA-learned router on eth0.
+ASSIGNED_ADDRESS = '2a03:6f00:a::d692/128'
+HISTORICAL_GATEWAY = 'fe80::9cce:edff:fee6:7340'
 
 def require(value):
     if not value:
@@ -34,14 +38,17 @@ def desired_overlay(config):
     require(interface.get('renderer', network.get('renderer', 'networkd')) == 'networkd')
     require(interface.get('dhcp4') is True)
     require(interface.get('dhcp6') is False and interface.get('accept-ra') is False)
-    result = {'dhcp6': True, 'accept-ra': True}
-    if 'link-local' in interface and 'ipv6' not in interface['link-local']:
-        result['link-local'] = list(interface['link-local']) + ['ipv6']
-    overrides = interface.get('dhcp4-overrides', {})
-    if overrides or interface.get('dhcp6-overrides'):
-        result['dhcp6-overrides'] = copy.deepcopy(overrides)
+    require(ASSIGNED_ADDRESS not in interface.get('addresses', []))
+    require(not any(r.get('to') == '::/0' for r in interface.get('routes', [])))
+    route = {'to': '::/0', 'via': HISTORICAL_GATEWAY, 'on-link': True}
+    result = {'addresses': [ASSIGNED_ADDRESS], 'routes': [route]}
     expected = copy.deepcopy(config)
-    expected['network']['ethernets']['eth0'].update(result)
+    target = expected['network']['ethernets']['eth0']
+    target['addresses'] = copy.deepcopy(interface.get('addresses', [])) + [ASSIGNED_ADDRESS]
+    target['routes'] = copy.deepcopy(interface.get('routes', [])) + [route]
+    if 'link-local' in interface and 'ipv6' not in interface['link-local']:
+        result['link-local'] = ['ipv6']
+        target['link-local'] = list(interface['link-local']) + ['ipv6']
     return {'network': {'version': 2, 'ethernets': {'eth0': result}}}, expected
 
 def ipv4_state():
@@ -95,7 +102,7 @@ def main(mode, source):
     existing6 = json.loads(run('ip', '-j', '-6', 'address', 'show', 'dev', 'eth0'))
     require(not any(a.get('scope') == 'global' for link in existing6 for a in link.get('addr_info', [])))
     require(not json.loads(run('ip', '-j', '-6', 'route', 'show', 'default')))
-    print('IPV6_RECOVERY_PLAN=' + json.dumps({'ok': True, 'mode': mode, 'interface': 'eth0', 'dhcp6': True, 'acceptRA': True, 'ipv4ConfigChanges': False, 'containerRestarts': False, 'automaticRollbackSeconds': 300}), flush=True)
+    print('IPV6_RECOVERY_PLAN=' + json.dumps({'ok': True, 'mode': mode, 'interface': 'eth0', 'panelConfirmedStaticAddress': True, 'historicalRouter': True, 'ipv4ConfigChanges': False, 'containerRestarts': False, 'automaticRollbackSeconds': 300}), flush=True)
     if mode == 'inspect':
         return
     PHASE = 'prepare_rollback'
