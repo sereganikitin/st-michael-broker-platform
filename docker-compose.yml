@@ -32,6 +32,21 @@ services:
     image: redis:7-alpine
     container_name: st-michael-redis
     logging: *default-logging
+    # 2026-10-23: Redis был опубликован наружу без пароля, в контейнере нашли
+    # майнер. Пароль из server .env пишется в конфиг (не в argv — его видно в
+    # ps на хосте). Пусто → без пароля, чтобы CI/dev и откат не ломались.
+    # REDISCLI_AUTH нужен healthcheck и `docker exec ... redis-cli`.
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-}
+    command:
+      - sh
+      - -c
+      - |
+        umask 077
+        : > /tmp/redis.conf
+        if [ -n "$$REDIS_PASSWORD" ]; then printf 'requirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis.conf; fi
+        exec redis-server /tmp/redis.conf
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -64,6 +79,7 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in server .env}@postgres:5432/broker_platform
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in server .env}
       # Keep the current compose file parse-compatible with the previous
       # release during the first rollout of this key. The deploy workflow and
