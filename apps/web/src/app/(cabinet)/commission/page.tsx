@@ -6,6 +6,7 @@ import {
   ActiveCommissionPolicy,
   buildPaymentTermsText,
   publishedInstallmentPayoutText,
+  publishedPaymentRatesText,
   resolveCommissionText,
 } from '@/lib/commission-display';
 import { TrendingUp, Wallet, Award, CreditCard, Building2 } from 'lucide-react';
@@ -94,7 +95,7 @@ export default function CommissionPage() {
   // всегда генерируется ниже из активной CommissionPolicy.
   const termsCards = useMemo<Array<{ title: string; text: string }>>(() => {
     if (commission?.basis === 'SALES_RUB_2026') return [
-      { title: 'Условия оплаты', text: 'Полная оплата и стандартная ипотека — 5%. Рассрочка: первоначальный взнос больше 50% — 4,5%; до 50% включительно — 4%. Субсидированная ипотека — 4%. К базовой ставке добавляется накопительная надбавка.' },
+      { title: 'Условия оплаты', text: `${publishedPaymentRatesText(selectedProject)} К базовой ставке добавляется накопительная надбавка.` },
       { title: 'Накопительная надбавка', text: 'Общий объём подписанных ДДУ, ПДКП и ДКП агентства по обоим проектам за 2026 год, в рублях. Повышенная надбавка применяется уже к сделке, достигающей следующего порога. Достигнутый по итогам 2026 года уровень сохраняется до 31 января 2027 года. Исторически начисленные комиссии не пересчитываются.' },
       { title: 'Порядок выплаты при рассрочке', text: publishedInstallmentPayoutText(selectedProject) },
     ];
