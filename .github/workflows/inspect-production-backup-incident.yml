@@ -81,7 +81,7 @@ jobs:
           echo PROCESS_CPU_AND_WAIT
           ps -eo pid,ppid,state,pcpu,pmem,wchan:28,comm --sort=-pcpu | head -26
           echo SUSPECT_PROCESS_METADATA
-          for pid in 1295523 1295521 1192843; do
+          for pid in 1295523 1295521 1192843 1193027 2589793; do
             if test -d /proc/$pid; then
               ps -p "$pid" -o pid,ppid,uid,state,lstart,pcpu,rss,comm
               sudo -n readlink /proc/$pid/exe /proc/$pid/cwd || true
@@ -89,6 +89,15 @@ jobs:
               sudo -n sha256sum /proc/$pid/exe || true
             fi
           done
+          sudo -n python3 - <<'PROCESS_CLASSIFICATION'
+          import pathlib,json
+          for pid in (1193027,2589793):
+              p=pathlib.Path('/proc')/str(pid)
+              if p.exists():
+                  raw=(p/'cmdline').read_bytes().decode(errors='replace')
+                  terms=('xmrig','kworker','wget','curl','sleep','kill','STOP','CONT','redis','cron','stratum','while','/tmp/')
+                  print(json.dumps({'pid':pid,'commandBytes':len(raw),'markers':[t for t in terms if t.lower() in raw.lower()]}))
+          PROCESS_CLASSIFICATION
           echo REDIS_RUNTIME_METADATA
           docker inspect st-michael-redis --format 'image={{.Config.Image}} network={{.HostConfig.NetworkMode}} ports={{json .NetworkSettings.Ports}} mounts={{range .Mounts}}{{.Destination}} {{end}}'
           docker exec st-michael-redis redis-cli CONFIG GET bind protected-mode save appendonly maxmemory || true
