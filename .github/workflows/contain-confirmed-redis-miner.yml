@@ -1,0 +1,106 @@
+name: Contain confirmed Redis miner
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Block public Redis and stop attested miner
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - name: Checkout exact reviewed diagnostic
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Validate source and report over pinned SSH
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_REF: ${{ github.ref }}
+          EXPECTED_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          EXPECTED_SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          test "$EXPECTED_REPOSITORY" = sereganikitin/st-michael-broker-platform || exit 1
+          test "$EXPECTED_REF" = refs/heads/master || exit 1
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || exit 1
+          test -n "$SSH_HOST" -a -n "$SSH_USER" -a -n "$SSH_PRIVATE_KEY" -a -n "$DEPLOY_PATH" || exit 1
+          case "$SSH_HOST" in ""|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ ]] || exit 1
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && test "$SSH_PORT" -ge 1 -a "$SSH_PORT" -le 65535 || exit 1
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 1
+          case "$DEPLOY_PATH/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          [[ "$EXPECTED_SSH_FINGERPRINT" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || exit 1
+          ssh_root=$(mktemp -d)
+          known_hosts="$ssh_root/known_hosts"
+          private_key="$ssh_root/deploy-key"
+          trap 'rm -f -- "$known_hosts" "$private_key"; rmdir -- "$ssh_root" 2>/dev/null || true' EXIT
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$private_key"
+          chmod 600 "$private_key"
+          timeout 15 ssh-keyscan -p "$SSH_PORT" -t ed25519 "$SSH_HOST" > "$known_hosts" 2>/dev/null
+          chmod 600 "$known_hosts"
+          mapfile -t fingerprints < <(ssh-keygen -lf "$known_hosts" -E sha256 | awk '{print $2}' | sort -u)
+          test "${#fingerprints[@]}" -eq 1 || exit 1
+          test "${fingerprints[0]}" = "$EXPECTED_SSH_FINGERPRINT" || exit 1
+          timeout --foreground 6m ssh -T -i "$private_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o NumberOfPasswordPrompts=0 \
+            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "${SSH_USER}@${SSH_HOST}" \
+            "bash -s -- '$DEPLOY_PATH' '$EXPECTED_SHA'" <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C
+          test "$(docker inspect st-michael-redis --format '{{.Id}}')" = 46752ff59a5cbe1842e514abbc36eb3b5a55de21d4b5e5d07bf1202c488376be
+          sudo -n iptables -nL DOCKER-USER >/dev/null
+          # Preserve loopback and Docker network clients. Block external ingress only.
+          for chain in INPUT DOCKER-USER; do
+            sudo -n iptables -C "$chain" -i eth0 -p tcp --dport 6379 -j DROP 2>/dev/null || sudo -n iptables -I "$chain" 1 -i eth0 -p tcp --dport 6379 -j DROP
+          done
+          sudo -n ip6tables -C INPUT -i eth0 -p tcp --dport 6379 -j DROP 2>/dev/null || sudo -n ip6tables -I INPUT 1 -i eth0 -p tcp --dport 6379 -j DROP
+          if sudo -n ip6tables -nL DOCKER-USER >/dev/null 2>&1; then
+            sudo -n ip6tables -C DOCKER-USER -i eth0 -p tcp --dport 6379 -j DROP 2>/dev/null || sudo -n ip6tables -I DOCKER-USER 1 -i eth0 -p tcp --dport 6379 -j DROP
+          fi
+          echo external_redis_blocked=true
+          miner=1295523
+          supervisor=1295521
+          test "$(sudo -n sha256sum /proc/$miner/exe | awk '{print $1}')" = b20f39fc00d242e706b6c30367ad811c676e0575050a4ec2f30104b696944b49
+          test "$(ps -p "$miner" -o ppid= | tr -d ' ')" = "$supervisor"
+          test "$(ps -p "$supervisor" -o ppid= | tr -d ' ')" = 1192843
+          grep -q 'docker-46752ff59a5cbe1842e514abbc36eb3b5a55de21d4b5e5d07bf1202c488376be.scope' /proc/$miner/cgroup
+          sudo -n kill -STOP "$supervisor" "$miner"
+          evidence=/var/backups/stmichael/incident-20261023-redis
+          test ! -L "$evidence"
+          sudo -n install -d -m 0700 "$evidence"
+          sudo -n cp --no-clobber /proc/$miner/exe "$evidence/miner.bin"
+          sudo -n sh -c 'umask 077; cat /proc/1295521/cmdline > /var/backups/stmichael/incident-20261023-redis/supervisor.cmdline; cat /proc/1295523/cmdline > /var/backups/stmichael/incident-20261023-redis/miner.cmdline'
+          sudo -n kill -KILL "$supervisor" "$miner"
+          echo attested_miner_and_supervisor_stopped=true
+          sleep 3
+          docker exec st-michael-redis redis-cli ping
+          docker exec st-michael-api node -e 'const net=require("net"); const s=net.connect(6379,"redis",()=>{console.log("api_redis_connected=true");s.end()});s.setTimeout(5000,()=>process.exit(1));s.on("error",()=>process.exit(1));'
+          free -h
+          vmstat 1 5
+          ps -eo pid,ppid,state,pcpu,rss,comm --sort=-pcpu | head -12
+          curl --fail --silent --show-error --max-time 15 https://broker.stmichael.ru/api/health/ready
+          echo containment_complete=true
+          REMOTE
