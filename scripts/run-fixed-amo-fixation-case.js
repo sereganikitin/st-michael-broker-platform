@@ -176,10 +176,11 @@ function isSuccessfulResultForMode(mode, status) {
   return (mode === "plan" && status === "planned") || (mode === "apply" && status === "linked");
 }
 function createRedis(Redis, environment) {
-  // Live AppModule Bull configuration passes only REDIS_HOST/REDIS_PORT, hence
-  // DB0 and no password. A separate DB/connection would not fence API writers.
-  if (environment.REDIS_HOST !== "redis" || environment.REDIS_PORT !== "6379" || (environment.REDIS_DB !== undefined && environment.REDIS_DB !== "0") || environment.REDIS_PASSWORD) refuse("REDIS_CONFIGURATION_INVALID");
-  return new Redis({ host: environment.REDIS_HOST, port: 6379, db: 0, lazyConnect: true, maxRetriesPerRequest: 1, enableReadyCheck: true, connectTimeout: 5000, retryStrategy: () => null });
+  // Live AppModule Bull configuration passes REDIS_HOST/REDIS_PORT and the
+  // optional REDIS_PASSWORD (2026-10-23), hence DB0 with the same password.
+  // A separate DB/connection would not fence API writers.
+  if (environment.REDIS_HOST !== "redis" || environment.REDIS_PORT !== "6379" || (environment.REDIS_DB !== undefined && environment.REDIS_DB !== "0")) refuse("REDIS_CONFIGURATION_INVALID");
+  return new Redis({ host: environment.REDIS_HOST, port: 6379, db: 0, password: environment.REDIS_PASSWORD || undefined, lazyConnect: true, maxRetriesPerRequest: 1, enableReadyCheck: true, connectTimeout: 5000, retryStrategy: () => null });
 }
 async function main() {
   const environment = process.env, root = path.dirname(__dirname);

@@ -53,6 +53,8 @@ describe('approved case readonly Redis lease evidence', () => {
     expect(Constructor).not.toHaveBeenCalled();
     inspector.createReadOnlyRedis(Constructor, { REDIS_HOST: 'redis', REDIS_PORT: '6379' });
     expect(Constructor).toHaveBeenCalledWith(expect.objectContaining({ db: 0, lazyConnect: true, enableReadyCheck: false, maxRetriesPerRequest: 0, commandTimeout: 3000 }));
+    inspector.createReadOnlyRedis(Constructor, { REDIS_HOST: 'redis', REDIS_PORT: '6379', REDIS_PASSWORD: 'private-fixture' });
+    expect(Constructor).toHaveBeenLastCalledWith(expect.objectContaining({ db: 0, password: 'private-fixture' }));
   });
   it('refuses unattested runtime helper without loading its exports', () => {
     const originalRequire = loaded.require;

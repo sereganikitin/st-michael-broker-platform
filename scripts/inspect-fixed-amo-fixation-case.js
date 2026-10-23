@@ -1059,8 +1059,9 @@ function attestedRuntimePhoneLock() {
 }
 function createReadOnlyRedis(Redis, environment) {
   if (environment.REDIS_HOST !== "redis" || environment.REDIS_PORT !== "6379" ||
-    (environment.REDIS_DB !== undefined && environment.REDIS_DB !== "0") || environment.REDIS_PASSWORD) refused("REDIS_IDENTITY_INVALID");
-  return new Redis({ host: "redis", port: 6379, db: 0, lazyConnect: true,
+    (environment.REDIS_DB !== undefined && environment.REDIS_DB !== "0")) refused("REDIS_IDENTITY_INVALID");
+  // Same optional password as the live AppModule Bull connection.
+  return new Redis({ host: "redis", port: 6379, db: 0, password: environment.REDIS_PASSWORD || undefined, lazyConnect: true,
     enableReadyCheck: false, maxRetriesPerRequest: 0, commandTimeout: 3000,
     connectTimeout: 3000, retryStrategy: () => null });
 }

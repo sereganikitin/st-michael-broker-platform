@@ -240,8 +240,13 @@ describe("DRAFT protected exact-case wrapper (no providers or production command
     const Redis = jest.fn(); runner.createRedis(Redis, { REDIS_HOST: "redis", REDIS_PORT: "6379", REDIS_DB: "0" });
     const options = Redis.mock.calls[0][0]; expect(options).toMatchObject({ host: "redis", port: 6379, db: 0, lazyConnect: true, connectTimeout: 5000 });
     expect(options.retryStrategy()).toBe(null);
+    expect(options.password).toBeUndefined();
   });
-  it.each([{ REDIS_DB: "2" }, { REDIS_DB: "00" }, { REDIS_HOST: "different-host" }, { REDIS_PORT: "6380" }, { REDIS_PASSWORD: "private-fixture" }])("refuses Redis settings which differ from live API lease connection", (changes) => {
+  it("Redis passes the same optional password as the live API connection", () => {
+    const Redis = jest.fn(); runner.createRedis(Redis, { REDIS_HOST: "redis", REDIS_PORT: "6379", REDIS_PASSWORD: "private-fixture" });
+    expect(Redis.mock.calls[0][0]).toMatchObject({ host: "redis", port: 6379, db: 0, password: "private-fixture" });
+  });
+  it.each([{ REDIS_DB: "2" }, { REDIS_DB: "00" }, { REDIS_HOST: "different-host" }, { REDIS_PORT: "6380" }])("refuses Redis settings which differ from live API lease connection", (changes) => {
     const Redis = jest.fn();
     expect(() => runner.createRedis(Redis, { REDIS_HOST: "redis", REDIS_PORT: "6379", ...changes })).toThrow("refused");
     expect(Redis).not.toHaveBeenCalled();
