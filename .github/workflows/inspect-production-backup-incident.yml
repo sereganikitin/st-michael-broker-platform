@@ -75,7 +75,25 @@ jobs:
           free -h
           df -h / /var/backups
           df -i / /var/backups
-          timeout 15 vmstat 1 3 || true
+          echo IO_PRESSURE
+          cat /proc/pressure/io /proc/pressure/memory /proc/pressure/cpu || true
+          timeout 15 vmstat 1 8 || true
+          echo PROCESS_CPU_AND_WAIT
+          ps -eo pid,ppid,state,pcpu,pmem,wchan:28,comm --sort=-pcpu | head -26
+          echo BLOCKED_PROCESSES
+          ps -eo pid,ppid,state,wchan:28,comm | awk '$3 == "D"'
+          echo DISK_STATS
+          cat /proc/diskstats
+          command -v iostat >/dev/null && timeout 10 iostat -xz 1 3 || true
+          echo HISTORICAL_METRICS_AVAILABLE
+          ls /var/log/sysstat/sa23 /var/log/sa/sa23 2>/dev/null || true
+          command -v sar >/dev/null && timeout 10 sar -d -s 09:20:00 -e 10:05:00 || true
+          echo DOCKER_DAEMON_ERROR_COUNTS
+          sudo -n journalctl -u docker --since '2026-10-23 09:20:00 UTC' --no-pager | awk 'BEGIN {IGNORECASE=1} /no space left|ENOSPC/ {space++} /input.output error|I\/O error/ {io++} END {print "no_space_errors="space+0,"io_errors="io+0}'
+          echo APP_ERROR_COUNTS
+          docker logs --since 2026-10-23T09:20:00Z --until 2026-10-23T10:05:00Z st-michael-api 2>&1 | awk 'BEGIN {IGNORECASE=1} /no space left|ENOSPC/ {space++} /connection pool|P2024/ {pool++} /timeout|timed out/ {tout++} END {print "no_space_errors="space+0,"pool_errors="pool+0,"timeout_lines="tout+0}'
+          echo FILESYSTEM_USAGE_BY_BACKUP
+          timeout 10 sudo -n du -sh /var/backups/stmichael/loyalty-predeploy || true
           timeout 20 docker stats --no-stream || true
           docker ps -a --format 'CONTAINER={{.Names}} STATUS={{.Status}}'
           docker inspect st-michael-api st-michael-web st-michael-postgres --format 'name={{.Name}} restart={{.RestartCount}} oom={{.State.OOMKilled}} started={{.State.StartedAt}}' || true
