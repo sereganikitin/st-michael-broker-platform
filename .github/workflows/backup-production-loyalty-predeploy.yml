@@ -108,7 +108,7 @@ jobs:
             CANONICAL_REPOSITORY="https://github.com/sereganikitin/st-michael-broker-platform.git"
             BACKUP_DIR="/var/backups/stmichael/loyalty-predeploy"
 
-            for required_tool in awk chmod df docker flock git grep id install mktemp mv readlink rm sha256sum stat sudo sync; do
+            for required_tool in awk chmod df docker flock git grep id install mktemp mv python3 readlink rm sha256sum stat sudo; do
               command -v "$required_tool" >/dev/null || { echo "Required backup tool is missing"; exit 1; }
             done
             [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "Invalid deploy path"; exit 1; }
@@ -231,9 +231,12 @@ jobs:
               ".partial.${EXPECTED_BACKUP_SHA}.${EXPECTED_RUN_ID}.${EXPECTED_RUN_ATTEMPT}.XXXXXX")
             chmod 0600 -- "$backup_temp"
 
-            docker exec st-michael-postgres pg_dump \
+            # The timeout lives inside the container, so runner cancellation
+            # cannot leave an unbounded docker-exec backup running on production.
+            docker exec st-michael-postgres timeout -s TERM -k 10 300 pg_dump \
               --username=postgres \
               --dbname=broker_platform \
+              --lock-wait-timeout=5s \
               --format=custom \
               --no-owner > "$backup_temp"
             test -s "$backup_temp" || { echo "Backup dump is empty"; exit 1; }
@@ -256,8 +259,13 @@ jobs:
             printf '%s\n' "$backup_sha256" > "$checksum_temp"
             test "$(< "$checksum_temp")" = "$backup_sha256" || { echo "Backup checksum sidecar verification failed"; exit 1; }
 
-            sync -f -- "$backup_temp"
-            sync -f -- "$checksum_temp"
+            # fsync only our files/directories; sync -f invokes syncfs and
+            # flushes unrelated writes on the entire production filesystem.
+            fsync_backup_path() {
+              python3 -c 'import os,sys; fd=os.open(sys.argv[1], os.O_RDONLY); os.fsync(fd); os.close(fd)' "$1"
+            }
+            fsync_backup_path "$backup_temp"
+            fsync_backup_path "$checksum_temp"
 
             require_headroom /
             require_headroom "$deploy_root"
@@ -281,7 +289,7 @@ jobs:
               exit 1
             }
             backup_temp=""
-            sync -f -- "$BACKUP_DIR"
+            fsync_backup_path "$BACKUP_DIR"
             chmod 0600 -- "$backup_final"
             chmod 0600 -- "$backup_checksum"
             final_size_bytes=$(stat -c %s -- "$backup_final")
