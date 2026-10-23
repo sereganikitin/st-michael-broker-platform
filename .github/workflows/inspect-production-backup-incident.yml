@@ -71,6 +71,16 @@ jobs:
           set -uo pipefail
           export LC_ALL=C GIT_OPTIONAL_LOCKS=0
           date -u
+          echo HOST_IDENTITY
+          hostname
+          ip -4 -o addr show scope global | awk '{print "interface=" $2 " ipv4=" $4}'
+          ip -6 -o addr show scope global | awk '{print "interface=" $2 " ipv6=" $4}'
+          echo PUBLIC_DNS_FROM_SERVER
+          getent ahostsv4 broker.stmichael.ru stmichael.ru | awk '{print $1,$3}' | sort -u
+          echo NGINX_VIRTUAL_HOSTS
+          docker exec st-michael-nginx nginx -T 2>/dev/null | awk '/^[[:space:]]*server_name[[:space:]]/ {print}' | sort -u
+          echo LOCAL_APPLICATION_IDENTITY
+          curl --silent --show-error --max-time 10 --resolve broker.stmichael.ru:443:127.0.0.1 https://broker.stmichael.ru/api/health || true
           uptime
           free -h
           df -h / /var/backups
