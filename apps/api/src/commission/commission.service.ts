@@ -1,6 +1,6 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaClient, CommissionLevel, CommissionMode } from '@st-michael/database';
-import { confirmedAgencySalesRub, currentRubleTerms, isRublePolicy, prospectiveRubleBonus, RUB_DISPLAY_END, RUB_COMMISSION_LEVELS, rubleBonus, rublePaymentRate } from './ruble-commission';
+import { confirmedAgencySalesRub, currentRubleTerms, isRublePolicy, isRubleProject, prospectiveRubleBonus, RUB_DISPLAY_END, RUB_COMMISSION_LEVELS_BY_PROJECT, RUB_FULL_RATE, rubleBonus, rublePaymentRate } from './ruble-commission';
 
 /**
  * Найти активную политику комиссии для проекта на заданную дату.
@@ -207,9 +207,13 @@ export class CommissionService {
       return {
         basis: 'SALES_RUB_2026', totalSalesRub: salesRub, bonusRate: bonus,
         volumeNote: salesRub === null ? 'Объём продаж требует сверки: агентство или данные договоров не подтверждены.' : 'По подписанным ДДУ, ПДКП и ДКП агентства в кабинете за 2026 год, по обоим проектам.',
-        isEstimate: true, retentionUntil: '2027-01-31', rates: { ZORGE9: bonus === null ? null : 5 + bonus, SILVER_BOR: bonus === null ? null : 5 + bonus },
+        isEstimate: true, retentionUntil: '2027-01-31',
+        rates: {
+          ZORGE9: bonus === null ? null : Math.round((RUB_FULL_RATE.ZORGE9 + bonus) * 100) / 100,
+          SILVER_BOR: bonus === null ? null : Math.round((RUB_FULL_RATE.SILVER_BOR + bonus) * 100) / 100,
+        },
         modes: { ZORGE9: 'PROGRESSIVE', SILVER_BOR: 'PROGRESSIVE' },
-        scales: { ZORGE9: RUB_COMMISSION_LEVELS, SILVER_BOR: RUB_COMMISSION_LEVELS },
+        scales: RUB_COMMISSION_LEVELS_BY_PROJECT,
         paymentTerms: { ZORGE9: { installmentEnabled: true, subsidizedMortgageEnabled: true }, SILVER_BOR: { installmentEnabled: true, subsidizedMortgageEnabled: true } },
         totalEarned: paid.reduce((sum, item) => sum + Number(item.commissionAmount), 0),
         agency: primaryAgency ? { id: primaryAgency.id, name: primaryAgency.name, inn: primaryAgency.inn } : null,
@@ -367,8 +371,9 @@ export class CommissionService {
     if (currentRubleTerms()) {
       const salesRub = await confirmedAgencySalesRub(this.prisma, agency?.id);
       if (salesRub === null) throw new BadRequestException('Объём продаж агентства не подтверждён; требуется сверка данных договоров.');
+      if (!isRubleProject(data.project)) throw new BadRequestException('Неизвестный проект.');
       let baseRate: number;
-      try { baseRate = rublePaymentRate(data.paymentMode, data.downPaymentPercent); }
+      try { baseRate = rublePaymentRate(data.project, data.paymentMode, data.downPaymentPercent); }
       catch { throw new BadRequestException('Укажите первоначальный взнос от 0 до 100% для рассрочки.'); }
       const { bonusRate, bonusBasisRub, includesProposedDeal } = prospectiveRubleBonus(salesRub, data.amount);
       const rate = Math.round((baseRate + bonusRate) * 100) / 100;
