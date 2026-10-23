@@ -1445,7 +1445,9 @@ printf 'status=%s prunes=%s missing=%s\\n' "$result" "$prune_calls" "$metadata_m
     const lock = remoteBody.indexOf(
       "exec 8>/tmp/st-michael-production-deploy.lock",
     );
-    const dump = remoteBody.indexOf("docker exec st-michael-postgres pg_dump");
+    const dump = remoteBody.indexOf(
+      "docker exec st-michael-postgres timeout -s TERM -k 10 300 pg_dump",
+    );
     const restoreList = remoteBody.indexOf(
       "docker exec -i st-michael-postgres pg_restore --list",
     );
@@ -1459,12 +1461,12 @@ printf 'status=%s prunes=%s missing=%s\\n' "$result" "$prune_calls" "$metadata_m
     const hardOutputLimit = remoteBody.indexOf(
       'ulimit -f "$backup_output_limit_blocks"',
     );
-    const sync = remoteBody.indexOf('sync -f -- "$backup_temp"');
+    const sync = remoteBody.indexOf('fsync_backup_path "$backup_temp"');
     const prePublishHeadroom = remoteBody.indexOf("require_headroom /", sync);
     const publish = remoteBody.indexOf(
       'mv -n -T -- "$backup_temp" "$backup_final"',
     );
-    const directorySync = remoteBody.indexOf('sync -f -- "$BACKUP_DIR"');
+    const directorySync = remoteBody.indexOf('fsync_backup_path "$BACKUP_DIR"');
     const finalHash = remoteBody.indexOf(
       'final_sha256=$(sha256sum -- "$backup_final"',
     );
@@ -1540,6 +1542,8 @@ printf 'status=%s prunes=%s missing=%s\\n' "$result" "$prune_calls" "$metadata_m
     expect(finalHeadroom).toBeGreaterThan(finalHash);
     expect(successOutput).toBeGreaterThan(finalHeadroom);
     expect(remoteBody.match(/\bpg_dump\b/g)).toHaveLength(1);
+    // #807: syncfs (`sync -f`) flushes the whole production filesystem.
+    expect(remoteBody).not.toMatch(/^\s*sync\s+-f\b/m);
     expect(remoteBody.match(/\bpg_restore\b/g)).toHaveLength(2);
     expect(fullDecodeBody).toContain("--file=/dev/null");
     expect(fullDecodeBody).toContain('< "$backup_temp"');
