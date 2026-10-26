@@ -7,10 +7,14 @@ import {
   agencyTableRows,
   agencyVisibleColumns,
   AGENCY_COLUMN_KEYS,
+  AGENCY_DEFAULT_KEYS,
+  AGENCY_COLUMNS,
+  agencyCellValue,
+  type AgencyFieldFilter,
   type AgencySortKey,
 } from "@/lib/agency-table";
 
-type Field = { label: string; value: string };
+type Field = { column?: string; label: string; value: string };
 type Period = {
   tab: string;
   row: number;
@@ -34,6 +38,7 @@ type Item = {
   } | null;
 };
 type Data = {
+  syncWarning?: string;
   loadedAt: string;
   items: Item[];
   sourceRowCount: number;
@@ -48,14 +53,7 @@ const status = {
   REVIEW: "На проверке",
   NEW: "Нет в текущей базе",
 };
-const columns: Array<{ key: AgencySortKey; title: string }> = [
-  { key: "name", title: "Агентство / агрегатор" },
-  { key: "status", title: "Сопоставление" },
-  { key: "source", title: "Источник" },
-  { key: "baseline", title: "База, ₽" },
-  { key: "added", title: "Добавлено, ₽" },
-  { key: "total", title: "Итог, ₽" },
-];
+const columns = AGENCY_COLUMNS;
 const money = (value: string) =>
   Number(value).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
@@ -90,8 +88,9 @@ export default function AgenciesV12Page() {
     [sort, setSort] = useState<AgencySortKey | null>(null),
     [direction, setDirection] = useState<"asc" | "desc">("asc"),
     [visibleKeys, setVisibleKeys] = useState<AgencySortKey[]>([
-      ...AGENCY_COLUMN_KEYS,
+      ...AGENCY_DEFAULT_KEYS,
     ]),
+    [fieldFilters, setFieldFilters] = useState<AgencyFieldFilter[]>([]),
     [expanded, setExpanded] = useState<string | null>(null);
   const tableScroll = useRef<HTMLDivElement>(null);
   const visibleColumns = columns.filter((column) =>
@@ -154,6 +153,7 @@ export default function AgenciesV12Page() {
     source: sourceFilter,
     sort,
     direction,
+    filters: fieldFilters,
   });
   function sortBy(key: AgencySortKey) {
     setDirection(sort === key && direction === "asc" ? "desc" : "asc");
@@ -166,6 +166,7 @@ export default function AgenciesV12Page() {
     setSourceFilter("");
     setSort(null);
     setDirection("asc");
+    setFieldFilters([]);
   }
   return (
     <div className="space-y-5 min-w-0 max-w-full">
@@ -200,6 +201,15 @@ export default function AgenciesV12Page() {
         >
           {error}
         </div>
+      )}
+      {data?.syncWarning && (
+        <p role="alert" className="rounded-lg border border-amber-300 p-3">
+          {data.syncWarning} Последнее успешное обновление:{" "}
+          {new Date(data.loadedAt).toLocaleString("ru-RU", {
+            timeZone: "Europe/Moscow",
+          })}{" "}
+          МСК.
+        </p>
       )}
       {data && (
         <>
@@ -264,6 +274,106 @@ export default function AgenciesV12Page() {
               </button>
             </div>
           </div>
+          <section aria-label="Фильтры по всем полям" className="space-y-3">
+            {fieldFilters.map((filter, index) => {
+              const update = (patch: Partial<AgencyFieldFilter>) =>
+                setFieldFilters((current) =>
+                  current.map((f, i) => (i === index ? { ...f, ...patch } : f)),
+                );
+              const kind = columns.find((c) => c.key === filter.field)?.kind;
+              return (
+                <div key={index} className="flex flex-wrap gap-2 items-center">
+                  <select
+                    aria-label={`Поле фильтра ${index + 1}`}
+                    className="rounded-lg border border-border bg-surface p-3 max-w-full"
+                    value={filter.field}
+                    onChange={(e) =>
+                      update({
+                        field: e.target.value as AgencySortKey,
+                        operator:
+                          columns.find((c) => c.key === e.target.value)
+                            ?.kind === "date"
+                            ? "equals"
+                            : "contains",
+                        value: "",
+                      })
+                    }
+                  >
+                    {columns.map((c) => (
+                      <option key={c.key} value={c.key}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label={`Условие фильтра ${index + 1}`}
+                    className="rounded-lg border border-border bg-surface p-3"
+                    value={filter.operator}
+                    onChange={(e) =>
+                      update({
+                        operator: e.target
+                          .value as AgencyFieldFilter["operator"],
+                      })
+                    }
+                  >
+                    <option value="contains">Содержит</option>
+                    <option value="equals">Равно</option>
+                    <option value="empty">Не заполнено</option>
+                    <option value="notEmpty">Заполнено</option>
+                    {kind !== "text" && (
+                      <>
+                        <option value="gte">Не меньше / не раньше</option>
+                        <option value="lte">Не больше / не позже</option>
+                      </>
+                    )}
+                  </select>
+                  {!["empty", "notEmpty"].includes(filter.operator) && (
+                    <input
+                      aria-label={`Значение фильтра ${index + 1}`}
+                      className="rounded-lg border border-border bg-surface p-3 max-w-full"
+                      type={
+                        kind === "date" && filter.operator !== "contains"
+                          ? "date"
+                          : "text"
+                      }
+                      value={filter.value}
+                      onChange={(e) => update({ value: e.target.value })}
+                      placeholder={
+                        kind === "number" ? "Например, 0,8" : "Значение"
+                      }
+                    />
+                  )}
+                  <button
+                    className="btn btn-secondary"
+                    aria-label={`Удалить фильтр ${index + 1}`}
+                    onClick={() =>
+                      setFieldFilters((current) =>
+                        current.filter((_, i) => i !== index),
+                      )
+                    }
+                  >
+                    Удалить
+                  </button>
+                </div>
+              );
+            })}
+            <button
+              className="btn btn-secondary"
+              onClick={() =>
+                setFieldFilters((current) => [
+                  ...current,
+                  { field: "field:B", operator: "contains", value: "" },
+                ])
+              }
+            >
+              Добавить фильтр по полю
+            </button>
+            {fieldFilters.length > 1 && (
+              <p className="text-sm text-text-muted">
+                Применяются все условия одновременно.
+              </p>
+            )}
+          </section>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <details className="rounded-lg border border-border bg-surface p-3">
               <summary className="cursor-pointer">
@@ -446,6 +556,28 @@ export default function AgenciesV12Page() {
                             {money(period.totalRub)}
                           </td>
                         )}
+                        {visibleColumns
+                          .filter((c) => c.key.startsWith("field:"))
+                          .map((column) => (
+                            <td
+                              key={column.key}
+                              className="p-3 align-top min-w-48 max-w-80 whitespace-pre-wrap break-words"
+                            >
+                              {column.key === "field:T" && (
+                                <small className="block text-text-muted">
+                                  {
+                                    period.fields?.find((f) => f.column === "T")
+                                      ?.label
+                                  }
+                                </small>
+                              )}
+                              {agencyCellValue(item, period, column.key) || (
+                                <span className="text-text-muted">
+                                  Не заполнено
+                                </span>
+                              )}
+                            </td>
+                          ))}
                       </tr>
                       {isOpen && (
                         <tr id={`details-${rowKey}`}>
