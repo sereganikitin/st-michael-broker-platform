@@ -1,9 +1,14 @@
 "use client";
 
-import { Fragment, useEffect, useState, type MouseEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { apiGet, apiDownload } from "@/lib/api";
-import { agencyTableRows, type AgencySortKey } from "@/lib/agency-table";
+import {
+  agencyTableRows,
+  agencyVisibleColumns,
+  AGENCY_COLUMN_KEYS,
+  type AgencySortKey,
+} from "@/lib/agency-table";
 
 type Field = { label: string; value: string };
 type Period = {
@@ -84,7 +89,14 @@ export default function AgenciesV12Page() {
     [sourceFilter, setSourceFilter] = useState(""),
     [sort, setSort] = useState<AgencySortKey | null>(null),
     [direction, setDirection] = useState<"asc" | "desc">("asc"),
+    [visibleKeys, setVisibleKeys] = useState<AgencySortKey[]>([
+      ...AGENCY_COLUMN_KEYS,
+    ]),
     [expanded, setExpanded] = useState<string | null>(null);
+  const tableScroll = useRef<HTMLDivElement>(null);
+  const visibleColumns = columns.filter((column) =>
+    visibleKeys.includes(column.key),
+  );
   async function load() {
     setBusy(true);
     setError("");
@@ -97,8 +109,27 @@ export default function AgenciesV12Page() {
     }
   }
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem("agency-v1-2-visible-columns");
+      if (saved) setVisibleKeys(agencyVisibleColumns(JSON.parse(saved)));
+    } catch {
+      /* Private mode or invalid preferences must not block the table. */
+    }
     void load();
   }, []);
+  function changeColumns(next: AgencySortKey[]) {
+    const checked = agencyVisibleColumns(next);
+    setVisibleKeys(checked);
+    if (sort && !checked.includes(sort)) setSort(null);
+    try {
+      localStorage.setItem(
+        "agency-v1-2-visible-columns",
+        JSON.stringify(checked),
+      );
+    } catch {
+      /* Optional preference only. */
+    }
+  }
   async function download() {
     try {
       setError("");
@@ -137,7 +168,7 @@ export default function AgenciesV12Page() {
     setDirection("asc");
   }
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 min-w-0 max-w-full">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link href="/admin/loyalty-base" className="text-accent">
@@ -233,14 +264,83 @@ export default function AgenciesV12Page() {
               </button>
             </div>
           </div>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <details className="rounded-lg border border-border bg-surface p-3">
+              <summary className="cursor-pointer">
+                Столбцы ({visibleColumns.length}/{columns.length})
+              </summary>
+              <fieldset className="mt-3 grid gap-3 sm:grid-cols-2">
+                <legend className="sr-only">Видимые столбцы</legend>
+                {columns.map((column) => (
+                  <label key={column.key} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={visibleKeys.includes(column.key)}
+                      disabled={column.key === "name"}
+                      onChange={(event) =>
+                        changeColumns(
+                          event.target.checked
+                            ? [...visibleKeys, column.key]
+                            : visibleKeys.filter((key) => key !== column.key),
+                        )
+                      }
+                    />
+                    {column.title}
+                    {column.key === "name" ? " (обязательно)" : ""}
+                  </label>
+                ))}
+              </fieldset>
+              <button
+                className="mt-3 text-accent"
+                onClick={() => changeColumns([...AGENCY_COLUMN_KEYS])}
+              >
+                Показать все столбцы
+              </button>
+            </details>
+            <div className="flex gap-2">
+              <button
+                className="btn btn-secondary"
+                aria-label="Прокрутить таблицу влево"
+                onClick={() =>
+                  tableScroll.current?.scrollBy({
+                    left: -400,
+                    behavior: "smooth",
+                  })
+                }
+              >
+                ←
+              </button>
+              <button
+                className="btn btn-secondary"
+                aria-label="Прокрутить таблицу вправо"
+                onClick={() =>
+                  tableScroll.current?.scrollBy({
+                    left: 400,
+                    behavior: "smooth",
+                  })
+                }
+              >
+                →
+              </button>
+            </div>
+          </div>
           <p className="text-sm text-text-muted" aria-live="polite">
             Показано строк: {filtered.length}
           </p>
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full text-sm text-left">
+          <div
+            ref={tableScroll}
+            role="region"
+            aria-label="Таблица агентств, горизонтальная прокрутка"
+            tabIndex={0}
+            className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border"
+          >
+            <table
+              className="w-full text-sm text-left"
+              style={{ minWidth: 224 + (visibleColumns.length - 1) * 180 }}
+            >
               <thead className="bg-surface-secondary">
                 <tr>
-                  {columns.map(({ key, title }) => (
+                  {visibleColumns.map(({ key, title }) => (
                     <th
                       className="p-3 whitespace-nowrap"
                       key={key}
@@ -305,45 +405,55 @@ export default function AgenciesV12Page() {
                               : ""}
                           </p>
                         </td>
-                        <td className="p-3">
-                          <span>{status[item.status]}</span>
-                          {item.matchedAgency && (
-                            <Link
-                              className="block text-accent"
-                              onClick={(event: MouseEvent<HTMLAnchorElement>) =>
-                                event.stopPropagation()
-                              }
-                              href={`/admin/loyalty-base/ours/agencies/${item.matchedAgency.id}`}
-                            >
-                              {item.matchedAgency.name}
-                            </Link>
-                          )}
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          {period.tab}, строка {period.row}
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          {money(period.baselineRub)}
-                          <small className="block text-text-muted">
-                            {period.baselineScope === "BEFORE_2026"
-                              ? "До 2026, справочно"
-                              : "База 2026 из таблицы"}
-                          </small>
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          {money(period.addedRub)}
-                        </td>
-                        <td className="p-3 whitespace-nowrap font-semibold">
-                          {money(period.totalRub)}
-                        </td>
+                        {visibleKeys.includes("status") && (
+                          <td className="p-3">
+                            <span>{status[item.status]}</span>
+                            {item.matchedAgency && (
+                              <Link
+                                className="block text-accent"
+                                onClick={(
+                                  event: MouseEvent<HTMLAnchorElement>,
+                                ) => event.stopPropagation()}
+                                href={`/admin/loyalty-base/ours/agencies/${item.matchedAgency.id}`}
+                              >
+                                {item.matchedAgency.name}
+                              </Link>
+                            )}
+                          </td>
+                        )}
+                        {visibleKeys.includes("source") && (
+                          <td className="p-3 whitespace-nowrap">
+                            {period.tab}, строка {period.row}
+                          </td>
+                        )}
+                        {visibleKeys.includes("baseline") && (
+                          <td className="p-3 whitespace-nowrap">
+                            {money(period.baselineRub)}
+                            <small className="block text-text-muted">
+                              {period.baselineScope === "BEFORE_2026"
+                                ? "До 2026, справочно"
+                                : "База 2026 из таблицы"}
+                            </small>
+                          </td>
+                        )}
+                        {visibleKeys.includes("added") && (
+                          <td className="p-3 whitespace-nowrap">
+                            {money(period.addedRub)}
+                          </td>
+                        )}
+                        {visibleKeys.includes("total") && (
+                          <td className="p-3 whitespace-nowrap font-semibold">
+                            {money(period.totalRub)}
+                          </td>
+                        )}
                       </tr>
                       {isOpen && (
                         <tr id={`details-${rowKey}`}>
                           <td
-                            colSpan={6}
+                            colSpan={visibleColumns.length}
                             className="border-t border-border bg-surface p-5"
                           >
-                            <div className="space-y-6 max-w-6xl">
+                            <div className="space-y-6 w-full max-w-[calc(100vw-5rem)] lg:max-w-6xl">
                               <section
                                 aria-label={`Данные таблицы ${item.name}`}
                               >

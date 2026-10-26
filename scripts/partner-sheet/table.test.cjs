@@ -3,6 +3,7 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const source=fs.readFileSync(path.join(__dirname,'../../apps/web/src/lib/agency-table.ts'),'utf8');
 const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
 const context={exports:{}};vm.runInNewContext(compiled,context);const {agencyTableRows}=context.exports;
+const {agencyVisibleColumns}=context.exports;
 const p=(tab,row,total)=>({tab,row,baselineRub:total,addedRub:'0.00',totalRub:total});
 const items=[{key:'a',name:'Альфа',type:'АН',status:'MATCHED',matchedAgency:{name:'Другое имя'},periods:[p('Партнеры 2026',6,'10.00'),p('Спящие',10,'2.00')]},{key:'b',name:'Бета',type:'Агрегатор',status:'NEW',matchedAgency:null,periods:[p('Агрегаторы',7,'9007199254740993.02')]},{key:'c',name:'Гамма',type:'Ключевой',status:'REVIEW',matchedAgency:null,periods:[p('Спящие',9,'9007199254740993.01')]}];
 const options={search:'',type:'',status:'',source:'',sort:null,direction:'asc'};
@@ -30,4 +31,17 @@ test('page has three combined filters, six sortable headers, reset and no inform
  assert.match(page,/Все типы/);assert.match(page,/Все статусы/);assert.match(page,/Все листы/);
  assert.match(page,/aria-sort=/);assert.match(page,/Сбросить/);
  assert.doesNotMatch(page,/Поля источника: заполнено|Нажмите на строку или название|Обновление из источника|Отдельное представление таблицы партнёров/);
+});
+
+test('column preferences keep the row identity, remove unknowns and duplicates and preserve canonical order',()=>{
+ assert.equal(agencyVisibleColumns(null).length,6);
+ assert.equal(agencyVisibleColumns([]).join(','),'name');
+ assert.equal(agencyVisibleColumns(['total','bad','total','status']).join(','),'name,status,total');
+});
+
+test('visible columns shape headers and details, with a dedicated scroll region and controls',()=>{
+ const page=fs.readFileSync(path.join(__dirname,'../../apps/web/src/app/(cabinet)/admin/agencies-v1-2/page.tsx'),'utf8');
+ assert.match(page,/visibleColumns\.map/);assert.match(page,/colSpan=\{visibleColumns\.length\}/);
+ assert.match(page,/overflow-x-auto/);assert.match(page,/Прокрутить таблицу влево/);assert.match(page,/Прокрутить таблицу вправо/);
+ assert.match(page,/agency-v1-2-visible-columns/);
 });

@@ -5,6 +5,20 @@ export type AgencySortKey =
   | "baseline"
   | "added"
   | "total";
+export const AGENCY_COLUMN_KEYS: AgencySortKey[] = [
+  "name",
+  "status",
+  "source",
+  "baseline",
+  "added",
+  "total",
+];
+export function agencyVisibleColumns(value: unknown): AgencySortKey[] {
+  if (!Array.isArray(value)) return [...AGENCY_COLUMN_KEYS];
+  return AGENCY_COLUMN_KEYS.filter(
+    (key) => key === "name" || value.includes(key),
+  );
+}
 type Period = {
   tab: string;
   row: number;
