@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { apiGet, apiDownload } from "@/lib/api";
 
+type Field = { label: string; value: string };
 type Period = {
   tab: string;
   row: number;
@@ -11,6 +12,7 @@ type Period = {
   addedRub: string;
   totalRub: string;
   baselineScope: string;
+  fields: Field[];
 };
 type Item = {
   key: string;
@@ -18,7 +20,12 @@ type Item = {
   type: string;
   status: "MATCHED" | "REVIEW" | "NEW";
   periods: Period[];
-  matchedAgency: { id: string; name: string } | null;
+  matchedAgency: {
+    id: string;
+    name: string;
+    updatedAt: string | null;
+    fields: Field[];
+  } | null;
 };
 type Data = {
   loadedAt: string;
@@ -28,6 +35,7 @@ type Data = {
   review: number;
   new: number;
   warning: string;
+  audit: { sourceFields: number; sourceFilled: number; cabinetMissing: number };
 };
 const status = {
   MATCHED: "Сопоставлено",
@@ -40,11 +48,29 @@ const money = (value: string) =>
     maximumFractionDigits: 2,
   });
 
+function Fields({ fields, empty }: { fields: Field[]; empty: string }) {
+  return (
+    <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+      {fields.map((field) => (
+        <div key={field.label} className="min-w-0">
+          <dt className="text-xs text-text-muted">{field.label}</dt>
+          <dd
+            className={`mt-1 whitespace-pre-wrap break-words ${field.value.trim() ? "" : "text-text-muted italic"}`}
+          >
+            {field.value.trim() || empty}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export default function AgenciesV12Page() {
   const [data, setData] = useState<Data | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [search, setSearch] = useState("");
+    [search, setSearch] = useState(""),
+    [expanded, setExpanded] = useState<string | null>(null);
   async function load() {
     setBusy(true);
     setError("");
@@ -129,6 +155,18 @@ export default function AgenciesV12Page() {
               проверке · {data.new} нет в текущей базе
             </p>
             <p className="text-sm text-text-muted mt-2">{data.warning}</p>
+            <p className="text-sm text-text-muted mt-2">
+              Нажмите на строку или название — откроются подробности. Ссылка в
+              колонке «Сопоставление» ведёт в действующую карточку базы.
+            </p>
+            {data.audit && (
+              <p className="text-sm text-text-muted">
+                Поля источника: заполнено {data.audit.sourceFilled} из{" "}
+                {data.audit.sourceFields}. Незаполненных реквизитов в
+                сопоставленных карточках: {data.audit.cabinetMissing}. Пустые
+                поля отмечены явно; данные не дополняются предположениями.
+              </p>
+            )}
             <p className="text-sm text-text-muted">
               Загружено:{" "}
               {new Date(data.loadedAt).toLocaleString("ru-RU", {
@@ -167,50 +205,166 @@ export default function AgenciesV12Page() {
               </thead>
               <tbody>
                 {filtered.flatMap((item) =>
-                  item.periods.map((period, index) => (
-                    <tr
-                      key={`${item.key}:${period.tab}:${period.row}`}
-                      className="border-t border-border"
-                    >
-                      <td className="p-3 min-w-56">
-                        <b>{item.name}</b>
-                        <p className="text-text-muted">
-                          {item.type}
-                          {item.periods.length > 1
-                            ? " · несколько периодов, не суммировать"
-                            : ""}
-                        </p>
-                      </td>
-                      <td className="p-3">
-                        <span>{status[item.status]}</span>
-                        {item.matchedAgency && (
-                          <Link
-                            className="block text-accent"
-                            href={`/admin/loyalty-base/ours/agencies/${item.matchedAgency.id}`}
-                          >
-                            {item.matchedAgency.name}
-                          </Link>
+                  item.periods.map((period) => {
+                    const rowKey = `${item.key}:${period.tab}:${period.row}`;
+                    const isOpen = expanded === rowKey;
+                    const toggle = () => setExpanded(isOpen ? null : rowKey);
+                    return (
+                      <Fragment key={rowKey}>
+                        <tr
+                          className={`border-t border-border cursor-pointer hover:bg-surface-secondary ${isOpen ? "bg-surface-secondary" : ""}`}
+                          onClick={(event) => {
+                            if (
+                              !(event.target as HTMLElement).closest(
+                                "a,button,input",
+                              )
+                            )
+                              toggle();
+                          }}
+                        >
+                          <td className="p-3 min-w-56">
+                            <button
+                              type="button"
+                              className="text-left font-semibold flex items-start gap-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                              aria-expanded={isOpen}
+                              aria-controls={`details-${rowKey}`}
+                              onClick={toggle}
+                            >
+                              <span aria-hidden="true">
+                                {isOpen ? "▾" : "▸"}
+                              </span>
+                              <span>{item.name}</span>
+                            </button>
+                            <p className="text-text-muted">
+                              {item.type}
+                              {item.periods.length > 1
+                                ? " · несколько периодов, не суммировать"
+                                : ""}
+                            </p>
+                          </td>
+                          <td className="p-3">
+                            <span>{status[item.status]}</span>
+                            {item.matchedAgency && (
+                              <Link
+                                className="block text-accent"
+                                onClick={(
+                                  event: MouseEvent<HTMLAnchorElement>,
+                                ) => event.stopPropagation()}
+                                href={`/admin/loyalty-base/ours/agencies/${item.matchedAgency.id}`}
+                              >
+                                {item.matchedAgency.name}
+                              </Link>
+                            )}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            {period.tab}, строка {period.row}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            {money(period.baselineRub)}
+                            <small className="block text-text-muted">
+                              {period.baselineScope === "BEFORE_2026"
+                                ? "До 2026, справочно"
+                                : "База 2026 из таблицы"}
+                            </small>
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            {money(period.addedRub)}
+                          </td>
+                          <td className="p-3 whitespace-nowrap font-semibold">
+                            {money(period.totalRub)}
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr id={`details-${rowKey}`}>
+                            <td
+                              colSpan={6}
+                              className="border-t border-border bg-surface p-5"
+                            >
+                              <div className="space-y-6 max-w-6xl">
+                                <section
+                                  aria-label={`Данные таблицы ${item.name}`}
+                                >
+                                  <h2 className="font-semibold text-base mb-2">
+                                    Данные таблицы · {period.tab}, строка{" "}
+                                    {period.row}
+                                  </h2>
+                                  <p className="text-sm text-text-muted mb-4">
+                                    Показаны значения источника на момент
+                                    загрузки. Телефон и имя агента — контакт из
+                                    таблицы, не подтверждённые реквизиты юрлица.
+                                    Указанные в таблице сроки и ставки не
+                                    заменяют актуальные условия вознаграждения.
+                                  </p>
+                                  {period.fields?.some((field) =>
+                                    /30\.09/.test(
+                                      field.label + " " + field.value,
+                                    ),
+                                  ) && (
+                                    <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">
+                                      В источнике есть условие «до 30.09». Срок
+                                      требует проверки: это не подтверждение
+                                      действующей акции.
+                                    </p>
+                                  )}
+                                  <Fields
+                                    fields={period.fields || []}
+                                    empty="Не заполнено в таблице"
+                                  />
+                                </section>
+                                <section
+                                  aria-label={`Карточка базы ${item.name}`}
+                                  className="border-t border-border pt-4"
+                                >
+                                  <h2 className="font-semibold text-base mb-2">
+                                    Действующая карточка кабинета
+                                  </h2>
+                                  {item.matchedAgency ? (
+                                    <>
+                                      <Link
+                                        className="text-accent inline-block mb-3"
+                                        href={`/admin/loyalty-base/ours/agencies/${item.matchedAgency.id}`}
+                                      >
+                                        Открыть карточку:{" "}
+                                        {item.matchedAgency.name} →
+                                      </Link>
+                                      {item.matchedAgency.updatedAt && (
+                                        <p className="text-sm text-text-muted mb-3">
+                                          Карточка обновлена:{" "}
+                                          {new Date(
+                                            item.matchedAgency.updatedAt,
+                                          ).toLocaleString("ru-RU", {
+                                            timeZone: "Europe/Moscow",
+                                          })}{" "}
+                                          МСК
+                                        </p>
+                                      )}
+                                      <Fields
+                                        fields={item.matchedAgency.fields || []}
+                                        empty="Не заполнено в кабинете"
+                                      />
+                                    </>
+                                  ) : (
+                                    <p className="text-text-muted">
+                                      {item.status === "REVIEW"
+                                        ? "Юридическое лицо не подтверждено. Привязка оставлена на проверке."
+                                        : "Сопоставленная карточка пока отсутствует. Ниже не подставляются реквизиты похожих организаций."}
+                                    </p>
+                                  )}
+                                </section>
+                                <p className="text-sm text-text-muted">
+                                  Проверка полноты не подтверждает достоверность
+                                  или актуальность каждого контакта. Таблица и
+                                  текущая база показаны раздельно: реквизиты,
+                                  контакты и суммы автоматически не
+                                  перезаписываются.
+                                </p>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                      <td className="p-3 whitespace-nowrap">
-                        {period.tab}, строка {period.row}
-                      </td>
-                      <td className="p-3 whitespace-nowrap">
-                        {money(period.baselineRub)}
-                        <small className="block text-text-muted">
-                          {period.baselineScope === "BEFORE_2026"
-                            ? "До 2026, справочно"
-                            : "База 2026 из таблицы"}
-                        </small>
-                      </td>
-                      <td className="p-3 whitespace-nowrap">
-                        {money(period.addedRub)}
-                      </td>
-                      <td className="p-3 whitespace-nowrap font-semibold">
-                        {money(period.totalRub)}
-                      </td>
-                    </tr>
-                  )),
+                      </Fragment>
+                    );
+                  }),
                 )}
               </tbody>
             </table>
