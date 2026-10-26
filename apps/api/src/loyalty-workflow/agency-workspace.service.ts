@@ -29,6 +29,7 @@ const { decodeSnapshot } = require(
 const SCRIPT_KEY = "agency-v1-2:approved-script";
 const OPEN = ["PENDING", "IN_PROGRESS"];
 const CONVERSATION = new Set([
+  "INFORMED",
   "SEND_INFORMATION",
   "BROKER_TOUR_SCHEDULED",
   "CALLBACK",
@@ -37,6 +38,24 @@ const CONVERSATION = new Set([
   "COOPERATION_DECLINED",
   "DO_NOT_CALL",
 ]);
+
+function attemptsForOperator(attempts: any[], operatorId?: string) {
+  if (!operatorId) return attempts;
+  const byId = new Map(attempts.map((a) => [a.id, a]));
+  return attempts.filter((attempt) => {
+    const seen = new Set();
+    let root = attempt;
+    while (
+      root.correctsAttemptId &&
+      byId.has(root.correctsAttemptId) &&
+      !seen.has(root.id)
+    ) {
+      seen.add(root.id);
+      root = byId.get(root.correctsAttemptId);
+    }
+    return (root.operatorId ?? root.operator?.id) === operatorId;
+  });
+}
 
 // Only verified canonical matches are usable targets. Sheet coordinates and
 // names remain presentation data, never foreign keys for operational history.
@@ -144,6 +163,26 @@ export function agencyMetrics(cards: any[], from: Date, to: Date, now: Date) {
     tasksDue: due.length,
     tasksOnTime: onTime.length,
     overdue: overdue.length,
+    coverage: {
+      numerator: attempted.size,
+      denominator: assignedIds.length,
+      ratio: assignedIds.length ? attempted.size / assignedIds.length : null,
+    },
+    contact: {
+      numerator: spoken.size,
+      denominator: attempted.size,
+      ratio: attempted.size ? spoken.size / attempted.size : null,
+      source: "OPERATOR",
+    },
+    agreementRate: {
+      numerator: agreements.length,
+      denominator: effective.filter((a) => CONVERSATION.has(a.result)).length,
+    },
+    onTime: {
+      numerator: onTime.length,
+      denominator: due.length,
+      ratio: due.length ? onTime.length / due.length : null,
+    },
     evidence: {
       assignedAgencies: assignedIds.map((agencyId) => ({
         agencyId,
@@ -244,7 +283,18 @@ export class AgencyWorkspaceService {
               },
             },
           ],
-          ...(assigneeId ? { assignedToId: assigneeId } : {}),
+          ...(assigneeId
+            ? {
+                AND: [
+                  {
+                    OR: [
+                      { assignedToId: assigneeId },
+                      { attempts: { some: { operatorId: assigneeId } } },
+                    ],
+                  },
+                ],
+              }
+            : {}),
           ...(query.campaignId ? { campaignId: query.campaignId } : {}),
         },
         include: {
@@ -296,7 +346,7 @@ export class AgencyWorkspaceService {
       },
     } as any);
     const visibleIds = new Set(assignments.map((a) => a.ourAgencyId));
-    const cards = agencies
+    const allCards = agencies
       .filter(
         (a) =>
           (all && !assigneeId && !query.campaignId) || visibleIds.has(a.id),
@@ -315,12 +365,74 @@ export class AgencyWorkspaceService {
             const { workSessionHash, ...publicAssignment } = assignment as any;
             return { ...publicAssignment, claimed: Boolean(workSessionHash) };
           }),
-          attempts: own.flatMap((x) => x.attempts),
+          attempts: attemptsForOperator(
+            own.flatMap((x) => x.attempts),
+            assigneeId,
+          ),
           tasks: own
             .flatMap((x) => x.tasks)
-            .filter((t) => all || t.assignedToId === user.id),
+            .filter((t) => !assigneeId || t.assignedToId === assigneeId),
         };
       });
+    const filterOptions = {
+      agencies: allCards.map((card) => ({ id: card.id, name: card.name })),
+      campaigns: [
+        ...new Map(
+          allCards.flatMap((card) =>
+            card.assignments.map(
+              (a) =>
+                [
+                  a.campaign.id,
+                  { id: a.campaign.id, name: a.campaign.name },
+                ] as const,
+            ),
+          ),
+        ).values(),
+      ],
+    };
+    const cards = allCards.filter(
+      (card) =>
+        (!query.agencyId || card.id === query.agencyId) &&
+        (!query.agencyType || card.type === query.agencyType),
+    );
+    // Contact context and employee performance are different projections.
+    // The current assignee needs prior conversations; those calls still belong
+    // to their original operators in metrics/export.
+    const contextIds =
+      assigneeId || query.campaignId
+        ? cards
+            .filter(
+              (card) =>
+                all ||
+                card.assignments.some(
+                  (a) =>
+                    a.assignedToId === user.id &&
+                    OPEN.includes(a.status) &&
+                    a.campaign.status === "ACTIVE",
+                ),
+            )
+            .map((card) => card.id)
+        : [];
+    if (contextIds.length) {
+      const history = await this.db.loyaltyCallAttempt.findMany({
+        where: { assignment: { ourAgencyId: { in: contextIds } } },
+        include: {
+          assignment: { select: { ourAgencyId: true } },
+          operator: { select: { id: true, fullName: true } },
+        },
+        orderBy: { occurredAt: "desc" },
+        take: 2001,
+      });
+      if (history.length > 2000)
+        throw new BadRequestException(
+          "История превышает 2000 событий. Уточните агентство или кампанию",
+        );
+      for (const card of cards)
+        if (contextIds.includes(card.id))
+          (card as any).contextAttempts = history
+            .filter((row) => row.assignment.ourAgencyId === card.id)
+            .map(({ assignment, ...attempt }) => attempt);
+    }
     const now = new Date();
     const from = query.from
       ? new Date(query.from)
@@ -338,10 +450,95 @@ export class AgencyWorkspaceService {
       throw new BadRequestException(
         "Нужен период с часовым поясом, конец позже начала",
       );
+    const metrics = agencyMetrics(cards, from, to, now);
+    const quality: Record<string, string[]> = {
+      noPhone: cards
+        .filter(
+          (c) =>
+            !c.phone &&
+            !(c.callContacts || []).some(
+              (p: any) => !p.archived && (p.phone || p.alternatePhone),
+            ),
+        )
+        .map((c) => c.id),
+      noOwner: cards
+        .filter((c) => !c.assignments.some((a) => OPEN.includes(a.status)))
+        .map((c) => c.id),
+      invalidPhone: cards
+        .filter((c) =>
+          c.attempts.some(
+            (a) =>
+              a.result === "INVALID_PHONE" &&
+              !c.attempts.some((b) => b.correctsAttemptId === a.id),
+          ),
+        )
+        .map((c) => c.id),
+      missingNextAction: cards
+        .filter((c) =>
+          c.attempts.some(
+            (a) =>
+              [
+                "CALLBACK",
+                "SEND_INFORMATION",
+                "BROKER_TOUR_SCHEDULED",
+                "AGREEMENTS_EXIST",
+                "COOPERATION_AGREED",
+              ].includes(a.result) &&
+              !c.attempts.some((b) => b.correctsAttemptId === a.id) &&
+              (!a.nextStep || !a.nextActionAt),
+          ),
+        )
+        .map((c) => c.id),
+      scriptNotCurrent: script.current ? [] : cards.map((c) => c.id),
+    };
+    for (const [key, ids] of Object.entries(quality))
+      (metrics.evidence as any)[key] = ids.map((agencyId) => ({
+        agencyId,
+        eventId: agencyId,
+        kind: "AGENCY",
+      }));
+    const workload = new Map<
+      string,
+      { id: string; name: string; open: number; overdue: number }
+    >();
+    for (const card of cards) {
+      for (const assignment of card.assignments)
+        if (
+          OPEN.includes(assignment.status) &&
+          assignment.campaign.status === "ACTIVE"
+        ) {
+          const entry = workload.get(assignment.assignedToId) || {
+            id: assignment.assignedToId,
+            name: assignment.assignedTo.fullName,
+            open: 0,
+            overdue: 0,
+          };
+          entry.open++;
+          workload.set(entry.id, entry);
+        }
+      for (const task of card.tasks)
+        if (
+          task.status === "OPEN" &&
+          task.dueAt &&
+          new Date(task.dueAt) < now
+        ) {
+          const entry = workload.get(task.assignedToId) || {
+            id: task.assignedToId,
+            name: task.assignedTo.fullName,
+            open: 0,
+            overdue: 0,
+          };
+          entry.overdue++;
+          workload.set(entry.id, entry);
+        }
+    }
     return {
       cards,
+      filterOptions,
       script,
-      metrics: agencyMetrics(cards, from, to, now),
+      metrics,
+      quality,
+      workload: [...workload.values()],
       period: { from, to, timeZone: "Europe/Moscow" },
       source: {
         loadedAt: snapshot.loadedAt,
@@ -451,13 +648,10 @@ export class AgencyWorkspaceService {
     const script = await this.script();
     if (!script.current)
       throw new BadRequestException("Сначала утвердите актуальный скрипт");
-    const filter = {};
-    const resolved = await this.base.resolveSelection(
-      "ours",
-      "AGENCY" as any,
-      filter as any,
-      { excludeDoNotCall: true },
-    );
+    const resolved = await this.workflow.prepareCampaign("OUR", "AGENCY", {
+      includeLowSignal: true,
+    });
+    const filter = resolved.filterSnapshot;
     try {
       return await this.db.$transaction(
         async (tx) => {
@@ -590,6 +784,10 @@ export class AgencyWorkspaceService {
         );
       if (!task.ourAgencyId || !task.assignment || task.status !== "OPEN")
         throw new ConflictException("Задача недоступна для повторного звонка");
+      if ((task as any).kind !== "CALL")
+        throw new BadRequestException(
+          "Эта задача не является повторным звонком; выполните указанное действие отдельно",
+        );
       if (task.version !== expectedVersion)
         throw new ConflictException("Задача изменена, обновите карточку");
       await tx.$queryRawUnsafe(
@@ -678,6 +876,9 @@ export class AgencyWorkspaceService {
         (c) =>
           !c.name.trim() ||
           !c.source.trim() ||
+          [c.phone, c.alternatePhone].some(
+            (phone) => phone.trim() && phone.replace(/\D/g, "").length < 5,
+          ) ||
           !/(Z|[+-]\d{2}:\d{2})$/.test(c.verifiedAt) ||
           new Date(c.verifiedAt).getTime() > Date.now(),
       )
@@ -686,6 +887,23 @@ export class AgencyWorkspaceService {
         "Проверьте контакты, источник и дату проверки",
       );
     return this.db.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        "SELECT id FROM agencies WHERE id=$1 FOR UPDATE",
+        id,
+      );
+      if (!permissions.permissions.includes("READ_ALL")) {
+        const own = await tx.loyaltyCallAssignment.findFirst({
+          where: {
+            ourAgencyId: id,
+            assignedToId: user.id,
+            status: { in: OPEN as any },
+          },
+        });
+        if (!own)
+          throw new ForbiddenException(
+            "Назначение изменилось; обновите карточку",
+          );
+      }
       const before = (await tx.agency.findUnique({
         where: { id },
         select: { callContacts: true },
@@ -748,6 +966,15 @@ export class AgencyWorkspaceService {
         "SELECT id FROM agencies WHERE id = $1 FOR UPDATE",
         assignment.ourAgencyId,
       );
+      const current = await tx.loyaltyCallAssignment.findUnique({
+        where: { id },
+      });
+      if (
+        !current ||
+        current.version !== body.expectedVersion ||
+        !OPEN.includes(current.status)
+      )
+        throw new ConflictException("Назначение уже изменено");
       const changed = await tx.loyaltyCallAssignment.updateMany({
         where: {
           id,
@@ -755,23 +982,33 @@ export class AgencyWorkspaceService {
           status: { in: OPEN as any },
         },
         data: {
-          assignedToId: body.assigneeId,
-          assignedById: user.id,
+          status: "CANCELLED",
+          cancelledAt: new Date(),
           workSessionHash: null,
-          status: "PENDING",
-          startedAt: null,
           version: { increment: 1 },
         },
       } as any);
       if (changed.count !== 1)
         throw new ConflictException("Назначение уже изменено");
+      const successor = await tx.loyaltyCallAssignment.create({
+        data: {
+          campaignId: current.campaignId,
+          ourAgencyId: current.ourAgencyId,
+          assignedToId: body.assigneeId,
+          assignedById: user.id,
+        },
+      });
       await tx.loyaltyTask.updateMany({
         where: {
           assignmentId: id,
           status: "OPEN",
           assignedToId: assignment.assignedToId,
         },
-        data: { assignedToId: body.assigneeId, version: { increment: 1 } },
+        data: {
+          assignmentId: successor.id,
+          assignedToId: body.assigneeId,
+          version: { increment: 1 },
+        },
       });
       await tx.loyaltyWorkflowAudit.create({
         data: {
@@ -780,10 +1017,10 @@ export class AgencyWorkspaceService {
           entityType: "ASSIGNMENT",
           entityId: id,
           before: { assignedToId: assignment.assignedToId },
-          after: { assignedToId: body.assigneeId },
+          after: { assignedToId: body.assigneeId, successorId: successor.id },
         },
       });
-      return { version: body.expectedVersion + 1 };
+      return { id: successor.id, version: successor.version };
     });
   }
 
@@ -853,7 +1090,7 @@ export class AgencyWorkspaceService {
     await this.permissions.require(user, "CALL_EXECUTE");
     const hash = createHash("sha256").update(body.workSessionId).digest("hex");
     return this.db.$transaction(async (tx) => {
-      const assignment = (await tx.loyaltyCallAssignment.findUnique({
+      let assignment = (await tx.loyaltyCallAssignment.findUnique({
         where: { id },
         include: { campaign: true },
       })) as any;
@@ -863,6 +1100,14 @@ export class AgencyWorkspaceService {
         "SELECT id FROM agencies WHERE id = $1 FOR UPDATE",
         assignment.ourAgencyId,
       );
+      assignment = (await tx.loyaltyCallAssignment.findUnique({
+        where: { id },
+        include: { campaign: true },
+      })) as any;
+      if (!assignment || assignment.assignedToId !== user.id)
+        throw new ForbiddenException(
+          "Карточка переназначена другому сотруднику",
+        );
       const agency = (await tx.agency.findUnique({
         where: { id: assignment.ourAgencyId },
       })) as any;

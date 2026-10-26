@@ -1528,6 +1528,7 @@ model LoyaltyCallAttempt {
   operator          Broker                @relation("LoyaltyCallAttemptOperator", fields: [operatorId], references: [id], onDelete: Restrict)
   result            LoyaltyCallResult
   comment           String?               @db.Text
+  nextActionKind    String?               @map("next_action_kind") @db.VarChar(32)
   nextStep          String?               @map("next_step") @db.Text
   nextActionAt      DateTime?             @map("next_action_at")
   source            String                @default("LOYALTY_CALL_QUEUE") @db.VarChar(64)
@@ -1548,6 +1549,7 @@ model LoyaltyCallAttempt {
 }
 
 model LoyaltyTask {
+  kind               String                 @default("OTHER") @db.VarChar(32)
   id                 String                 @id @default(uuid())
   annaPersonId       String?                @map("anna_person_id")
   annaPerson         LoyaltyPerson?         @relation("LoyaltyTaskAnnaPerson", fields: [annaPersonId], references: [id], onDelete: Restrict)

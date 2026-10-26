@@ -58,7 +58,7 @@ export function Breadcrumbs() {
         return (
           <span key={c.href} className="flex items-center gap-1">
             <ChevronRight className="w-3.5 h-3.5" />
-            {isLast ? (
+            {isLast || (c.href === '/admin/agencies-v1-2' && pathname.endsWith('/workspace')) ? (
               <span className="text-text font-medium">{c.label}</span>
             ) : (
               <Link href={c.href} className="hover:text-text">{c.label}</Link>

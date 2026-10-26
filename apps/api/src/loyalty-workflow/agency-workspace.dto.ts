@@ -8,6 +8,7 @@ import {
   IsInt,
   IsISO8601,
   IsOptional,
+  IsIn,
   IsString,
   IsUUID,
   MaxLength,
@@ -22,6 +23,8 @@ export class AgencyWorkspaceQuery {
   @IsOptional() @IsISO8601({ strict: true }) to?: string;
   @IsOptional() @IsUUID("4") assigneeId?: string;
   @IsOptional() @IsUUID("4") campaignId?: string;
+  @IsOptional() @IsUUID("4") agencyId?: string;
+  @IsOptional() @IsIn(["АН", "Ключевой", "Агрегатор"]) agencyType?: string;
 }
 
 export class AgencyPilotDto {

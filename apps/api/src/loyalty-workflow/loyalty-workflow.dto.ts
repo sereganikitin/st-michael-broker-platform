@@ -52,6 +52,7 @@ export const BROKER_CALL_RESULTS = [
   "NOT_A_BROKER",
 ] as const;
 export const AGENCY_CALL_RESULTS = [
+  "INFORMED",
   "DO_NOT_CALL",
   "INVALID_PHONE",
   "NO_ANSWER",
@@ -258,6 +259,10 @@ export class CreateAttemptDto extends ExpectedVersionDto {
   result!: string;
 
   @IsOptional()
+  @IsIn(["CALL", "SEND_MATERIALS", "MEETING", "OTHER"])
+  nextActionKind?: string;
+
+  @IsOptional()
   @Transform(trim)
   @IsString()
   @MaxLength(4000)
@@ -283,6 +288,10 @@ export class CorrectAttemptDto {
 
   @IsIn(ALL_CALL_RESULTS)
   result!: string;
+
+  @IsOptional()
+  @IsIn(["CALL", "SEND_MATERIALS", "MEETING", "OTHER"])
+  nextActionKind?: string;
 
   @IsOptional()
   @Transform(trim)

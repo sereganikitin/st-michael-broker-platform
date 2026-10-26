@@ -89,7 +89,7 @@ export function AgencyCallContacts({
               }).format(new Date(c.verifiedAt))}{" "}
               МСК
             </p>
-            {canCall && c.phone && (
+            {canCall && c.phone && c.phone.replace(/\D/g, "").length >= 5 && (
               <a
                 className="text-accent mr-3"
                 href={`tel:${c.phone.replace(/[^+\d]/g, "")}`}

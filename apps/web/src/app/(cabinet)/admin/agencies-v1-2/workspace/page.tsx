@@ -44,6 +44,7 @@ type Attempt = {
   operator: { id: string; fullName: string };
 };
 type Task = {
+  kind: string;
   id: string;
   title: string;
   status: string;
@@ -75,10 +76,17 @@ type Card = {
   }>;
   assignments: Assignment[];
   attempts: Attempt[];
+  contextAttempts?: Attempt[];
   tasks: Task[];
 };
 type Data = {
+  quality?: Record<string, string[]>;
+  workload?: Array<{ id: string; name: string; open: number; overdue: number }>;
   role: string;
+  filterOptions?: {
+    agencies: Array<{ id: string; name: string }>;
+    campaigns: Array<{ id: string; name: string }>;
+  };
   cards: Card[];
   currentUserId: string;
   permissions: string[];
@@ -90,6 +98,9 @@ type Data = {
     current: boolean;
   };
   metrics: {
+    coverage?: { numerator: number; denominator: number; ratio: number | null };
+    contact?: { numerator: number; denominator: number; ratio: number | null };
+    agreementRate?: { numerator: number; denominator: number };
     assignedAgencies: number;
     attemptedAgencies: number;
     attempts: number;
@@ -112,12 +123,14 @@ type Data = {
   period: { from: string; to: string };
 };
 type Draft = {
+  kind: string;
   result: LoyaltyCallResult | "";
   comment: string;
   nextStep: string;
   when: string;
 };
 const blank = (): Draft => ({
+  kind: "",
   result: "",
   comment: "",
   nextStep: "",
@@ -133,6 +146,7 @@ const moscow = (value: string | null | undefined) =>
     : "Не указан";
 const options = [
   ...getLoyaltyCallResultOptions("agencies"),
+  { code: "INFORMED", label: "Разговор состоялся" },
   { code: "INVALID_PHONE", label: "Неверный номер" },
   { code: "DO_NOT_CALL", label: "Просьба не звонить" },
 ];
@@ -148,9 +162,10 @@ const active = (card: Card) =>
       ["PENDING", "IN_PROGRESS"].includes(a.status) &&
       a.campaign.status === "ACTIVE",
   );
+const historyFor = (card: Card) => card.contextAttempts || card.attempts;
 const effectiveAttempts = (card: Card) => {
-  const superseded = new Set(card.attempts.map((a) => a.correctsAttemptId));
-  return card.attempts.filter((a) => !superseded.has(a.id));
+  const superseded = new Set(historyFor(card).map((a) => a.correctsAttemptId));
+  return historyFor(card).filter((a) => !superseded.has(a.id));
 };
 
 export default function AgencyCallWorkspace() {
@@ -173,6 +188,8 @@ export default function AgencyCallWorkspace() {
   const [reportFocus, setReportFocus] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
   const [filterCampaign, setFilterCampaign] = useState("");
+  const [filterAgency, setFilterAgency] = useState("");
+  const [filterType, setFilterType] = useState("");
   const loadSequence = useRef(0);
   const localClaimReleases = useRef<Record<string, () => void>>({});
   useEffect(
@@ -213,6 +230,8 @@ export default function AgencyCallWorkspace() {
       });
       if (filterAssignee) query.set("assigneeId", filterAssignee);
       if (filterCampaign) query.set("campaignId", filterCampaign);
+      if (filterAgency) query.set("agencyId", filterAgency);
+      if (filterType) query.set("agencyType", filterType);
       const result = await apiGet<Data>(
         `/loyalty-workflow/agencies-v1-2?${query}`,
       );
@@ -224,13 +243,14 @@ export default function AgencyCallWorkspace() {
       )
         setOperators(await getLoyaltyOperators());
     } catch (e) {
+      if (sequence !== loadSequence.current) return;
       setError(
         e instanceof Error ? e.message : "Не удалось загрузить рабочее место",
       );
     } finally {
       if (sequence === loadSequence.current) setBusy(false);
     }
-  }, [from, to, filterAssignee, filterCampaign]);
+  }, [from, to, filterAssignee, filterCampaign, filterAgency, filterType]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -274,7 +294,7 @@ export default function AgencyCallWorkspace() {
       );
     if (view === "overdue")
       return openTasks.some((t) => t.dueAt && new Date(t.dueAt) < new Date());
-    if (view === "new") return !!active(card) && !card.attempts.length;
+    if (view === "new") return !!active(card) && !historyFor(card).length;
     if (view === "callback")
       return attempts.some((a) => a.result === "CALLBACK");
     if (view === "no-phone")
@@ -349,6 +369,8 @@ export default function AgencyCallWorkspace() {
     to,
     assignee: filterAssignee,
     campaign: filterCampaign,
+    agency: filterAgency,
+    agencyType: filterType,
   };
   const action = async (run: () => Promise<unknown>, message: string) => {
     setBusy(true);
@@ -415,6 +437,9 @@ export default function AgencyCallWorkspace() {
       result: draft.result,
       comment: draft.comment.trim(),
       nextStep: draft.nextStep.trim() || undefined,
+      nextActionKind: draft.nextStep.trim()
+        ? draft.kind || undefined
+        : undefined,
       nextActionAt: draft.when ? `${draft.when}:00+03:00` : undefined,
     };
     const signature = JSON.stringify(payload);
@@ -431,16 +456,18 @@ export default function AgencyCallWorkspace() {
         return next;
       });
       setSelected(cards.find((c) => c.id !== card.id)?.id || "");
-    }, "Результат сохранён. Следующий шаг записан с ответственным оператором.");
+    }, "Результат сохранён. Выполнение обещанных задач отмечается отдельно.");
   };
 
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link className="text-accent" href="/admin/agencies-v1-2">
-            Исходная таблица
-          </Link>
+          {data?.permissions.includes("READ_ALL") && (
+            <Link className="text-accent" href="/admin/agencies-v1-2">
+              Исходная таблица
+            </Link>
+          )}
           <h1 className="text-2xl font-semibold">
             Агентства v1/2 · Мой обзвон
           </h1>
@@ -466,6 +493,8 @@ export default function AgencyCallWorkspace() {
       {error && (
         <p role="alert" className="rounded bg-error/10 p-3 text-error">
           {error} При конфликте обновите данные: черновик остаётся на экране.
+          {data &&
+            " Показаны последние успешно загруженные данные; новый фильтр при ошибке не считается применённым."}
         </p>
       )}
       {notice && (
@@ -573,6 +602,30 @@ export default function AgencyCallWorkspace() {
                 ))}
               </select>
               <select
+                aria-label="Фильтр типа агентства"
+                className="input max-w-xs"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+              >
+                <option value="">Все типы</option>
+                {["АН", "Ключевой", "Агрегатор"].map((type) => (
+                  <option key={type}>{type}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Фильтр агентства"
+                className="input max-w-xs"
+                value={filterAgency}
+                onChange={(e) => setFilterAgency(e.target.value)}
+              >
+                <option value="">Все агентства</option>
+                {(data.filterOptions?.agencies || data.cards).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              <select
                 aria-label="Фильтр кампании"
                 className="input max-w-xs"
                 value={filterCampaign}
@@ -606,6 +659,8 @@ export default function AgencyCallWorkspace() {
                       });
                       if (filterAssignee) q.set("assigneeId", filterAssignee);
                       if (filterCampaign) q.set("campaignId", filterCampaign);
+                      if (filterAgency) q.set("agencyId", filterAgency);
+                      if (filterType) q.set("agencyType", filterType);
                       const result = await apiDownload(
                         `/loyalty-workflow/agencies-v1-2/export?${q}`,
                         {},
@@ -702,6 +757,55 @@ export default function AgencyCallWorkspace() {
               </button>
             ))}
           </div>
+          <p className="text-sm">
+            Охват:{" "}
+            {data.metrics.coverage
+              ? `${data.metrics.coverage.numerator} / ${data.metrics.coverage.denominator}`
+              : "—"}
+            ; разговор по словам оператора:{" "}
+            {data.metrics.contact
+              ? `${data.metrics.contact.numerator} / ${data.metrics.contact.denominator}`
+              : "—"}
+            ; договорённости / разговоры:{" "}
+            {data.metrics.agreementRate
+              ? `${data.metrics.agreementRate.numerator} / ${data.metrics.agreementRate.denominator}`
+              : "—"}
+            . Нулевой знаменатель означает «нет данных для доли».
+          </p>
+          {data.quality && (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries({
+                noPhone: "Нет телефона",
+                noOwner: "Нет открытого назначения",
+                invalidPhone: "Неверный номер",
+                missingNextAction: "Нет следующего шага в результате",
+                scriptNotCurrent: "Нет актуального скрипта",
+              }).map(([key, label]) => (
+                <button
+                  key={key}
+                  className="btn btn-secondary"
+                  onClick={() => setReportFocus(key)}
+                >
+                  {label}: {data.quality?.[key]?.length || 0}
+                </button>
+              ))}
+            </div>
+          )}
+          {!!data.workload?.length && (
+            <div className="space-y-1">
+              <h3 className="font-semibold">Текущая загрузка</h3>
+              {data.workload.map((row) => (
+                <button
+                  key={row.id}
+                  className="btn btn-secondary mr-2"
+                  onClick={() => setFilterAssignee(row.id)}
+                >
+                  {row.name}: {row.open} назначений, {row.overdue} просроченных
+                  задач
+                </button>
+              ))}
+            </div>
+          )}
           <p className="text-xs text-text-muted">
             Период — МСК. Попытки считаются отдельно от уникальных агентств.
             Разговор — результат оператора; соединения Mango и сделки amoCRM
@@ -837,6 +941,7 @@ export default function AgencyCallWorkspace() {
                 дополняются догадками.
               </p>
               {card.phone &&
+                card.phone.replace(/\D/g, "").length >= 5 &&
                 data?.script.current &&
                 !card.doNotCall &&
                 editable && (
@@ -915,6 +1020,7 @@ export default function AgencyCallWorkspace() {
                       )}
                     {data?.permissions.includes("CALL_EXECUTE") &&
                       t.assignedToId === data.currentUserId &&
+                      t.kind === "CALL" &&
                       !assignment &&
                       !card.doNotCall && (
                         <button
@@ -969,6 +1075,20 @@ export default function AgencyCallWorkspace() {
                   />
                 </label>
                 <label>
+                  Тип следующего действия
+                  <select
+                    className="input"
+                    value={draft.kind}
+                    onChange={(e) => patch({ kind: e.target.value })}
+                  >
+                    <option value="">Выберите тип</option>
+                    <option value="CALL">Позвонить</option>
+                    <option value="SEND_MATERIALS">Отправить материалы</option>
+                    <option value="MEETING">Встреча / тур</option>
+                    <option value="OTHER">Другое</option>
+                  </select>
+                </label>
+                <label>
                   Следующий шаг (обязателен для договорённости)
                   <input
                     className="input"
@@ -997,9 +1117,9 @@ export default function AgencyCallWorkspace() {
             )}
             <details>
               <summary className="cursor-pointer font-semibold">
-                Журнал попыток ({card.attempts.length}) и задач
+                Журнал попыток ({historyFor(card).length}) и задач
               </summary>
-              {[...card.attempts]
+              {[...historyFor(card)]
                 .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
                 .map((a) => (
                   <div key={a.id} className="border-b border-border py-3">
@@ -1021,7 +1141,7 @@ export default function AgencyCallWorkspace() {
                       (a.operator.id === data.currentUserId ||
                         data.role === "ADMIN") &&
                       a.result !== "DO_NOT_CALL" &&
-                      !card.attempts.some(
+                      !historyFor(card).some(
                         (other) => other.correctsAttemptId === a.id,
                       ) && (
                         <AgencyCallCorrection attempt={a} onChanged={load} />

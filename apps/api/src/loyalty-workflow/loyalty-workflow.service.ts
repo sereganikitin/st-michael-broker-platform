@@ -467,6 +467,18 @@ export class LoyaltyWorkflowService {
     });
   }
 
+  async prepareCampaign(
+    base: "OUR" | "ANNA",
+    entityType: "AGENCY" | "BROKER",
+    filter: Record<string, unknown>,
+  ) {
+    const filterSnapshot = await this.validatedFilterSnapshot(filter);
+    return {
+      filterSnapshot,
+      ...(await this.resolveCanonical(base, entityType, filterSnapshot)),
+    };
+  }
+
   async activateCampaign(
     id: string,
     expectedVersion: number,
@@ -487,7 +499,7 @@ export class LoyaltyWorkflowService {
       }
       if (campaign.status !== "DRAFT") this.stateConflict();
       const count = await tx.loyaltyCallAssignment.count({
-        where: { campaignId: id },
+        where: { campaignId: id, status: { not: "CANCELLED" } },
       });
       if (!count)
         throw new BadRequestException("Нельзя активировать пустую кампанию");
@@ -769,7 +781,11 @@ export class LoyaltyWorkflowService {
         "Запрет звонков доступен для агентства кабинета",
       );
     }
-    this.validateAttemptComment(assignment.campaign.entityType, body);
+    this.validateAttemptComment(
+      assignment.campaign.entityType,
+      body,
+      Boolean(assignment.campaign.filterSnapshot?.agencyWorkspace),
+    );
     const existing = await this.db.loyaltyCallAttempt.findUnique({
       where: { submissionId: body.submissionId },
     });
@@ -835,28 +851,14 @@ export class LoyaltyWorkflowService {
           },
         });
         if (changed.count !== 1) this.versionConflict();
-        // A resumed follow-up task is linked to the new assignment. Close it
-        // before creating a possible next promise from this conversation.
-        if (assignment.campaign.filterSnapshot?.agencyWorkspace) {
-          await tx.loyaltyTask.updateMany({
-            where: {
-              assignmentId,
-              status: "OPEN",
-              assignedToId: assignment.assignedToId,
-            },
-            data: {
-              status: "COMPLETED",
-              completedAt: new Date(),
-              version: { increment: 1 },
-            },
-          });
-        }
+        // Recording an attempt never proves that an open promise was fulfilled.
         const attempt = await tx.loyaltyCallAttempt.create({
           data: {
             assignmentId,
             submissionId: body.submissionId,
             operatorId: user.id,
             result: body.result,
+            nextActionKind: body.nextActionKind ?? null,
             comment: this.nullable(body.comment),
             nextStep: this.nullable(body.nextStep),
             nextActionAt: body.nextActionAt
@@ -902,6 +904,7 @@ export class LoyaltyWorkflowService {
               assignmentId,
               callAttemptId: attempt.id,
               title: body.nextStep,
+              kind: body.nextActionKind ?? "OTHER",
               dueAt: body.nextActionAt ? new Date(body.nextActionAt) : null,
               assignedToId: assignment.assignedToId,
               createdById: user.id,
@@ -983,7 +986,10 @@ export class LoyaltyWorkflowService {
         };
       });
     } catch (error) {
-      if (this.prismaCode(error) === "P2002") {
+      if (
+        this.prismaCode(error) === "P2002" ||
+        error instanceof ConflictException
+      ) {
         const raced = await this.db.loyaltyCallAttempt.findUnique({
           where: { submissionId: body.submissionId },
         });
@@ -1078,6 +1084,9 @@ export class LoyaltyWorkflowService {
           this.validateAttemptComment(
             original.assignment.campaign.entityType,
             body,
+            Boolean(
+              original.assignment.campaign.filterSnapshot?.agencyWorkspace,
+            ),
           );
 
           const existing = await tx.loyaltyCallAttempt.findUnique({
@@ -1107,6 +1116,7 @@ export class LoyaltyWorkflowService {
               submissionId: body.submissionId,
               operatorId: user.id,
               result: body.result,
+              nextActionKind: body.nextActionKind ?? null,
               comment: this.nullable(body.comment),
               nextStep: this.nullable(body.nextStep),
               nextActionAt: body.nextActionAt
@@ -1121,6 +1131,8 @@ export class LoyaltyWorkflowService {
               where: { callAttemptId: original.id },
             });
             const nextChanged =
+              (original.nextActionKind ?? null) !==
+                (body.nextActionKind ?? null) ||
               (original.nextStep ?? null) !== this.nullable(body.nextStep) ||
               (original.nextActionAt
                 ? new Date(original.nextActionAt).toISOString()
@@ -1128,6 +1140,15 @@ export class LoyaltyWorkflowService {
                 (body.nextActionAt
                   ? new Date(body.nextActionAt).toISOString()
                   : null);
+            if (
+              nextChanged &&
+              user.role !== "ADMIN" &&
+              linked.some((task: any) => task.assignedToId !== user.id)
+            ) {
+              throw new ForbiddenException(
+                "Задача передана другому сотруднику; изменение следующего шага требует руководителя",
+              );
+            }
             if (
               nextChanged &&
               linked.some((task: any) => task.status !== "OPEN")
@@ -1142,6 +1163,7 @@ export class LoyaltyWorkflowService {
                 data: body.nextStep
                   ? {
                       title: body.nextStep,
+                      kind: body.nextActionKind ?? "OTHER",
                       dueAt: new Date(body.nextActionAt!),
                       callAttemptId: correction.id,
                       version: { increment: 1 },
@@ -1159,6 +1181,7 @@ export class LoyaltyWorkflowService {
                   assignmentId,
                   callAttemptId: correction.id,
                   title: body.nextStep,
+                  kind: body.nextActionKind ?? "OTHER",
                   dueAt: new Date(body.nextActionAt!),
                   assignedToId: original.assignment.assignedToId,
                   createdById: user.id,
@@ -2276,8 +2299,11 @@ export class LoyaltyWorkflowService {
   private validateAttemptComment(
     entityType: LoyaltyEntity,
     body: CreateAttemptDto | CorrectAttemptDto,
+    strictWorkspace = false,
   ): void {
-    if (entityType === "AGENCY") {
+    if (entityType === "AGENCY" && strictWorkspace) {
+      if (body.nextStep && !body.nextActionKind)
+        throw new BadRequestException("Выберите тип следующего действия");
       const commitment = [
         "CALLBACK",
         "SEND_INFORMATION",
@@ -2366,6 +2392,7 @@ export class LoyaltyWorkflowService {
       : null;
     return (
       existing.result === body.result &&
+      (existing.nextActionKind ?? null) === (body.nextActionKind ?? null) &&
       (existing.comment ?? null) === this.nullable(body.comment) &&
       (existing.nextStep ?? null) === this.nullable(body.nextStep) &&
       existingNext === bodyNext

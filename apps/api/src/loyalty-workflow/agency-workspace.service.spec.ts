@@ -87,6 +87,7 @@ function fixture() {
     createCampaign: jest.fn().mockResolvedValue({ id: "campaign", version: 1 }),
     createAssignments: jest.fn().mockResolvedValue({ createdCount: 1 }),
     forTransaction: jest.fn(),
+    prepareCampaign: jest.fn().mockResolvedValue({ filterSnapshot: {}, filterHash: "hash", snapshotId: null }),
   };
   workflow.forTransaction.mockReturnValue(workflow);
   const base: any = {
@@ -128,7 +129,7 @@ describe("Agency v1/2 workspace", () => {
     expect(result.cards).toEqual([]);
     expect(result.source.reviewCount).toBeNull();
     expect(
-      f.db.loyaltyCallAssignment.findMany.mock.calls[0][0].where.assignedToId,
+      f.db.loyaltyCallAssignment.findMany.mock.calls[0][0].where.AND[0].OR[0].assignedToId,
     ).toBe(user.id);
     expect(f.db.agency.updateMany).not.toHaveBeenCalled();
   });
@@ -149,7 +150,8 @@ describe("Agency v1/2 workspace", () => {
         ourAgencyId: "agency",
         assignedToId: user.id,
         assignedAt: now,
-        attempts: [{ id: "attempt" }],
+        campaign: { id: "campaign", name: "Synthetic" },
+        attempts: [{ id: "attempt", operatorId: user.id }],
         tasks: [
           { assignedToId: "other" },
           { id: "own-task", assignedToId: user.id },
@@ -160,7 +162,7 @@ describe("Agency v1/2 workspace", () => {
     expect(result.cards[0].tasks).toEqual([
       { id: "own-task", assignedToId: user.id },
     ]);
-    expect(result.cards[0].attempts).toEqual([{ id: "attempt" }]);
+    expect(result.cards[0].attempts).toEqual([{ id: "attempt", operatorId: user.id }]);
   });
 
   it("defaults report period to Moscow midnight", async () => {
@@ -362,6 +364,7 @@ describe("Agency v1/2 workspace", () => {
       assignedToId: user.id,
       ourAgencyId: "agency",
       status: "OPEN",
+      kind: "CALL",
       version: 1,
       assignment: { campaign: { status: "COMPLETED" } },
     });
@@ -380,6 +383,7 @@ describe("Agency v1/2 workspace", () => {
       assignedToId: user.id,
       ourAgencyId: "agency",
       status: "OPEN",
+      kind: "CALL",
       version: 1,
       assignmentId: "old",
       assignment: { campaign: { id: "campaign", status: "COMPLETED" } },
@@ -411,23 +415,25 @@ describe("Agency v1/2 workspace", () => {
         service.validateAttemptComment("AGENCY", {
           result,
           comment: "Synthetic",
-        }),
+        }, true),
       ).toThrow(BadRequestException);
       expect(() =>
         service.validateAttemptComment("AGENCY", {
           result,
           comment: "Synthetic",
           nextStep: "Call",
+          nextActionKind: "CALL",
           nextActionAt: "2026-10-27T12:00:00",
-        }),
+        }, true),
       ).toThrow(BadRequestException);
       expect(() =>
         service.validateAttemptComment("AGENCY", {
           result,
           comment: "Synthetic",
           nextStep: "Call",
+          nextActionKind: "CALL",
           nextActionAt: "2026-10-27T12:00:00+03:00",
-        }),
+        }, true),
       ).not.toThrow();
     }
     expect(() =>
@@ -435,8 +441,9 @@ describe("Agency v1/2 workspace", () => {
         result: "DO_NOT_CALL",
         comment: "Stop",
         nextStep: "Call",
+          nextActionKind: "CALL",
         nextActionAt: "2026-10-27T12:00:00Z",
-      }),
+      }, true),
     ).toThrow(BadRequestException);
   });
 
@@ -642,7 +649,8 @@ describe("Agency v1/2 workspace", () => {
         ourAgencyId: "agency",
         assignedToId: user.id,
         assignedAt: now,
-        attempts: [{ id: "event" }],
+        campaign: { id: "campaign", name: "Synthetic" },
+        attempts: [{ id: "event", operatorId: user.id }],
         tasks: [],
       },
     ]);
@@ -651,7 +659,7 @@ describe("Agency v1/2 workspace", () => {
       id: "agency",
       sourceMatched: false,
       periods: [],
-      attempts: [{ id: "event" }],
+      attempts: [{ id: "event", operatorId: user.id }],
     });
     expect(
       f.db.loyaltyCallAssignment.findMany.mock.calls[0][0].where.OR[1].campaign

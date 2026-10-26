@@ -666,6 +666,7 @@ export async function submitLoyaltyCall(body: {
   result: LoyaltyCallResult;
   comment: string;
   nextStep?: string;
+  nextActionKind?: string;
   nextActionAt?: string;
 }): Promise<LoyaltyCallSubmissionResult> {
   const response = object(

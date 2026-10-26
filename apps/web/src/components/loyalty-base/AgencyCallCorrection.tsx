@@ -18,9 +18,11 @@ export function AgencyCallCorrection({
     comment: string;
     nextStep: string;
     nextActionAt: string;
+    nextActionKind?: string;
   };
   onChanged: () => Promise<void>;
 }) {
+  const [kind, setKind] = useState(attempt.nextActionKind || "");
   const [result, setResult] = useState(attempt.result);
   const [comment, setComment] = useState(attempt.comment || "");
   const [nextStep, setNextStep] = useState(attempt.nextStep || "");
@@ -50,6 +52,7 @@ export function AgencyCallCorrection({
       result: result as LoyaltyCallResult,
       comment,
       nextStep: nextStep || undefined,
+      nextActionKind: nextStep ? kind || undefined : undefined,
       nextActionAt: when ? `${when}:00+03:00` : undefined,
       correctionReason: reason.trim(),
     };
@@ -91,6 +94,7 @@ export function AgencyCallCorrection({
           >
             {[
               ...getLoyaltyCallResultOptions("agencies"),
+              { code: "INFORMED", label: "Разговор состоялся" },
               { code: "INVALID_PHONE", label: "Неверный номер" },
             ].map((o) => (
               <option key={o.code} value={o.code}>
@@ -102,12 +106,27 @@ export function AgencyCallCorrection({
         <label>
           Комментарий
           <textarea
+            aria-label="Комментарий исправления"
             className="input"
             required
             maxLength={4000}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
           />
+        </label>
+        <label>
+          Тип следующего действия
+          <select
+            className="input"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+          >
+            <option value="">Выберите тип</option>
+            <option value="CALL">Позвонить</option>
+            <option value="SEND_MATERIALS">Отправить материалы</option>
+            <option value="MEETING">Встреча / тур</option>
+            <option value="OTHER">Другое</option>
+          </select>
         </label>
         <label>
           Следующий шаг
@@ -129,7 +148,7 @@ export function AgencyCallCorrection({
         </label>
         <label>
           Причина исправления *
-          <input
+          <input aria-label="Причина исправления"
             className="input"
             required
             maxLength={1000}

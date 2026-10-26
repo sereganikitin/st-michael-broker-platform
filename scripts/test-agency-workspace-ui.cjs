@@ -188,7 +188,7 @@ const data = {
           process.env.AGENCY_SCREENSHOT_DIR + "/agency-workspace-desktop.png",
         fullPage: true,
       });
-    await page.locator("fieldset select").selectOption("NO_ANSWER");
+    await page.locator("fieldset select").first().selectOption("NO_ANSWER");
     await page.locator("fieldset textarea").fill("Учебная попытка без ответа");
     await page.getByRole("button", { name: "Сохранить и следующий" }).click();
     await page.locator('p[role="alert"]').waitFor();
