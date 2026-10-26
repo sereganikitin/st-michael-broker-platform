@@ -22,8 +22,13 @@ function plan(input){
  for(const tab of TABS.slice(0,3)){
   if(!input[tab]||!Array.isArray(input[tab].names)||!Array.isArray(input[tab].amounts))throw Error('TAB_DATA_REQUIRED');
   const {names,amounts}=input[tab];
+  let reachedCommissionTable=false;
   names.forEach((row,index)=>{
    const rowNumber=index+6,type=String(row[3]??'').trim(),name=String(row[2]??'').trim();
+   // The workbook has a numeric commission lookup table below the registry.
+   // Its volume thresholds are not partner row numbers.
+   if(normalize(row[0])==='от объёма, млн ₽')reachedCommissionTable=true;
+   if(reachedCommissionTable)return;
    // Footer dictionaries and prose are not partner rows.
    if(!type&&!Number.isInteger(row[0]))return;
    if(!name){issues.push({tab,row:rowNumber,code:'NAME_MISSING'});return;}
@@ -58,6 +63,6 @@ function plan(input){
  const summary={agencyRows:agencies.length,agencyTypes:agencies.reduce((r,a)=>(r[a.type]=(r[a.type]||0)+1,r),{}),excludedTypes,
   dealRows:deals.length,signedDealRows:deals.filter(d=>d.status==='Подписан').length,issues:issues.length,
   contactsRead:false,callTabsRead:false,contactsCreated:false,databaseWrites:false};
- return {version:'agency-sheet-preview-v1',spreadsheetId:SPREADSHEET_ID,contentHash:createHash('sha256').update(JSON.stringify(input)).digest('hex'),agencies,deals,issues,summary};
+ return {version:'agency-sheet-preview-v2',spreadsheetId:SPREADSHEET_ID,contentHash:createHash('sha256').update(JSON.stringify(input)).digest('hex'),agencies,deals,issues,summary};
 }
 module.exports={SPREADSHEET_ID,TABS,normalize,centsFromMillions,rubles,plan};

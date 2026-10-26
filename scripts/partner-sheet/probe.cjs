@@ -36,18 +36,19 @@ async function main(){
  const db=new PrismaClient({datasources:{db:{url:url.toString()}},log:[]});
  try{
   if((await db.$queryRaw`SELECT current_setting('default_transaction_read_only') AS mode`)[0]?.mode!=='on')throw Error('READONLY_REQUIRED');
-  const dataset=await db.loyaltyDataset.findFirst({where:{code:'ANNA',base:'ANNA',archivedAt:null,activeSnapshot:{is:{status:'PUBLISHED'}}},select:{id:true,activeSnapshotId:true}});
-  if(!dataset?.activeSnapshotId)throw Error('PUBLISHED_DATASET_MISSING');
-  const organizations=await db.loyaltyOrganization.findMany({where:{datasetId:dataset.id,archivedAt:null},select:{id:true,manualDisplayName:true,sourceRecords:{where:{snapshotId:dataset.activeSnapshotId},select:{displayName:true}}},orderBy:{id:'asc'},take:10001});
+  // Explicit user choice: registered agencies in OURS, never the ANNA dataset.
+  const readOrganizations=()=>db.agency.findMany({select:{id:true,name:true,legalName:true},orderBy:{id:'asc'},take:10001});
+  const organizations=await readOrganizations();
   if(organizations.length>10000)throw Error('TARGET_LIMIT');
   const index=new Map();
-  for(const org of organizations)for(const name of [org.manualDisplayName,...org.sourceRecords.map(r=>r.displayName)]){
+  for(const org of organizations)for(const name of [org.name,org.legalName]){
    if(!name)continue;const key=normalize(name);if(!index.has(key))index.set(key,new Set());index.get(key).add(org.id);
   }
   const mapping=second.agencies.map(a=>({tab:a.tab,row:a.row,matches:index.get(a.normalizedName)?.size||0}));
-  console.log('PARTNER_SHEET_PREVIEW='+JSON.stringify({ok:true,readOnly:true,sourceStable:true,...second.summary,contentHash:second.contentHash,
+  if(JSON.stringify(organizations)!==JSON.stringify(await readOrganizations()))throw Error('TARGET_CHANGED_DURING_READ');
+  console.log('PARTNER_SHEET_PREVIEW='+JSON.stringify({ok:true,readOnly:true,targetBase:'OURS',sourceStable:true,targetStable:true,...second.summary,contentHash:second.contentHash,
    targetOrganizations:organizations.length,matchedRows:mapping.filter(m=>m.matches===1).length,unmatchedRows:mapping.filter(m=>m.matches===0),ambiguousRows:mapping.filter(m=>m.matches>1),sourceIssues:second.issues,
-   importStarted:false,automaticSyncEnabled:false}));
+   unresolvedRowsRequireTaxId:mapping.filter(m=>m.matches!==1).length,importStarted:false,automaticSyncEnabled:false}));
  }finally{await db.$disconnect();}
 }
 if(require.main===module||process.env.RUN_PARTNER_SHEET_PREVIEW==='1')main().catch(()=>{console.log('PARTNER_SHEET_PREVIEW={"ok":false,"readOnly":true,"error":"PREVIEW_REFUSED","databaseWrites":false}');process.exitCode=1;});
