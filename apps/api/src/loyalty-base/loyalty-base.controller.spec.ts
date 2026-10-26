@@ -77,7 +77,7 @@ describe("LoyaltyBaseController RBAC", () => {
     const permissions: any = {
       require: jest.fn().mockResolvedValue(undefined),
     };
-    const controller = new LoyaltyBaseController(loyalty, permissions);
+    const controller = new LoyaltyBaseController(loyalty, permissions, {} as any);
     const user: any = { id: "manager-1", role: "MANAGER" };
 
     await expect(
@@ -102,7 +102,7 @@ describe("LoyaltyBaseController RBAC", () => {
     const permissions: any = {
       require: jest.fn().mockResolvedValue(undefined),
     };
-    const controller = new LoyaltyBaseController(loyalty, permissions);
+    const controller = new LoyaltyBaseController(loyalty, permissions, {} as any);
     jest
       .spyOn(controller as any, "validatedImportDocument")
       .mockResolvedValue({ sourceName: "validated.json" });

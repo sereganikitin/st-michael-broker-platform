@@ -1905,7 +1905,7 @@ export function LoyaltyBaseWorkspaceV2() {
               наличию номера телефона; вкладка базы Анны из интерфейса убрана
               (данные и код остаются — они питают сверку и «последний звонок»
               по базе Анны в нашей базе). */}
-          <nav className="grid gap-2 md:grid-cols-2">
+          <nav className="grid gap-2 md:grid-cols-3">
             {(["WITH", "WITHOUT"] as const).map((mode) => {
               const active = base === "ours" && phoneMode === mode;
               return (
@@ -1933,6 +1933,7 @@ export function LoyaltyBaseWorkspaceV2() {
                 </button>
               );
             })}
+            <a href="/admin/agencies-v1-2" className="rounded-xl border border-border bg-surface p-4 text-left"><b>Агентства v1/2</b><small className="block text-text-muted">Отдельная таблица агентств, агрегаторов и сумм</small></a>
           </nav>
           {importOpen && canImport && base === "anna" && (
             <AnnaImportPanel

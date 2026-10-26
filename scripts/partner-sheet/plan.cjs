@@ -18,7 +18,7 @@ function centsFromMillions(value){
 }
 const rubles=amount=>(amount/100n).toString()+'.'+(amount%100n).toString().padStart(2,'0');
 function plan(input){
- const issues=[],agencies=[],excludedTypes={},deals=[],seen=new Map();
+ const issues=[],agencies=[],sourceRows=[],excludedTypes={},deals=[],seen=new Map();
  for(const tab of TABS.slice(0,3)){
   if(!input[tab]||!Array.isArray(input[tab].names)||!Array.isArray(input[tab].amounts))throw Error('TAB_DATA_REQUIRED');
   const {names,amounts}=input[tab];
@@ -34,12 +34,15 @@ function plan(input){
    if(!name){issues.push({tab,row:rowNumber,code:'NAME_MISSING'});return;}
    if(OTHER_TYPES.has(type)){excludedTypes[type]=(excludedTypes[type]||0)+1;return;}
    if(!AGENCY_TYPES.has(type)){issues.push({tab,row:rowNumber,code:'TYPE_REQUIRES_REVIEW'});return;}
-   const key=normalize(name);if(seen.has(key)){issues.push({tab,row:rowNumber,code:'DUPLICATE_AGENCY_NAME'});return;}seen.set(key,true);
+   const key=normalize(name);
    try{
     const [lastDate,baseline,added,total]=amounts[index]||[];
     const totalCents=centsFromMillions(total),newCents=centsFromMillions(added),baselineCents=centsFromMillions(baseline);
     if(totalCents!==(tab==='Спящие'?newCents:baselineCents+newCents))throw Error('TOTAL_FORMULA_MISMATCH');
-    agencies.push({tab,row:rowNumber,name,normalizedName:key,type,totalRub:rubles(totalCents),addedRub:rubles(newCents),baselineRub:rubles(baselineCents),lastDate:lastDate??null});
+    const record={tab,row:rowNumber,name,normalizedName:key,type,totalRub:rubles(totalCents),addedRub:rubles(newCents),baselineRub:rubles(baselineCents),lastDate:lastDate??null};
+    sourceRows.push(record);
+    if(seen.has(key)){issues.push({tab,row:rowNumber,code:'DUPLICATE_AGENCY_NAME'});return;}seen.set(key,true);
+    agencies.push(record);
    }catch(error){issues.push({tab,row:rowNumber,code:error.message});}
   });
  }
@@ -63,6 +66,6 @@ function plan(input){
  const summary={agencyRows:agencies.length,agencyTypes:agencies.reduce((r,a)=>(r[a.type]=(r[a.type]||0)+1,r),{}),excludedTypes,
   dealRows:deals.length,signedDealRows:deals.filter(d=>d.status==='Подписан').length,issues:issues.length,
   contactsRead:false,callTabsRead:false,contactsCreated:false,databaseWrites:false};
- return {version:'agency-sheet-preview-v2',spreadsheetId:SPREADSHEET_ID,contentHash:createHash('sha256').update(JSON.stringify(input)).digest('hex'),agencies,deals,issues,summary};
+ return {version:'agency-sheet-preview-v2',spreadsheetId:SPREADSHEET_ID,contentHash:createHash('sha256').update(JSON.stringify(input)).digest('hex'),agencies,sourceRows,deals,issues,summary};
 }
 module.exports={SPREADSHEET_ID,TABS,normalize,centsFromMillions,rubles,plan};
