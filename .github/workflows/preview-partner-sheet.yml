@@ -2,7 +2,9 @@ name: Preview partner Google Sheet matching (read-only)
 on:
   workflow_dispatch: {}
 concurrency:
-  group: production-deploy
+  # Read-only previews serialize separately; the server-side shared deploy
+  # lock still refuses overlap with an actual production mutation.
+  group: partner-sheet-preview-readonly
   cancel-in-progress: false
 permissions:
   contents: read
