@@ -178,6 +178,7 @@ export default function AgenciesV12Page() {
           <h1 className="text-2xl font-semibold mt-2">Агентства v1/2</h1>
         </div>
         <div className="flex gap-2">
+            <Link href="/admin/agencies-v1-2/workspace" className="btn btn-primary">Мой обзвон</Link>
           <button
             onClick={() => void load()}
             disabled={busy}

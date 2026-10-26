@@ -49,6 +49,7 @@ const adminNavigation = [
   // 2026-09-04: аналитика агентств по таблице registry_deals (реестр ДДУ).
   { name: 'Реестр сделок', href: '/admin/registry-deals', icon: FileSpreadsheet },
   { name: 'Колл-центр', href: '/admin/call-center', icon: PhoneCall },
+  { name: 'Агентства · мой обзвон', href: '/admin/agencies-v1-2/workspace', icon: PhoneCall },
   { name: 'Конфликты уникальности', href: '/admin/uniqueness-conflicts', icon: AlertTriangle },
   // 2026-07-09: заменяет «Заявки без amoCRM» — теперь тут все типы
   // заявок брокеров (фиксации + встречи + звонки + акцепты) с фильтром

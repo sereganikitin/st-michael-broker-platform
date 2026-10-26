@@ -659,12 +659,14 @@ export async function getMyLoyaltyQueue(filters?: {
 }
 
 export async function submitLoyaltyCall(body: {
+  workSessionId?: string;
   assignmentId: string;
   expectedVersion: number;
   submissionId: string;
   result: LoyaltyCallResult;
   comment: string;
   nextStep?: string;
+  nextActionKind?: string;
   nextActionAt?: string;
 }): Promise<LoyaltyCallSubmissionResult> {
   const response = object(

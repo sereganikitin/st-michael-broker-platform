@@ -52,6 +52,9 @@ export const BROKER_CALL_RESULTS = [
   "NOT_A_BROKER",
 ] as const;
 export const AGENCY_CALL_RESULTS = [
+  "INFORMED",
+  "DO_NOT_CALL",
+  "INVALID_PHONE",
   "NO_ANSWER",
   "COOPERATION_DECLINED",
   "BROKER_TOUR_SCHEDULED",
@@ -241,6 +244,9 @@ export class QueueQueryDto extends LoyaltyListQueryDto {
 export class CreateAttemptDto extends ExpectedVersionDto {
   @IsOptional()
   @IsUUID("4")
+  workSessionId?: string;
+  @IsOptional()
+  @IsUUID("4")
   assignmentId?: string;
 
   @Transform(trim)
@@ -253,6 +259,10 @@ export class CreateAttemptDto extends ExpectedVersionDto {
   result!: string;
 
   @IsOptional()
+  @IsIn(["CALL", "SEND_MATERIALS", "MEETING", "OTHER"])
+  nextActionKind?: string;
+
+  @IsOptional()
   @Transform(trim)
   @IsString()
   @MaxLength(4000)
@@ -261,7 +271,7 @@ export class CreateAttemptDto extends ExpectedVersionDto {
   @IsOptional()
   @Transform(trim)
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(240)
   nextStep?: string;
 
   @IsOptional()
@@ -278,6 +288,10 @@ export class CorrectAttemptDto {
 
   @IsIn(ALL_CALL_RESULTS)
   result!: string;
+
+  @IsOptional()
+  @IsIn(["CALL", "SEND_MATERIALS", "MEETING", "OTHER"])
+  nextActionKind?: string;
 
   @IsOptional()
   @Transform(trim)

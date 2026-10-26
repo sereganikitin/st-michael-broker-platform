@@ -76,6 +76,23 @@ export class LoyaltyWorkflowService {
     return this.prisma as any;
   }
 
+  /** A scoped instance reuses the same rules inside an outer transaction. */
+  forTransaction(database: any) {
+    return new LoyaltyWorkflowService(
+      database,
+      this.loyaltyBase,
+      this.permissions,
+    );
+  }
+
+  private campaignTransaction<T>(
+    operation: (database: any) => Promise<T>,
+  ): Promise<T> {
+    return typeof this.db.$transaction === "function"
+      ? this.db.$transaction(operation)
+      : operation(this.db);
+  }
+
   effectivePermissions(user: CurrentUserPayload) {
     return this.permissions.effective(user);
   }
@@ -414,7 +431,7 @@ export class LoyaltyWorkflowService {
     );
     const filterHash = resolved.filterHash;
     const snapshotId = resolved.snapshotId ?? null;
-    return this.db.$transaction(async (tx: any) => {
+    return this.campaignTransaction(async (tx: any) => {
       const created = await tx.loyaltyCallCampaign.create({
         data: {
           name: body.name,
@@ -450,6 +467,18 @@ export class LoyaltyWorkflowService {
     });
   }
 
+  async prepareCampaign(
+    base: "OUR" | "ANNA",
+    entityType: "AGENCY" | "BROKER",
+    filter: Record<string, unknown>,
+  ) {
+    const filterSnapshot = await this.validatedFilterSnapshot(filter);
+    return {
+      filterSnapshot,
+      ...(await this.resolveCanonical(base, entityType, filterSnapshot)),
+    };
+  }
+
   async activateCampaign(
     id: string,
     expectedVersion: number,
@@ -470,7 +499,7 @@ export class LoyaltyWorkflowService {
       }
       if (campaign.status !== "DRAFT") this.stateConflict();
       const count = await tx.loyaltyCallAssignment.count({
-        where: { campaignId: id },
+        where: { campaignId: id, status: { not: "CANCELLED" } },
       });
       if (!count)
         throw new BadRequestException("Нельзя активировать пустую кампанию");
@@ -589,7 +618,7 @@ export class LoyaltyWorkflowService {
     const ids = await this.selectionIds(campaign, body);
     await this.validateTargets(campaign, ids, true);
     const targetField = this.targetField(campaign.base, campaign.entityType);
-    return this.db.$transaction(async (tx: any) => {
+    return this.campaignTransaction(async (tx: any) => {
       const current = await tx.loyaltyCallCampaign.findUnique({
         where: { id },
       });
@@ -601,6 +630,9 @@ export class LoyaltyWorkflowService {
       ) {
         this.versionConflict();
       }
+      // Lock the canonical agencies before checking the current stop flag.
+      // All assignment and attempt writes use this same lock order.
+      await this.validateTargets(campaign, ids, true, tx);
       let createdCount = 0;
       for (let index = 0; index < ids.length; index += 500) {
         const created = await tx.loyaltyCallAssignment.createMany({
@@ -740,7 +772,20 @@ export class LoyaltyWorkflowService {
     const assignment = await this.attemptAssignment(assignmentId);
     this.requireAssignmentExecution(user, assignment.assignedToId);
     this.validateCallResult(assignment.campaign.entityType, body.result);
-    this.validateAttemptComment(assignment.campaign.entityType, body);
+    if (
+      assignment.campaign.entityType === "AGENCY" &&
+      body.result === "DO_NOT_CALL" &&
+      !assignment.ourAgencyId
+    ) {
+      throw new BadRequestException(
+        "Запрет звонков доступен для агентства кабинета",
+      );
+    }
+    this.validateAttemptComment(
+      assignment.campaign.entityType,
+      body,
+      Boolean(assignment.campaign.filterSnapshot?.agencyWorkspace),
+    );
     const existing = await this.db.loyaltyCallAttempt.findUnique({
       where: { submissionId: body.submissionId },
     });
@@ -759,6 +804,34 @@ export class LoyaltyWorkflowService {
     if (assignment.campaign.status !== "ACTIVE") this.stateConflict();
     if (!OPEN_ASSIGNMENT_STATUSES.includes(assignment.status))
       this.stateConflict();
+    if (
+      (assignment.campaign.filterSnapshot?.agencyWorkspace ||
+        assignment.workSessionHash) &&
+      (!body.workSessionId ||
+        createHash("sha256").update(body.workSessionId).digest("hex") !==
+          assignment.workSessionHash)
+    ) {
+      throw new ConflictException(
+        "Сначала возьмите карточку в работу в рабочем месте агентств",
+      );
+    }
+    if (
+      assignment.campaign.filterSnapshot?.agencyWorkspace &&
+      !["DO_NOT_CALL", "INVALID_PHONE"].includes(body.result)
+    ) {
+      const approved = await this.db.systemSetting.findUnique({
+        where: { key: "agency-v1-2:approved-script" },
+      });
+      const script = approved ? JSON.parse(approved.value) : null;
+      if (
+        !script?.text ||
+        !(new Date(script.validUntil).getTime() > Date.now())
+      ) {
+        throw new BadRequestException(
+          "Нет актуального утверждённого скрипта. Обратитесь к руководителю",
+        );
+      }
+    }
     try {
       return await this.db.$transaction(async (tx: any) => {
         const targetId = this.assignmentTargetId(assignment);
@@ -778,12 +851,14 @@ export class LoyaltyWorkflowService {
           },
         });
         if (changed.count !== 1) this.versionConflict();
+        // Recording an attempt never proves that an open promise was fulfilled.
         const attempt = await tx.loyaltyCallAttempt.create({
           data: {
             assignmentId,
             submissionId: body.submissionId,
             operatorId: user.id,
             result: body.result,
+            nextActionKind: body.nextActionKind ?? null,
             comment: this.nullable(body.comment),
             nextStep: this.nullable(body.nextStep),
             nextActionAt: body.nextActionAt
@@ -791,6 +866,37 @@ export class LoyaltyWorkflowService {
               : null,
           },
         });
+        if (assignment.ourAgencyId && body.result === "DO_NOT_CALL") {
+          await tx.agency.update({
+            where: { id: assignment.ourAgencyId },
+            data: {
+              doNotCall: true,
+              callControlVersion: { increment: 1 },
+              callControlReason: body.comment,
+              callControlUpdatedAt: new Date(),
+            },
+          });
+          await tx.loyaltyCallAssignment.updateMany({
+            where: {
+              ourAgencyId: assignment.ourAgencyId,
+              status: { in: OPEN_ASSIGNMENT_STATUSES },
+            },
+            data: {
+              status: "CANCELLED",
+              cancelledAt: new Date(),
+              version: { increment: 1 },
+            },
+          });
+          await this.audit(
+            tx,
+            user.id,
+            "AGENCY_DO_NOT_CALL",
+            "AGENCY",
+            assignment.ourAgencyId,
+            null,
+            { doNotCall: true, attemptId: attempt.id },
+          );
+        }
         if (body.nextStep) {
           const followUp = await tx.loyaltyTask.create({
             data: {
@@ -798,8 +904,9 @@ export class LoyaltyWorkflowService {
               assignmentId,
               callAttemptId: attempt.id,
               title: body.nextStep,
+              kind: body.nextActionKind ?? "OTHER",
               dueAt: body.nextActionAt ? new Date(body.nextActionAt) : null,
-              assignedToId: user.id,
+              assignedToId: assignment.assignedToId,
               createdById: user.id,
             },
           });
@@ -879,7 +986,10 @@ export class LoyaltyWorkflowService {
         };
       });
     } catch (error) {
-      if (this.prismaCode(error) === "P2002") {
+      if (
+        this.prismaCode(error) === "P2002" ||
+        error instanceof ConflictException
+      ) {
         const raced = await this.db.loyaltyCallAttempt.findUnique({
           where: { submissionId: body.submissionId },
         });
@@ -955,6 +1065,14 @@ export class LoyaltyWorkflowService {
           });
           if (!original || original.assignmentId !== assignmentId)
             this.notFound();
+          if (
+            original.assignment.ourAgencyId &&
+            (original.result === "DO_NOT_CALL" || body.result === "DO_NOT_CALL")
+          ) {
+            throw new BadRequestException(
+              "Запрет звонков изменяется отдельно руководителем с причиной",
+            );
+          }
           this.requireAssignmentExecution(
             user,
             original.assignment.assignedToId,
@@ -966,6 +1084,9 @@ export class LoyaltyWorkflowService {
           this.validateAttemptComment(
             original.assignment.campaign.entityType,
             body,
+            Boolean(
+              original.assignment.campaign.filterSnapshot?.agencyWorkspace,
+            ),
           );
 
           const existing = await tx.loyaltyCallAttempt.findUnique({
@@ -995,6 +1116,7 @@ export class LoyaltyWorkflowService {
               submissionId: body.submissionId,
               operatorId: user.id,
               result: body.result,
+              nextActionKind: body.nextActionKind ?? null,
               comment: this.nullable(body.comment),
               nextStep: this.nullable(body.nextStep),
               nextActionAt: body.nextActionAt
@@ -1004,6 +1126,69 @@ export class LoyaltyWorkflowService {
               correctionReason: body.correctionReason,
             },
           });
+          if (original.assignment.campaign.filterSnapshot?.agencyWorkspace) {
+            const linked = await tx.loyaltyTask.findMany({
+              where: { callAttemptId: original.id },
+            });
+            const nextChanged =
+              (original.nextActionKind ?? null) !==
+                (body.nextActionKind ?? null) ||
+              (original.nextStep ?? null) !== this.nullable(body.nextStep) ||
+              (original.nextActionAt
+                ? new Date(original.nextActionAt).toISOString()
+                : null) !==
+                (body.nextActionAt
+                  ? new Date(body.nextActionAt).toISOString()
+                  : null);
+            if (
+              nextChanged &&
+              user.role !== "ADMIN" &&
+              linked.some((task: any) => task.assignedToId !== user.id)
+            ) {
+              throw new ForbiddenException(
+                "Задача передана другому сотруднику; изменение следующего шага требует руководителя",
+              );
+            }
+            if (
+              nextChanged &&
+              linked.some((task: any) => task.status !== "OPEN")
+            ) {
+              throw new ConflictException(
+                "Следующий шаг уже обработан. Измените задачу отдельно",
+              );
+            }
+            if (linked.length) {
+              await tx.loyaltyTask.updateMany({
+                where: { callAttemptId: original.id, status: "OPEN" },
+                data: body.nextStep
+                  ? {
+                      title: body.nextStep,
+                      kind: body.nextActionKind ?? "OTHER",
+                      dueAt: new Date(body.nextActionAt!),
+                      callAttemptId: correction.id,
+                      version: { increment: 1 },
+                    }
+                  : {
+                      status: "CANCELLED",
+                      cancelledAt: new Date(),
+                      version: { increment: 1 },
+                    },
+              });
+            } else if (body.nextStep) {
+              await tx.loyaltyTask.create({
+                data: {
+                  ...this.targetDataFromAssignment(original.assignment),
+                  assignmentId,
+                  callAttemptId: correction.id,
+                  title: body.nextStep,
+                  kind: body.nextActionKind ?? "OTHER",
+                  dueAt: new Date(body.nextActionAt!),
+                  assignedToId: original.assignment.assignedToId,
+                  createdById: user.id,
+                },
+              });
+            }
+          }
           await this.audit(
             tx,
             user.id,
@@ -2077,8 +2262,14 @@ export class LoyaltyWorkflowService {
         select: { id: true },
       });
     } else {
+      if (database !== this.db || typeof database.$transaction !== "function") {
+        await database.$queryRawUnsafe(
+          "SELECT id FROM agencies WHERE id = ANY($1::text[]) ORDER BY id FOR UPDATE",
+          ids,
+        );
+      }
       found = await database.agency.findMany({
-        where: { id: { in: ids } },
+        where: { id: { in: ids }, doNotCall: false },
         select: { id: true },
       });
     }
@@ -2108,7 +2299,40 @@ export class LoyaltyWorkflowService {
   private validateAttemptComment(
     entityType: LoyaltyEntity,
     body: CreateAttemptDto | CorrectAttemptDto,
+    strictWorkspace = false,
   ): void {
+    if (entityType === "AGENCY" && strictWorkspace) {
+      if (body.nextStep && !body.nextActionKind)
+        throw new BadRequestException("Выберите тип следующего действия");
+      const commitment = [
+        "CALLBACK",
+        "SEND_INFORMATION",
+        "BROKER_TOUR_SCHEDULED",
+        "AGREEMENTS_EXIST",
+        "COOPERATION_AGREED",
+      ].includes(body.result);
+      if (
+        (commitment || body.nextStep || body.nextActionAt) &&
+        (!body.nextStep?.trim() ||
+          !body.nextActionAt ||
+          !/(Z|[+-]\d{2}:\d{2})$/.test(body.nextActionAt))
+      ) {
+        throw new BadRequestException(
+          "Укажите следующий шаг и точные дату и время с часовым поясом; ответственный — назначенный оператор",
+        );
+      }
+      if (body.nextStep && body.nextStep.length > 240) {
+        throw new BadRequestException("Следующий шаг: не более 240 символов");
+      }
+      if (
+        body.result === "DO_NOT_CALL" &&
+        (body.nextStep || body.nextActionAt)
+      ) {
+        throw new BadRequestException(
+          "При запрете звонков нельзя назначить следующий контакт",
+        );
+      }
+    }
     if (entityType !== "AGENCY" || String(body.comment || "").trim()) return;
     throw new BadRequestException(
       body.result === "AGREEMENTS_EXIST"
@@ -2168,6 +2392,7 @@ export class LoyaltyWorkflowService {
       : null;
     return (
       existing.result === body.result &&
+      (existing.nextActionKind ?? null) === (body.nextActionKind ?? null) &&
       (existing.comment ?? null) === this.nullable(body.comment) &&
       (existing.nextStep ?? null) === this.nullable(body.nextStep) &&
       existingNext === bodyNext
