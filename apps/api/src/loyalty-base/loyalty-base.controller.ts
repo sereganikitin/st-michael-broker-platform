@@ -92,8 +92,19 @@ export class LoyaltyBaseController {
       if (/^[\s]*[=+@-]/u.test(text)) text = "'" + text;
       return '"' + text.replace(/"/g, '""') + '"';
     };
-    const rows = [['Агентство','Тип','Лист','Строка','База, руб.','Добавлено, руб.','Итог, руб.','Период базы','Сопоставление','Карточка в базе']];
-    for (const item of data.items) for (const period of item.periods) rows.push([item.name,item.type,period.tab,String(period.row),period.baselineRub,period.addedRub,period.totalRub,period.baselineScope,item.status,item.matchedAgency?.name || '']);
+    const sourceColumns = ['B','E','F','G','H','I','J','K','L','M','N','O','P','T','U','V','W','X','Y'];
+    const sourceLabels = ['Приоритет','Скрипт звонка','Номер телефона контакта','Имя агента','Дата звонка','Статус контакта','Ответственный менеджер','Следующий контакт','Результат / комментарий','Публикация на сайте','Что нужно для размещения на сайте','Выездной БТ — результат','Последний ДДУ','Условия комиссии (заголовок)','Условия комиссии (значение)','Текущая комиссия','Следующая комиссия','До следующего шага, млн ₽','Комиссия сообщена брокеру','Сигнал отдела'];
+    const cabinetColumns = ['legalName','inn','phone','email','address','legalAddress','bankName','bankBik','bankAccount','correspondentAccount'];
+    const cabinetLabels = ['Юридическое название','ИНН','Телефон агентства','Email агентства','Адрес','Юридический адрес','Банк','БИК','Расчётный счёт','Корреспондентский счёт'];
+    const rows = [['Агентство','Тип','Лист','Строка','База, руб.','Добавлено, руб.','Итог, руб.','Период базы','Сопоставление','Карточка в базе',...sourceLabels.map(s=>`Таблица: ${s}`),...cabinetLabels.map(s=>`Кабинет: ${s}`)]];
+    for (const item of data.items) for (const period of item.periods) {
+      const sourceValues = sourceColumns.flatMap(column => {
+        const field = period.fields?.find((f: any) => f.column === column);
+        return column === 'T' ? [field?.label || '',field?.value || ''] : [field?.value || ''];
+      });
+      const cabinetValues = cabinetColumns.map(key => item.matchedAgency?.fields?.find((f: any) => f.key === key)?.value || '');
+      rows.push([item.name,item.type,period.tab,String(period.row),period.baselineRub,period.addedRub,period.totalRub,period.baselineScope,item.status,item.matchedAgency?.name || '',...sourceValues,...cabinetValues]);
+    }
     response.set({'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="agencies-v1-2.csv"','Cache-Control':'private, no-store'});
     return new StreamableFile(Buffer.from('\ufeff' + rows.map(row=>row.map(cell).join(';')).join('\r\n'), 'utf8'));
   }

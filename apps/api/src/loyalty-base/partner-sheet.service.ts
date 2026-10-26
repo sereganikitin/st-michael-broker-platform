@@ -39,7 +39,21 @@ export class PartnerSheetService {
         JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "{}"),
       );
       const organizations = await this.prisma.agency.findMany({
-        select: { id: true, name: true, legalName: true, inn: true },
+        select: {
+          id: true,
+          name: true,
+          legalName: true,
+          inn: true,
+          phone: true,
+          email: true,
+          address: true,
+          legalAddress: true,
+          bankName: true,
+          bankBik: true,
+          bankAccount: true,
+          correspondentAccount: true,
+          updatedAt: true,
+        },
         take: 10001,
         orderBy: { id: "asc" },
       });

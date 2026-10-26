@@ -1,5 +1,6 @@
 'use strict';
 const {SPREADSHEET_ID,TABS,normalize,plan}=require('./plan.cjs');
+const {readAgencyDetails}=require('./details.cjs');
 async function readSource(credentials){
  const {google}=require('googleapis');
  if(credentials?.type!=='service_account'||credentials.token_uri!=='https://oauth2.googleapis.com/token')throw Error('SOURCE_UNAVAILABLE');
@@ -23,7 +24,9 @@ async function readSource(credentials){
     if(normalize(names?.[0]?.[2])!=='партнёр'||normalize(names?.[0]?.[3])!=='тип'||normalize(amounts?.[0]?.[3])!=='сумма итог, млн ₽')throw Error('SOURCE_SCHEMA_CHANGED');input[title]={names:names.slice(1),amounts:amounts.slice(1)};
    }
   }
-  return plan(input);
+  const source=plan(input);
+  if(source.issues.some(i=>i.code!=='DUPLICATE_AGENCY_NAME'))throw Error('SOURCE_VALIDATION_FAILED');
+  return readAgencyDetails(sheets,SPREADSHEET_ID,source);
  };
  const first=await read(),second=await read();
  if(first.contentHash!==second.contentHash||JSON.stringify(meta)!==JSON.stringify(await metadata()))throw Error('SOURCE_CHANGED_DURING_READ');
