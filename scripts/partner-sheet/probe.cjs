@@ -38,15 +38,24 @@ async function main(){
  try{
   if((await db.$queryRaw`SELECT current_setting('default_transaction_read_only') AS mode`)[0]?.mode!=='on')throw Error('READONLY_REQUIRED');
   // Explicit user choice: registered agencies in OURS, never the ANNA dataset.
-  const readOrganizations=()=>db.agency.findMany({select:{id:true,name:true,legalName:true},orderBy:{id:'asc'},take:10001});
+  const readOrganizations=()=>db.agency.findMany({select:{id:true,name:true,legalName:true,inn:true,_count:{select:{brokerAgencies:true,deals:true}}},orderBy:{id:'asc'},take:10001});
   const organizations=await readOrganizations();
   if(organizations.length>10000)throw Error('TARGET_LIMIT');
   const mapping=matchAgencies(second.agencies,organizations);
   const publicRow=m=>({tab:m.tab,row:m.row,matches:m.matches.length,candidateCount:m.candidates.length,reason:m.reason});
+  // Public legal-identity research is a candidate only, never an import rule.
+  // No phone, email, broker, client or deal content is selected or printed.
+  const publicInns=new Map([['Партнеры 2026:6',['770470572401']],['Спящие:7',['6165207713','341003103169']],['Спящие:16',['7705271348']],['Спящие:19',['9731116328']]]);
+  const identityReview=mapping.filter(m=>m.matches.length!==1).map(m=>{
+   const researched=publicInns.get(`${m.tab}:${m.row}`)||[];
+   const ids=new Set([...m.matches,...m.candidates]);
+   const selected=organizations.filter(o=>ids.has(o.id)||researched.includes(o.inn));
+   return {...publicRow(m),publicInnCandidateCount:researched.length,existingCandidates:selected.map(o=>({name:o.name,legalName:o.legalName,inn:o.inn,canonicalMatch:m.matches.includes(o.id),similarityCandidate:m.candidates.includes(o.id),publicInnMatch:researched.includes(o.inn),brokerLinks:o._count.brokerAgencies,dealLinks:o._count.deals}))};
+  });
   if(JSON.stringify(organizations)!==JSON.stringify(await readOrganizations()))throw Error('TARGET_CHANGED_DURING_READ');
   console.log('PARTNER_SHEET_PREVIEW='+JSON.stringify({ok:true,readOnly:true,targetBase:'OURS',sourceStable:true,targetStable:true,...second.summary,contentHash:second.contentHash,
    matchingPolicy:'CABINET_KEYS_WITH_REVIEW_ONLY_SIMILARITY',targetOrganizations:organizations.length,matchedRows:mapping.filter(m=>m.matches.length===1).length,unmatchedRows:mapping.filter(m=>m.matches.length===0).map(publicRow),ambiguousRows:mapping.filter(m=>m.matches.length>1).map(publicRow),sourceIssues:second.issues,
-   similarityCandidateRows:mapping.filter(m=>m.matches.length===0&&m.candidates.length>0).map(publicRow),unresolvedRowsRequireIdentityReview:mapping.filter(m=>m.matches.length!==1).length,importStarted:false,automaticSyncEnabled:false}));
+   similarityCandidateRows:mapping.filter(m=>m.matches.length===0&&m.candidates.length>0).map(publicRow),identityReview,unresolvedRowsRequireIdentityReview:mapping.filter(m=>m.matches.length!==1).length,importStarted:false,automaticSyncEnabled:false}));
  }finally{await db.$disconnect();}
 }
 if(require.main===module||process.env.RUN_PARTNER_SHEET_PREVIEW==='1')main().catch(()=>{console.log('PARTNER_SHEET_PREVIEW={"ok":false,"readOnly":true,"error":"PREVIEW_REFUSED","databaseWrites":false}');process.exitCode=1;});
