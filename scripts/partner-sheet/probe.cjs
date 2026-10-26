@@ -1,6 +1,8 @@
 'use strict';
 const {SPREADSHEET_ID,TABS,normalize,plan}=globalThis.__partnerSheetPlan||require('./plan.cjs');
 const {matchAgencies}=globalThis.__partnerSheetMatch||require('./match.cjs');
+const {transferPlan}=globalThis.__partnerSheetTransfer||require('./transfer-plan.cjs');
+const {verifyRegistry}=globalThis.__partnerSheetRegistry||require('./registry.cjs');
 async function main(){
  const {google}=require('googleapis'),{PrismaClient}=require('@st-michael/database');
  const credentials=JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON||'{}');
@@ -52,10 +54,13 @@ async function main(){
    const selected=organizations.filter(o=>ids.has(o.id)||researched.includes(o.inn));
    return {...publicRow(m),publicInnCandidateCount:researched.length,existingCandidates:selected.map(o=>({name:o.name,legalName:o.legalName,inn:o.inn,canonicalMatch:m.matches.includes(o.id),similarityCandidate:m.candidates.includes(o.id),publicInnMatch:researched.includes(o.inn),brokerLinks:o._count.brokerAgencies,dealLinks:o._count.deals}))};
   });
+  const transfer=transferPlan(second,organizations);
+  const registryChecks=await verifyRegistry(transfer.newAgencyCandidates,process.env.DADATA_API_KEY);
   if(JSON.stringify(organizations)!==JSON.stringify(await readOrganizations()))throw Error('TARGET_CHANGED_DURING_READ');
   console.log('PARTNER_SHEET_PREVIEW='+JSON.stringify({ok:true,readOnly:true,targetBase:'OURS',sourceStable:true,targetStable:true,...second.summary,contentHash:second.contentHash,
    matchingPolicy:'CABINET_KEYS_WITH_REVIEW_ONLY_SIMILARITY',targetOrganizations:organizations.length,matchedRows:mapping.filter(m=>m.matches.length===1).length,unmatchedRows:mapping.filter(m=>m.matches.length===0).map(publicRow),ambiguousRows:mapping.filter(m=>m.matches.length>1).map(publicRow),sourceIssues:second.issues,
-   similarityCandidateRows:mapping.filter(m=>m.matches.length===0&&m.candidates.length>0).map(publicRow),identityReview,unresolvedRowsRequireIdentityReview:mapping.filter(m=>m.matches.length!==1).length,importStarted:false,automaticSyncEnabled:false}));
+   similarityCandidateRows:mapping.filter(m=>m.matches.length===0&&m.candidates.length>0).map(publicRow),identityReview,unresolvedRowsRequireIdentityReview:mapping.filter(m=>m.matches.length!==1).length,
+   transferPreparation:{planHash:transfer.planHash,existingBindings:transfer.bindings.length,newAgencyCandidates:transfer.newAgencyCandidates.length,quarantine:transfer.quarantine,registryChecks,sourceIssues:transfer.sourceIssues,aggregatePolicy:transfer.aggregatePolicy},importStarted:false,automaticSyncEnabled:false}));
  }finally{await db.$disconnect();}
 }
 if(require.main===module||process.env.RUN_PARTNER_SHEET_PREVIEW==='1')main().catch(()=>{console.log('PARTNER_SHEET_PREVIEW={"ok":false,"readOnly":true,"error":"PREVIEW_REFUSED","databaseWrites":false}');process.exitCode=1;});

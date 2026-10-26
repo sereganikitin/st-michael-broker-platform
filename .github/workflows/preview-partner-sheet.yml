@@ -42,7 +42,7 @@ jobs:
           test "$ATTEMPT" = 1
           test "$(git rev-parse HEAD)" = "$SOURCE"
           test "$(gh api /repos/$REPO/git/ref/heads/master --jq '.object.sha')" = "$SOURCE"
-          node --test scripts/partner-sheet/plan.test.cjs scripts/partner-sheet/match.test.cjs
+          node --test scripts/partner-sheet/*.test.cjs
           [[ "$PIN" =~ ^SHA256:[A-Za-z0-9+/]{43}$ && "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
           case "$HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
           [[ "$DEPLOY" =~ ^/[A-Za-z0-9._/-]+$ ]]
