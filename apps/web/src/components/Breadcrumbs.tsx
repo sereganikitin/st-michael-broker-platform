@@ -30,6 +30,8 @@ const labels: Record<string, string> = {
   anna: 'База Анны Скибицкой',
   ours: 'Наша база',
   agencies: 'Агентства',
+  'agencies-v1-2': 'Агентства v1/2',
+  workspace: 'Мой обзвон',
 };
 
 export function Breadcrumbs() {

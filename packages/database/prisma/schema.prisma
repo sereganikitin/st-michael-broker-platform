@@ -412,6 +412,12 @@ model Agency {
   legalName            String?                  @map("legal_name")
   inn                  String                   @unique // ОБЯЗАТЕЛЬНОЕ — ключ дедупликации и связи с кабинетом
   phone                String?
+  doNotCall            Boolean                  @default(false) @map("do_not_call")
+  callControlVersion   Int                      @default(1) @map("call_control_version")
+  callControlReason    String?                  @map("call_control_reason") @db.Text
+  callControlUpdatedAt DateTime?                @map("call_control_updated_at")
+  callContacts         Json                     @default("[]") @map("call_contacts")
+  callContactsVersion  Int                      @default(1) @map("call_contacts_version")
   email                String?
   address              String?
   legalAddress         String?                  @map("legal_address")
@@ -1496,6 +1502,7 @@ model LoyaltyCallAssignment {
   version            Int                     @default(1)
   assignedAt         DateTime                @default(now()) @map("assigned_at")
   startedAt          DateTime?               @map("started_at")
+  workSessionHash    String?                 @map("work_session_hash") @db.VarChar(64)
   completedAt        DateTime?               @map("completed_at")
   cancelledAt        DateTime?               @map("cancelled_at")
   attempts           LoyaltyCallAttempt[]

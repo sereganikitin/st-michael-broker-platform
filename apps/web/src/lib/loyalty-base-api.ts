@@ -54,7 +54,7 @@ export const LOYALTY_CALL_RESULT_CATALOG = {
   DO_NOT_CALL: {
     code: "DO_NOT_CALL",
     tone: "negative",
-    labels: { brokers: "Просил не звонить" },
+    labels: { brokers: "Просил не звонить", agencies: "Просьба не звонить" },
   },
   NOT_INTERESTED: {
     code: "NOT_INTERESTED",
@@ -87,7 +87,7 @@ export const LOYALTY_CALL_RESULT_CATALOG = {
   INVALID_PHONE: {
     code: "INVALID_PHONE",
     tone: "invalid",
-    labels: { brokers: "Некорректный номер" },
+    labels: { brokers: "Некорректный номер", agencies: "Неверный номер" },
   },
   NOT_A_BROKER: {
     code: "NOT_A_BROKER",
