@@ -1,5 +1,6 @@
 'use strict';
 const {SPREADSHEET_ID,TABS,normalize,plan}=globalThis.__partnerSheetPlan||require('./plan.cjs');
+const {matchAgencies}=globalThis.__partnerSheetMatch||require('./match.cjs');
 async function main(){
  const {google}=require('googleapis'),{PrismaClient}=require('@st-michael/database');
  const credentials=JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON||'{}');
@@ -40,15 +41,12 @@ async function main(){
   const readOrganizations=()=>db.agency.findMany({select:{id:true,name:true,legalName:true},orderBy:{id:'asc'},take:10001});
   const organizations=await readOrganizations();
   if(organizations.length>10000)throw Error('TARGET_LIMIT');
-  const index=new Map();
-  for(const org of organizations)for(const name of [org.name,org.legalName]){
-   if(!name)continue;const key=normalize(name);if(!index.has(key))index.set(key,new Set());index.get(key).add(org.id);
-  }
-  const mapping=second.agencies.map(a=>({tab:a.tab,row:a.row,matches:index.get(a.normalizedName)?.size||0}));
+  const mapping=matchAgencies(second.agencies,organizations);
+  const publicRow=m=>({tab:m.tab,row:m.row,matches:m.matches.length,candidateCount:m.candidates.length,reason:m.reason});
   if(JSON.stringify(organizations)!==JSON.stringify(await readOrganizations()))throw Error('TARGET_CHANGED_DURING_READ');
   console.log('PARTNER_SHEET_PREVIEW='+JSON.stringify({ok:true,readOnly:true,targetBase:'OURS',sourceStable:true,targetStable:true,...second.summary,contentHash:second.contentHash,
-   targetOrganizations:organizations.length,matchedRows:mapping.filter(m=>m.matches===1).length,unmatchedRows:mapping.filter(m=>m.matches===0),ambiguousRows:mapping.filter(m=>m.matches>1),sourceIssues:second.issues,
-   unresolvedRowsRequireTaxId:mapping.filter(m=>m.matches!==1).length,importStarted:false,automaticSyncEnabled:false}));
+   matchingPolicy:'CABINET_KEYS_WITH_REVIEW_ONLY_SIMILARITY',targetOrganizations:organizations.length,matchedRows:mapping.filter(m=>m.matches.length===1).length,unmatchedRows:mapping.filter(m=>m.matches.length===0).map(publicRow),ambiguousRows:mapping.filter(m=>m.matches.length>1).map(publicRow),sourceIssues:second.issues,
+   similarityCandidateRows:mapping.filter(m=>m.matches.length===0&&m.candidates.length>0).map(publicRow),unresolvedRowsRequireIdentityReview:mapping.filter(m=>m.matches.length!==1).length,importStarted:false,automaticSyncEnabled:false}));
  }finally{await db.$disconnect();}
 }
 if(require.main===module||process.env.RUN_PARTNER_SHEET_PREVIEW==='1')main().catch(()=>{console.log('PARTNER_SHEET_PREVIEW={"ok":false,"readOnly":true,"error":"PREVIEW_REFUSED","databaseWrites":false}');process.exitCode=1;});
