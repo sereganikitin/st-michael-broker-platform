@@ -162,9 +162,8 @@ export default function AgenciesV12Page() {
             {data.audit && (
               <p className="text-sm text-text-muted">
                 Поля источника: заполнено {data.audit.sourceFilled} из{" "}
-                {data.audit.sourceFields}. Незаполненных реквизитов в
-                сопоставленных карточках: {data.audit.cabinetMissing}. Пустые
-                поля отмечены явно; данные не дополняются предположениями.
+                {data.audit.sourceFields}. Пустые поля отмечены явно; данные
+                не дополняются предположениями.
               </p>
             )}
             <p className="text-sm text-text-muted">
@@ -311,53 +310,6 @@ export default function AgenciesV12Page() {
                                     empty="Не заполнено в таблице"
                                   />
                                 </section>
-                                <section
-                                  aria-label={`Карточка базы ${item.name}`}
-                                  className="border-t border-border pt-4"
-                                >
-                                  <h2 className="font-semibold text-base mb-2">
-                                    Действующая карточка кабинета
-                                  </h2>
-                                  {item.matchedAgency ? (
-                                    <>
-                                      <Link
-                                        className="text-accent inline-block mb-3"
-                                        href={`/admin/loyalty-base/ours/agencies/${item.matchedAgency.id}`}
-                                      >
-                                        Открыть карточку:{" "}
-                                        {item.matchedAgency.name} →
-                                      </Link>
-                                      {item.matchedAgency.updatedAt && (
-                                        <p className="text-sm text-text-muted mb-3">
-                                          Карточка обновлена:{" "}
-                                          {new Date(
-                                            item.matchedAgency.updatedAt,
-                                          ).toLocaleString("ru-RU", {
-                                            timeZone: "Europe/Moscow",
-                                          })}{" "}
-                                          МСК
-                                        </p>
-                                      )}
-                                      <Fields
-                                        fields={item.matchedAgency.fields || []}
-                                        empty="Не заполнено в кабинете"
-                                      />
-                                    </>
-                                  ) : (
-                                    <p className="text-text-muted">
-                                      {item.status === "REVIEW"
-                                        ? "Юридическое лицо не подтверждено. Привязка оставлена на проверке."
-                                        : "Сопоставленная карточка пока отсутствует. Ниже не подставляются реквизиты похожих организаций."}
-                                    </p>
-                                  )}
-                                </section>
-                                <p className="text-sm text-text-muted">
-                                  Проверка полноты не подтверждает достоверность
-                                  или актуальность каждого контакта. Таблица и
-                                  текущая база показаны раздельно: реквизиты,
-                                  контакты и суммы автоматически не
-                                  перезаписываются.
-                                </p>
                               </div>
                             </td>
                           </tr>
