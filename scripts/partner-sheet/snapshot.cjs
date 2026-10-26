@@ -6,13 +6,15 @@ const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex
 // This is a private integration snapshot, not an import into Agency/Broker/amoCRM.
 function validateView(view,previous){
  if(view?.version!=='agency-v1-2'||view.readOnly!==true||!Array.isArray(view.items)||!view.items.length||!Number.isFinite(Date.parse(view.loadedAt))||!/^[a-f0-9]{64}$/.test(view.sourceHash))throw Error('SNAPSHOT_INVALID');
- const identities=new Set(),rows=new Set();let count=0;
+ const identities=new Map(),rows=new Set();let count=0;
  for(const item of view.items){
   if(!item.name?.trim()||!['АН','Ключевой','Агрегатор'].includes(item.type)||!['MATCHED','REVIEW','NEW'].includes(item.status)||!Array.isArray(item.periods)||!item.periods.length)throw Error('SNAPSHOT_INVALID');
   for(const period of item.periods){
    const rowKey=`${period.tab}:${period.row}`,identity=`${period.tab}:${normalize(item.name)}`;
-   if(!TABS.slice(0,3).includes(period.tab)||!Number.isInteger(period.row)||period.row<6||rows.has(rowKey)||identities.has(identity))throw Error('SNAPSHOT_INVALID');
-   rows.add(rowKey);identities.add(identity);count++;
+   if(!TABS.slice(0,3).includes(period.tab)||!Number.isInteger(period.row)||period.row<6||rows.has(rowKey))throw Error('SNAPSHOT_INVALID');
+   // One agency can have several legitimate source periods on the same tab.
+   // Physical sheet rows stay unique; source amounts are never aggregated.
+   rows.add(rowKey);identities.set(identity,(identities.get(identity)||0)+1);count++;
    const fields=period.fields;
    if(!Array.isArray(fields)||fields.length!==COLUMNS.length||COLUMNS.some((c,i)=>fields[i]?.column!==String.fromCharCode(65+c)||typeof fields[i]?.value!=='string'||typeof fields[i]?.label!=='string'))throw Error('FIELDS_INCOMPLETE');
    for(const key of ['baselineRub','addedRub','totalRub'])if(!/^\d+\.\d{2}$/.test(period[key]))throw Error('AMOUNT_INVALID');
@@ -22,7 +24,9 @@ function validateView(view,previous){
  }
  if(count!==view.sourceRowCount||view.audit?.sourceFields!==count*COLUMNS.length||view.matched+view.review+view.new!==view.items.length)throw Error('ROW_COUNT_MISMATCH');
  if(previous){
-  for(const item of previous.items)for(const p of item.periods)if(!identities.has(`${p.tab}:${normalize(item.name)}`))throw Error('PREVIOUS_AGENCY_MISSING');
+  const expected=new Map();
+  for(const item of previous.items)for(const p of item.periods){const key=`${p.tab}:${normalize(item.name)}`;expected.set(key,(expected.get(key)||0)+1);}
+  for(const [key,total] of expected)if((identities.get(key)||0)<total)throw Error('PREVIOUS_AGENCY_MISSING');
  }
  return view;
 }

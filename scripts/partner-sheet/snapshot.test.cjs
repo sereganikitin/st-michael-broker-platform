@@ -15,3 +15,12 @@ test('reject corruption, truncated fields, duplicate rows, amount mismatch and l
  }
  const a=view(),b=view();b.items[0].name='Different';assert.throws(()=>validateView(b,a),/PREVIOUS_AGENCY_MISSING/);
 });
+
+test('keeps repeated same-tab agency periods without accepting duplicate physical rows or silent period loss',()=>{
+ const previous=view();previous.items[0].periods.push({...previous.items[0].periods[0],row:7});previous.sourceRowCount=2;previous.audit.sourceFields=38;
+ validateView(previous);assert.equal(decodeSnapshot(encodeSnapshot(previous)).items[0].periods.length,2);
+ const next=JSON.parse(JSON.stringify(previous));next.items[0].periods[0].row=8;next.items[0].periods[1].row=9;validateView(next,previous);
+ next.items[0].periods[1].row=8;assert.throws(()=>validateView(next,previous),/SNAPSHOT_INVALID/);
+ next.items[0].periods.pop();next.sourceRowCount=1;next.audit.sourceFields=19;assert.throws(()=>validateView(next,previous),/PREVIOUS_AGENCY_MISSING/);
+ assert.equal(previous.items[0].periods[0].totalRub,'12.00');assert.equal(previous.items[0].periods[1].totalRub,'12.00');
+});
