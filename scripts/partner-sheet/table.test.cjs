@@ -29,5 +29,5 @@ test('page has three combined filters, six sortable headers, reset and no inform
  const page=fs.readFileSync(path.join(__dirname,'../../apps/web/src/app/(cabinet)/admin/agencies-v1-2/page.tsx'),'utf8');
  assert.match(page,/Все типы/);assert.match(page,/Все статусы/);assert.match(page,/Все листы/);
  assert.match(page,/aria-sort=/);assert.match(page,/Сбросить/);
- assert.doesNotMatch(page,/Поля источника: заполнено|Нажмите на строку или название|Обновление из источника/);
+ assert.doesNotMatch(page,/Поля источника: заполнено|Нажмите на строку или название|Обновление из источника|Отдельное представление таблицы партнёров/);
 });

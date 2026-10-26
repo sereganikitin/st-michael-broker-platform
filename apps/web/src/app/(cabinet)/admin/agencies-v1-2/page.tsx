@@ -144,10 +144,6 @@ export default function AgenciesV12Page() {
             ← Наша база
           </Link>
           <h1 className="text-2xl font-semibold mt-2">Агентства v1/2</h1>
-          <p className="text-text-muted">
-            Отдельное представление таблицы партнёров. Текущая база и amoCRM не
-            изменяются.
-          </p>
         </div>
         <div className="flex gap-2">
           <button
