@@ -1,0 +1,80 @@
+name: Preview partner Google Sheet matching (read-only)
+on:
+  workflow_dispatch: {}
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read exact allowed tabs and compare agency names
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SOURCE: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          ATTEMPT: ${{ github.run_attempt }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PIN: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          DEPLOY: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = sereganikitin/st-michael-broker-platform
+          test "$REF" = refs/heads/master
+          case "$ACTOR" in mefremov888-ai|VKalashnikov-afk|sereganikitin) ;; *) exit 1;; esac
+          test "$ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          test "$(gh api /repos/$REPO/git/ref/heads/master --jq '.object.sha')" = "$SOURCE"
+          node --test scripts/partner-sheet/plan.test.cjs
+          [[ "$PIN" =~ ^SHA256:[A-Za-z0-9+/]{43}$ && "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ && "$PORT" =~ ^[0-9]{1,5}$ ]]
+          case "$HOST" in ''|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$DEPLOY" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY/" in *'/../'*|*'/./'*|*'//'*) exit 1;; esac
+          work=$(mktemp -d); umask 077
+          trap 'rm -f -- "$work/key" "$work/hosts" "$work/probe.cjs"; rmdir -- "$work"' EXIT
+          printf '%s\n' "$KEY" > "$work/key"; chmod 600 "$work/key"; unset KEY
+          timeout 15 ssh-keyscan -p "$PORT" -t ed25519 "$HOST" > "$work/hosts" 2>/dev/null
+          test "$(ssh-keygen -lf "$work/hosts" -E sha256 | awk '{print $2}' | sort -u)" = "$PIN"
+          node scripts/partner-sheet/bundle.cjs > "$work/probe.cjs"
+          digest=$(sha256sum "$work/probe.cjs" | cut -d' ' -f1)
+          {
+            cat <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C GIT_OPTIONAL_LOCKS=0
+          root=$(readlink -f "$1"); expected=$2
+          test "$root" != / -a -d "$root"; cd "$root"
+          test "$(git rev-parse --show-toplevel)" = "$root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock
+          exec 9</tmp/st-michael-production-deploy.lock; flock -s -n 9
+          test "$(docker context show)" = default
+          test "$(docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
+          identity=$(docker inspect --format '{{.Id}}:{{.State.StartedAt}}' st-michael-api)
+          work=$(mktemp -d /tmp/stm-partner-preview.XXXXXX)
+          trap 'rm -f -- "$work/probe.cjs"; rmdir -- "$work"' EXIT
+          base64 -d > "$work/probe.cjs" <<'SCRIPT'
+          REMOTE
+            base64 -w 0 "$work/probe.cjs"
+            printf '\nSCRIPT\n'
+            cat <<'REMOTE'
+          test "$(sha256sum "$work/probe.cjs" | cut -d' ' -f1)" = "$expected"
+          docker exec -i -w /app -e RUN_PARTNER_SHEET_PREVIEW=1 st-michael-api node < "$work/probe.cjs"
+          test "$(docker inspect --format '{{.Id}}:{{.State.StartedAt}}' st-michael-api)" = "$identity"
+          REMOTE
+          } | timeout 8m ssh -T -i "$work/key" -p "$PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" -o ConnectTimeout=15 "$SSH_USER@$HOST" "bash -s -- '$DEPLOY' '$digest'"
