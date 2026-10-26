@@ -57,6 +57,7 @@ import { LoyaltyBaseService } from "./loyalty-base.service";
 import { LoyaltyFullScanBusyFilter } from "./loyalty-full-scan-busy.filter";
 import { LoyaltyImportPermissionGuard } from "./loyalty-import-permission.guard";
 import { LoyaltyPermissionService } from "../loyalty-workflow/loyalty-permission.service";
+import { PartnerSheetService } from './partner-sheet.service';
 
 const importUploadOptions = {
   limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 5 },
@@ -72,7 +73,30 @@ export class LoyaltyBaseController {
   constructor(
     private readonly loyalty: LoyaltyBaseService,
     private readonly permissions: LoyaltyPermissionService,
+    private readonly partnerSheet: PartnerSheetService,
   ) {}
+
+  @Get('partner-sheet-v1-2')
+  async partnerSheetView(@CurrentUser() user: CurrentUserPayload, @Res({passthrough:true}) response: Response) {
+    await this.permissions.require(user, 'READ_ALL');
+    response.set('Cache-Control', 'private, no-store');
+    return this.partnerSheet.list();
+  }
+
+  @Post('partner-sheet-v1-2/export')
+  async exportPartnerSheet(@CurrentUser() user: CurrentUserPayload, @Res({passthrough:true}) response: Response) {
+    await this.permissions.requireAll(user, ['READ_ALL', 'EXPORT']);
+    const data = await this.partnerSheet.list();
+    const cell = (value: unknown) => {
+      let text = String(value ?? '');
+      if (/^[\s]*[=+@-]/u.test(text)) text = "'" + text;
+      return '"' + text.replace(/"/g, '""') + '"';
+    };
+    const rows = [['Агентство','Тип','Лист','Строка','База, руб.','Добавлено, руб.','Итог, руб.','Период базы','Сопоставление','Карточка в базе']];
+    for (const item of data.items) for (const period of item.periods) rows.push([item.name,item.type,period.tab,String(period.row),period.baselineRub,period.addedRub,period.totalRub,period.baselineScope,item.status,item.matchedAgency?.name || '']);
+    response.set({'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="agencies-v1-2.csv"','Cache-Control':'private, no-store'});
+    return new StreamableFile(Buffer.from('\ufeff' + rows.map(row=>row.map(cell).join(';')).join('\r\n'), 'utf8'));
+  }
 
   @Get(":base/overview")
   @ApiOperation({

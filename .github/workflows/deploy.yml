@@ -61,6 +61,9 @@ jobs:
       - name: Run web contract tests
         run: npm test --workspace=@st-michael/web
 
+      - name: Verify isolated partner sheet view contracts
+        run: node --test scripts/partner-sheet/*.test.cjs
+
       - name: Verify durable Telegram quiet-hours contracts
         run: node --test ops/telegram-quiet-hours.test.js ops/telegram-quiet-gateway.test.js scripts/monitor-plaud-file-names.test.mjs scripts/monitor-plaud-server-runner.test.mjs
 
