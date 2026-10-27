@@ -2,6 +2,22 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { PARTNER_PHOTO, partnerPhones } from './partner-contact';
+import { contactDateFromInput, contactDateToInput } from './moscow-contact-date';
+
+test('contact datetime accepts browser seconds without appending a second time part', () => {
+  for (const input of ['2026-10-27T10:34', '2026-10-27T10:34:00', '2026-10-27T10:34:12.123']) {
+    assert.equal(contactDateFromInput(input), '2026-10-27T10:34:00+03:00');
+    assert.equal(contactDateToInput(contactDateFromInput(input)), '2026-10-27T10:34');
+  }
+  assert.equal(contactDateFromInput(''), '');
+  assert.equal(contactDateFromInput('not-a-date'), '');
+});
+
+test('contact datetime renders existing UTC timestamps in Moscow', () => {
+  assert.equal(contactDateToInput('2026-10-26T22:34:00.000Z'), '2026-10-27T01:34');
+  assert.equal(contactDateToInput(''), '');
+  assert.equal(contactDateToInput('invalid'), '');
+});
 
 test('partner phones remain separate dialable links with canonical deduplication', () => {
   const phones = partnerPhones({phone:'+7 (968) 756-16-39', additionalPhones:['+7 930 012 9452', '+7 906 061 7800', '8 930 012 9452', 'javascript:alert(1)']});
