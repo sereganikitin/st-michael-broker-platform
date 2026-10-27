@@ -3,6 +3,25 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { PARTNER_PHOTO, partnerPhones } from './partner-contact';
 import { contactDateFromInput, contactDateToInput } from './moscow-contact-date';
+import { agencyQueueContact, restoredAgencyFilters, sourcePriority } from './agency-workspace-view';
+
+test('queue uses active verified contact and alternate phone when agency phone is empty', () => {
+  const card={phone:null,callContacts:[{name:'old',phone:'+70000000001',alternatePhone:'',archived:true},{name:'person',phone:'',alternatePhone:'+70000000002',archived:false}]};
+  assert.deepEqual(agencyQueueContact(card),{phone:'+70000000002',name:'person'});
+  assert.equal(agencyQueueContact({...card,phone:'+70000000003'}).phone,'+70000000003');
+  assert.equal(agencyQueueContact({phone:'javascript:123456'}).phone,'Нет телефона');
+});
+
+test('saved views restore agency identity and type without accepting malformed filters', () => {
+  const agency='11111111-1111-4111-8111-111111111111';
+  assert.deepEqual(restoredAgencyFilters({agency,agencyType:'АН'}),{agency,agencyType:'АН'});
+  assert.deepEqual(restoredAgencyFilters({agency:['bad'],agencyType:'private'}),{agency:'',agencyType:''});
+});
+
+test('queue reports distinct historical priorities without inventing a current value', () => {
+  assert.equal(sourcePriority([{fields:[{label:'Приоритет',value:'A'}]},{fields:[{label:'Приоритет',value:'B'}]}]),'A / B');
+  assert.equal(sourcePriority([]),'не указан');
+});
 
 test('contact datetime accepts browser seconds without appending a second time part', () => {
   for (const input of ['2026-10-27T10:34', '2026-10-27T10:34:00', '2026-10-27T10:34:12.123']) {

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiPatch, apiPost, apiDownload } from "@/lib/api";
+import { contactDateFromInput } from "@/lib/moscow-contact-date";
+import { agencyQueueContact, restoredAgencyFilters, sourcePriority } from "@/lib/agency-workspace-view";
 import {
   getLoyaltyCallResultOptions,
   type LoyaltyCallResult,
@@ -360,6 +362,9 @@ export default function AgencyCallWorkspace() {
       setFilterCampaign(
         typeof snapshot.campaign === "string" ? snapshot.campaign : "",
       );
+      const restored = restoredAgencyFilters(snapshot);
+      setFilterAgency(restored.agency);
+      setFilterType(restored.agencyType);
     }
   };
   const viewSnapshot = {
@@ -440,7 +445,7 @@ export default function AgencyCallWorkspace() {
       nextActionKind: draft.nextStep.trim()
         ? draft.kind || undefined
         : undefined,
-      nextActionAt: draft.when ? `${draft.when}:00+03:00` : undefined,
+      nextActionAt: contactDateFromInput(draft.when) || undefined,
     };
     const signature = JSON.stringify(payload);
     const old = submissions.current[assignment.id];
@@ -871,12 +876,13 @@ export default function AgencyCallWorkspace() {
                 <b>{c.name}</b>
                 <p className="text-xs">
                   {active(c)?.assignedTo.fullName || "Нет активного назначения"}{" "}
-                  · {c.doNotCall ? "Не звонить" : c.phone || "Нет телефона"}
+                  · {c.doNotCall ? "Не звонить" : agencyQueueContact(c).phone}
                 </p>
                 <p className="text-xs">
-                  {c.callContacts?.find((contact) => !contact.archived)?.name ||
-                    "Контактное лицо не указано"}
+                  {agencyQueueContact(c).name}
                 </p>
+                <p className="text-xs text-text-muted">Приоритет источника: {sourcePriority(c.periods)}</p>
+                <p className="text-xs text-text-muted">Причина: {active(c)?.campaign.name || "Нет активной кампании"}</p>
                 <p className="text-xs">
                   Последний результат:{" "}
                   {effectiveAttempts(c)[0]
@@ -1355,7 +1361,7 @@ export default function AgencyCallWorkspace() {
                       expectedVersion: data!.script.version,
                       text: scriptText,
                       owner: scriptOwner,
-                      validUntil: `${scriptUntil}:00+03:00`,
+                      validUntil: contactDateFromInput(scriptUntil),
                     }),
                   "Скрипт утверждён; предыдущая версия сохранена в аудите",
                 )
