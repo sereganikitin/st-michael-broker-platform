@@ -5,6 +5,7 @@ import {
   MATERIALS_CATALOG_HREF,
   MATERIALS_CONDITIONS_HREF,
   MATERIALS_CONTACT_EMAIL,
+  foldersJoinDocumentRow,
   isMaterialImage,
   isMaterialPdf,
   isMaterialVideo,
@@ -208,6 +209,20 @@ test('video extension detection handles uppercase names, query strings, and frag
   assert.equal(isMaterialVideo(document({ fileUrl: '', name: 'Видео.MKV', type: 'FILE' })), true);
   assert.equal(isMaterialVideo(document({ fileUrl: '/files/opaque', name: 'Видео.MKV', type: 'FILE' })), true);
   assert.equal(isMaterialVideo(document({ fileUrl: '/files/report.pdf', type: 'FILE' })), false);
+});
+
+test('subfolders join the documents row only on documents-only pages', () => {
+  const pdf = document({ fileUrl: '/files/presentation.pdf', type: 'PDF' });
+  const photo = document({ fileUrl: '/files/render.jpg', type: 'JPG' });
+  const video = document({ fileUrl: '/files/tour.mp4', type: 'MP4' });
+  assert.equal(foldersJoinDocumentRow(1, [pdf, pdf]), true);
+  assert.equal(foldersJoinDocumentRow(0, [pdf]), false);
+  assert.equal(foldersJoinDocumentRow(1, []), false);
+  assert.equal(foldersJoinDocumentRow(1, [pdf, photo]), false);
+  assert.equal(foldersJoinDocumentRow(1, [pdf, video]), false);
+  const source = readFileSync(new URL('../components/materials/MaterialsBrowser.tsx', import.meta.url), 'utf8');
+  assert.match(source, /folders\.length > 0 && !foldersInDocumentRow && <section/);
+  assert.match(source, /fileSection\('Документы и презентации', [^\n]*foldersInDocumentRow \? folders : \[\]\)/);
 });
 
 test('PDF detection handles uppercase names, query strings, fragments, and MIME types', () => {

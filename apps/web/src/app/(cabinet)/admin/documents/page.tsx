@@ -82,6 +82,11 @@ function cleanDescription(desc: string | null): string {
 const REWARDS_MARKER = '[landing-rewards-button]';
 const isRewardsDoc = (d: DocItem) => (d.description || '').includes(REWARDS_MARKER);
 
+// 2026-10-27: при лимите в 200 старые материалы (их ~935) не попадали в список и
+// поиск, их нельзя было скрыть. Берём максимум сервера (documents.service: 2000)
+// и честно предупреждаем, если документов всё равно больше.
+const ADMIN_DOCUMENTS_LIMIT = 2000;
+
 function whereShown(d: DocItem): string {
   if (d.category === 'marketing') return 'Нигде не показывается';
   if (d.category === 'cooperation') {
@@ -137,6 +142,7 @@ function OriginBadge({ origin }: { origin: Origin }) {
 export default function AdminDocumentsPage() {
   const { broker } = useAuth();
   const [docs, setDocs] = useState<DocItem[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
@@ -168,10 +174,14 @@ export default function AdminDocumentsPage() {
   const load = () => {
     if (!allowed) return;
     setLoading(true);
-    const q = filter ? `?category=${filter}&limit=200` : '?limit=200';
+    const q = filter ? `?category=${filter}&limit=${ADMIN_DOCUMENTS_LIMIT}` : `?limit=${ADMIN_DOCUMENTS_LIMIT}`;
     apiGet(`/admin/documents${q}`)
-      .then((d) => setDocs(d.documents || []))
-      .catch(() => setDocs([]))
+      .then((d) => {
+        const list = d.documents || [];
+        setDocs(list);
+        setTotal(Number(d.total) || list.length);
+      })
+      .catch(() => { setDocs([]); setTotal(0); })
       .finally(() => setLoading(false));
   };
   useEffect(load, [filter]);
@@ -530,6 +540,11 @@ export default function AdminDocumentsPage() {
           </select>
           <span className="text-sm text-text-muted whitespace-nowrap">Найдено: {filtered.length}</span>
         </div>
+        {!loading && total > docs.length && (
+          <p className="mt-3 text-sm text-warning">
+            Показаны {docs.length} из {total} документов. Выберите раздел, чтобы увидеть остальные.
+          </p>
+        )}
       </div>
 
       {/* скрытый input для замены файла */}
