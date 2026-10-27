@@ -4,6 +4,37 @@ import { readFileSync } from 'node:fs';
 import { PARTNER_PHOTO, partnerPhones } from './partner-contact';
 import { contactDateFromInput, contactDateToInput } from './moscow-contact-date';
 import { agencyQueueContact, restoredAgencyFilters, sourcePriority } from './agency-workspace-view';
+import { createAgencyDraftStore } from './agency-draft-store';
+
+test('tab drafts survive store recreation, are user scoped and clear only on reset', () => {
+  const rows = new Map<string, string>();
+  const storage = { get length() { return rows.size; }, key: (i:number) => [...rows.keys()][i] ?? null, getItem:(k:string)=>rows.get(k)??null, setItem:(k:string,v:string)=>{rows.set(k,v);}, removeItem:(k:string)=>{rows.delete(k);} };
+  const store = createAgencyDraftStore(() => storage);
+  store.write('user-a','contact:1',{version:1,value:{name:'Draft'},baseline:{name:''}});
+  assert.equal(store.summary('user-a'),'1:0');
+  assert.equal(store.summary('user'),'0:0');
+  const restored = createAgencyDraftStore(() => storage);
+  assert.equal(JSON.parse(restored.read('user-a','contact:1',{name:''})).value.name,'Draft');
+  assert.equal(JSON.parse(restored.read('user-b','contact:1',{name:''})).value.name,'');
+  restored.write('user-a','contact:1',{version:1,value:{name:''},baseline:{name:''}});
+  assert.equal(rows.size,0);
+  assert.equal(restored.summary('user-a'),'0:0');
+  restored.write('user-a','other',{version:1,value:'pending',baseline:''});
+  restored.write('user-b','other',{version:1,value:'keep',baseline:''});
+  restored.clear('user-a');
+  assert.equal(restored.summary('user-a'),'0:0');
+  assert.equal(restored.summary('user-b'),'1:0');
+});
+
+test('tab draft storage failure retains memory copy and exposes warning; corrupted data is ignored', () => {
+  const broken = createAgencyDraftStore(() => { throw Error('Storage denied'); });
+  broken.write('user','form',{version:1,value:'draft',baseline:''});
+  assert.equal(JSON.parse(broken.read('user','form','')).value,'draft');
+  assert.equal(broken.summary('user'),'1:1');
+  const corrupt = createAgencyDraftStore(() => ({length:1,key:()=> 'agency-v1-2:draft:user:form',getItem:()=>'{bad',setItem:()=>{},removeItem:()=>{}}));
+  assert.equal(JSON.parse(corrupt.read('user','form','empty')).value,'empty');
+  assert.equal(corrupt.summary('user'),'0:0');
+});
 
 test('queue uses active verified contact and alternate phone when agency phone is empty', () => {
   const card={phone:null,callContacts:[{name:'old',phone:'+70000000001',alternatePhone:'',archived:true},{name:'person',phone:'',alternatePhone:'+70000000002',archived:false}]};

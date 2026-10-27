@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiPatch } from "@/lib/api";
-import { contactDateFromInput, contactDateToInput } from "@/lib/moscow-contact-date";
+import {
+  contactDateFromInput,
+  contactDateToInput,
+} from "@/lib/moscow-contact-date";
+import { useAgencyDraft } from "@/lib/use-agency-draft";
 
 export type AgencyCallContact = {
   id: string;
@@ -26,6 +30,7 @@ const empty = (): AgencyCallContact => ({
   archived: false,
 });
 export function AgencyCallContacts({
+  draftScope,
   agencyId,
   contacts,
   version,
@@ -33,6 +38,7 @@ export function AgencyCallContacts({
   canCall,
   onChanged,
 }: {
+  draftScope: string;
   agencyId: string;
   contacts: AgencyCallContact[];
   version: number;
@@ -40,21 +46,43 @@ export function AgencyCallContacts({
   canCall: boolean;
   onChanged: () => Promise<void>;
 }) {
-  const [draft, setDraft] = useState(empty);
+  const {
+    value: editor,
+    setValue: setEditor,
+    reset: resetEditor,
+    dirty,
+  } = useAgencyDraft(draftScope, `contacts:${agencyId}`, {
+    item: empty(),
+    version,
+  });
+  const draft = editor.item;
+  useEffect(() => {
+    if (!dirty && !draft.id && editor.version !== version)
+      resetEditor({ item: empty(), version });
+  }, [dirty, draft.id, editor.version, version, resetEditor]);
+  const edit = (item: AgencyCallContact) => {
+    if (dirty && !window.confirm("Заменить несохранённый черновик контакта?"))
+      return;
+    resetEditor({ item, version });
+  };
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const patch = (part: Partial<AgencyCallContact>) =>
-    setDraft((current) => ({ ...current, ...part }));
-  async function save(contact: AgencyCallContact) {
+    setEditor((current) => ({
+      ...current,
+      item: { ...current.item, ...part },
+    }));
+  async function save(contact: AgencyCallContact, archive = false) {
     setBusy(true);
     setError("");
     try {
       const item = { ...contact, id: contact.id || crypto.randomUUID() };
+      if (!archive && !contact.id) setEditor((old) => ({ ...old, item }));
       await apiPatch(`/loyalty-workflow/agencies-v1-2/${agencyId}/contacts`, {
-        expectedVersion: version,
+        expectedVersion: archive ? version : editor.version,
         contacts: [...contacts.filter((c) => c.id !== item.id), item],
       });
-      setDraft(empty());
+      if (!archive) resetEditor({ item: empty(), version: version + 1 });
       await onChanged();
     } catch (reason) {
       setError(
@@ -103,14 +131,22 @@ export function AgencyCallContacts({
                 <button
                   className="text-accent mr-3"
                   disabled={busy}
-                  onClick={() => setDraft(c)}
+                  onClick={() => edit(c)}
                 >
                   Исправить
                 </button>
                 <button
                   className="text-accent"
                   disabled={busy}
-                  onClick={() => void save({ ...c, archived: true })}
+                  onClick={() => {
+                    if (dirty) {
+                      setError(
+                        "Сначала сохраните или отмените черновик контакта",
+                      );
+                      return;
+                    }
+                    void save({ ...c, archived: true }, true);
+                  }}
                 >
                   Архивировать
                 </button>
@@ -119,7 +155,7 @@ export function AgencyCallContacts({
           </div>
         ))}
       {canEdit && (
-        <details open={!!draft.id}>
+        <details open={!!draft.id || dirty}>
           <summary className="cursor-pointer">
             {draft.id ? "Исправить контакт" : "Добавить проверенный контакт"}
           </summary>
@@ -130,66 +166,83 @@ export function AgencyCallContacts({
               void save(draft);
             }}
           >
-            <input
-              aria-label="Имя контакта"
-              placeholder="Имя *"
-              className="input"
-              required
-              maxLength={160}
-              value={draft.name}
-              onChange={(e) => patch({ name: e.target.value })}
-            />
-            <input
-              aria-label="Должность"
-              placeholder="Должность"
-              className="input"
-              maxLength={160}
-              value={draft.role}
-              onChange={(e) => patch({ role: e.target.value })}
-            />
-            <input
-              aria-label="Основной телефон контакта"
-              placeholder="Основной телефон"
-              className="input"
-              maxLength={30}
-              value={draft.phone}
-              onChange={(e) => patch({ phone: e.target.value })}
-            />
-            <input
-              aria-label="Запасной телефон"
-              placeholder="Запасной телефон"
-              className="input"
-              maxLength={30}
-              value={draft.alternatePhone}
-              onChange={(e) => patch({ alternatePhone: e.target.value })}
-            />
-            <input
-              aria-label="Источник контакта"
-              placeholder="Источник *"
-              className="input"
-              required
-              maxLength={240}
-              value={draft.source}
-              onChange={(e) => patch({ source: e.target.value })}
-            />
-            <label className="text-sm">
-              Проверено (МСК) *
+            <fieldset disabled={busy} className="contents">
               <input
-                aria-label="Дата проверки"
+                aria-label="Имя контакта"
+                placeholder="Имя *"
                 className="input"
-                type="datetime-local"
                 required
-                value={
-                  contactDateToInput(draft.verifiedAt)
-                }
-                onChange={(e) =>
-                  patch({ verifiedAt: contactDateFromInput(e.target.value) })
-                }
+                maxLength={160}
+                value={draft.name}
+                onChange={(e) => patch({ name: e.target.value })}
               />
-            </label>
-            <button className="btn btn-secondary" disabled={busy} type="submit">
-              Сохранить контакт
-            </button>
+              <input
+                aria-label="Должность"
+                placeholder="Должность"
+                className="input"
+                maxLength={160}
+                value={draft.role}
+                onChange={(e) => patch({ role: e.target.value })}
+              />
+              <input
+                aria-label="Основной телефон контакта"
+                placeholder="Основной телефон"
+                className="input"
+                maxLength={30}
+                value={draft.phone}
+                onChange={(e) => patch({ phone: e.target.value })}
+              />
+              <input
+                aria-label="Запасной телефон"
+                placeholder="Запасной телефон"
+                className="input"
+                maxLength={30}
+                value={draft.alternatePhone}
+                onChange={(e) => patch({ alternatePhone: e.target.value })}
+              />
+              <input
+                aria-label="Источник контакта"
+                placeholder="Источник *"
+                className="input"
+                required
+                maxLength={240}
+                value={draft.source}
+                onChange={(e) => patch({ source: e.target.value })}
+              />
+              <label className="text-sm">
+                Проверено (МСК) *
+                <input
+                  aria-label="Дата проверки"
+                  className="input"
+                  type="datetime-local"
+                  required
+                  value={contactDateToInput(draft.verifiedAt)}
+                  onChange={(e) =>
+                    patch({ verifiedAt: contactDateFromInput(e.target.value) })
+                  }
+                />
+              </label>
+              <button
+                className="btn btn-secondary"
+                disabled={busy}
+                type="submit"
+              >
+                Сохранить контакт
+              </button>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={() => {
+                  if (
+                    !dirty ||
+                    window.confirm("Удалить несохранённый черновик контакта?")
+                  )
+                    resetEditor({ item: empty(), version });
+                }}
+              >
+                Отменить изменения контакта
+              </button>
+            </fieldset>
           </form>
         </details>
       )}

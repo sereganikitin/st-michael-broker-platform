@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
+import { useAgencyDraft } from "@/lib/use-agency-draft";
 
 const CRITERIA = [
   ["offerCurrent", "Актуальное предложение"],
@@ -34,23 +35,37 @@ const markLabel = (mark: Mark) =>
   })[mark];
 
 export function AgencyCallReview({
+  draftScope,
   agencyId,
   attemptId,
   canWrite,
   superseded,
 }: {
+  draftScope: string;
   agencyId: string;
   attemptId: string;
   canWrite: boolean;
   superseded: boolean;
 }) {
   const [reviews, setReviews] = useState<Review[] | null>(null);
-  const [criteria, setCriteria] = useState<Criteria>(EMPTY);
-  const [comment, setComment] = useState("");
-  const [reason, setReason] = useState("");
+  const {
+    value: draft,
+    setValue: setDraft,
+    reset,
+    dirty,
+  } = useAgencyDraft(draftScope, `review:${attemptId}`, {
+    criteria: EMPTY,
+    comment: "",
+    reason: "",
+    version: 0,
+  });
+  const { criteria, comment, reason } = draft;
+  const patch = (part: Partial<typeof draft>) =>
+    setDraft((old) => ({ ...old, ...part }));
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const detailsRef = useRef<HTMLDetailsElement>(null);
   const submission = useRef({ signature: "", id: "" });
   const endpoint = `/loyalty-workflow/agencies-v1-2/${agencyId}/attempts/${attemptId}/reviews`;
   async function load() {
@@ -59,7 +74,13 @@ export function AgencyCallReview({
     try {
       const result = await apiGet<{ reviews: Review[] }>(endpoint);
       setReviews(result.reviews);
-      setCriteria(result.reviews[0]?.criteria ?? EMPTY);
+      if (!dirty)
+        reset({
+          criteria: result.reviews[0]?.criteria ?? EMPTY,
+          comment: "",
+          reason: "",
+          version: result.reviews[0]?.version ?? 0,
+        });
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Не удалось загрузить проверки",
@@ -73,7 +94,7 @@ export function AgencyCallReview({
     setError("");
     setNotice("");
     const body = {
-      expectedVersion: reviews?.[0]?.version ?? 0,
+      expectedVersion: draft.version,
       criteria,
       comment: comment.trim(),
       correctionReason: reason.trim() || undefined,
@@ -90,8 +111,12 @@ export function AgencyCallReview({
         saved,
         ...(old ?? []).filter((r) => r.id !== saved.id),
       ]);
-      setComment("");
-      setReason("");
+      reset({
+        criteria: saved.criteria,
+        comment: "",
+        reason: "",
+        version: saved.version,
+      });
       setNotice(`Проверка №${saved.version} сохранена. История сохранена.`);
     } catch (e) {
       setError(
@@ -101,8 +126,13 @@ export function AgencyCallReview({
       setBusy(false);
     }
   }
+  useEffect(() => {
+    if (dirty && detailsRef.current) detailsRef.current.open = true;
+    if (dirty && reviews === null && !busy && !error) void load();
+  }, [dirty, reviews, busy, error]);
   return (
     <details
+      ref={detailsRef}
       className="mt-2 rounded border border-border p-2"
       onToggle={(e) => {
         if (e.currentTarget.open && reviews === null && !busy) void load();
@@ -170,6 +200,26 @@ export function AgencyCallReview({
                 void save();
               }}
             >
+              {dirty && draft.version !== (reviews[0]?.version ?? 0) && (
+                <p role="alert">
+                  После начала черновика появилась другая проверка. Сравните
+                  историю выше.
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "Перенести черновик на актуальную версию проверки? Предыдущая история сохранится.",
+                        )
+                      )
+                        patch({ version: reviews[0]?.version ?? 0 });
+                    }}
+                  >
+                    Использовать актуальную версию для черновика
+                  </button>
+                </p>
+              )}
               <fieldset disabled={busy} className="grid gap-2">
                 <legend>
                   {reviews.length
@@ -184,10 +234,12 @@ export function AgencyCallReview({
                       className="input w-full"
                       value={criteria[key]}
                       onChange={(e) =>
-                        setCriteria((old) => ({
-                          ...old,
-                          [key]: e.target.value as Mark,
-                        }))
+                        patch({
+                          criteria: {
+                            ...criteria,
+                            [key]: e.target.value as Mark,
+                          },
+                        })
                       }
                     >
                       {(["NOT_OBSERVABLE", "PASS", "FAIL"] as Mark[]).map(
@@ -203,22 +255,24 @@ export function AgencyCallReview({
                 <label>
                   Обоснование проверки
                   <textarea
+                    aria-label="Обоснование проверки"
                     required
                     maxLength={4000}
                     className="input w-full"
                     value={comment}
-                    onChange={(e) => setComment(e.target.value)}
+                    onChange={(e) => patch({ comment: e.target.value })}
                   />
                 </label>
                 {!!reviews.length && (
                   <label>
                     Причина исправления
                     <textarea
+                      aria-label="Причина исправления"
                       required
                       maxLength={1000}
                       className="input w-full"
                       value={reason}
-                      onChange={(e) => setReason(e.target.value)}
+                      onChange={(e) => patch({ reason: e.target.value })}
                     />
                   </label>
                 )}
@@ -229,6 +283,24 @@ export function AgencyCallReview({
                   }
                 >
                   Сохранить проверку
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={() => {
+                    if (
+                      !dirty ||
+                      window.confirm("Удалить несохранённый черновик проверки?")
+                    )
+                      reset({
+                        criteria: reviews[0]?.criteria ?? EMPTY,
+                        comment: "",
+                        reason: "",
+                        version: reviews[0]?.version ?? 0,
+                      });
+                  }}
+                >
+                  Отменить черновик проверки
                 </button>
               </fieldset>
             </form>
