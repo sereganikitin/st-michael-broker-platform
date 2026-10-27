@@ -7,14 +7,21 @@ import { LoyaltyWorkflowService } from "./loyalty-workflow.service";
 import { AgencyWorkspaceController } from "./agency-workspace.controller";
 import { AgencyWorkspaceService } from "./agency-workspace.service";
 import { AgencyCallReviewService } from "./agency-call-review.service";
+import { AgencySupervisorService } from "./agency-supervisor.service";
+import { AgencySupervisorController } from "./agency-supervisor.controller";
 
 @Module({
   imports: [AuthModule, LoyaltyBaseModule, LoyaltyPermissionModule],
-  controllers: [LoyaltyWorkflowController, AgencyWorkspaceController],
+  controllers: [
+    LoyaltyWorkflowController,
+    AgencyWorkspaceController,
+    AgencySupervisorController,
+  ],
   providers: [
     LoyaltyWorkflowService,
     AgencyWorkspaceService,
     AgencyCallReviewService,
+    AgencySupervisorService,
   ],
   exports: [LoyaltyWorkflowService],
 })

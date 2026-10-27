@@ -5,6 +5,20 @@ import { PARTNER_PHOTO, partnerPhones } from './partner-contact';
 import { contactDateFromInput, contactDateToInput } from './moscow-contact-date';
 import { agencyQueueContact, restoredAgencyFilters, sourcePriority } from './agency-workspace-view';
 import { createAgencyDraftStore } from './agency-draft-store';
+import { supervisorQuery, overdueDuration } from './agency-supervisor';
+
+test('supervisor periods use inclusive Moscow dates and preserve every filter', () => {
+  const query = new URLSearchParams(supervisorQuery({from:'2026-10-26',to:'2026-10-27',assigneeId:'operator',campaignId:'campaign',agencyId:'agency',agencyType:'АН'}));
+  assert.equal(query.get('from'),'2026-10-26T00:00:00+03:00');
+  assert.equal(query.get('to'),'2026-10-27T21:00:00.000Z');
+  assert.equal(query.get('assigneeId'),'operator');
+  assert.equal(query.get('campaignId'),'campaign');
+  assert.equal(query.get('agencyId'),'agency');
+  assert.equal(query.get('agencyType'),'АН');
+  assert.throws(()=>supervisorQuery({from:'2026-10-27',to:'2026-10-26',assigneeId:'',campaignId:'',agencyId:'',agencyType:''}));
+  assert.equal(overdueDuration(1505),'1 д 1 ч');
+  assert.equal(overdueDuration(65),'1 ч 5 мин');
+});
 
 test('tab drafts survive store recreation, are user scoped and clear only on reset', () => {
   const rows = new Map<string, string>();

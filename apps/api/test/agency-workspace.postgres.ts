@@ -16,6 +16,8 @@ import { sign } from "jsonwebtoken";
 import { AgencyWorkspaceController } from "../src/loyalty-workflow/agency-workspace.controller";
 import { AgencyWorkspaceService } from "../src/loyalty-workflow/agency-workspace.service";
 import { AgencyCallReviewService } from "../src/loyalty-workflow/agency-call-review.service";
+import { AgencySupervisorController } from "../src/loyalty-workflow/agency-supervisor.controller";
+import { AgencySupervisorService } from "../src/loyalty-workflow/agency-supervisor.service";
 import { LoyaltyWorkflowController } from "../src/loyalty-workflow/loyalty-workflow.controller";
 import { LoyaltyWorkflowService } from "../src/loyalty-workflow/loyalty-workflow.service";
 import { LoyaltyPermissionService } from "../src/loyalty-workflow/loyalty-permission.service";
@@ -130,6 +132,7 @@ async function main() {
     imports: [PassportModule],
     controllers: [
       AgencyWorkspaceController,
+      AgencySupervisorController,
       LoyaltyWorkflowController,
       LocalProfileController,
       LoyaltyBaseController,
@@ -137,6 +140,7 @@ async function main() {
     providers: [
       AgencyWorkspaceService,
       AgencyCallReviewService,
+      AgencySupervisorService,
       LoyaltyWorkflowService,
       LoyaltyPermissionService,
       LoyaltyBaseService,
@@ -799,6 +803,70 @@ async function main() {
       comment: "Legacy behavior preserved",
     },
     201,
+  );
+  const overdueTask = await db.loyaltyTask.create({
+    data: {
+      ourAgencyId: agencies[0].id,
+      assignmentId: assignment.id,
+      title: "Synthetic overdue callback",
+      kind: "CALL",
+      assignedToId: users.a.id,
+      createdById: users.admin.id,
+      dueAt: new Date(Date.now() - 2 * 86400000),
+    },
+  });
+  const supervisorPath = "agencies-v1-2/supervisor";
+  await request(supervisorPath, "a", "GET", undefined, 403);
+  const supervisor = await request(supervisorPath);
+  assert.ok(
+    supervisor.overdue.some(
+      (t: any) => t.id === overdueTask.id && t.overdueMinutes >= 2880,
+    ),
+  );
+  passed++;
+  for (const rate of supervisor.rates) {
+    assert.equal(supervisor.evidence[rate.numeratorKey].length, rate.numerator);
+    passed++;
+    assert.equal(
+      supervisor.evidence[rate.denominatorKey].length,
+      rate.denominator,
+    );
+    passed++;
+  }
+  const reasonBody = {
+    submissionId: randomUUID(),
+    expectedVersion: 1,
+    reason: "Synthetic reason confirmed by supervisor",
+  };
+  const reasonPath = `${supervisorPath}/tasks/${overdueTask.id}/delay-reason`;
+  await request(reasonPath, "a", "POST", reasonBody, 403);
+  await request(reasonPath, "admin", "POST", reasonBody, 201);
+  await request(reasonPath, "admin", "POST", reasonBody, 201);
+  await request(
+    reasonPath,
+    "admin",
+    "POST",
+    { ...reasonBody, reason: "changed retry" },
+    409,
+  );
+  const afterReason = await request(supervisorPath);
+  const reasonRows = afterReason.overdue.find(
+    (t: any) => t.id === overdueTask.id,
+  ).reasons;
+  assert.equal(reasonRows.length, 1);
+  passed++;
+  assert.equal(reasonRows[0].reason, reasonBody.reason);
+  passed++;
+  await db.loyaltyTask.update({
+    where: { id: overdueTask.id },
+    data: { status: "COMPLETED", completedAt: new Date() },
+  });
+  await request(
+    reasonPath,
+    "admin",
+    "POST",
+    { ...reasonBody, submissionId: randomUUID(), expectedVersion: 2 },
+    409,
   );
   if (process.env.AGENCY_KEEP_API === "1") {
     const fs = require("node:fs");

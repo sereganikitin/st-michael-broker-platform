@@ -127,6 +127,8 @@ type Data = {
     loadedAt: string;
     stale: boolean;
     reviewCount: number | null;
+    pendingReviewCount?: number | null;
+    newCount?: number | null;
   };
   period: { from: string; to: string };
 };
@@ -293,6 +295,12 @@ export default function AgencyCallWorkspace() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("agencyId");
+    if (id && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      setSelected(id); setFilterAgency(id); setView("all");
+    }
+  }, []);
 
   const cards = (data?.cards || []).filter((card) => {
     if (
@@ -515,9 +523,10 @@ export default function AgencyCallWorkspace() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           {data?.permissions.includes("READ_ALL") && (
-            <Link className="text-accent" href="/admin/agencies-v1-2">
-              Исходная таблица
-            </Link>
+            <div className="flex flex-wrap gap-4">
+              <Link className="text-accent" href="/admin/agencies-v1-2">Исходная таблица</Link>
+              <Link className="text-accent" href="/admin/agencies-v1-2/supervisor">Экран руководителя</Link>
+            </div>
           )}
           <h1 className="text-2xl font-semibold">
             Агентства v1/2 · Мой обзвон
@@ -557,8 +566,9 @@ export default function AgencyCallWorkspace() {
         <p className="text-sm text-text-muted">
           Google: проверенный снимок {moscow(data.source.loadedAt)} МСК.{" "}
           {data.source.stale && "Снимок устарел; проверьте синхронизацию."}{" "}
-          {data.source.reviewCount !== null &&
-            `На проверке сопоставления: ${data.source.reviewCount}.`}{" "}
+          {data.source.pendingReviewCount != null
+            ? `Спорных сопоставлений: ${data.source.pendingReviewCount}; строк без карточки: ${data.source.newCount ?? 0}.`
+            : data.source.reviewCount !== null && `Требуют сопоставления: ${data.source.reviewCount}.`}{" "}
           Работа хранится в кабинете.
         </p>
       )}
