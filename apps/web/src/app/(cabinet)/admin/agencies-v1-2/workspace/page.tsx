@@ -1243,6 +1243,7 @@ export default function AgencyCallWorkspace() {
                 <label>
                   Результат
                   <select
+                    aria-label="Результат звонка"
                     className="input"
                     value={draft.result}
                     onChange={(e) =>

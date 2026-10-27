@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   Download,
@@ -80,7 +80,9 @@ export function LoyaltyCampaignDashboard({
   const [detailPage, setDetailPage] = useState(1);
   const [busyAction, setBusyAction] = useState("");
   const [actionError, setActionError] = useState("");
-  const [assigneeId, setAssigneeId] = useState(operators[0]?.id || "");
+  const [assigneeId, setAssigneeId] = useState("");
+  const detailRequest = useRef(0);
+  const detailSelection = useRef("");
 
   const loadCampaigns = useCallback(async () => {
     setLoading(true);
@@ -107,6 +109,11 @@ export function LoyaltyCampaignDashboard({
   }, [base, entityType, status]);
 
   const loadDetail = useCallback(async (id: string, page = 1) => {
+    const request = ++detailRequest.current;
+    if (detailSelection.current !== id) {
+      detailSelection.current = id;
+      setAssigneeId("");
+    }
     setSelectedId(id);
     setDetailPage(page);
     setDetailLoading(true);
@@ -114,11 +121,10 @@ export function LoyaltyCampaignDashboard({
     setActionError("");
     try {
       const next = await getLoyaltyCampaign(id, { page, pageSize: 200 });
+      if (request !== detailRequest.current) return;
       setDetail(next);
-      const existingAssignee = next.assignments.find((item) => item.assignedTo)
-        ?.assignedTo?.id;
-      if (existingAssignee) setAssigneeId(existingAssignee);
     } catch (reason) {
+      if (request !== detailRequest.current) return;
       setDetail(null);
       setDetailError(
         reason instanceof Error
@@ -126,7 +132,7 @@ export function LoyaltyCampaignDashboard({
           : "Не удалось загрузить кампанию",
       );
     } finally {
-      setDetailLoading(false);
+      if (request === detailRequest.current) setDetailLoading(false);
     }
   }, []);
 
@@ -395,6 +401,7 @@ export function LoyaltyCampaignDashboard({
                     )}
                     <div className="mt-3 flex flex-wrap gap-2">
                       <select
+                        aria-label="Сотрудник для назначений кампании"
                         className="input min-w-64"
                         value={assigneeId}
                         onChange={(event) => setAssigneeId(event.target.value)}
@@ -408,7 +415,9 @@ export function LoyaltyCampaignDashboard({
                       </select>
                       <button
                         className="btn btn-primary"
-                        disabled={!detail.selection || busyAction !== ""}
+                        disabled={
+                          !detail.selection || !assigneeId || busyAction !== ""
+                        }
                         onClick={() => void resumeDraft()}
                       >
                         {busyAction === "resume" ? (

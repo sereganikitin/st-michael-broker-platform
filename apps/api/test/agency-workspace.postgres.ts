@@ -3,6 +3,7 @@ import "reflect-metadata";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import {
   ValidationPipe,
   Controller,
@@ -57,6 +58,62 @@ async function main() {
   await db.$executeRawUnsafe(
     'TRUNCATE TABLE "brokers", "agencies", "system_settings" CASCADE',
   );
+  // db push cannot represent partial unique indexes. Use the actual migration
+  // statements so retries and cross-campaign exclusivity match production.
+  const migrationSql = [
+    "20260824000100_loyalty_workflows",
+    "20261026120000_agency_call_control",
+  ]
+    .map((name) =>
+      readFileSync(
+        resolve("packages/database/prisma/migrations", name, "migration.sql"),
+        "utf8",
+      ),
+    )
+    .join("\n");
+  const indexNames = [
+    "loyalty_call_assignments_campaign_anna_person_key",
+    "loyalty_call_assignments_campaign_anna_org_key",
+    "loyalty_call_assignments_campaign_our_broker_key",
+    "loyalty_call_assignments_campaign_our_agency_key",
+    "loyalty_one_open_assignment_per_agency",
+  ];
+  for (const name of indexNames) {
+    const statement = migrationSql.match(
+      new RegExp(`CREATE UNIQUE INDEX "${name}"[\\s\\S]*?;`),
+    )?.[0];
+    assert.ok(statement, `Missing migration index ${name}`);
+    await db.$executeRawUnsafe(
+      statement.replace(
+        "CREATE UNIQUE INDEX",
+        "CREATE UNIQUE INDEX IF NOT EXISTS",
+      ),
+    );
+  }
+  // Apply the real reassignment guard migration statement-by-statement; Prisma's
+  // raw API prepares one statement at a time. Explicit transaction preserves DDL.
+  const reassignmentMigration = readFileSync(
+    resolve(
+      "packages/database/prisma/migrations/20261027150000_agency_reassignment_history/migration.sql",
+    ),
+    "utf8",
+  ).replace(/^--.*$/gm, "");
+  await db.$transaction(async (tx: any) => {
+    for (const sql of reassignmentMigration
+      .split(";")
+      .map((s) => s.trim())
+      .filter((s) => s && s !== "BEGIN" && s !== "COMMIT"))
+      await tx.$executeRawUnsafe(sql);
+  });
+  const indexes = await db.$queryRawUnsafe(
+    "SELECT indexname FROM pg_indexes WHERE tablename='loyalty_call_assignments'",
+  );
+  assert.ok(
+    indexNames.every((name) =>
+      indexes.some((row: any) => row.indexname === name),
+    ),
+  );
+  passed++;
   const users: any = {};
   for (const [i, role] of ["ADMIN", "MANAGER", "MANAGER", "BROKER"].entries()) {
     const row = await db.broker.create({
@@ -618,9 +675,23 @@ async function main() {
     expectedVersion: handed.version,
     assignedToId: users.a.id,
   });
+  const contextCampaign = await db.loyaltyCallCampaign.create({
+    data: {
+      name: "Synthetic follow-up campaign",
+      message: "Context history fixture",
+      base: "OUR",
+      entityType: "AGENCY",
+      status: "ACTIVE",
+      startedAt: new Date(),
+      createdById: users.admin.id,
+      expectedCount: 1,
+      filterHash: "c".repeat(64),
+      filterSnapshot: {},
+    },
+  });
   const contextualAssignment = await db.loyaltyCallAssignment.create({
     data: {
-      campaignId: campaign.id,
+      campaignId: contextCampaign.id,
       ourAgencyId: agencies[0].id,
       assignedToId: users.b.id,
       assignedById: users.admin.id,
@@ -1066,7 +1137,7 @@ async function main() {
     row: 20 + i,
     name: a.name,
     normalizedName: normalize(a.name),
-    type: "АН",
+    type: a.id === agencies[2].id ? "Ключевой" : "АН",
     baselineRub: "0.00",
     addedRub: "0.00",
     totalRub: "0.00",
