@@ -1,4 +1,7 @@
-import { PartnerSheetService } from "./partner-sheet.service";
+import {
+  PartnerSheetService,
+  partnerSheetQuietTime,
+} from "./partner-sheet.service";
 import { LoyaltyBaseController } from "./loyalty-base.controller";
 import { join } from "node:path";
 const { COLUMNS } = require(
@@ -21,6 +24,11 @@ function fixture() {
       if (map.has(data.key))
         throw Object.assign(new Error("duplicate"), { code: "P2002" });
       map.set(data.key, data.value);
+    }),
+    updateMany: jest.fn(async ({ where, data }: any) => {
+      if (map.get(where.key) !== where.value) return { count: 0 };
+      map.set(where.key, data.value);
+      return { count: 1 };
     }),
   });
   const prisma: any = {
@@ -91,6 +99,59 @@ function fixture() {
 }
 
 describe("separate partner sheet view", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-10-26T09:00:00Z"));
+  });
+  afterEach(() => jest.useRealTimers());
+  it("respects Moscow quiet-hour boundaries", () => {
+    expect(partnerSheetQuietTime(new Date("2026-10-26T18:59:59Z"))).toBe(false);
+    expect(partnerSheetQuietTime(new Date("2026-10-26T19:00:00Z"))).toBe(true);
+    expect(partnerSheetQuietTime(new Date("2026-10-27T05:59:59Z"))).toBe(true);
+    expect(partnerSheetQuietTime(new Date("2026-10-27T06:00:00Z"))).toBe(false);
+  });
+  it("persists a night incident and sends once after restart in the morning", async () => {
+    const f = fixture();
+    jest.setSystemTime(new Date("2026-10-26T20:00:00Z"));
+    f.read.mockRejectedValue(new Error("private"));
+    await f.service.scheduledSync();
+    expect(f.alerts.sendSafely).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(f.store.get("partner-sheet-v1-2:incident")!).delivery,
+    ).toBe("pending");
+    const restarted = new PartnerSheetService(f.prisma, f.alerts);
+    jest.setSystemTime(new Date("2026-10-27T06:00:00Z"));
+    await Promise.all([
+      restarted.flushPendingIncident(),
+      restarted.flushPendingIncident(),
+    ]);
+    expect(f.alerts.sendSafely).toHaveBeenCalledTimes(1);
+    await restarted.flushPendingIncident();
+    expect(f.alerts.sendSafely).toHaveBeenCalledTimes(1);
+  });
+  it("does not send a recovered night incident or resend an uncertain delivery", async () => {
+    const f = fixture();
+    jest.setSystemTime(new Date("2026-10-26T20:00:00Z"));
+    f.read.mockRejectedValueOnce(new Error("private"));
+    await f.service.scheduledSync();
+    await f.service.scheduledSync();
+    jest.setSystemTime(new Date("2026-10-27T06:00:00Z"));
+    await f.service.flushPendingIncident();
+    expect(f.alerts.sendSafely).not.toHaveBeenCalled();
+    f.alerts.sendSafely.mockResolvedValue(false);
+    f.read.mockRejectedValue(new Error("private"));
+    await f.service.scheduledSync();
+    await f.service.scheduledSync();
+    expect(f.alerts.sendSafely).toHaveBeenCalledTimes(1);
+  });
+  it("treats legacy incident reservation as already attempted", async () => {
+    const f = fixture();
+    f.store.set("partner-sheet-v1-2:incident", "2026-10-25T09:00:00.000Z");
+    f.read.mockRejectedValue(new Error("private"));
+    await f.service.scheduledSync();
+    await f.service.flushPendingIncident();
+    expect(f.alerts.sendSafely).not.toHaveBeenCalled();
+  });
   it("verifies and persists complete snapshots, uses a real read on every scheduled run", async () => {
     const f = fixture();
     await f.service.list();

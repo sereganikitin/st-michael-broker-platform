@@ -35,6 +35,7 @@ const payloads = [];
   assert.equal(await page.getByLabel('Дата проверки',{exact:true}).inputValue(),'2026-10-27T09:00');
   await page.getByRole('button',{name:'Сохранить контакт',exact:true}).click();
   await page.getByRole('article').getByText('Synthetic contact',{exact:true}).waitFor();
+  await page.getByRole('complementary').getByText(/\+70000000000/).waitFor();
   assert.equal(payloads.length,1);
   assert.equal(payloads[0].contacts[0].verifiedAt,'2026-10-27T09:00:00+03:00');
   await page.getByRole('button',{name:'Исправить',exact:true}).click();

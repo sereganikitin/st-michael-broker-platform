@@ -46,6 +46,19 @@ const api = async (actor, p, method = "GET", body) => {
       new URL(r.request().url()).origin === base ? r.continue() : r.abort(),
     );
     const page = await context.newPage();
+    page.on("response", async (response) => {
+      if (
+        response.status() >= 400 &&
+        new URL(response.url()).pathname.startsWith("/api/loyalty-workflow/")
+      ) {
+        console.log(
+          "LOCAL_API_ERROR",
+          response.status(),
+          new URL(response.url()).pathname,
+          (await response.text()).slice(0, 300),
+        );
+      }
+    });
     page.setDefaultTimeout(30000);
     await page.goto(base + "/admin/agencies-v1-2/workspace", {
       waitUntil: "domcontentloaded",
@@ -161,6 +174,10 @@ const api = async (actor, p, method = "GET", body) => {
         .count(),
       0,
     );
+    await a.getByLabel("Поиск агентства", { exact: true }).fill(seedCard.name);
+    await a
+      .getByRole("heading", { name: seedCard.name, exact: true })
+      .waitFor();
     await a.getByRole("button", { name: "Взять в работу" }).click();
     await a
       .getByText("Карточка закреплена за текущим сеансом", { exact: true })
@@ -190,10 +207,19 @@ const api = async (actor, p, method = "GET", body) => {
     await a.getByText("UI contact", { exact: true }).waitFor();
     checks++;
     console.log("CONTACT");
-    await a.locator("fieldset select").first().selectOption("NO_ANSWER");
-    await a.locator("fieldset textarea").fill(attemptComment);
+    await a
+      .getByLabel("Результат звонка", { exact: true })
+      .selectOption("NO_ANSWER");
+    await a
+      .getByLabel("Комментарий / договорённость", { exact: true })
+      .fill(attemptComment);
     await a.getByRole("button", { name: "Сохранить и следующий" }).click();
-    await a.getByRole("status").waitFor();
+    await a
+      .getByText(
+        "Результат сохранён. Выполнение обещанных задач отмечается отдельно.",
+        { exact: true },
+      )
+      .waitFor();
     checks++;
     console.log("SAVED");
     const data = await api("a", "agencies-v1-2");
@@ -303,6 +329,18 @@ const api = async (actor, p, method = "GET", body) => {
       .getByRole("button", { name: "Кампании и назначения", exact: true })
       .click();
     await admin.getByRole("button", { name: new RegExp(pilotName) }).click();
+    assert.equal(
+      await admin
+        .getByRole("button", {
+          name: "Назначить недостающее и активировать",
+          exact: true,
+        })
+        .isEnabled(),
+      false,
+    );
+    await admin
+      .getByLabel("Сотрудник для назначений кампании", { exact: true })
+      .selectOption(fixture.users.a.id);
     await admin
       .getByRole("button", {
         name: "Назначить недостающее и активировать",
@@ -341,10 +379,18 @@ const api = async (actor, p, method = "GET", body) => {
     await sourceDownload;
     checks++;
     await admin.getByRole("link", { name: "Мой обзвон", exact: true }).click();
-    await admin.getByRole("heading", {name:"Контроль команды",exact:true}).waitFor();
-    await admin.getByRole("button", {name:"Все доступные",exact:true}).click();
-    await admin.getByLabel("Поиск агентства",{exact:true}).fill("Synthetic agency 0");
-    await admin.getByRole("heading",{name:"Synthetic agency 0",exact:true}).waitFor();
+    await admin
+      .getByRole("heading", { name: "Контроль команды", exact: true })
+      .waitFor();
+    await admin
+      .getByRole("button", { name: "Все доступные", exact: true })
+      .click();
+    await admin
+      .getByLabel("Поиск агентства", { exact: true })
+      .fill("Synthetic agency 0");
+    await admin
+      .getByRole("heading", { name: "Synthetic agency 0", exact: true })
+      .waitFor();
     if (process.env.AGENCY_SCREENSHOT_DIR) {
       await admin.screenshot({
         path: path.join(
@@ -353,9 +399,15 @@ const api = async (actor, p, method = "GET", body) => {
         ),
         fullPage: true,
       });
-      await admin.setViewportSize({width:390,height:844});
+      await admin.setViewportSize({ width: 390, height: 844 });
       await admin.waitForTimeout(350);
-      await admin.screenshot({path:path.join(process.env.AGENCY_SCREENSHOT_DIR,"agency-real-api-mobile.png"),fullPage:true});
+      await admin.screenshot({
+        path: path.join(
+          process.env.AGENCY_SCREENSHOT_DIR,
+          "agency-real-api-mobile.png",
+        ),
+        fullPage: true,
+      });
     }
     console.log(`PASS live browser + HTTP/JWT + PostgreSQL: ${checks} checks`);
   } finally {

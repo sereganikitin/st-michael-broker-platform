@@ -364,6 +364,7 @@ enum LoyaltyPermission {
   READ_ALL
   READ_OWN_QUEUE
   CALL_EXECUTE
+  CALL_REVIEW
   CALL_ASSIGN
   ENTITY_EDIT
   REFERENCE_MANAGE
@@ -538,6 +539,8 @@ model Broker {
   loyaltyAssignmentsAssignedTo      LoyaltyCallAssignment[]      @relation("LoyaltyAssignmentAssignee")
   loyaltyAssignmentsAssignedBy      LoyaltyCallAssignment[]      @relation("LoyaltyAssignmentAssigner")
   loyaltyCallAttempts               LoyaltyCallAttempt[]         @relation("LoyaltyCallAttemptOperator")
+  agencyCallReviews                 AgencyCallReview[]
+  agencyCampaignOutcomes            AgencyCampaignOutcome[]
   loyaltyTasksAsTarget              LoyaltyTask[]                @relation("LoyaltyTaskOurBroker")
   loyaltyTasksAssignedTo            LoyaltyTask[]                @relation("LoyaltyTaskAssignee")
   loyaltyTasksCreated               LoyaltyTask[]                @relation("LoyaltyTaskCreator")
@@ -1508,6 +1511,8 @@ model LoyaltyCallAssignment {
   attempts           LoyaltyCallAttempt[]
   tasks              LoyaltyTask[]
 
+  campaignOutcomes   AgencyCampaignOutcome[]
+
   @@index([campaignId, status])
   @@index([assignedToId, status, assignedAt])
   @@index([annaPersonId])
@@ -1539,6 +1544,7 @@ model LoyaltyCallAttempt {
   occurredAt        DateTime              @default(now()) @map("occurred_at")
   createdAt         DateTime              @default(now()) @map("created_at")
   tasks             LoyaltyTask[]
+  qualityReviews    AgencyCallReview[]
 
   @@index([assignmentId, occurredAt])
   @@index([operatorId, occurredAt])
@@ -1546,6 +1552,50 @@ model LoyaltyCallAttempt {
   // 2026-09-28: «Период звонков» в базе лояльности — один проход по дате.
   @@index([occurredAt])
   @@map("loyalty_call_attempts")
+}
+
+/// Append-only manual QA of a specific immutable call attempt, not an automated score.
+model AgencyCallReview {
+  id               String             @id @default(uuid())
+  callAttemptId    String             @map("call_attempt_id")
+  callAttempt      LoyaltyCallAttempt @relation(fields: [callAttemptId], references: [id], onDelete: Restrict)
+  reviewerId       String             @map("reviewer_id")
+  reviewer         Broker             @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+  submissionId     String             @unique @map("submission_id") @db.VarChar(80)
+  requestHash      String             @map("request_hash") @db.Char(64)
+  version          Int
+  criteria         Json
+  comment          String             @db.Text
+  correctionReason String?            @map("correction_reason") @db.Text
+  createdAt        DateTime           @default(now()) @map("created_at")
+
+  @@unique([callAttemptId, version])
+  @@index([reviewerId, createdAt])
+  @@map("agency_call_reviews")
+}
+
+/// Append-only revisions of a manually evidenced campaign result.
+model AgencyCampaignOutcome {
+  id               String                @id @default(uuid())
+  assignmentId     String                @map("assignment_id")
+  assignment       LoyaltyCallAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  eventId          String                @map("event_id")
+  version          Int
+  kind             String                @db.VarChar(20)
+  status           String                @db.VarChar(20)
+  occurredAt       DateTime              @map("occurred_at")
+  basis            String                @db.VarChar(1000)
+  comment          String                @db.VarChar(2000)
+  correctionReason String?               @map("correction_reason") @db.VarChar(1000)
+  actorId          String                @map("actor_id")
+  actor            Broker                @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  submissionId     String                @unique @map("submission_id") @db.VarChar(80)
+  requestHash      String                @map("request_hash") @db.Char(64)
+  createdAt        DateTime              @default(now()) @map("created_at")
+
+  @@unique([eventId, version])
+  @@index([assignmentId, createdAt])
+  @@map("agency_campaign_outcomes")
 }
 
 model LoyaltyTask {

@@ -596,7 +596,13 @@ export class LoyaltyWorkflowService {
     await this.validateTargets(campaign, ids, true);
     const targetField = this.targetField(campaign.base, campaign.entityType);
     const existing = await this.db.loyaltyCallAssignment.count({
-      where: { campaignId: id, [targetField]: { in: ids } },
+      where: {
+        campaignId: id,
+        [targetField]: { in: ids },
+        ...(campaign.base === "OUR" && campaign.entityType === "AGENCY"
+          ? { status: { not: "CANCELLED" } }
+          : {}),
+      },
     });
     return {
       campaignId: id,
@@ -647,7 +653,12 @@ export class LoyaltyWorkflowService {
         createdCount += created.count;
       }
       const total = await tx.loyaltyCallAssignment.count({
-        where: { campaignId: id },
+        where: {
+          campaignId: id,
+          ...(campaign.base === "OUR" && campaign.entityType === "AGENCY"
+            ? { status: { not: "CANCELLED" } }
+            : {}),
+        },
       });
       if (total > campaign.expectedCount) this.selectionDrift();
       await this.audit(

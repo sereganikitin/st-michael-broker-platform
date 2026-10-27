@@ -3,6 +3,7 @@ import "reflect-metadata";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import {
   ValidationPipe,
   Controller,
@@ -15,6 +16,10 @@ import { PassportModule } from "@nestjs/passport";
 import { sign } from "jsonwebtoken";
 import { AgencyWorkspaceController } from "../src/loyalty-workflow/agency-workspace.controller";
 import { AgencyWorkspaceService } from "../src/loyalty-workflow/agency-workspace.service";
+import { AgencyCallReviewService } from "../src/loyalty-workflow/agency-call-review.service";
+import { AgencySupervisorController } from "../src/loyalty-workflow/agency-supervisor.controller";
+import { AgencySupervisorService } from "../src/loyalty-workflow/agency-supervisor.service";
+import { AgencyCampaignOutcomeService } from "../src/loyalty-workflow/agency-campaign-outcome.service";
 import { LoyaltyWorkflowController } from "../src/loyalty-workflow/loyalty-workflow.controller";
 import { LoyaltyWorkflowService } from "../src/loyalty-workflow/loyalty-workflow.service";
 import { LoyaltyPermissionService } from "../src/loyalty-workflow/loyalty-permission.service";
@@ -40,7 +45,7 @@ if (
   url.pathname !== "/agency_audit"
 )
   throw Error("DEDICATED_LOCAL_DATABASE_REQUIRED");
-const { PrismaClient } = require(resolve("work/generated-client"));
+const { PrismaClient } = require("@prisma/client");
 const { encodeSnapshot } = require(
   resolve("scripts/partner-sheet/snapshot.cjs"),
 );
@@ -53,6 +58,62 @@ async function main() {
   await db.$executeRawUnsafe(
     'TRUNCATE TABLE "brokers", "agencies", "system_settings" CASCADE',
   );
+  // db push cannot represent partial unique indexes. Use the actual migration
+  // statements so retries and cross-campaign exclusivity match production.
+  const migrationSql = [
+    "20260824000100_loyalty_workflows",
+    "20261026120000_agency_call_control",
+  ]
+    .map((name) =>
+      readFileSync(
+        resolve("packages/database/prisma/migrations", name, "migration.sql"),
+        "utf8",
+      ),
+    )
+    .join("\n");
+  const indexNames = [
+    "loyalty_call_assignments_campaign_anna_person_key",
+    "loyalty_call_assignments_campaign_anna_org_key",
+    "loyalty_call_assignments_campaign_our_broker_key",
+    "loyalty_call_assignments_campaign_our_agency_key",
+    "loyalty_one_open_assignment_per_agency",
+  ];
+  for (const name of indexNames) {
+    const statement = migrationSql.match(
+      new RegExp(`CREATE UNIQUE INDEX "${name}"[\\s\\S]*?;`),
+    )?.[0];
+    assert.ok(statement, `Missing migration index ${name}`);
+    await db.$executeRawUnsafe(
+      statement.replace(
+        "CREATE UNIQUE INDEX",
+        "CREATE UNIQUE INDEX IF NOT EXISTS",
+      ),
+    );
+  }
+  // Apply the real reassignment guard migration statement-by-statement; Prisma's
+  // raw API prepares one statement at a time. Explicit transaction preserves DDL.
+  const reassignmentMigration = readFileSync(
+    resolve(
+      "packages/database/prisma/migrations/20261027150000_agency_reassignment_history/migration.sql",
+    ),
+    "utf8",
+  ).replace(/^--.*$/gm, "");
+  await db.$transaction(async (tx: any) => {
+    for (const sql of reassignmentMigration
+      .split(";")
+      .map((s) => s.trim())
+      .filter((s) => s && s !== "BEGIN" && s !== "COMMIT"))
+      await tx.$executeRawUnsafe(sql);
+  });
+  const indexes = await db.$queryRawUnsafe(
+    "SELECT indexname FROM pg_indexes WHERE tablename='loyalty_call_assignments'",
+  );
+  assert.ok(
+    indexNames.every((name) =>
+      indexes.some((row: any) => row.indexname === name),
+    ),
+  );
+  passed++;
   const users: any = {};
   for (const [i, role] of ["ADMIN", "MANAGER", "MANAGER", "BROKER"].entries()) {
     const row = await db.broker.create({
@@ -129,12 +190,16 @@ async function main() {
     imports: [PassportModule],
     controllers: [
       AgencyWorkspaceController,
+      AgencySupervisorController,
       LoyaltyWorkflowController,
       LocalProfileController,
       LoyaltyBaseController,
     ],
     providers: [
       AgencyWorkspaceService,
+      AgencyCallReviewService,
+      AgencyCampaignOutcomeService,
+      AgencySupervisorService,
       LoyaltyWorkflowService,
       LoyaltyPermissionService,
       LoyaltyBaseService,
@@ -335,6 +400,85 @@ async function main() {
     ),
   ]);
   const attempt = concurrent[0];
+  const reviewPath = `agencies-v1-2/${agencies[0].id}/attempts/${attempt.id}/reviews`;
+  const reviewBody = {
+    submissionId: randomUUID(),
+    expectedVersion: 0,
+    criteria: {
+      offerCurrent: "PASS",
+      needsClarified: "NOT_OBSERVABLE",
+      agreementRecorded: "FAIL",
+      nextStepCorrect: "PASS",
+    },
+    comment: "Synthetic manual QA; no audio evidence",
+  };
+  await request(reviewPath, "a", "POST", reviewBody, 403);
+  await request(reviewPath, "broker", "GET", undefined, 403);
+  await request(
+    reviewPath,
+    "admin",
+    "POST",
+    {
+      ...reviewBody,
+      criteria: { ...reviewBody.criteria, offerCurrent: "AUTO" },
+    },
+    400,
+  );
+  await request(
+    `agencies-v1-2/${agencies[1].id}/attempts/${attempt.id}/reviews`,
+    "admin",
+    "POST",
+    reviewBody,
+    404,
+  );
+  const firstReviews = await Promise.all([
+    request(reviewPath, "admin", "POST", reviewBody, 201),
+    request(reviewPath, "admin", "POST", reviewBody, 201),
+  ]);
+  assert.equal(firstReviews[0].id, firstReviews[1].id);
+  passed++;
+  await request(
+    reviewPath,
+    "admin",
+    "POST",
+    { ...reviewBody, comment: "changed retry" },
+    409,
+  );
+  await request(
+    reviewPath,
+    "admin",
+    "POST",
+    { ...reviewBody, submissionId: randomUUID() },
+    409,
+  );
+  await request(
+    reviewPath,
+    "admin",
+    "POST",
+    { ...reviewBody, submissionId: randomUUID(), expectedVersion: 1 },
+    400,
+  );
+  const revision = {
+    ...reviewBody,
+    submissionId: randomUUID(),
+    expectedVersion: 1,
+    correctionReason: "Synthetic evidence clarified",
+    comment: "Revised manual QA",
+  };
+  await request(reviewPath, "admin", "POST", revision, 201);
+  const reviewHistory = await request(reviewPath);
+  assert.deepEqual(
+    reviewHistory.reviews.map((r: any) => r.version),
+    [2, 1],
+  );
+  passed++;
+  assert.equal(reviewHistory.reviews[1].comment, reviewBody.comment);
+  passed++;
+  assert.equal(
+    await db.agencyCallReview.count({ where: { callAttemptId: attempt.id } }),
+    2,
+  );
+  passed++;
   assert.equal(concurrent[0].id, concurrent[1].id);
   passed++;
   await request(
@@ -531,9 +675,23 @@ async function main() {
     expectedVersion: handed.version,
     assignedToId: users.a.id,
   });
+  const contextCampaign = await db.loyaltyCallCampaign.create({
+    data: {
+      name: "Synthetic follow-up campaign",
+      message: "Context history fixture",
+      base: "OUR",
+      entityType: "AGENCY",
+      status: "ACTIVE",
+      startedAt: new Date(),
+      createdById: users.admin.id,
+      expectedCount: 1,
+      filterHash: "c".repeat(64),
+      filterSnapshot: {},
+    },
+  });
   const contextualAssignment = await db.loyaltyCallAssignment.create({
     data: {
-      campaignId: campaign.id,
+      campaignId: contextCampaign.id,
       ourAgencyId: agencies[0].id,
       assignedToId: users.b.id,
       assignedById: users.admin.id,
@@ -719,6 +877,304 @@ async function main() {
     },
     201,
   );
+  const overdueTask = await db.loyaltyTask.create({
+    data: {
+      ourAgencyId: agencies[0].id,
+      assignmentId: assignment.id,
+      title: "Synthetic overdue callback",
+      kind: "CALL",
+      assignedToId: users.a.id,
+      createdById: users.admin.id,
+      dueAt: new Date(Date.now() - 2 * 86400000),
+    },
+  });
+  const supervisorPath = "agencies-v1-2/supervisor";
+  await request(supervisorPath, "a", "GET", undefined, 403);
+  const supervisor = await request(supervisorPath);
+  assert.ok(
+    supervisor.overdue.some(
+      (t: any) => t.id === overdueTask.id && t.overdueMinutes >= 2880,
+    ),
+  );
+  passed++;
+  for (const rate of supervisor.rates) {
+    assert.equal(supervisor.evidence[rate.numeratorKey].length, rate.numerator);
+    passed++;
+    assert.equal(
+      supervisor.evidence[rate.denominatorKey].length,
+      rate.denominator,
+    );
+    passed++;
+  }
+  const reasonBody = {
+    submissionId: randomUUID(),
+    expectedVersion: 1,
+    reason: "Synthetic reason confirmed by supervisor",
+  };
+  const reasonPath = `${supervisorPath}/tasks/${overdueTask.id}/delay-reason`;
+  await request(reasonPath, "a", "POST", reasonBody, 403);
+  await request(reasonPath, "admin", "POST", reasonBody, 201);
+  await request(reasonPath, "admin", "POST", reasonBody, 201);
+  await request(
+    reasonPath,
+    "admin",
+    "POST",
+    { ...reasonBody, reason: "changed retry" },
+    409,
+  );
+  const afterReason = await request(supervisorPath);
+  const reasonRows = afterReason.overdue.find(
+    (t: any) => t.id === overdueTask.id,
+  ).reasons;
+  assert.equal(reasonRows.length, 1);
+  passed++;
+  assert.equal(reasonRows[0].reason, reasonBody.reason);
+  passed++;
+  await db.loyaltyTask.update({
+    where: { id: overdueTask.id },
+    data: { status: "COMPLETED", completedAt: new Date() },
+  });
+  await request(
+    reasonPath,
+    "admin",
+    "POST",
+    { ...reasonBody, submissionId: randomUUID(), expectedVersion: 2 },
+    409,
+  );
+  const resultAssignment = await db.loyaltyCallAssignment.findFirst({
+    where: { ourAgencyId: agencies[0].id },
+  });
+  const outcomePath = `agencies-v1-2/${agencies[0].id}/assignments/${resultAssignment.id}/outcomes`;
+  const notOwner = resultAssignment.assignedToId === users.a.id ? "b" : "a";
+  const outcomeBody = {
+    eventId: randomUUID(),
+    submissionId: randomUUID(),
+    expectedVersion: 0,
+    kind: "MEETING",
+    status: "PLANNED",
+    occurredAt: new Date(Date.now() + 86400000).toISOString(),
+    basis: "Synthetic agreement with agency",
+    comment: "No real meeting",
+  };
+  await request(outcomePath, "broker", "GET", undefined, 403);
+  await request(outcomePath, notOwner, "POST", outcomeBody, 403);
+  const planned = await request(outcomePath, "admin", "POST", outcomeBody, 201);
+  const repeated = await request(
+    outcomePath,
+    "admin",
+    "POST",
+    outcomeBody,
+    201,
+  );
+  assert.equal(planned.id, repeated.id);
+  passed++;
+  await request(
+    outcomePath,
+    "admin",
+    "POST",
+    { ...outcomeBody, basis: "Changed retry" },
+    409,
+  );
+  await request(
+    outcomePath,
+    "admin",
+    "POST",
+    {
+      ...outcomeBody,
+      eventId: randomUUID(),
+      submissionId: randomUUID(),
+      status: "HELD",
+    },
+    400,
+  );
+  const completedResult = {
+    ...outcomeBody,
+    submissionId: randomUUID(),
+    expectedVersion: 1,
+    status: "HELD",
+    occurredAt: new Date(Date.now() - 60000).toISOString(),
+    correctionReason: "Synthetic meeting actually held",
+  };
+  const tasksBeforeResult = await db.loyaltyTask.findMany({
+    where: { assignmentId: resultAssignment.id },
+    orderBy: { id: "asc" },
+  });
+  await request(outcomePath, "admin", "POST", completedResult, 201);
+  await request(
+    outcomePath,
+    "admin",
+    "POST",
+    { ...completedResult, submissionId: randomUUID() },
+    409,
+  );
+  const historyResult = await request(outcomePath);
+  assert.equal(historyResult.history.length, 2);
+  passed++;
+  const reportResult = await request(supervisorPath);
+  assert.equal(reportResult.campaignResults.counts.meetingsHeld, 1);
+  passed++;
+  assert.equal(reportResult.campaignResults.counts.meetingsPlanned, 0);
+  passed++;
+  assert.equal(reportResult.campaignResults.events[0].basis, outcomeBody.basis);
+  passed++;
+  const authorReport = await request(
+    `${supervisorPath}?assigneeId=${users.admin.id}`,
+  );
+  assert.equal(authorReport.campaignResults.counts.meetingsHeld, 1);
+  passed++;
+  assert.equal(authorReport.metrics.assignedAgencies, 0);
+  passed++;
+  const plannedPeriod = new URLSearchParams({
+    from: new Date(Date.now() + 3600000).toISOString(),
+    to: new Date(Date.now() + 172800000).toISOString(),
+  });
+  const plannedReport = await request(`${supervisorPath}?${plannedPeriod}`);
+  assert.equal(plannedReport.campaignResults.counts.meetingsScheduled, 1);
+  passed++;
+  assert.equal(plannedReport.campaignResults.counts.meetingsHeld, 0);
+  passed++;
+  assert.equal(
+    plannedReport.campaignResults.scheduled[0].eventId,
+    outcomeBody.eventId,
+  );
+  passed++;
+  assert.deepEqual(
+    await db.loyaltyTask.findMany({
+      where: { assignmentId: resultAssignment.id },
+      orderBy: { id: "asc" },
+    }),
+    tasksBeforeResult,
+  );
+  passed++;
+  await request(
+    outcomePath,
+    "admin",
+    "POST",
+    {
+      ...completedResult,
+      submissionId: randomUUID(),
+      expectedVersion: 2,
+      status: "CANCELLED",
+      correctionReason: "Synthetic wrong fact revoked",
+    },
+    201,
+  );
+  const revokedReport = await request(supervisorPath);
+  assert.equal(revokedReport.campaignResults.counts.meetingsHeld, 0);
+  passed++;
+  assert.equal(revokedReport.campaignResults.counts.cancelled, 1);
+  passed++;
+  await request(`${supervisorPath}/results/export`, "a", "POST", {}, 403);
+  const resultCsv = await request(
+    `${supervisorPath}/results/export`,
+    "admin",
+    "POST",
+    {},
+    201,
+  );
+  assert.ok(
+    resultCsv.includes(outcomeBody.eventId) && resultCsv.includes("CANCELLED"),
+  );
+  passed++;
+  const concurrentResults = await Promise.all(
+    ["Revision A", "Revision B"].map(async (correctionReason) => {
+      const token = sign(
+        { sub: users.admin.id, type: "access", authVersion: 0 },
+        process.env.JWT_SECRET!,
+        { expiresIn: "1h" },
+      );
+      const response = await fetch(
+        `http://127.0.0.1:55440/api/loyalty-workflow/${outcomePath}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            ...completedResult,
+            submissionId: randomUUID(),
+            expectedVersion: 3,
+            status: "CANCELLED",
+            correctionReason,
+          }),
+        },
+      );
+      await response.text();
+      return response.status;
+    }),
+  );
+  assert.deepEqual(concurrentResults.sort(), [201, 409]);
+  passed++;
+  assert.equal(
+    await db.agencyCampaignOutcome.count({
+      where: { eventId: outcomeBody.eventId },
+    }),
+    4,
+  );
+  passed++;
+  // Real refresh implementation, with only the external Google reader replaced.
+  // Reordering source rows must never rewrite operational Agency/call/task data.
+  const operationalState = async () => ({
+    attempts: await db.loyaltyCallAttempt.count(),
+    assignments: await db.loyaltyCallAssignment.count(),
+    tasks: await db.loyaltyTask.count(),
+    outcomes: await db.agencyCampaignOutcome.count(),
+    agencies: await db.agency.findMany({
+      orderBy: { id: "asc" },
+      select: {
+        id: true,
+        callContacts: true,
+        callContactsVersion: true,
+        doNotCall: true,
+      },
+    }),
+  });
+  const beforeSync = await operationalState();
+  const { normalize } = require(resolve("scripts/partner-sheet/plan.cjs"));
+  const sourceRows = [...agencies].reverse().map((a, i) => ({
+    tab: "Партнеры 2026",
+    row: 20 + i,
+    name: a.name,
+    normalizedName: normalize(a.name),
+    type: a.id === agencies[2].id ? "Ключевой" : "АН",
+    baselineRub: "0.00",
+    addedRub: "0.00",
+    totalRub: "0.00",
+  }));
+  const reorderingSync = new PartnerSheetService(db, {
+    sendSafely: () => {
+      throw Error("UNEXPECTED_EXTERNAL_ALERT_IN_REFRESH_TEST");
+    },
+  } as any);
+  (reorderingSync as any).loadSource = async () => ({
+    contentHash: "b".repeat(64),
+    agencies: sourceRows,
+    sourceRows,
+    deals: [],
+    issues: [],
+    details: sourceRows.map((r) => ({
+      tab: r.tab,
+      row: r.row,
+      fields: COLUMNS.map((c: number) => ({
+        column: String.fromCharCode(65 + c),
+        label: "Synthetic",
+        value: "",
+      })),
+    })),
+  });
+  await reorderingSync.scheduledSync();
+  const afterSync = await operationalState();
+  assert.deepEqual(afterSync, beforeSync);
+  passed++;
+  const refreshed = await request("agencies-v1-2");
+  assert.equal(refreshed.source.sourceHash, "b".repeat(64));
+  passed++;
+  for (const agency of agencies) {
+    const card = refreshed.cards.find((c: any) => c.id === agency.id);
+    assert.ok(card && card.periods[0].row >= 20);
+    passed++;
+  }
   if (process.env.AGENCY_KEEP_API === "1") {
     const fs = require("node:fs");
     fs.writeFileSync(

@@ -85,10 +85,9 @@ export function agencySourceCards(items: any[]) {
   return cards;
 }
 
-export function agencyMetrics(cards: any[], from: Date, to: Date, now: Date) {
-  const within = (value: any) =>
-    value && new Date(value) >= from && new Date(value) < to;
-  const assignments = cards.flatMap((c) => c.assignments);
+export const AGENCY_CONVERSATION_RESULTS = CONVERSATION;
+
+export function agencyEffectiveAttempts(cards: any[], from: Date, to: Date) {
   const attempts = cards.flatMap((c) =>
     c.attempts.map((a: any) => ({ ...a, agencyId: c.id })),
   );
@@ -96,21 +95,50 @@ export function agencyMetrics(cards: any[], from: Date, to: Date, now: Date) {
     attempts.map((a) => a.correctsAttemptId).filter(Boolean),
   );
   const byId = new Map(attempts.map((a) => [a.id, a]));
-  const callTime = (attempt: any) => {
-    const seen = new Set();
-    while (
-      attempt.correctsAttemptId &&
-      byId.has(attempt.correctsAttemptId) &&
-      !seen.has(attempt.id)
-    ) {
-      seen.add(attempt.id);
-      attempt = byId.get(attempt.correctsAttemptId);
-    }
-    return attempt.occurredAt;
-  };
-  const effective = attempts.filter(
-    (a) => !superseded.has(a.id) && within(callTime(a)),
+  return attempts
+    .filter((a) => !superseded.has(a.id))
+    .map((attempt) => {
+      let root = attempt;
+      const seen = new Set();
+      while (
+        root.correctsAttemptId &&
+        byId.has(root.correctsAttemptId) &&
+        !seen.has(root.id)
+      ) {
+        seen.add(root.id);
+        root = byId.get(root.correctsAttemptId)!;
+      }
+      return {
+        ...attempt,
+        callOccurredAt: root.occurredAt,
+        callOperatorId: root.operatorId ?? root.operator?.id,
+        callOperator: root.operator,
+      };
+    })
+    .filter(
+      (a) =>
+        a.callOccurredAt &&
+        new Date(a.callOccurredAt) >= from &&
+        new Date(a.callOccurredAt) < to,
+    );
+}
+
+export function agencyMetrics(
+  cards: any[],
+  from: Date,
+  to: Date,
+  now: Date,
+  assigneeId?: string,
+) {
+  const within = (value: any) =>
+    value && new Date(value) >= from && new Date(value) < to;
+  const assignments = cards
+    .flatMap((c) => c.assignments)
+    .filter((a) => !assigneeId || a.assignedToId === assigneeId);
+  const attempts = cards.flatMap((c) =>
+    c.attempts.map((a: any) => ({ ...a, agencyId: c.id })),
   );
+  const effective = agencyEffectiveAttempts(cards, from, to);
   const attempted = new Set(effective.map((a) => a.agencyId));
   const spoken = new Set(
     effective.filter((a) => CONVERSATION.has(a.result)).map((a) => a.agencyId),
@@ -290,6 +318,7 @@ export class AgencyWorkspaceService {
                     OR: [
                       { assignedToId: assigneeId },
                       { attempts: { some: { operatorId: assigneeId } } },
+                      { campaignOutcomes: { some: { actorId: assigneeId } } },
                     ],
                   },
                 ],
@@ -450,7 +479,7 @@ export class AgencyWorkspaceService {
       throw new BadRequestException(
         "Нужен период с часовым поясом, конец позже начала",
       );
-    const metrics = agencyMetrics(cards, from, to, now);
+    const metrics = agencyMetrics(cards, from, to, now, assigneeId);
     const quality: Record<string, string[]> = {
       noPhone: cards
         .filter(
@@ -504,6 +533,7 @@ export class AgencyWorkspaceService {
     for (const card of cards) {
       for (const assignment of card.assignments)
         if (
+          (!assigneeId || assignment.assignedToId === assigneeId) &&
           OPEN.includes(assignment.status) &&
           assignment.campaign.status === "ACTIVE"
         ) {
@@ -534,6 +564,7 @@ export class AgencyWorkspaceService {
     }
     return {
       cards,
+      calculatedAt: now.toISOString(),
       filterOptions,
       script,
       metrics,
@@ -548,6 +579,12 @@ export class AgencyWorkspaceService {
           now.getTime() - new Date(snapshot.loadedAt).getTime() > 16 * 3600000,
         reviewCount: all
           ? snapshot.items.filter((i: any) => i.status !== "MATCHED").length
+          : null,
+        pendingReviewCount: all
+          ? snapshot.items.filter((i: any) => i.status === "REVIEW").length
+          : null,
+        newCount: all
+          ? snapshot.items.filter((i: any) => i.status === "NEW").length
           : null,
       },
       permissions: effective.permissions,

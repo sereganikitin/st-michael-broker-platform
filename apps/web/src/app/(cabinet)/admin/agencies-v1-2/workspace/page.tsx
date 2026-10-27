@@ -3,6 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiPatch, apiPost, apiDownload } from "@/lib/api";
+import { contactDateFromInput } from "@/lib/moscow-contact-date";
+import {
+  agencyQueueContact,
+  restoredAgencyFilters,
+  sourcePriority,
+  AGENCY_QUEUE_FIELDS,
+  restoredQueueFields,
+  type AgencyQueueField,
+} from "@/lib/agency-workspace-view";
 import {
   getLoyaltyCallResultOptions,
   type LoyaltyCallResult,
@@ -15,6 +24,9 @@ import {
 import { LoyaltyCampaignDashboard } from "@/components/loyalty-base/LoyaltyCampaignDashboard";
 import { LoyaltySavedViews } from "@/components/loyalty-base/LoyaltySavedViews";
 import { AgencyCallCorrection } from "@/components/loyalty-base/AgencyCallCorrection";
+import { AgencyCallReview } from "@/components/loyalty-base/AgencyCallReview";
+import { AgencyCampaignOutcomes } from "@/components/loyalty-base/AgencyCampaignOutcomes";
+import { useAgencyDraft, useAgencyDraftGuard } from "@/lib/use-agency-draft";
 
 import {
   AgencyCallContacts,
@@ -119,6 +131,8 @@ type Data = {
     loadedAt: string;
     stale: boolean;
     reviewCount: number | null;
+    pendingReviewCount?: number | null;
+    newCount?: number | null;
   };
   period: { from: string; to: string };
 };
@@ -176,7 +190,36 @@ export default function AgencyCallWorkspace() {
   const [view, setView] = useState("queue");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [queueFields, setQueueFields] = useState<AgencyQueueField[]>([
+    ...AGENCY_QUEUE_FIELDS,
+  ]);
+  const draftScope = data?.currentUserId || "";
+  useEffect(() => {
+    if (!draftScope) return;
+    try {
+      const raw = localStorage.getItem(`agency-queue-fields:${draftScope}`);
+      setQueueFields(restoredQueueFields(raw ? JSON.parse(raw) : undefined));
+    } catch {
+      setQueueFields([...AGENCY_QUEUE_FIELDS]);
+    }
+  }, [draftScope]);
+  const updateQueueFields = (fields: unknown) => {
+    const value = restoredQueueFields(fields);
+    setQueueFields(value);
+    if (draftScope)
+      try {
+        localStorage.setItem(
+          `agency-queue-fields:${draftScope}`,
+          JSON.stringify(value),
+        );
+      } catch {
+        setError("Набор полей изменён, но браузер не разрешил сохранить его");
+      }
+  };
+  const { value: drafts, setValue: setDrafts } = useAgencyDraft<
+    Record<string, Draft>
+  >(draftScope, "call-results", {});
+  const draftGuard = useAgencyDraftGuard(draftScope);
   const [checked, setChecked] = useState<string[]>([]);
   const [operators, setOperators] = useState<LoyaltyOperator[]>([]);
   const [assignee, setAssignee] = useState("");
@@ -198,17 +241,44 @@ export default function AgencyCallWorkspace() {
     },
     [],
   );
-  const [scriptText, setScriptText] = useState("");
-  const [scriptOwner, setScriptOwner] = useState("");
-  const [scriptUntil, setScriptUntil] = useState("");
+  const {
+    value: scriptDraft,
+    setValue: setScriptDraft,
+    reset: resetScriptDraft,
+  } = useAgencyDraft(draftScope, "script", {
+    text: "",
+    owner: "",
+    until: "",
+    version: null as number | null,
+  });
+  const {
+    text: scriptText,
+    owner: scriptOwner,
+    until: scriptUntil,
+  } = scriptDraft;
+  const setScriptText = (text: string) =>
+    setScriptDraft((old) => ({
+      ...old,
+      text,
+      version: old.version ?? data?.script.version ?? 0,
+    }));
+  const setScriptOwner = (owner: string) =>
+    setScriptDraft((old) => ({
+      ...old,
+      owner,
+      version: old.version ?? data?.script.version ?? 0,
+    }));
+  const setScriptUntil = (until: string) =>
+    setScriptDraft((old) => ({
+      ...old,
+      until,
+      version: old.version ?? data?.script.version ?? 0,
+    }));
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(() => today());
   const pilotSubmission = useRef({ signature: "", id: "" });
   const submissions = useRef<Record<string, { signature: string; id: string }>>(
     {},
-  );
-  const dirty = Object.values(drafts).some((d) =>
-    Object.values(d).some(Boolean),
   );
   const canAssign =
     !!data?.permissions.includes("CALL_ASSIGN") &&
@@ -255,25 +325,18 @@ export default function AgencyCallWorkspace() {
     void load();
   }, [load]);
   useEffect(() => {
-    if (!dirty) return;
-    const leave = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", leave);
-    const navigate = (event: MouseEvent) => {
-      if (
-        (event.target as HTMLElement).closest("a[href]") &&
-        !window.confirm("Есть несохранённый результат. Покинуть страницу?")
+    const id = new URLSearchParams(window.location.search).get("agencyId");
+    if (
+      id &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        id,
       )
-        event.preventDefault();
-    };
-    document.addEventListener("click", navigate, true);
-    return () => {
-      window.removeEventListener("beforeunload", leave);
-      document.removeEventListener("click", navigate, true);
-    };
-  }, [dirty]);
+    ) {
+      setSelected(id);
+      setFilterAgency(id);
+      setView("all");
+    }
+  }, []);
 
   const cards = (data?.cards || []).filter((card) => {
     if (
@@ -328,15 +391,20 @@ export default function AgencyCallWorkspace() {
     claims[assignment.id]?.version === assignment.version;
   const patch = (part: Partial<Draft>) =>
     card &&
-    setDrafts((current) => ({
-      ...current,
-      [card.id]: { ...(current[card.id] || blank()), ...part },
-    }));
+    setDrafts((current) => {
+      const next = {
+        ...current,
+        [card.id]: { ...(current[card.id] || blank()), ...part },
+      };
+      if (!Object.values(next[card.id]).some(Boolean)) delete next[card.id];
+      return next;
+    });
   const applyView = (snapshot: Record<string, unknown>) => {
     if (snapshot.workspace !== "agency-v1-2") {
       setError("Это представление другого раздела");
       return;
     }
+    updateQueueFields(snapshot.queueFields);
     if (
       [
         "queue",
@@ -360,6 +428,9 @@ export default function AgencyCallWorkspace() {
       setFilterCampaign(
         typeof snapshot.campaign === "string" ? snapshot.campaign : "",
       );
+      const restored = restoredAgencyFilters(snapshot);
+      setFilterAgency(restored.agency);
+      setFilterType(restored.agencyType);
     }
   };
   const viewSnapshot = {
@@ -371,6 +442,7 @@ export default function AgencyCallWorkspace() {
     campaign: filterCampaign,
     agency: filterAgency,
     agencyType: filterType,
+    queueFields,
   };
   const action = async (run: () => Promise<unknown>, message: string) => {
     setBusy(true);
@@ -440,7 +512,7 @@ export default function AgencyCallWorkspace() {
       nextActionKind: draft.nextStep.trim()
         ? draft.kind || undefined
         : undefined,
-      nextActionAt: draft.when ? `${draft.when}:00+03:00` : undefined,
+      nextActionAt: contactDateFromInput(draft.when) || undefined,
     };
     const signature = JSON.stringify(payload);
     const old = submissions.current[assignment.id];
@@ -461,12 +533,45 @@ export default function AgencyCallWorkspace() {
 
   return (
     <div className="space-y-5">
+      {!!draftGuard.count && (
+        <div
+          role="status"
+          className="rounded border border-warning p-3 text-sm"
+        >
+          Несохранённых форм: {draftGuard.count}.{" "}
+          {draftGuard.memoryOnly
+            ? "Хранилище вкладки недоступно: не закрывайте страницу, пока не сохраните данные."
+            : "Черновики сохранены только в этой вкладке и восстановятся при возврате. В рабочую базу они не отправлены."}
+          <button
+            type="button"
+            className="ml-3 text-accent"
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Удалить все несохранённые черновики этого пользователя в текущей вкладке? Сохранённые данные не изменятся.",
+                )
+              )
+                draftGuard.discardAll();
+            }}
+          >
+            Удалить все черновики вкладки
+          </button>
+        </div>
+      )}
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           {data?.permissions.includes("READ_ALL") && (
-            <Link className="text-accent" href="/admin/agencies-v1-2">
-              Исходная таблица
-            </Link>
+            <div className="flex flex-wrap gap-4">
+              <Link className="text-accent" href="/admin/agencies-v1-2">
+                Исходная таблица
+              </Link>
+              <Link
+                className="text-accent"
+                href="/admin/agencies-v1-2/supervisor"
+              >
+                Экран руководителя
+              </Link>
+            </div>
           )}
           <h1 className="text-2xl font-semibold">
             Агентства v1/2 · Мой обзвон
@@ -506,8 +611,10 @@ export default function AgencyCallWorkspace() {
         <p className="text-sm text-text-muted">
           Google: проверенный снимок {moscow(data.source.loadedAt)} МСК.{" "}
           {data.source.stale && "Снимок устарел; проверьте синхронизацию."}{" "}
-          {data.source.reviewCount !== null &&
-            `На проверке сопоставления: ${data.source.reviewCount}.`}{" "}
+          {data.source.pendingReviewCount != null
+            ? `Спорных сопоставлений: ${data.source.pendingReviewCount}; строк без карточки: ${data.source.newCount ?? 0}.`
+            : data.source.reviewCount !== null &&
+              `Требуют сопоставления: ${data.source.reviewCount}.`}{" "}
           Работа хранится в кабинете.
         </p>
       )}
@@ -843,6 +950,59 @@ export default function AgencyCallWorkspace() {
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(250px,1fr)_3fr]">
         <aside className="card max-h-[75vh] space-y-2 overflow-auto">
+          <div className="sticky top-0 z-10 border-b border-border bg-surface pb-2">
+            <h2 className="font-semibold">Очередь агентств ({cards.length})</h2>
+            <details>
+              <summary className="cursor-pointer text-sm text-accent">
+                Поля очереди
+              </summary>
+              <p className="text-xs">
+                Название и запрет звонков показываются всегда. Выбранные поля
+                сохраняются в этом браузере и в сохранённых представлениях.
+              </p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {Object.entries({
+                  owner: "Ответственный",
+                  phone: "Телефон",
+                  contact: "Контакт",
+                  priority: "Приоритет",
+                  reason: "Причина",
+                  result: "Последний результат",
+                  due: "Срок",
+                }).map(([key, label]) => (
+                  <label key={key}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Поле очереди: ${label}`}
+                      checked={queueFields.includes(key as AgencyQueueField)}
+                      onChange={(e) =>
+                        updateQueueFields(
+                          e.target.checked
+                            ? [...queueFields, key]
+                            : queueFields.filter((f) => f !== key),
+                        )
+                      }
+                    />{" "}
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="text-xs text-accent mr-3"
+                onClick={() => updateQueueFields(AGENCY_QUEUE_FIELDS)}
+              >
+                Все поля
+              </button>
+              <button
+                type="button"
+                className="text-xs text-accent"
+                onClick={() => updateQueueFields(["phone", "result", "due"])}
+              >
+                Краткий набор
+              </button>
+            </details>
+          </div>
           {cards.length === 0 && <p>Нет заданий в этой выборке.</p>}
           {cards.map((c) => (
             <div
@@ -869,44 +1029,67 @@ export default function AgencyCallWorkspace() {
                 onClick={() => setSelected(c.id)}
               >
                 <b>{c.name}</b>
-                <p className="text-xs">
-                  {active(c)?.assignedTo.fullName || "Нет активного назначения"}{" "}
-                  · {c.doNotCall ? "Не звонить" : c.phone || "Нет телефона"}
-                </p>
-                <p className="text-xs">
-                  {c.callContacts?.find((contact) => !contact.archived)?.name ||
-                    "Контактное лицо не указано"}
-                </p>
-                <p className="text-xs">
-                  Последний результат:{" "}
-                  {effectiveAttempts(c)[0]
-                    ? resultLabel(effectiveAttempts(c)[0].result)
-                    : "Попыток в кабинете нет"}
-                </p>
-                {c.tasks
-                  .filter((task) => task.status === "OPEN" && task.dueAt)
-                  .sort((left, right) =>
-                    left.dueAt!.localeCompare(right.dueAt!),
-                  )
-                  .slice(0, 1)
-                  .map((task) => (
-                    <p
-                      key={task.id}
-                      className={`text-xs ${new Date(task.dueAt!) < new Date() ? "text-error" : "text-text-muted"}`}
-                    >
-                      {new Date(task.dueAt!) < new Date()
-                        ? "Просрочено"
-                        : "Следующий шаг"}
-                      : {moscow(task.dueAt)} МСК
-                    </p>
-                  ))}
+                {c.doNotCall && (
+                  <p className="text-xs text-error">Не звонить</p>
+                )}
+                {queueFields.includes("owner") && (
+                  <p className="text-xs">
+                    {active(c)?.assignedTo.fullName ||
+                      "Нет активного назначения"}
+                  </p>
+                )}
+                {queueFields.includes("phone") && (
+                  <p className="text-xs">{agencyQueueContact(c).phone}</p>
+                )}
+                {queueFields.includes("contact") && (
+                  <p className="text-xs">{agencyQueueContact(c).name}</p>
+                )}
+                {queueFields.includes("priority") && (
+                  <p className="text-xs text-text-muted">
+                    Приоритет источника: {sourcePriority(c.periods)}
+                  </p>
+                )}
+                {queueFields.includes("reason") && (
+                  <p className="text-xs text-text-muted">
+                    Причина:{" "}
+                    {active(c)?.campaign.name || "Нет активной кампании"}
+                  </p>
+                )}
+                {queueFields.includes("result") && (
+                  <p className="text-xs">
+                    Последний результат:{" "}
+                    {effectiveAttempts(c)[0]
+                      ? resultLabel(effectiveAttempts(c)[0].result)
+                      : "Попыток в кабинете нет"}
+                  </p>
+                )}
+                {queueFields.includes("due") &&
+                  c.tasks
+                    .filter((task) => task.status === "OPEN" && task.dueAt)
+                    .sort((left, right) =>
+                      left.dueAt!.localeCompare(right.dueAt!),
+                    )
+                    .slice(0, 1)
+                    .map((task) => (
+                      <p
+                        key={task.id}
+                        className={`text-xs ${new Date(task.dueAt!) < new Date() ? "text-error" : "text-text-muted"}`}
+                      >
+                        {new Date(task.dueAt!) < new Date()
+                          ? "Просрочено"
+                          : "Следующий шаг"}
+                        : {moscow(task.dueAt)} МСК
+                      </p>
+                    ))}
               </button>
             </div>
           ))}
         </aside>
         {card && (
           <article className="card space-y-4">
-            <h2 className="text-xl font-semibold">{card.name}</h2>
+            <h2 className="sticky top-16 z-10 bg-surface py-2 text-xl font-semibold">
+              {card.name}
+            </h2>
             <p>
               {card.type} · {assignment?.campaign.name || "История агентства"}
             </p>
@@ -959,6 +1142,7 @@ export default function AgencyCallWorkspace() {
               )}
             </section>
             <AgencyCallContacts
+              draftScope={draftScope}
               key={card.id}
               agencyId={card.id}
               contacts={card.callContacts || []}
@@ -969,6 +1153,14 @@ export default function AgencyCallWorkspace() {
               }
               canCall={editable && !!data?.script.current}
               onChanged={load}
+            />
+            <AgencyCampaignOutcomes
+              key={`outcomes:${card.id}`}
+              agencyId={card.id}
+              assignments={card.assignments}
+              scope={draftScope}
+              userId={data?.currentUserId || ""}
+              permissions={data?.permissions || []}
             />
             <section className="rounded bg-accent/5 p-3">
               <h3 className="font-semibold">
@@ -1051,6 +1243,7 @@ export default function AgencyCallWorkspace() {
                 <label>
                   Результат
                   <select
+                    aria-label="Результат звонка"
                     className="input"
                     value={draft.result}
                     onChange={(e) =>
@@ -1068,6 +1261,7 @@ export default function AgencyCallWorkspace() {
                 <label>
                   Комментарий / договорённость *
                   <textarea
+                    aria-label="Комментарий / договорённость"
                     className="input"
                     maxLength={4000}
                     value={draft.comment}
@@ -1113,6 +1307,24 @@ export default function AgencyCallWorkspace() {
                 >
                   Сохранить и следующий
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Удалить несохранённый результат этого агентства?",
+                      )
+                    )
+                      setDrafts((old) => {
+                        const next = { ...old };
+                        delete next[card.id];
+                        return next;
+                      });
+                  }}
+                >
+                  Отменить черновик результата
+                </button>
               </fieldset>
             )}
             <details>
@@ -1137,6 +1349,17 @@ export default function AgencyCallWorkspace() {
                       </p>
                     )}
                     <small>Событие: {a.id}</small>
+                    {data?.permissions.includes("READ_ALL") && (
+                      <AgencyCallReview
+                        draftScope={draftScope}
+                        agencyId={card.id}
+                        attemptId={a.id}
+                        canWrite={data.permissions.includes("CALL_REVIEW")}
+                        superseded={historyFor(card).some(
+                          (other) => other.correctsAttemptId === a.id,
+                        )}
+                      />
+                    )}
                     {data?.permissions.includes("CALL_EXECUTE") &&
                       (a.operator.id === data.currentUserId ||
                         data.role === "ADMIN") &&
@@ -1144,7 +1367,11 @@ export default function AgencyCallWorkspace() {
                       !historyFor(card).some(
                         (other) => other.correctsAttemptId === a.id,
                       ) && (
-                        <AgencyCallCorrection attempt={a} onChanged={load} />
+                        <AgencyCallCorrection
+                          draftScope={draftScope}
+                          attempt={a}
+                          onChanged={load}
+                        />
                       )}
                   </div>
                 ))}
@@ -1316,7 +1543,7 @@ export default function AgencyCallWorkspace() {
           <summary className="cursor-pointer font-semibold">
             Утвердить условия и скрипт
           </summary>
-          <div className="mt-3 grid gap-3">
+          <fieldset disabled={busy} className="mt-3 grid gap-3">
             <textarea
               aria-label="Текст скрипта"
               className="input"
@@ -1349,21 +1576,42 @@ export default function AgencyCallWorkspace() {
               }
               className="btn btn-primary"
               onClick={() =>
-                void action(
-                  () =>
-                    apiPost("/loyalty-workflow/agencies-v1-2/script", {
-                      expectedVersion: data!.script.version,
-                      text: scriptText,
-                      owner: scriptOwner,
-                      validUntil: `${scriptUntil}:00+03:00`,
-                    }),
-                  "Скрипт утверждён; предыдущая версия сохранена в аудите",
-                )
+                void action(async () => {
+                  await apiPost("/loyalty-workflow/agencies-v1-2/script", {
+                    expectedVersion:
+                      scriptDraft.version ?? data!.script.version,
+                    text: scriptText,
+                    owner: scriptOwner,
+                    validUntil: contactDateFromInput(scriptUntil),
+                  });
+                  resetScriptDraft({
+                    text: "",
+                    owner: "",
+                    until: "",
+                    version: null,
+                  });
+                }, "Скрипт утверждён; предыдущая версия сохранена в аудите")
               }
             >
               Утвердить
             </button>
-          </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={busy}
+              onClick={() => {
+                if (window.confirm("Удалить несохранённый черновик скрипта?"))
+                  resetScriptDraft({
+                    text: "",
+                    owner: "",
+                    until: "",
+                    version: null,
+                  });
+              }}
+            >
+              Отменить черновик скрипта
+            </button>
+          </fieldset>
         </details>
       )}
       {dashboard && (

@@ -3,6 +3,77 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { PARTNER_PHOTO, partnerPhones } from './partner-contact';
 import { contactDateFromInput, contactDateToInput } from './moscow-contact-date';
+import { AGENCY_QUEUE_FIELDS, agencyQueueContact, restoredAgencyFilters, restoredQueueFields, sourcePriority } from './agency-workspace-view';
+
+test('queue field sets validate keys, deduplicate and retain defaults for legacy views', () => {
+  assert.deepEqual(restoredQueueFields(undefined),[...AGENCY_QUEUE_FIELDS]);
+  assert.deepEqual(restoredQueueFields(['phone','phone','bad','due']),['phone','due']);
+  assert.deepEqual(restoredQueueFields([]),[]);
+  assert.deepEqual(restoredQueueFields({phone:false}),[...AGENCY_QUEUE_FIELDS]);
+});
+import { createAgencyDraftStore } from './agency-draft-store';
+import { supervisorQuery, overdueDuration } from './agency-supervisor';
+
+test('supervisor periods use inclusive Moscow dates and preserve every filter', () => {
+  const query = new URLSearchParams(supervisorQuery({from:'2026-10-26',to:'2026-10-27',assigneeId:'operator',campaignId:'campaign',agencyId:'agency',agencyType:'АН'}));
+  assert.equal(query.get('from'),'2026-10-26T00:00:00+03:00');
+  assert.equal(query.get('to'),'2026-10-27T21:00:00.000Z');
+  assert.equal(query.get('assigneeId'),'operator');
+  assert.equal(query.get('campaignId'),'campaign');
+  assert.equal(query.get('agencyId'),'agency');
+  assert.equal(query.get('agencyType'),'АН');
+  assert.throws(()=>supervisorQuery({from:'2026-10-27',to:'2026-10-26',assigneeId:'',campaignId:'',agencyId:'',agencyType:''}));
+  assert.equal(overdueDuration(1505),'1 д 1 ч');
+  assert.equal(overdueDuration(65),'1 ч 5 мин');
+});
+
+test('tab drafts survive store recreation, are user scoped and clear only on reset', () => {
+  const rows = new Map<string, string>();
+  const storage = { get length() { return rows.size; }, key: (i:number) => [...rows.keys()][i] ?? null, getItem:(k:string)=>rows.get(k)??null, setItem:(k:string,v:string)=>{rows.set(k,v);}, removeItem:(k:string)=>{rows.delete(k);} };
+  const store = createAgencyDraftStore(() => storage);
+  store.write('user-a','contact:1',{version:1,value:{name:'Draft'},baseline:{name:''}});
+  assert.equal(store.summary('user-a'),'1:0');
+  assert.equal(store.summary('user'),'0:0');
+  const restored = createAgencyDraftStore(() => storage);
+  assert.equal(JSON.parse(restored.read('user-a','contact:1',{name:''})).value.name,'Draft');
+  assert.equal(JSON.parse(restored.read('user-b','contact:1',{name:''})).value.name,'');
+  restored.write('user-a','contact:1',{version:1,value:{name:''},baseline:{name:''}});
+  assert.equal(rows.size,0);
+  assert.equal(restored.summary('user-a'),'0:0');
+  restored.write('user-a','other',{version:1,value:'pending',baseline:''});
+  restored.write('user-b','other',{version:1,value:'keep',baseline:''});
+  restored.clear('user-a');
+  assert.equal(restored.summary('user-a'),'0:0');
+  assert.equal(restored.summary('user-b'),'1:0');
+});
+
+test('tab draft storage failure retains memory copy and exposes warning; corrupted data is ignored', () => {
+  const broken = createAgencyDraftStore(() => { throw Error('Storage denied'); });
+  broken.write('user','form',{version:1,value:'draft',baseline:''});
+  assert.equal(JSON.parse(broken.read('user','form','')).value,'draft');
+  assert.equal(broken.summary('user'),'1:1');
+  const corrupt = createAgencyDraftStore(() => ({length:1,key:()=> 'agency-v1-2:draft:user:form',getItem:()=>'{bad',setItem:()=>{},removeItem:()=>{}}));
+  assert.equal(JSON.parse(corrupt.read('user','form','empty')).value,'empty');
+  assert.equal(corrupt.summary('user'),'0:0');
+});
+
+test('queue uses active verified contact and alternate phone when agency phone is empty', () => {
+  const card={phone:null,callContacts:[{name:'old',phone:'+70000000001',alternatePhone:'',archived:true},{name:'person',phone:'',alternatePhone:'+70000000002',archived:false}]};
+  assert.deepEqual(agencyQueueContact(card),{phone:'+70000000002',name:'person'});
+  assert.equal(agencyQueueContact({...card,phone:'+70000000003'}).phone,'+70000000003');
+  assert.equal(agencyQueueContact({phone:'javascript:123456'}).phone,'Нет телефона');
+});
+
+test('saved views restore agency identity and type without accepting malformed filters', () => {
+  const agency='11111111-1111-4111-8111-111111111111';
+  assert.deepEqual(restoredAgencyFilters({agency,agencyType:'АН'}),{agency,agencyType:'АН'});
+  assert.deepEqual(restoredAgencyFilters({agency:['bad'],agencyType:'private'}),{agency:'',agencyType:''});
+});
+
+test('queue reports distinct historical priorities without inventing a current value', () => {
+  assert.equal(sourcePriority([{fields:[{label:'Приоритет',value:'A'}]},{fields:[{label:'Приоритет',value:'B'}]}]),'A / B');
+  assert.equal(sourcePriority([]),'не указан');
+});
 
 test('contact datetime accepts browser seconds without appending a second time part', () => {
   for (const input of ['2026-10-27T10:34', '2026-10-27T10:34:00', '2026-10-27T10:34:12.123']) {

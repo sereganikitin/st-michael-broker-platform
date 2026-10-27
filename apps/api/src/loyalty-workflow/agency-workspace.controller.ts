@@ -29,12 +29,62 @@ import {
 } from "./agency-workspace.dto";
 import { AgencyWorkspaceService } from "./agency-workspace.service";
 import { ExpectedVersionDto } from "./loyalty-workflow.dto";
+import { AgencyCallReviewDto } from "./agency-call-review.dto";
+import { AgencyCallReviewService } from "./agency-call-review.service";
+import { AgencyCampaignOutcomeService } from "./agency-campaign-outcome.service";
+import { AgencyCampaignOutcomeDto } from "./agency-campaign-outcome.dto";
 
 @Controller("loyalty-workflow/agencies-v1-2")
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN, UserRole.MANAGER)
 export class AgencyWorkspaceController {
-  constructor(private readonly workspace: AgencyWorkspaceService) {}
+  constructor(
+    private readonly workspace: AgencyWorkspaceService,
+    private readonly reviews: AgencyCallReviewService,
+    private readonly outcomes: AgencyCampaignOutcomeService,
+  ) {}
+
+  @Get(":id/assignments/:assignmentId/outcomes")
+  @Header("Cache-Control", "private, no-store")
+  outcomesList(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Param("assignmentId", new ParseUUIDPipe({ version: "4" }))
+    assignmentId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.outcomes.list(id, assignmentId, user);
+  }
+
+  @Post(":id/assignments/:assignmentId/outcomes")
+  outcomeSave(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Param("assignmentId", new ParseUUIDPipe({ version: "4" }))
+    assignmentId: string,
+    @Body() body: AgencyCampaignOutcomeDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.outcomes.save(id, assignmentId, body, user);
+  }
+
+  @Get(":id/attempts/:attemptId/reviews")
+  @Header("Cache-Control", "private, no-store")
+  callReviews(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Param("attemptId", new ParseUUIDPipe({ version: "4" })) attemptId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.reviews.list(id, attemptId, user);
+  }
+
+  @Post(":id/attempts/:attemptId/reviews")
+  reviewCall(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Param("attemptId", new ParseUUIDPipe({ version: "4" })) attemptId: string,
+    @Body() body: AgencyCallReviewDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.reviews.save(id, attemptId, body, user);
+  }
 
   @Get()
   @Header("Cache-Control", "private, no-store")

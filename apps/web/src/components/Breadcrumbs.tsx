@@ -32,6 +32,7 @@ const labels: Record<string, string> = {
   agencies: 'Агентства',
   'agencies-v1-2': 'Агентства v1/2',
   workspace: 'Мой обзвон',
+  supervisor: 'Контроль руководителя',
 };
 
 export function Breadcrumbs() {
