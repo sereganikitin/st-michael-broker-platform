@@ -15,6 +15,31 @@ const now = new Date("2026-10-27T09:00:00Z");
 const user: any = { id: "admin", role: "ADMIN" };
 const a = { id: "a", fullName: "Operator A" },
   b = { id: "b", fullName: "Operator B" };
+it("does not credit an outcome author with another worker's assignment", () => {
+  const cards = [
+    {
+      id: "agency",
+      assignments: [
+        {
+          id: "assignment",
+          ourAgencyId: "agency",
+          assignedToId: "b",
+          assignedAt: "2026-10-25T00:00:00Z",
+        },
+      ],
+      attempts: [],
+      tasks: [],
+    },
+  ];
+  expect(
+    agencyMetrics(cards, new Date("2026-10-25"), now, now, "a")
+      .assignedAgencies,
+  ).toBe(0);
+  expect(
+    agencyMetrics(cards, new Date("2026-10-25"), now, now, "b")
+      .assignedAgencies,
+  ).toBe(1);
+});
 function dataFixture() {
   const cards = [
     {

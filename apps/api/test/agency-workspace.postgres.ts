@@ -946,6 +946,13 @@ async function main() {
   passed++;
   assert.equal(reportResult.campaignResults.events[0].basis, outcomeBody.basis);
   passed++;
+  const authorReport = await request(
+    `${supervisorPath}?assigneeId=${users.admin.id}`,
+  );
+  assert.equal(authorReport.campaignResults.counts.meetingsHeld, 1);
+  passed++;
+  assert.equal(authorReport.metrics.assignedAgencies, 0);
+  passed++;
   const plannedPeriod = new URLSearchParams({
     from: new Date(Date.now() + 3600000).toISOString(),
     to: new Date(Date.now() + 172800000).toISOString(),

@@ -123,10 +123,18 @@ export function agencyEffectiveAttempts(cards: any[], from: Date, to: Date) {
     );
 }
 
-export function agencyMetrics(cards: any[], from: Date, to: Date, now: Date) {
+export function agencyMetrics(
+  cards: any[],
+  from: Date,
+  to: Date,
+  now: Date,
+  assigneeId?: string,
+) {
   const within = (value: any) =>
     value && new Date(value) >= from && new Date(value) < to;
-  const assignments = cards.flatMap((c) => c.assignments);
+  const assignments = cards
+    .flatMap((c) => c.assignments)
+    .filter((a) => !assigneeId || a.assignedToId === assigneeId);
   const attempts = cards.flatMap((c) =>
     c.attempts.map((a: any) => ({ ...a, agencyId: c.id })),
   );
@@ -471,7 +479,7 @@ export class AgencyWorkspaceService {
       throw new BadRequestException(
         "Нужен период с часовым поясом, конец позже начала",
       );
-    const metrics = agencyMetrics(cards, from, to, now);
+    const metrics = agencyMetrics(cards, from, to, now, assigneeId);
     const quality: Record<string, string[]> = {
       noPhone: cards
         .filter(
