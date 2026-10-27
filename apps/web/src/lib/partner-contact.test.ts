@@ -3,7 +3,14 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { PARTNER_PHOTO, partnerPhones } from './partner-contact';
 import { contactDateFromInput, contactDateToInput } from './moscow-contact-date';
-import { agencyQueueContact, restoredAgencyFilters, sourcePriority } from './agency-workspace-view';
+import { AGENCY_QUEUE_FIELDS, agencyQueueContact, restoredAgencyFilters, restoredQueueFields, sourcePriority } from './agency-workspace-view';
+
+test('queue field sets validate keys, deduplicate and retain defaults for legacy views', () => {
+  assert.deepEqual(restoredQueueFields(undefined),[...AGENCY_QUEUE_FIELDS]);
+  assert.deepEqual(restoredQueueFields(['phone','phone','bad','due']),['phone','due']);
+  assert.deepEqual(restoredQueueFields([]),[]);
+  assert.deepEqual(restoredQueueFields({phone:false}),[...AGENCY_QUEUE_FIELDS]);
+});
 import { createAgencyDraftStore } from './agency-draft-store';
 import { supervisorQuery, overdueDuration } from './agency-supervisor';
 

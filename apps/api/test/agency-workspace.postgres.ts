@@ -868,6 +868,69 @@ async function main() {
     { ...reasonBody, submissionId: randomUUID(), expectedVersion: 2 },
     409,
   );
+  // Real refresh implementation, with only the external Google reader replaced.
+  // Reordering source rows must never rewrite operational Agency/call/task data.
+  const operationalState = async () => ({
+    attempts: await db.loyaltyCallAttempt.count(),
+    assignments: await db.loyaltyCallAssignment.count(),
+    tasks: await db.loyaltyTask.count(),
+    agencies: await db.agency.findMany({
+      orderBy: { id: "asc" },
+      select: {
+        id: true,
+        callContacts: true,
+        callContactsVersion: true,
+        doNotCall: true,
+      },
+    }),
+  });
+  const beforeSync = await operationalState();
+  const { normalize } = require(resolve("scripts/partner-sheet/plan.cjs"));
+  const sourceRows = [...agencies]
+    .reverse()
+    .map((a, i) => ({
+      tab: "Партнеры 2026",
+      row: 20 + i,
+      name: a.name,
+      normalizedName: normalize(a.name),
+      type: "АН",
+      baselineRub: "0.00",
+      addedRub: "0.00",
+      totalRub: "0.00",
+    }));
+  const reorderingSync = new PartnerSheetService(db, {
+    sendSafely: () => {
+      throw Error("UNEXPECTED_EXTERNAL_ALERT_IN_REFRESH_TEST");
+    },
+  } as any);
+  (reorderingSync as any).loadSource = async () => ({
+    contentHash: "b".repeat(64),
+    agencies: sourceRows,
+    sourceRows,
+    deals: [],
+    issues: [],
+    details: sourceRows.map((r) => ({
+      tab: r.tab,
+      row: r.row,
+      fields: COLUMNS.map((c: number) => ({
+        column: String.fromCharCode(65 + c),
+        label: "Synthetic",
+        value: "",
+      })),
+    })),
+  });
+  await reorderingSync.scheduledSync();
+  const afterSync = await operationalState();
+  assert.deepEqual(afterSync, beforeSync);
+  passed++;
+  const refreshed = await request("agencies-v1-2");
+  assert.equal(refreshed.source.sourceHash, "b".repeat(64));
+  passed++;
+  for (const agency of agencies) {
+    const card = refreshed.cards.find((c: any) => c.id === agency.id);
+    assert.ok(card && card.periods[0].row >= 20);
+    passed++;
+  }
   if (process.env.AGENCY_KEEP_API === "1") {
     const fs = require("node:fs");
     fs.writeFileSync(

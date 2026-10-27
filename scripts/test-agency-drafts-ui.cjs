@@ -276,6 +276,48 @@ const card = (name, key) => ({
       "Unsent contact",
     );
     assert.equal(conflicts, 1);
+    await page.getByText("Поля очереди", { exact: true }).click();
+    await page.getByLabel("Поле очереди: Приоритет", { exact: true }).uncheck();
+    assert.equal(
+      await page
+        .getByRole("complementary")
+        .getByText(/Приоритет источника/)
+        .count(),
+      0,
+    );
+    await page
+      .getByRole("button", { name: "Сохранить мой фильтр", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Все поля", exact: true }).click();
+    assert.ok(
+      await page
+        .getByRole("complementary")
+        .getByText(/Приоритет источника/)
+        .count(),
+    );
+    await page
+      .getByRole("button", { name: "Восстановить мой фильтр", exact: true })
+      .click();
+    assert.equal(
+      await page
+        .getByLabel("Поле очереди: Приоритет", { exact: true })
+        .isChecked(),
+      false,
+    );
+    assert.equal(
+      await page
+        .getByRole("complementary")
+        .getByRole("heading")
+        .evaluate((el) => getComputedStyle(el.parentElement).position),
+      "sticky",
+    );
+    assert.equal(
+      await page
+        .getByRole("article")
+        .getByRole("heading", { name: "Agency A", exact: true })
+        .evaluate((el) => getComputedStyle(el).position),
+      "sticky",
+    );
     await page
       .getByRole("button", { name: "Отменить изменения контакта", exact: true })
       .click();

@@ -22,6 +22,22 @@ const { validateView, encodeSnapshot, decodeSnapshot } = require(
 );
 const SNAPSHOT_KEY = "partner-sheet-v1-2:verified-snapshot";
 const INCIDENT_KEY = "partner-sheet-v1-2:incident";
+type PendingIncident = {
+  version: 1;
+  startedAt: string;
+  stage: string;
+  delivery: "pending" | "attempted";
+};
+export function partnerSheetQuietTime(now = new Date()) {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Moscow",
+      hour: "2-digit",
+      hourCycle: "h23",
+    }).format(now),
+  );
+  return hour < 9 || hour >= 22;
+}
 
 @Injectable()
 export class PartnerSheetService {
@@ -29,6 +45,7 @@ export class PartnerSheetService {
   private pending: Promise<any> | null = null;
   private readonly logger = new Logger(PartnerSheetService.name);
   private failureStage = "чтение источника";
+  private volatileIncident: PendingIncident | null = null;
   constructor(
     @Inject("PrismaClient") private readonly prisma: PrismaClient,
     private readonly alerts: OpsAlertService,
@@ -76,25 +93,77 @@ export class PartnerSheetService {
   }
 
   private async reportFailure() {
-    const incident = new Date().toISOString();
-    let durable = true;
+    const incident: PendingIncident = {
+      version: 1,
+      startedAt: new Date().toISOString(),
+      stage: this.failureStage,
+      delivery: "pending",
+    };
     try {
       // Reserve before the send: an uncertain Telegram response must not
       // produce the same fan-out every subsequent run or after an API restart.
       await this.prisma.systemSetting.create({
-        data: { key: INCIDENT_KEY, value: incident },
+        data: { key: INCIDENT_KEY, value: JSON.stringify(incident) },
       });
     } catch (error) {
-      if ((error as { code?: string }).code === "P2002") return;
-      durable = false;
-      this.logger.error("Partner sheet incident persistence unavailable");
-      // DB failure cannot create a durable reservation; the alert service
-      // still suppresses repeats in this process.
+      if ((error as { code?: string }).code !== "P2002") {
+        this.logger.error("Partner sheet incident persistence unavailable");
+        this.volatileIncident ??= incident;
+      }
     }
+    await this.flushPendingIncident();
+  }
+
+  @Cron("0 9 * * *", { timeZone: "Europe/Moscow" })
+  async flushPendingIncident() {
+    if (partnerSheetQuietTime()) return;
+    let stored: { value: string } | null = null;
+    try {
+      stored = await this.prisma.systemSetting.findUnique({
+        where: { key: INCIDENT_KEY },
+      });
+    } catch {
+      this.logger.error("Partner sheet pending incident read unavailable");
+    }
+    let incident = this.volatileIncident;
+    if (stored) {
+      try {
+        incident = JSON.parse(stored.value);
+      } catch {
+        return;
+      } // Legacy ISO reservation means a delivery was already attempted.
+    }
+    if (incident?.version !== 1 || incident.delivery !== "pending") return;
+    const attempted = { ...incident, delivery: "attempted" as const };
+    if (stored) {
+      try {
+        const reserved = await this.prisma.systemSetting.updateMany({
+          where: { key: INCIDENT_KEY, value: stored.value },
+          data: { value: JSON.stringify(attempted) },
+        });
+        if (reserved.count !== 1) return;
+      } catch {
+        this.logger.error("Partner sheet alert reservation unavailable");
+        return;
+      }
+    } else this.volatileIncident = attempted;
+    // Reserve before sending, including an uncertain response. A restart must
+    // not repeat a fan-out. A recovered incident is removed by verified sync.
+    const safeStages = [
+      "чтение источника",
+      "чтение и двойная сверка Google-таблицы",
+      "сопоставление с кабинетом",
+      "проверка полноты и сохранение снимка",
+    ];
+    const stage = safeStages.includes(incident.stage)
+      ? incident.stage
+      : "проверка источника";
     const sent = await this.alerts.sendSafely(
-      `🔴 Агентства v1/2: синхронизация с Google-таблицей не прошла проверку. Этап: ${this.failureStage}. Непроверенные данные не применены; прежние данные не перезаписывались. Проверьте доступ к источнику, структуру листов, полноту агентств и суммы. Основная база и amoCRM не изменялись.`,
+      `🔴 Агентства v1/2: синхронизация с Google-таблицей не прошла проверку. Этап: ${stage}. Непроверенные данные не применены; прежние данные не перезаписывались. Проверьте доступ к источнику, структуру листов, полноту агентств и суммы. Основная база и amoCRM не изменялись.`,
       {
-        dedupKey: durable ? `${INCIDENT_KEY}:${incident}` : INCIDENT_KEY,
+        dedupKey: stored
+          ? `${INCIDENT_KEY}:${incident.startedAt}`
+          : INCIDENT_KEY,
         cooldownMs: 24 * 60 * 60 * 1000,
       },
     );
@@ -156,6 +225,7 @@ export class PartnerSheetService {
         { isolationLevel: "Serializable" },
       );
       this.cached = { expires: Date.now() + 60000, value };
+      this.volatileIncident = null;
       return value;
     } catch {
       if (this.cached) this.cached.expires = 0;

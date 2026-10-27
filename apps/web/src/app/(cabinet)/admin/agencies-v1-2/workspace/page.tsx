@@ -8,6 +8,9 @@ import {
   agencyQueueContact,
   restoredAgencyFilters,
   sourcePriority,
+  AGENCY_QUEUE_FIELDS,
+  restoredQueueFields,
+  type AgencyQueueField,
 } from "@/lib/agency-workspace-view";
 import {
   getLoyaltyCallResultOptions,
@@ -186,7 +189,32 @@ export default function AgencyCallWorkspace() {
   const [view, setView] = useState("queue");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
+  const [queueFields, setQueueFields] = useState<AgencyQueueField[]>([
+    ...AGENCY_QUEUE_FIELDS,
+  ]);
   const draftScope = data?.currentUserId || "";
+  useEffect(() => {
+    if (!draftScope) return;
+    try {
+      const raw = localStorage.getItem(`agency-queue-fields:${draftScope}`);
+      setQueueFields(restoredQueueFields(raw ? JSON.parse(raw) : undefined));
+    } catch {
+      setQueueFields([...AGENCY_QUEUE_FIELDS]);
+    }
+  }, [draftScope]);
+  const updateQueueFields = (fields: unknown) => {
+    const value = restoredQueueFields(fields);
+    setQueueFields(value);
+    if (draftScope)
+      try {
+        localStorage.setItem(
+          `agency-queue-fields:${draftScope}`,
+          JSON.stringify(value),
+        );
+      } catch {
+        setError("Набор полей изменён, но браузер не разрешил сохранить его");
+      }
+  };
   const { value: drafts, setValue: setDrafts } = useAgencyDraft<
     Record<string, Draft>
   >(draftScope, "call-results", {});
@@ -297,8 +325,15 @@ export default function AgencyCallWorkspace() {
   }, [load]);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("agencyId");
-    if (id && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-      setSelected(id); setFilterAgency(id); setView("all");
+    if (
+      id &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        id,
+      )
+    ) {
+      setSelected(id);
+      setFilterAgency(id);
+      setView("all");
     }
   }, []);
 
@@ -368,6 +403,7 @@ export default function AgencyCallWorkspace() {
       setError("Это представление другого раздела");
       return;
     }
+    updateQueueFields(snapshot.queueFields);
     if (
       [
         "queue",
@@ -405,6 +441,7 @@ export default function AgencyCallWorkspace() {
     campaign: filterCampaign,
     agency: filterAgency,
     agencyType: filterType,
+    queueFields,
   };
   const action = async (run: () => Promise<unknown>, message: string) => {
     setBusy(true);
@@ -524,8 +561,15 @@ export default function AgencyCallWorkspace() {
         <div>
           {data?.permissions.includes("READ_ALL") && (
             <div className="flex flex-wrap gap-4">
-              <Link className="text-accent" href="/admin/agencies-v1-2">Исходная таблица</Link>
-              <Link className="text-accent" href="/admin/agencies-v1-2/supervisor">Экран руководителя</Link>
+              <Link className="text-accent" href="/admin/agencies-v1-2">
+                Исходная таблица
+              </Link>
+              <Link
+                className="text-accent"
+                href="/admin/agencies-v1-2/supervisor"
+              >
+                Экран руководителя
+              </Link>
             </div>
           )}
           <h1 className="text-2xl font-semibold">
@@ -568,7 +612,8 @@ export default function AgencyCallWorkspace() {
           {data.source.stale && "Снимок устарел; проверьте синхронизацию."}{" "}
           {data.source.pendingReviewCount != null
             ? `Спорных сопоставлений: ${data.source.pendingReviewCount}; строк без карточки: ${data.source.newCount ?? 0}.`
-            : data.source.reviewCount !== null && `Требуют сопоставления: ${data.source.reviewCount}.`}{" "}
+            : data.source.reviewCount !== null &&
+              `Требуют сопоставления: ${data.source.reviewCount}.`}{" "}
           Работа хранится в кабинете.
         </p>
       )}
@@ -904,6 +949,59 @@ export default function AgencyCallWorkspace() {
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(250px,1fr)_3fr]">
         <aside className="card max-h-[75vh] space-y-2 overflow-auto">
+          <div className="sticky top-0 z-10 border-b border-border bg-surface pb-2">
+            <h2 className="font-semibold">Очередь агентств ({cards.length})</h2>
+            <details>
+              <summary className="cursor-pointer text-sm text-accent">
+                Поля очереди
+              </summary>
+              <p className="text-xs">
+                Название и запрет звонков показываются всегда. Выбранные поля
+                сохраняются в этом браузере и в сохранённых представлениях.
+              </p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {Object.entries({
+                  owner: "Ответственный",
+                  phone: "Телефон",
+                  contact: "Контакт",
+                  priority: "Приоритет",
+                  reason: "Причина",
+                  result: "Последний результат",
+                  due: "Срок",
+                }).map(([key, label]) => (
+                  <label key={key}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Поле очереди: ${label}`}
+                      checked={queueFields.includes(key as AgencyQueueField)}
+                      onChange={(e) =>
+                        updateQueueFields(
+                          e.target.checked
+                            ? [...queueFields, key]
+                            : queueFields.filter((f) => f !== key),
+                        )
+                      }
+                    />{" "}
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="text-xs text-accent mr-3"
+                onClick={() => updateQueueFields(AGENCY_QUEUE_FIELDS)}
+              >
+                Все поля
+              </button>
+              <button
+                type="button"
+                className="text-xs text-accent"
+                onClick={() => updateQueueFields(["phone", "result", "due"])}
+              >
+                Краткий набор
+              </button>
+            </details>
+          </div>
           {cards.length === 0 && <p>Нет заданий в этой выборке.</p>}
           {cards.map((c) => (
             <div
@@ -930,47 +1028,67 @@ export default function AgencyCallWorkspace() {
                 onClick={() => setSelected(c.id)}
               >
                 <b>{c.name}</b>
-                <p className="text-xs">
-                  {active(c)?.assignedTo.fullName || "Нет активного назначения"}{" "}
-                  · {c.doNotCall ? "Не звонить" : agencyQueueContact(c).phone}
-                </p>
-                <p className="text-xs">{agencyQueueContact(c).name}</p>
-                <p className="text-xs text-text-muted">
-                  Приоритет источника: {sourcePriority(c.periods)}
-                </p>
-                <p className="text-xs text-text-muted">
-                  Причина: {active(c)?.campaign.name || "Нет активной кампании"}
-                </p>
-                <p className="text-xs">
-                  Последний результат:{" "}
-                  {effectiveAttempts(c)[0]
-                    ? resultLabel(effectiveAttempts(c)[0].result)
-                    : "Попыток в кабинете нет"}
-                </p>
-                {c.tasks
-                  .filter((task) => task.status === "OPEN" && task.dueAt)
-                  .sort((left, right) =>
-                    left.dueAt!.localeCompare(right.dueAt!),
-                  )
-                  .slice(0, 1)
-                  .map((task) => (
-                    <p
-                      key={task.id}
-                      className={`text-xs ${new Date(task.dueAt!) < new Date() ? "text-error" : "text-text-muted"}`}
-                    >
-                      {new Date(task.dueAt!) < new Date()
-                        ? "Просрочено"
-                        : "Следующий шаг"}
-                      : {moscow(task.dueAt)} МСК
-                    </p>
-                  ))}
+                {c.doNotCall && (
+                  <p className="text-xs text-error">Не звонить</p>
+                )}
+                {queueFields.includes("owner") && (
+                  <p className="text-xs">
+                    {active(c)?.assignedTo.fullName ||
+                      "Нет активного назначения"}
+                  </p>
+                )}
+                {queueFields.includes("phone") && (
+                  <p className="text-xs">{agencyQueueContact(c).phone}</p>
+                )}
+                {queueFields.includes("contact") && (
+                  <p className="text-xs">{agencyQueueContact(c).name}</p>
+                )}
+                {queueFields.includes("priority") && (
+                  <p className="text-xs text-text-muted">
+                    Приоритет источника: {sourcePriority(c.periods)}
+                  </p>
+                )}
+                {queueFields.includes("reason") && (
+                  <p className="text-xs text-text-muted">
+                    Причина:{" "}
+                    {active(c)?.campaign.name || "Нет активной кампании"}
+                  </p>
+                )}
+                {queueFields.includes("result") && (
+                  <p className="text-xs">
+                    Последний результат:{" "}
+                    {effectiveAttempts(c)[0]
+                      ? resultLabel(effectiveAttempts(c)[0].result)
+                      : "Попыток в кабинете нет"}
+                  </p>
+                )}
+                {queueFields.includes("due") &&
+                  c.tasks
+                    .filter((task) => task.status === "OPEN" && task.dueAt)
+                    .sort((left, right) =>
+                      left.dueAt!.localeCompare(right.dueAt!),
+                    )
+                    .slice(0, 1)
+                    .map((task) => (
+                      <p
+                        key={task.id}
+                        className={`text-xs ${new Date(task.dueAt!) < new Date() ? "text-error" : "text-text-muted"}`}
+                      >
+                        {new Date(task.dueAt!) < new Date()
+                          ? "Просрочено"
+                          : "Следующий шаг"}
+                        : {moscow(task.dueAt)} МСК
+                      </p>
+                    ))}
               </button>
             </div>
           ))}
         </aside>
         {card && (
           <article className="card space-y-4">
-            <h2 className="text-xl font-semibold">{card.name}</h2>
+            <h2 className="sticky top-16 z-10 bg-surface py-2 text-xl font-semibold">
+              {card.name}
+            </h2>
             <p>
               {card.type} · {assignment?.campaign.name || "История агентства"}
             </p>
