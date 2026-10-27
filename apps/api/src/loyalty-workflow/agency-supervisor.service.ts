@@ -17,6 +17,10 @@ import {
 import { LoyaltyPermissionService } from "./loyalty-permission.service";
 import { LoyaltyWorkflowService } from "./loyalty-workflow.service";
 import { AgencyDelayReasonDto } from "./agency-supervisor.dto";
+import {
+  campaignOutcomeCsv,
+  campaignOutcomeProjection,
+} from "./agency-campaign-outcome.service";
 
 const OPEN = ["PENDING", "IN_PROGRESS"];
 const REASON_ACTION = "AGENCY_TASK_DELAY_REASON_RECORDED";
@@ -269,6 +273,32 @@ export class AgencySupervisorService {
       throw new BadRequestException(
         "Уточните выборку: история причин просрочки превышает 5000 записей",
       );
+    // Query all revisions for the selected agency/campaign before filtering
+    // the event dates or author, so a later cancellation cannot revive a fact.
+    const outcomeRows = data.cards.length
+      ? await this.db.agencyCampaignOutcome.findMany({
+          where: {
+            assignment: {
+              ourAgencyId: { in: data.cards.map((c) => c.id) },
+              ...(query.campaignId ? { campaignId: query.campaignId } : {}),
+            },
+          },
+          include: {
+            actor: { select: { id: true, fullName: true } },
+            assignment: {
+              select: {
+                ourAgencyId: true,
+                campaign: { select: { id: true, name: true } },
+              },
+            },
+          },
+          take: 10001,
+        })
+      : [];
+    if (outcomeRows.length > 10000)
+      throw new BadRequestException(
+        "Уточните выборку результатов: больше 10000 записей",
+      );
     return {
       ...data,
       ...agencySupervisorProjection(
@@ -279,6 +309,12 @@ export class AgencySupervisorService {
         reviews,
       ),
       operators,
+      campaignResults: campaignOutcomeProjection(
+        outcomeRows,
+        new Date(data.period.from),
+        new Date(data.period.to),
+        query.assigneeId,
+      ),
     };
   }
 
@@ -352,5 +388,11 @@ export class AgencySupervisorService {
       });
       return { version: body.expectedVersion + 1 };
     });
+  }
+
+  async exportResults(query: AgencyWorkspaceQuery, user: CurrentUserPayload) {
+    await this.permissions.requireAll(user, ["READ_ALL", "EXPORT"]);
+    const report = await this.report(query, user);
+    return campaignOutcomeCsv(report.campaignResults);
   }
 }

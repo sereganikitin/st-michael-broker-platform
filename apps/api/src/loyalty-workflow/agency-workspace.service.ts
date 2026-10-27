@@ -310,6 +310,7 @@ export class AgencyWorkspaceService {
                     OR: [
                       { assignedToId: assigneeId },
                       { attempts: { some: { operatorId: assigneeId } } },
+                      { campaignOutcomes: { some: { actorId: assigneeId } } },
                     ],
                   },
                 ],

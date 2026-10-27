@@ -15,6 +15,10 @@ import { useAgencyDraftGuard } from "@/lib/use-agency-draft";
 import { AgencyDelayReason } from "@/components/loyalty-base/AgencyDelayReason";
 import { AgencyCallReview } from "@/components/loyalty-base/AgencyCallReview";
 import { LoyaltySavedViews } from "@/components/loyalty-base/LoyaltySavedViews";
+import {
+  outcomeKind,
+  outcomeStatus,
+} from "@/components/loyalty-base/AgencyCampaignOutcomes";
 
 const qualityLabels: Record<string, string> = {
   noPhone: "Без телефона",
@@ -94,10 +98,10 @@ export default function AgencySupervisorPage() {
   const canAssign = !!data?.permissions.includes("CALL_ASSIGN");
   const canReview = !!data?.permissions.includes("CALL_REVIEW");
   const qa = data?.qaSample.filter((a) => !qaOnlyUnreviewed || !a.review) || [];
-  const exportReport = async () => {
+  const exportReport = async (results = false) => {
     try {
       const file = await apiDownload(
-        `/loyalty-workflow/agencies-v1-2/export?${supervisorQuery(applied)}`,
+        `/loyalty-workflow/agencies-v1-2/${results ? "supervisor/results/export" : "export"}?${supervisorQuery(applied)}`,
         {},
       );
       const url = URL.createObjectURL(file.blob),
@@ -282,6 +286,7 @@ export default function AgencySupervisorPage() {
             <a href="#workload">Нагрузка</a>
             <a href="#quality">Качество данных</a>
             <a href="#manual-qa">Ручная проверка</a>
+            <a href="#campaign-results">Результаты кампаний</a>
           </nav>
           {data.permissions.includes("EXPORT") && (
             <button
@@ -482,6 +487,90 @@ export default function AgencySupervisorPage() {
               наличие нового контакта само по себе не исправляет прошлый
               результат.
             </p>
+          </section>
+          <section id="campaign-results" className="card space-y-3">
+            <h2 className="text-xl font-semibold">Результаты кампаний</h2>
+            <p>
+              Ручные записи с основанием, не подтверждение CRM. Период
+              применяется к дате события, сотрудник — к автору последней версии.
+              После исправления учитывается только последняя версия; закрытие
+              задачи не создаёт результат.
+            </p>
+            {!data.campaignResults ? (
+              <p>Данные результатов недоступны.</p>
+            ) : (
+              <>
+                <p>
+                  Назначено встреч:{" "}
+                  {data.campaignResults.counts.meetingsScheduled}; экскурсий:{" "}
+                  {data.campaignResults.counts.toursScheduled}. Последний
+                  зафиксированный план каждого события учитывается по его дате,
+                  включая впоследствии проведённые и отменённые. Факты ниже
+                  считаются отдельно по фактической дате; это не коэффициент
+                  конверсии одного набора.
+                </p>
+                {data.permissions.includes("EXPORT") && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => void exportReport(true)}
+                  >
+                    CSV планов и результатов применённой выборки
+                  </button>
+                )}
+                <details>
+                  <summary>Основания назначенных встреч и экскурсий</summary>
+                  {data.campaignResults.scheduled.map((r) => (
+                    <p key={r.id}>
+                      {r.assignment.campaign.name} · {outcomeKind[r.kind]} ·{" "}
+                      {supervisorDate(r.occurredAt)} МСК · {r.actor.fullName} ·{" "}
+                      {r.basis}
+                    </p>
+                  ))}
+                </details>
+                <div className="flex flex-wrap gap-3">
+                  {Object.entries({
+                    meetingsPlanned: "Встречи ожидаются",
+                    meetingsHeld: "Встречи состоялись",
+                    toursPlanned: "Экскурсии ожидаются",
+                    toursHeld: "Экскурсии состоялись",
+                    reactivations: "Реактивации",
+                    cancelled: "Отменено",
+                  }).map(([key, label]) => (
+                    <span key={key}>
+                      {label}: {data.campaignResults!.counts[key]}
+                    </span>
+                  ))}
+                </div>
+                {!data.campaignResults.events.length && (
+                  <p>
+                    Нет записей в выбранном периоде. Это не доказательство
+                    отсутствия встреч или реактиваций.
+                  </p>
+                )}
+                {data.campaignResults.events.map((r) => (
+                  <article key={r.id} className="border-b border-border py-2">
+                    <Link
+                      className="text-accent"
+                      href={workspaceLink(r.assignment.ourAgencyId)}
+                    >
+                      {data.cards.find((c) => c.id === r.assignment.ourAgencyId)
+                        ?.name || r.assignment.ourAgencyId}
+                    </Link>
+                    <p>
+                      {r.assignment.campaign.name} · {outcomeKind[r.kind]} ·{" "}
+                      {outcomeStatus[r.status]} · {supervisorDate(r.occurredAt)}{" "}
+                      МСК
+                    </p>
+                    <p>
+                      {r.actor.fullName} · версия {r.version}
+                    </p>
+                    <p className="whitespace-pre-wrap">
+                      Основание: {r.basis}. {r.comment}
+                    </p>
+                  </article>
+                ))}
+              </>
+            )}
           </section>
           <section id="manual-qa" className="card space-y-3">
             <h2 className="text-xl font-semibold">

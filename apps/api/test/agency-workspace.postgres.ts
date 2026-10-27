@@ -18,6 +18,7 @@ import { AgencyWorkspaceService } from "../src/loyalty-workflow/agency-workspace
 import { AgencyCallReviewService } from "../src/loyalty-workflow/agency-call-review.service";
 import { AgencySupervisorController } from "../src/loyalty-workflow/agency-supervisor.controller";
 import { AgencySupervisorService } from "../src/loyalty-workflow/agency-supervisor.service";
+import { AgencyCampaignOutcomeService } from "../src/loyalty-workflow/agency-campaign-outcome.service";
 import { LoyaltyWorkflowController } from "../src/loyalty-workflow/loyalty-workflow.controller";
 import { LoyaltyWorkflowService } from "../src/loyalty-workflow/loyalty-workflow.service";
 import { LoyaltyPermissionService } from "../src/loyalty-workflow/loyalty-permission.service";
@@ -140,6 +141,7 @@ async function main() {
     providers: [
       AgencyWorkspaceService,
       AgencyCallReviewService,
+      AgencyCampaignOutcomeService,
       AgencySupervisorService,
       LoyaltyWorkflowService,
       LoyaltyPermissionService,
@@ -868,12 +870,178 @@ async function main() {
     { ...reasonBody, submissionId: randomUUID(), expectedVersion: 2 },
     409,
   );
+  const resultAssignment = await db.loyaltyCallAssignment.findFirst({
+    where: { ourAgencyId: agencies[0].id },
+  });
+  const outcomePath = `agencies-v1-2/${agencies[0].id}/assignments/${resultAssignment.id}/outcomes`;
+  const notOwner = resultAssignment.assignedToId === users.a.id ? "b" : "a";
+  const outcomeBody = {
+    eventId: randomUUID(),
+    submissionId: randomUUID(),
+    expectedVersion: 0,
+    kind: "MEETING",
+    status: "PLANNED",
+    occurredAt: new Date(Date.now() + 86400000).toISOString(),
+    basis: "Synthetic agreement with agency",
+    comment: "No real meeting",
+  };
+  await request(outcomePath, "broker", "GET", undefined, 403);
+  await request(outcomePath, notOwner, "POST", outcomeBody, 403);
+  const planned = await request(outcomePath, "admin", "POST", outcomeBody, 201);
+  const repeated = await request(
+    outcomePath,
+    "admin",
+    "POST",
+    outcomeBody,
+    201,
+  );
+  assert.equal(planned.id, repeated.id);
+  passed++;
+  await request(
+    outcomePath,
+    "admin",
+    "POST",
+    { ...outcomeBody, basis: "Changed retry" },
+    409,
+  );
+  await request(
+    outcomePath,
+    "admin",
+    "POST",
+    {
+      ...outcomeBody,
+      eventId: randomUUID(),
+      submissionId: randomUUID(),
+      status: "HELD",
+    },
+    400,
+  );
+  const completedResult = {
+    ...outcomeBody,
+    submissionId: randomUUID(),
+    expectedVersion: 1,
+    status: "HELD",
+    occurredAt: new Date(Date.now() - 60000).toISOString(),
+    correctionReason: "Synthetic meeting actually held",
+  };
+  const tasksBeforeResult = await db.loyaltyTask.findMany({
+    where: { assignmentId: resultAssignment.id },
+    orderBy: { id: "asc" },
+  });
+  await request(outcomePath, "admin", "POST", completedResult, 201);
+  await request(
+    outcomePath,
+    "admin",
+    "POST",
+    { ...completedResult, submissionId: randomUUID() },
+    409,
+  );
+  const historyResult = await request(outcomePath);
+  assert.equal(historyResult.history.length, 2);
+  passed++;
+  const reportResult = await request(supervisorPath);
+  assert.equal(reportResult.campaignResults.counts.meetingsHeld, 1);
+  passed++;
+  assert.equal(reportResult.campaignResults.counts.meetingsPlanned, 0);
+  passed++;
+  assert.equal(reportResult.campaignResults.events[0].basis, outcomeBody.basis);
+  passed++;
+  const plannedPeriod = new URLSearchParams({
+    from: new Date(Date.now() + 3600000).toISOString(),
+    to: new Date(Date.now() + 172800000).toISOString(),
+  });
+  const plannedReport = await request(`${supervisorPath}?${plannedPeriod}`);
+  assert.equal(plannedReport.campaignResults.counts.meetingsScheduled, 1);
+  passed++;
+  assert.equal(plannedReport.campaignResults.counts.meetingsHeld, 0);
+  passed++;
+  assert.equal(
+    plannedReport.campaignResults.scheduled[0].eventId,
+    outcomeBody.eventId,
+  );
+  passed++;
+  assert.deepEqual(
+    await db.loyaltyTask.findMany({
+      where: { assignmentId: resultAssignment.id },
+      orderBy: { id: "asc" },
+    }),
+    tasksBeforeResult,
+  );
+  passed++;
+  await request(
+    outcomePath,
+    "admin",
+    "POST",
+    {
+      ...completedResult,
+      submissionId: randomUUID(),
+      expectedVersion: 2,
+      status: "CANCELLED",
+      correctionReason: "Synthetic wrong fact revoked",
+    },
+    201,
+  );
+  const revokedReport = await request(supervisorPath);
+  assert.equal(revokedReport.campaignResults.counts.meetingsHeld, 0);
+  passed++;
+  assert.equal(revokedReport.campaignResults.counts.cancelled, 1);
+  passed++;
+  await request(`${supervisorPath}/results/export`, "a", "POST", {}, 403);
+  const resultCsv = await request(
+    `${supervisorPath}/results/export`,
+    "admin",
+    "POST",
+    {},
+    201,
+  );
+  assert.ok(
+    resultCsv.includes(outcomeBody.eventId) && resultCsv.includes("CANCELLED"),
+  );
+  passed++;
+  const concurrentResults = await Promise.all(
+    ["Revision A", "Revision B"].map(async (correctionReason) => {
+      const token = sign(
+        { sub: users.admin.id, type: "access", authVersion: 0 },
+        process.env.JWT_SECRET!,
+        { expiresIn: "1h" },
+      );
+      const response = await fetch(
+        `http://127.0.0.1:55440/api/loyalty-workflow/${outcomePath}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            ...completedResult,
+            submissionId: randomUUID(),
+            expectedVersion: 3,
+            status: "CANCELLED",
+            correctionReason,
+          }),
+        },
+      );
+      await response.text();
+      return response.status;
+    }),
+  );
+  assert.deepEqual(concurrentResults.sort(), [201, 409]);
+  passed++;
+  assert.equal(
+    await db.agencyCampaignOutcome.count({
+      where: { eventId: outcomeBody.eventId },
+    }),
+    4,
+  );
+  passed++;
   // Real refresh implementation, with only the external Google reader replaced.
   // Reordering source rows must never rewrite operational Agency/call/task data.
   const operationalState = async () => ({
     attempts: await db.loyaltyCallAttempt.count(),
     assignments: await db.loyaltyCallAssignment.count(),
     tasks: await db.loyaltyTask.count(),
+    outcomes: await db.agencyCampaignOutcome.count(),
     agencies: await db.agency.findMany({
       orderBy: { id: "asc" },
       select: {
@@ -886,18 +1054,16 @@ async function main() {
   });
   const beforeSync = await operationalState();
   const { normalize } = require(resolve("scripts/partner-sheet/plan.cjs"));
-  const sourceRows = [...agencies]
-    .reverse()
-    .map((a, i) => ({
-      tab: "Партнеры 2026",
-      row: 20 + i,
-      name: a.name,
-      normalizedName: normalize(a.name),
-      type: "АН",
-      baselineRub: "0.00",
-      addedRub: "0.00",
-      totalRub: "0.00",
-    }));
+  const sourceRows = [...agencies].reverse().map((a, i) => ({
+    tab: "Партнеры 2026",
+    row: 20 + i,
+    name: a.name,
+    normalizedName: normalize(a.name),
+    type: "АН",
+    baselineRub: "0.00",
+    addedRub: "0.00",
+    totalRub: "0.00",
+  }));
   const reorderingSync = new PartnerSheetService(db, {
     sendSafely: () => {
       throw Error("UNEXPECTED_EXTERNAL_ALERT_IN_REFRESH_TEST");

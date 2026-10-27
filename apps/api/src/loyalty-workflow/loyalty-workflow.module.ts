@@ -9,6 +9,7 @@ import { AgencyWorkspaceService } from "./agency-workspace.service";
 import { AgencyCallReviewService } from "./agency-call-review.service";
 import { AgencySupervisorService } from "./agency-supervisor.service";
 import { AgencySupervisorController } from "./agency-supervisor.controller";
+import { AgencyCampaignOutcomeService } from "./agency-campaign-outcome.service";
 
 @Module({
   imports: [AuthModule, LoyaltyBaseModule, LoyaltyPermissionModule],
@@ -22,6 +23,7 @@ import { AgencySupervisorController } from "./agency-supervisor.controller";
     AgencyWorkspaceService,
     AgencyCallReviewService,
     AgencySupervisorService,
+    AgencyCampaignOutcomeService,
   ],
   exports: [LoyaltyWorkflowService],
 })

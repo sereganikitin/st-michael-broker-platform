@@ -25,6 +25,7 @@ import { LoyaltyCampaignDashboard } from "@/components/loyalty-base/LoyaltyCampa
 import { LoyaltySavedViews } from "@/components/loyalty-base/LoyaltySavedViews";
 import { AgencyCallCorrection } from "@/components/loyalty-base/AgencyCallCorrection";
 import { AgencyCallReview } from "@/components/loyalty-base/AgencyCallReview";
+import { AgencyCampaignOutcomes } from "@/components/loyalty-base/AgencyCampaignOutcomes";
 import { useAgencyDraft, useAgencyDraftGuard } from "@/lib/use-agency-draft";
 
 import {
@@ -1152,6 +1153,14 @@ export default function AgencyCallWorkspace() {
               }
               canCall={editable && !!data?.script.current}
               onChanged={load}
+            />
+            <AgencyCampaignOutcomes
+              key={`outcomes:${card.id}`}
+              agencyId={card.id}
+              assignments={card.assignments}
+              scope={draftScope}
+              userId={data?.currentUserId || ""}
+              permissions={data?.permissions || []}
             />
             <section className="rounded bg-accent/5 p-3">
               <h3 className="font-semibold">

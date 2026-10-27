@@ -42,4 +42,18 @@ export class AgencySupervisorController {
   ) {
     return this.supervisor.delayReason(id, body, user);
   }
+
+  @Post("results/export")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  @Header(
+    "Content-Disposition",
+    'attachment; filename="agency-campaign-results.csv"',
+  )
+  exportResults(
+    @Query() query: AgencyWorkspaceQuery,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.supervisor.exportResults(query, user);
+  }
 }

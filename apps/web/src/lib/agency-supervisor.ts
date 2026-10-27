@@ -71,6 +71,39 @@ export type SupervisorReport = {
   permissions: string[];
   role: string;
   generatedAt: string;
+  campaignResults?: {
+    counts: Record<string, number>;
+    scheduled: Array<{
+      id: string;
+      eventId: string;
+      version: number;
+      kind: string;
+      status: string;
+      occurredAt: string;
+      basis: string;
+      comment: string;
+      actor: StaffName;
+      assignment: {
+        ourAgencyId: string;
+        campaign: { id: string; name: string };
+      };
+    }>;
+    events: Array<{
+      id: string;
+      eventId: string;
+      version: number;
+      kind: string;
+      status: string;
+      occurredAt: string;
+      basis: string;
+      comment: string;
+      actor: StaffName;
+      assignment: {
+        ourAgencyId: string;
+        campaign: { id: string; name: string };
+      };
+    }>;
+  };
   attemptDates?: Record<string, { callOccurredAt: string; recordedAt: string }>;
   source: {
     loadedAt: string;

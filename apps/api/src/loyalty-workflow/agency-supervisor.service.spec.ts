@@ -189,6 +189,7 @@ function fixture() {
       }),
     },
     agencyCallReview: { findMany: jest.fn().mockResolvedValue([]) },
+    agencyCampaignOutcome: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const permissions: any = { require: jest.fn(), requireAll: jest.fn() };
   const workspace: any = { list: jest.fn().mockResolvedValue(dataFixture()) };
