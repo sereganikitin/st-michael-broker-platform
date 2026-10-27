@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { apiPatch } from "@/lib/api";
+import { contactDateFromInput, contactDateToInput } from "@/lib/moscow-contact-date";
 
 export type AgencyCallContact = {
   id: string;
@@ -179,12 +180,10 @@ export function AgencyCallContacts({
                 type="datetime-local"
                 required
                 value={
-                  draft.verifiedAt
-                    ? draft.verifiedAt.replace(/:00\+03:00$/, "")
-                    : ""
+                  contactDateToInput(draft.verifiedAt)
                 }
                 onChange={(e) =>
-                  patch({ verifiedAt: `${e.target.value}:00+03:00` })
+                  patch({ verifiedAt: contactDateFromInput(e.target.value) })
                 }
               />
             </label>
