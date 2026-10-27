@@ -55,6 +55,43 @@ sha256_file() {
     sha256sum "$1" | awk '{print $1}' | tr 'A-F' 'a-f'
 }
 
+# Compare existing columns only: additive migrations may add columns, but may
+# not rewrite operational records. Hashes stay inside the private temp context.
+capture_operational_state() {
+    for table in agencies loyalty_call_assignments loyalty_call_attempts loyalty_tasks agency_call_reviews agency_campaign_outcomes; do
+        columns=$(docker exec "$REHEARSAL_ID" psql -U postgres -d rehearsal -Atqc \
+            "SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name='$table';")
+        if [ -z "$columns" ]; then
+            printf '%s\n' missing > "$SCHEMA_CONTEXT/$table.columns"
+            continue
+        fi
+        printf '%s\n' "$columns" > "$SCHEMA_CONTEXT/$table.columns"
+        docker exec "$REHEARSAL_ID" psql -U postgres -d rehearsal -Atqc \
+            "SELECT count(*)::text || ':' || md5(COALESCE(string_agg(md5(ROW($columns)::text), '' ORDER BY id::text), '')) FROM public.$table;" \
+            > "$SCHEMA_CONTEXT/$table.before"
+    done
+}
+
+verify_operational_state() {
+    for table in agencies loyalty_call_assignments loyalty_call_attempts loyalty_tasks agency_call_reviews agency_campaign_outcomes; do
+        columns=$(cat "$SCHEMA_CONTEXT/$table.columns")
+        if [ "$columns" = missing ]; then
+            present=$(docker exec "$REHEARSAL_ID" psql -U postgres -d rehearsal -Atqc "SELECT to_regclass('public.$table') IS NOT NULL;")
+            if [ "$present" = t ]; then
+                rows=$(docker exec "$REHEARSAL_ID" psql -U postgres -d rehearsal -Atqc "SELECT count(*) FROM public.$table;")
+                [ "$rows" = 0 ] || fail "Новая операционная таблица $table неожиданно содержит записи."
+            fi
+            continue
+        fi
+        docker exec "$REHEARSAL_ID" psql -U postgres -d rehearsal -Atqc \
+            "SELECT count(*)::text || ':' || md5(COALESCE(string_agg(md5(ROW($columns)::text), '' ORDER BY id::text), '')) FROM public.$table;" \
+            > "$SCHEMA_CONTEXT/$table.after"
+        cmp -s "$SCHEMA_CONTEXT/$table.before" "$SCHEMA_CONTEXT/$table.after" || \
+            fail "Миграция изменила существующие операционные данные $table."
+    done
+    echo "✓ Существующие контакты, назначения, попытки, задачи и ручные проверки сохранены."
+}
+
 validate_checked_in_baseline() {
     baseline_schema="$SCHEMA_CONTEXT/packages/database/prisma/baselines/0_legacy_baseline.prisma"
     baseline_sql="$SCHEMA_CONTEXT/packages/database/prisma/migrations/0_legacy_baseline/migration.sql"
@@ -204,6 +241,7 @@ if [ "$RESTORED_BROKERS" != "$LIVE_BROKERS" ] || [ "$RESTORED_AGENCIES" != "$LIV
 fi
 
 echo "=== 4/6: Прогоняем prisma migrate против изолированной копии ==="
+capture_operational_state
 CLONE_DATABASE_URL="postgresql://postgres:${REHEARSAL_PASSWORD}@${REHEARSAL_ID}:5432/rehearsal"
 
 MIGRATION_TABLE_EXISTS=$(docker exec "$REHEARSAL_ID" psql -U postgres -d rehearsal -Atqc \
@@ -252,6 +290,7 @@ docker run --rm --network "$REHEARSAL_NET" \
 
 echo "=== Проверяем полную Prisma history после migrate deploy ==="
 validate_clone_migration_history true
+verify_operational_state
 
 echo "=== 5/6: Финальные счётчики после миграции (должны не измениться) ==="
 FINAL_BROKERS=$(docker exec "$REHEARSAL_ID" psql -U postgres -d rehearsal -tAc "SELECT count(*) FROM brokers;")
