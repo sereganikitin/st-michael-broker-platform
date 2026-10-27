@@ -15,6 +15,7 @@ import { PassportModule } from "@nestjs/passport";
 import { sign } from "jsonwebtoken";
 import { AgencyWorkspaceController } from "../src/loyalty-workflow/agency-workspace.controller";
 import { AgencyWorkspaceService } from "../src/loyalty-workflow/agency-workspace.service";
+import { AgencyCallReviewService } from "../src/loyalty-workflow/agency-call-review.service";
 import { LoyaltyWorkflowController } from "../src/loyalty-workflow/loyalty-workflow.controller";
 import { LoyaltyWorkflowService } from "../src/loyalty-workflow/loyalty-workflow.service";
 import { LoyaltyPermissionService } from "../src/loyalty-workflow/loyalty-permission.service";
@@ -40,7 +41,7 @@ if (
   url.pathname !== "/agency_audit"
 )
   throw Error("DEDICATED_LOCAL_DATABASE_REQUIRED");
-const { PrismaClient } = require(resolve("work/generated-client"));
+const { PrismaClient } = require("@prisma/client");
 const { encodeSnapshot } = require(
   resolve("scripts/partner-sheet/snapshot.cjs"),
 );
@@ -135,6 +136,7 @@ async function main() {
     ],
     providers: [
       AgencyWorkspaceService,
+      AgencyCallReviewService,
       LoyaltyWorkflowService,
       LoyaltyPermissionService,
       LoyaltyBaseService,
@@ -335,6 +337,85 @@ async function main() {
     ),
   ]);
   const attempt = concurrent[0];
+  const reviewPath = `agencies-v1-2/${agencies[0].id}/attempts/${attempt.id}/reviews`;
+  const reviewBody = {
+    submissionId: randomUUID(),
+    expectedVersion: 0,
+    criteria: {
+      offerCurrent: "PASS",
+      needsClarified: "NOT_OBSERVABLE",
+      agreementRecorded: "FAIL",
+      nextStepCorrect: "PASS",
+    },
+    comment: "Synthetic manual QA; no audio evidence",
+  };
+  await request(reviewPath, "a", "POST", reviewBody, 403);
+  await request(reviewPath, "broker", "GET", undefined, 403);
+  await request(
+    reviewPath,
+    "admin",
+    "POST",
+    {
+      ...reviewBody,
+      criteria: { ...reviewBody.criteria, offerCurrent: "AUTO" },
+    },
+    400,
+  );
+  await request(
+    `agencies-v1-2/${agencies[1].id}/attempts/${attempt.id}/reviews`,
+    "admin",
+    "POST",
+    reviewBody,
+    404,
+  );
+  const firstReviews = await Promise.all([
+    request(reviewPath, "admin", "POST", reviewBody, 201),
+    request(reviewPath, "admin", "POST", reviewBody, 201),
+  ]);
+  assert.equal(firstReviews[0].id, firstReviews[1].id);
+  passed++;
+  await request(
+    reviewPath,
+    "admin",
+    "POST",
+    { ...reviewBody, comment: "changed retry" },
+    409,
+  );
+  await request(
+    reviewPath,
+    "admin",
+    "POST",
+    { ...reviewBody, submissionId: randomUUID() },
+    409,
+  );
+  await request(
+    reviewPath,
+    "admin",
+    "POST",
+    { ...reviewBody, submissionId: randomUUID(), expectedVersion: 1 },
+    400,
+  );
+  const revision = {
+    ...reviewBody,
+    submissionId: randomUUID(),
+    expectedVersion: 1,
+    correctionReason: "Synthetic evidence clarified",
+    comment: "Revised manual QA",
+  };
+  await request(reviewPath, "admin", "POST", revision, 201);
+  const reviewHistory = await request(reviewPath);
+  assert.deepEqual(
+    reviewHistory.reviews.map((r: any) => r.version),
+    [2, 1],
+  );
+  passed++;
+  assert.equal(reviewHistory.reviews[1].comment, reviewBody.comment);
+  passed++;
+  assert.equal(
+    await db.agencyCallReview.count({ where: { callAttemptId: attempt.id } }),
+    2,
+  );
+  passed++;
   assert.equal(concurrent[0].id, concurrent[1].id);
   passed++;
   await request(

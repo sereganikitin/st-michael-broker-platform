@@ -17,6 +17,7 @@ import {
 import { LoyaltyCampaignDashboard } from "@/components/loyalty-base/LoyaltyCampaignDashboard";
 import { LoyaltySavedViews } from "@/components/loyalty-base/LoyaltySavedViews";
 import { AgencyCallCorrection } from "@/components/loyalty-base/AgencyCallCorrection";
+import { AgencyCallReview } from "@/components/loyalty-base/AgencyCallReview";
 
 import {
   AgencyCallContacts,
@@ -1143,6 +1144,14 @@ export default function AgencyCallWorkspace() {
                       </p>
                     )}
                     <small>Событие: {a.id}</small>
+                    {data?.permissions.includes("READ_ALL") && (
+                      <AgencyCallReview
+                        agencyId={card.id}
+                        attemptId={a.id}
+                        canWrite={data.permissions.includes("CALL_REVIEW")}
+                        superseded={historyFor(card).some((other) => other.correctsAttemptId === a.id)}
+                      />
+                    )}
                     {data?.permissions.includes("CALL_EXECUTE") &&
                       (a.operator.id === data.currentUserId ||
                         data.role === "ADMIN") &&

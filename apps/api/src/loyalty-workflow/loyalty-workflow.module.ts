@@ -6,11 +6,16 @@ import { LoyaltyWorkflowController } from "./loyalty-workflow.controller";
 import { LoyaltyWorkflowService } from "./loyalty-workflow.service";
 import { AgencyWorkspaceController } from "./agency-workspace.controller";
 import { AgencyWorkspaceService } from "./agency-workspace.service";
+import { AgencyCallReviewService } from "./agency-call-review.service";
 
 @Module({
   imports: [AuthModule, LoyaltyBaseModule, LoyaltyPermissionModule],
   controllers: [LoyaltyWorkflowController, AgencyWorkspaceController],
-  providers: [LoyaltyWorkflowService, AgencyWorkspaceService],
+  providers: [
+    LoyaltyWorkflowService,
+    AgencyWorkspaceService,
+    AgencyCallReviewService,
+  ],
   exports: [LoyaltyWorkflowService],
 })
 export class LoyaltyWorkflowModule {}

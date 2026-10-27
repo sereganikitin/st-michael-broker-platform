@@ -19,6 +19,7 @@ const LABELS: Record<LoyaltyPermission, string> = {
   READ_ALL: "Чтение всей базы",
   READ_OWN_QUEUE: "Своя очередь",
   CALL_EXECUTE: "Выполнение звонков",
+  CALL_REVIEW: "Ручная проверка качества звонков",
   CALL_ASSIGN: "Назначение звонков",
   ENTITY_EDIT: "Изменение записей",
   REFERENCE_MANAGE: "Справочники и представления",

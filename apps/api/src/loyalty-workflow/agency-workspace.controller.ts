@@ -29,12 +29,37 @@ import {
 } from "./agency-workspace.dto";
 import { AgencyWorkspaceService } from "./agency-workspace.service";
 import { ExpectedVersionDto } from "./loyalty-workflow.dto";
+import { AgencyCallReviewDto } from "./agency-call-review.dto";
+import { AgencyCallReviewService } from "./agency-call-review.service";
 
 @Controller("loyalty-workflow/agencies-v1-2")
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN, UserRole.MANAGER)
 export class AgencyWorkspaceController {
-  constructor(private readonly workspace: AgencyWorkspaceService) {}
+  constructor(
+    private readonly workspace: AgencyWorkspaceService,
+    private readonly reviews: AgencyCallReviewService,
+  ) {}
+
+  @Get(":id/attempts/:attemptId/reviews")
+  @Header("Cache-Control", "private, no-store")
+  callReviews(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Param("attemptId", new ParseUUIDPipe({ version: "4" })) attemptId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.reviews.list(id, attemptId, user);
+  }
+
+  @Post(":id/attempts/:attemptId/reviews")
+  reviewCall(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Param("attemptId", new ParseUUIDPipe({ version: "4" })) attemptId: string,
+    @Body() body: AgencyCallReviewDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.reviews.save(id, attemptId, body, user);
+  }
 
   @Get()
   @Header("Cache-Control", "private, no-store")

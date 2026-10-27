@@ -364,6 +364,7 @@ enum LoyaltyPermission {
   READ_ALL
   READ_OWN_QUEUE
   CALL_EXECUTE
+  CALL_REVIEW
   CALL_ASSIGN
   ENTITY_EDIT
   REFERENCE_MANAGE
@@ -538,6 +539,7 @@ model Broker {
   loyaltyAssignmentsAssignedTo      LoyaltyCallAssignment[]      @relation("LoyaltyAssignmentAssignee")
   loyaltyAssignmentsAssignedBy      LoyaltyCallAssignment[]      @relation("LoyaltyAssignmentAssigner")
   loyaltyCallAttempts               LoyaltyCallAttempt[]         @relation("LoyaltyCallAttemptOperator")
+  agencyCallReviews                 AgencyCallReview[]
   loyaltyTasksAsTarget              LoyaltyTask[]                @relation("LoyaltyTaskOurBroker")
   loyaltyTasksAssignedTo            LoyaltyTask[]                @relation("LoyaltyTaskAssignee")
   loyaltyTasksCreated               LoyaltyTask[]                @relation("LoyaltyTaskCreator")
@@ -1539,6 +1541,7 @@ model LoyaltyCallAttempt {
   occurredAt        DateTime              @default(now()) @map("occurred_at")
   createdAt         DateTime              @default(now()) @map("created_at")
   tasks             LoyaltyTask[]
+  qualityReviews    AgencyCallReview[]
 
   @@index([assignmentId, occurredAt])
   @@index([operatorId, occurredAt])
@@ -1546,6 +1549,26 @@ model LoyaltyCallAttempt {
   // 2026-09-28: «Период звонков» в базе лояльности — один проход по дате.
   @@index([occurredAt])
   @@map("loyalty_call_attempts")
+}
+
+/// Append-only manual QA of a specific immutable call attempt, not an automated score.
+model AgencyCallReview {
+  id               String             @id @default(uuid())
+  callAttemptId    String             @map("call_attempt_id")
+  callAttempt      LoyaltyCallAttempt @relation(fields: [callAttemptId], references: [id], onDelete: Restrict)
+  reviewerId       String             @map("reviewer_id")
+  reviewer         Broker             @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+  submissionId     String             @unique @map("submission_id") @db.VarChar(80)
+  requestHash      String             @map("request_hash") @db.Char(64)
+  version          Int
+  criteria         Json
+  comment          String             @db.Text
+  correctionReason String?            @map("correction_reason") @db.Text
+  createdAt        DateTime           @default(now()) @map("created_at")
+
+  @@unique([callAttemptId, version])
+  @@index([reviewerId, createdAt])
+  @@map("agency_call_reviews")
 }
 
 model LoyaltyTask {
