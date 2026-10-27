@@ -72,3 +72,10 @@ const hasExtension = (d: MaterialDocument, pattern: RegExp) => {
 export const isMaterialImage = (d: MaterialDocument) => /^image\//i.test(d.type || '') || hasExtension(d, /\.(jpe?g|png|webp|gif|svg|heic|avif|bmp|tiff?)(\?|#|$)/i);
 export const isMaterialVideo = (d: MaterialDocument) => /^video\//i.test(d.type || '') || hasExtension(d, /\.(mp4|mov|webm|m4v|avi|mkv)(\?|#|$)/i);
 export const isMaterialPdf = (d: MaterialDocument) => /pdf/i.test(d.type || '') || hasExtension(d, /\.pdf(\?|#|$)/i);
+
+// 2026-10-27: on a documents-only page (e.g. «Зорге 9/Презентации»: folder
+// «Коммерция» + PDFs) subfolders share the documents row instead of a separate
+// «Папки» section. Pages with photos or videos keep their sections unchanged.
+export function foldersJoinDocumentRow(folderCount: number, files: MaterialDocument[]): boolean {
+  return folderCount > 0 && files.length > 0 && files.every(d => !isMaterialImage(d) && !isMaterialVideo(d));
+}
