@@ -11,7 +11,7 @@ import { foldersAndFilesAt, materialHref, mediaCountsLabel, mediaCountsUnder } f
 import { materialsThumbUrl } from '@/lib/materials-thumb';
 import {
   MATERIALS_CATALOG_HREF, MATERIALS_CONDITIONS_HREF, MATERIALS_CONTACT_EMAIL,
-  isMaterialImage, isMaterialPdf, isMaterialVideo, materialsFolderCover,
+  foldersJoinDocumentRow, isMaterialImage, isMaterialPdf, isMaterialVideo, materialsFolderCover,
   materialsParentHref, materialsProjectCover, standaloneMaterials, uniqueMaterials,
   currentMaterials,
   type MaterialCover, type MaterialDocument,
@@ -44,6 +44,18 @@ function FolderCard({ title, meta, href, cover }: { title: string; meta: string;
   return <Link href={href} className="mb-card" data-material-folder={title}>
     <div className="mb-card-heading"><div><h2 className="mb-card-title">{title}</h2><p className="mb-card-meta">{meta}</p></div><ArrowDownRight className="mb-card-arrow" size={22} aria-hidden="true" /></div>
     <div className="mb-card-media"><Cover key={cover?.src || title} cover={cover} title={title} /></div>
+  </Link>;
+}
+
+/** A folder tile sized like the document cards it shares a row with. */
+function FolderFileCard({ title, meta, href, cover }: { title: string; meta: string; href: string; cover: MaterialCover | null }) {
+  return <Link href={href} className="mb-card mb-file-card" data-material-folder={title}>
+    <div className="mb-file-preview">
+      <div className="mb-card-heading"><div><h3 className="mb-card-title">{title}</h3><p className="mb-card-meta">{meta}</p></div><ArrowDownRight size={20} className="mb-card-arrow" aria-hidden="true" /></div>
+      <div className="mb-card-media"><Cover key={cover?.src || title} cover={cover} title={title} /></div>
+      <span className="mb-preview-label">Папка</span>
+    </div>
+    <div className="mb-file-actions"><span className="mb-button mb-download"><Folder size={18} aria-hidden="true" /><span>Открыть папку</span></span></div>
   </Link>;
 }
 
@@ -149,6 +161,7 @@ export function MaterialsBrowser({ parts = [], surface = 'landing', embedded = f
   }, [reload, surface]);
   const mapped = useMemo(() => withDisplaySubcategory(docs, layout, surface), [docs, layout, surface]);
   const { folders, files } = useMemo(() => foldersAndFilesAt(mapped, parts), [mapped, parts]);
+  const foldersInDocumentRow = foldersJoinDocumentRow(folders.length, files);
   const extraDocs = useMemo(() => uniqueMaterials(standaloneMaterials(mapped, layout)), [mapped, layout]);
   const conditionDocs = useMemo(() => uniqueMaterials(terms), [terms]);
   const calculatorHref = useMemo(() => findInstallmentCalculator([...conditionDocs, ...extraDocs]), [conditionDocs, extraDocs]);
@@ -168,11 +181,14 @@ export function MaterialsBrowser({ parts = [], surface = 'landing', embedded = f
     topRef.current?.focus({ preventScroll: true });
   }
 
-  function fileSection(sectionTitle: string, items: MaterialDocument[], kind: 'image' | 'video' | 'document') {
+  function fileSection(sectionTitle: string, items: MaterialDocument[], kind: 'image' | 'video' | 'document', leadingFolders: string[] = []) {
     if (!items.length) return null;
     const visibleItems = kind === 'image' ? items.slice(0, photoLimit) : items;
-    return <section className="mb-section"><h2 className="mb-section-title">{sectionTitle} <span>({items.length})</span></h2>
-      <div className={kind === 'image' ? 'mb-photo-grid' : 'mb-file-grid'}>{visibleItems.map(doc => {
+    return <section className="mb-section"><h2 className="mb-section-title">{sectionTitle} <span>({leadingFolders.length + items.length})</span></h2>
+      <div className={kind === 'image' ? 'mb-photo-grid' : 'mb-file-grid'}>{leadingFolders.map(folder => {
+        const nested = [...parts, folder];
+        return <FolderFileCard key={'folder:' + folder} title={folder} meta={mediaCountsLabel(mediaCountsUnder(mapped, nested))} href={materialHref(nested)} cover={materialsFolderCover(layout, mapped, nested)} />;
+      })}{visibleItems.map(doc => {
         const heading = <div className="mb-card-heading"><div><h3 className="mb-card-title">{doc.name}</h3><p className="mb-card-meta">{kind === 'image' ? 'Фото' : kind === 'video' ? 'Видео' : isMaterialPdf(doc) ? 'PDF' : doc.type || 'Документ'}</p></div><ArrowDownRight size={20} className="mb-card-arrow" aria-hidden="true" /></div>;
         if (kind === 'document' && !isMaterialPdf(doc)) {
           const href = safeMaterialUrl(doc.fileUrl)?.href;
@@ -210,10 +226,10 @@ export function MaterialsBrowser({ parts = [], surface = 'landing', embedded = f
         {fileSection('Условия сотрудничества', conditionDocs, 'document')}
         {fileSection('Другие материалы и документы', extraDocs.filter(d => !conditionDocs.some(c => c.fileUrl === d.fileUrl)), 'document')}
       </> : <>
-        {folders.length > 0 && <section className="mb-section"><h2 className="mb-section-title">Папки <span>({folders.length})</span></h2><div className="mb-grid">{folders.map(folder => { const nested = [...parts, folder]; return <FolderCard key={folder} title={folder} meta={mediaCountsLabel(mediaCountsUnder(mapped, nested))} href={materialHref(nested)} cover={materialsFolderCover(layout, mapped, nested)} />; })}</div></section>}
+        {folders.length > 0 && !foldersInDocumentRow && <section className="mb-section"><h2 className="mb-section-title">Папки <span>({folders.length})</span></h2><div className="mb-grid">{folders.map(folder => { const nested = [...parts, folder]; return <FolderCard key={folder} title={folder} meta={mediaCountsLabel(mediaCountsUnder(mapped, nested))} href={materialHref(nested)} cover={materialsFolderCover(layout, mapped, nested)} />; })}</div></section>}
         {fileSection('Фотографии', files.filter(isMaterialImage), 'image')}
         {fileSection('Видео', files.filter(isMaterialVideo), 'video')}
-        {fileSection('Документы и презентации', files.filter(d => !isMaterialImage(d) && !isMaterialVideo(d)), 'document')}
+        {fileSection('Документы и презентации', files.filter(d => !isMaterialImage(d) && !isMaterialVideo(d)), 'document', foldersInDocumentRow ? folders : [])}
         {!folders.length && !files.length && <div className="mb-empty"><Folder size={48} aria-hidden="true" /><p>В этой папке пока нет файлов</p><Link className="mb-button" href={MATERIALS_CATALOG_HREF}>Открыть каталог материалов</Link></div>}
       </>}
       <footer className="mb-footer"><div className="mb-footer-contacts"><span>По вопросам получения материалов:</span><a href="tel:+74992262249">+7 (499) 226-22-49</a><a href={'mailto:' + MATERIALS_CONTACT_EMAIL}>{MATERIALS_CONTACT_EMAIL}</a></div><button type="button" className="mb-button mb-to-top" aria-label="Наверх" onClick={scrollFolderTop}><ArrowUp size={18} aria-hidden="true" />Наверх</button></footer>
