@@ -7,6 +7,7 @@ import { api, apiGet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { AdminPasswordForm } from '@/components/AdminPasswordForm';
 import { clientStatusDisplay } from '@/lib/client-status-display';
+import { ClientAmoTransferStatus } from '@/components/ClientAmoTransferStatus';
 import { ArrowLeft, RefreshCw, Save, Shield, Trash2, Phone, Ban, Database } from 'lucide-react';
 
 const categoryLabels: Record<string, { label: string; cls: string }> = {
@@ -480,13 +481,14 @@ function ClientRowWithStatus({ client, isAdmin, onUpdated }: { client: any; isAd
           <div className="font-medium">{client.fullName}</div>
           <div className="text-text-muted text-xs">{client.phone}</div>
           {client.uniquenessExpiresAt && clientStatusDisplay(client).showUniquenessExpiry && (
-            <div className="text-xs text-text-muted">до {new Date(client.uniquenessExpiresAt).toLocaleDateString('ru-RU')}</div>
+            <div className="text-xs text-text-muted">до {new Date(client.uniquenessExpiresAt).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}</div>
           )}
         </div>
         <div className="flex items-center gap-2">
           <span className={`text-xs px-2 py-1 rounded ${clientStatusDisplay(client).cls}`} title={clientStatusDisplay(client).explanation}>
             {clientStatusDisplay(client).label}
           </span>
+          <ClientAmoTransferStatus client={client} />
           {isAdmin && !editing && (
             <button
               className="text-xs text-accent hover:underline"

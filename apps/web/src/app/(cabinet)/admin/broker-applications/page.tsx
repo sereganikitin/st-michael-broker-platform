@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import AmoHealthBanner from '@/components/AmoHealthBanner';
 import { clientStatusDisplay } from '@/lib/client-status-display';
+import { ClientAmoTransferStatus } from '@/components/ClientAmoTransferStatus';
 
 type AppType = 'CLIENT' | 'MEETING' | 'CALL' | 'OFFER' | 'LOGIN';
 type AmoStatus = 'SYNCED' | 'FAILED' | 'PENDING';
@@ -397,9 +398,12 @@ export default function BrokerApplicationsPage() {
                         </td>
                         <td className="py-3">
                           {item.type === 'CLIENT' && item.extra?.uniquenessStatus ? (
-                            <span className={`text-xs px-2 py-1 rounded ${clientStatusDisplay({ ...item.extra, amoSyncStatus: item.amoStatus }).cls}`} title={clientStatusDisplay({ ...item.extra, amoSyncStatus: item.amoStatus }).explanation}>
-                              {clientStatusDisplay({ ...item.extra, amoSyncStatus: item.amoStatus }).label}
-                            </span>
+                            <div>
+                              <span className={`text-xs px-2 py-1 rounded ${clientStatusDisplay({ ...item.extra, amoSyncStatus: item.amoStatus }).cls}`} title={clientStatusDisplay({ ...item.extra, amoSyncStatus: item.amoStatus }).explanation}>
+                                {clientStatusDisplay({ ...item.extra, amoSyncStatus: item.amoStatus }).label}
+                              </span>
+                              <div className="mt-1"><ClientAmoTransferStatus client={{ ...item.extra, amoSyncStatus: item.amoStatus }} /></div>
+                            </div>
                           ) : (
                             <span className="text-xs text-text-muted">—</span>
                           )}
