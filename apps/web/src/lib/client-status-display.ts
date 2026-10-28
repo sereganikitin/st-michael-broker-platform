@@ -2,6 +2,7 @@ export type ClientStatusEvidence = {
   uniquenessStatus?: string | null;
   fixationStatus?: string | null;
   amoSyncStatus?: string | null;
+  uniquenessExpiresAt?: string | null;
 };
 
 const uniquenessLabels: Record<string, { label: string; cls: string }> = {
@@ -24,26 +25,24 @@ export function clientTransferAwaitingFixation(client: ClientStatusEvidence): bo
 }
 
 export function clientStatusDisplay(client: ClientStatusEvidence) {
-  if (clientTransferAwaitingFixation(client)) {
-    return {
-      label: 'Передан в amoCRM — не зафиксирован',
-      cls: 'bg-info/20 text-info',
-      explanation: 'Заявка передана в amoCRM. Результат проверки — условно уникален; фиксация пока не оформлена. Повторно подавать заявку не нужно.',
-      showUniquenessExpiry: true,
-    };
-  }
   const blocked = clientTransferUnconfirmed(client);
   if (blocked && client.uniquenessStatus === 'CONDITIONALLY_UNIQUE') {
     return {
       label: client.amoSyncStatus === 'FAILED' ? 'Передача не подтверждена' : 'Передача проверяется',
       cls: 'bg-warning/20 text-warning',
-      explanation: 'Заявка сохранена в кабинете, но передача в amoCRM не подтверждена. Клиент пока не зафиксирован. Повторно отправлять заявку не нужно — менеджер проверит её.',
+      explanation: 'Заявка сохранена в кабинете, но передача в amoCRM не подтверждена. Повторно отправлять заявку не нужно — менеджер проверит её.',
       showUniquenessExpiry: false,
     };
   }
+  const verdict = uniquenessLabels[client.uniquenessStatus || ''] || { label: client.uniquenessStatus || 'Статус не указан', cls: 'bg-text-muted/20 text-text-muted' };
+  const expiry = client.uniquenessExpiresAt ? new Date(client.uniquenessExpiresAt) : null;
+  const label = client.uniquenessStatus === 'CONDITIONALLY_UNIQUE' && expiry && Number.isFinite(expiry.getTime())
+    ? `Уникален до ${expiry.toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}`
+    : verdict.label;
   return {
-    ...(uniquenessLabels[client.uniquenessStatus || ''] || { label: client.uniquenessStatus || 'Статус не указан', cls: 'bg-text-muted/20 text-text-muted' }),
-    explanation: blocked ? 'Клиент не зафиксирован. Передача заявки в amoCRM ещё не подтверждена.' : '',
+    ...verdict,
+    label,
+    explanation: blocked ? 'Передача заявки в amoCRM ещё не подтверждена. Повторно отправлять заявку не нужно.' : '',
     showUniquenessExpiry: !blocked,
   };
 }

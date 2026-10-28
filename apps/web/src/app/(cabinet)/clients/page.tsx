@@ -5,7 +5,8 @@ import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Search, ChevronLeft, ChevronRight, X, AlertTriangle, Mail, Building, User, Phone as PhoneIcon, Calendar, FileText, CheckCircle2, AlertCircle, PhoneCall } from 'lucide-react';
 import { uniquenessHistoryLabel } from '@/lib/uniqueness-history';
-import { clientStatusDisplay, clientTransferUnconfirmed, clientTransferAwaitingFixation } from '@/lib/client-status-display';
+import { clientStatusDisplay, clientTransferUnconfirmed } from '@/lib/client-status-display';
+import { ClientAmoTransferStatus } from '@/components/ClientAmoTransferStatus';
 
 // 2026-07-02: если А зафиксировал клиента на Б через «Фиксирую на другого
 // брокера», уникальность принадлежит А (создателю). Б просто исполнитель —
@@ -232,11 +233,7 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
               {displayedStatus.label}
             </span>
           )}
-          {isExecutorView(client, broker?.id) && clientTransferAwaitingFixation(client) && (
-            <span className={`text-xs px-2 py-1 rounded ${displayedStatus.cls}`}>
-              {displayedStatus.label}
-            </span>
-          )}
+          <ClientAmoTransferStatus client={client} />
           {client.fixationStatus && client.fixationStatus !== 'NOT_FIXED' && (
             <span className="text-xs px-2 py-1 rounded bg-info/20 text-info">{client.fixationStatus}</span>
           )}
@@ -296,10 +293,10 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
           {!isExecutorView(client, broker?.id) && displayedStatus.showUniquenessExpiry && (
             <div className="bg-surface-secondary rounded-lg p-3 col-span-2">
               <span className="text-text-muted block text-xs flex items-center gap-1">
-                <Calendar className="w-3 h-3" /> Статус до
+                <Calendar className="w-3 h-3" /> Уникален до (МСК)
               </span>
               <span className="font-medium">
-                {client.uniquenessExpiresAt ? new Date(client.uniquenessExpiresAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                {client.uniquenessExpiresAt ? new Date(client.uniquenessExpiresAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Moscow' }) : '—'}
               </span>
               {daysLeft !== null && (
                 <div className={`text-xs mt-1 ${daysLeft < 0 ? 'text-error' : daysLeft <= 1 ? 'text-error' : daysLeft <= 7 ? 'text-warning' : 'text-text-muted'}`}>
@@ -696,7 +693,7 @@ export default function ClientsPage() {
                     {isStaff && <th className="pb-3 font-medium">Брокер</th>}
                     <th className="pb-3 font-medium">Проект</th>
                     <th className="pb-3 font-medium">Статус</th>
-                    <th className="pb-3 font-medium">Статус до</th>
+                    <th className="pb-3 font-medium">Уникален до</th>
                     <th className="pb-3 font-medium" title="Дата создания заявки в amoCRM">Дата</th>
                     <th className="pb-3 font-medium w-10"></th>
                   </tr>
@@ -744,20 +741,13 @@ export default function ClientsPage() {
                             >
                               Исполнитель по фиксации
                             </span>
-                            {clientTransferAwaitingFixation(c) && (
-                              <div className="mt-1">
-                                <span className={`text-xs px-2 py-1 rounded ${clientStatusDisplay(c).cls}`} title={clientStatusDisplay(c).explanation}>
-                                  {clientStatusDisplay(c).label}
-                                </span>
-                              </div>
-                            )}
                           </>
                         ) : (
                           <>
                             <span className={`text-xs px-2 py-1 rounded ${clientStatusDisplay(c).cls}`}>
                               {clientStatusDisplay(c).label}
                             </span>
-                            {clientStatusDisplay(c).explanation && <div className="text-xs text-warning mt-1">Клиент не зафиксирован</div>}
+                            {clientStatusDisplay(c).explanation && <div className="text-xs text-warning mt-1">{clientStatusDisplay(c).explanation}</div>}
                             {(() => {
                               if (c.uniquenessStatus !== 'CONDITIONALLY_UNIQUE' || clientTransferUnconfirmed(c)) return null;
                               const d = daysUntilExpiry(c.uniquenessExpiresAt);
@@ -770,6 +760,7 @@ export default function ClientsPage() {
                             })()}
                           </>
                         )}
+                        <div className="mt-1"><ClientAmoTransferStatus client={c} /></div>
                       </td>
                       <td className="py-3 text-text-muted">
                         {/* КБ6: колонка «Уникален до» — дата окончания 30-дн уникальности.
@@ -779,7 +770,7 @@ export default function ClientsPage() {
                           ? '—'
                           : (c.uniquenessExpiresAt ? (() => {
                               const d = daysUntilExpiry(c.uniquenessExpiresAt);
-                              const dateStr = new Date(c.uniquenessExpiresAt).toLocaleDateString('ru-RU');
+                              const dateStr = new Date(c.uniquenessExpiresAt).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' });
                               const cls = d === null ? '' : d < 0 ? 'text-error' : d <= 1 ? 'text-error' : d <= 7 ? 'text-warning' : '';
                               return <span className={cls}>{dateStr}</span>;
                             })() : '—')}
