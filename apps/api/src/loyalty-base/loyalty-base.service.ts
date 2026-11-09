@@ -6351,7 +6351,6 @@ export class LoyaltyBaseService {
             filter.relationshipStages.length ? "relationshipStages" : undefined,
             filter.dataQuality.length ? "dataQuality" : undefined,
             filter.agencySizes.length ? "agencySizes" : undefined,
-            filter.websitePresent !== undefined ? "websitePresent" : undefined,
             filter.projectsOnSite.length ? "projectsOnSite" : undefined,
           ],
     );
@@ -9372,7 +9371,6 @@ export class LoyaltyBaseService {
     const pageSize = query.pageSize || 30;
     const unavailableFields = uniqueSorted([
       filter.agencySizes.length ? "agencySizes" : undefined,
-      filter.websitePresent !== undefined ? "websitePresent" : undefined,
       filter.projectsOnSite.length ? "projectsOnSite" : undefined,
       ["SITE_PLACED", "SITE_NOT_PLACED"].includes(filter.scenario || "")
         ? "scenario.sitePlacement"
@@ -9812,7 +9810,7 @@ export class LoyaltyBaseService {
             : null,
         unavailableFilters:
           entityType === "AGENCY"
-            ? ["agencySizes", "websitePresent", "projectsOnSite"]
+            ? ["agencySizes", "projectsOnSite"]
             : [],
       },
       ...(includeSelectionIds
@@ -11706,6 +11704,12 @@ export class LoyaltyBaseService {
     item: any,
     filter: CanonicalLoyaltyFilter,
   ): boolean {
+    if (filter.websitePresent !== undefined) {
+      const websiteState = item.fieldAvailability?.website?.status;
+      const knownWebsite = websiteState === "AVAILABLE" ? hasText(item.attributes?.website)
+        : websiteState === "EMPTY_IN_SOURCE" ? false : null;
+      if (knownWebsite === null || knownWebsite !== filter.websitePresent) return false;
+    }
     const relationMetrics = this.ourAgencyRelationMetrics(record);
     const fixations = finiteNumber(item.metrics?.fixations);
     const meetings = finiteNumber(item.metrics?.meetings);
@@ -12027,7 +12031,6 @@ export class LoyaltyBaseService {
       filter.relationshipStages.length ||
       filter.dataQuality.length ||
       filter.agencySizes.length ||
-      filter.websitePresent !== undefined ||
       filter.projectsOnSite.length;
     if (unsupported) return false;
     if (

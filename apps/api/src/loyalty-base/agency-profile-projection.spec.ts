@@ -46,6 +46,23 @@ describe("agency profile evidence projection", () => {
 });
 
 describe("agency active brokers in the agreed 90-day window", () => {
+  it("filters websites only when source evidence establishes presence or absence", () => {
+    const service = new LoyaltyBaseService({} as any) as any;
+    const record = { brokerAgencies: [], deals: [], __registryDeals: [], __workflowCalls: { effective: [] } };
+    for (const [status, website, expected] of [
+      ["AVAILABLE", "https://example.test", true],
+      ["EMPTY_IN_SOURCE", null, false],
+      ["NOT_SYNCED", null, null],
+      ["CONFLICT", null, null],
+    ]) {
+      for (const websitePresent of [true, false]) {
+        const filter = service.normalizeListFilter({}, { includeLowSignal: true, websitePresent });
+        const item = { attributes: { website }, metrics: { fixations: 0, meetings: 0, deals: 0 }, fieldAvailability: { website: { status } } };
+        expect(service.matchesOurAgency(record, item, filter)).toBe(expected !== null && expected === websitePresent);
+      }
+    }
+  });
+
   it("deduplicates brokers across fixations, client meetings and DDU sources", async () => {
     const db: any = {
       client: { groupBy: jest.fn().mockResolvedValue([{ brokerId: "a" }]) },

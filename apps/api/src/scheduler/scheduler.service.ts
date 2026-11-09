@@ -29,6 +29,7 @@ import {
 } from '../amocrm/broker-tour-sync';
 import { OpsAlertService } from '../ops-alert/ops-alert.service';
 import { AmoTouchSyncService } from '../amocrm/amo-touch-sync.service';
+import { AgencyCompanySyncService } from '../amocrm/agency-company-sync.service';
 import { ClientFixationService } from '../client-fixation/client-fixation.service';
 import {
   AMO_CREATE_IN_PROGRESS_MARKER,
@@ -85,6 +86,7 @@ export class SchedulerService {
     @Optional() private readonly sms?: SmsService,
     // 2026-09-28: ночной синк касаний amo → BrokerAmoContactSync.
     @Optional() private readonly amoTouchSync?: AmoTouchSyncService,
+    @Optional() private readonly agencyCompanySync?: AgencyCompanySyncService,
   ) {}
 
   // 2026-09-24: подтянуть статусы доставки недавних СМС (каждые 10 минут).
@@ -424,6 +426,19 @@ export class SchedulerService {
       );
     } catch (e: any) {
       this.logger.error(`[amo-touch-sync] FAILED: ${e?.message || e}`);
+    }
+  }
+
+  @Cron('0 1 * * *', { timeZone: 'Europe/Moscow' })
+  async handleAgencyCompanySync() {
+    if (/^(0|false|off)$/i.test(String(process.env.AMO_AGENCY_COMPANY_SYNC_ENABLED || '').trim())) return;
+    if (!this.agencyCompanySync) return;
+    try {
+      const result = await this.agencyCompanySync.run({ mode: 'apply' });
+      this.logger.log(`[agency-company-sync] ${result.status} code=${result.errorCode || 'NONE'}`);
+    } catch {
+      this.logger.error('[agency-company-sync] FAILED code=UNEXPECTED');
+      await this.sendOpsAlert('Не удалось завершить ночное обновление профилей агентств из amoCRM. Требуется проверка журнала синхронизации.', 'agency-company-sync-unexpected');
     }
   }
 

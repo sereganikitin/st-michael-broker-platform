@@ -6,13 +6,26 @@ import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '@st-michael/shared';
 import { CurrentUser, CurrentUserPayload } from '../auth/current-user.decorator';
 import { AmocrmService } from './amocrm.service';
+import { AgencyCompanySyncService } from './agency-company-sync.service';
+import { AgencyCompanySyncDto } from './agency-company-sync.dto';
 
 @ApiTags('amocrm')
 @Controller('amocrm')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class AmocrmController {
-  constructor(private readonly amocrmService: AmocrmService) {}
+  constructor(
+    private readonly amocrmService: AmocrmService,
+    private readonly agencyCompanySync: AgencyCompanySyncService,
+  ) {}
+
+  @Post('agency-profiles/sync')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin: refresh one existing agency profile from amoCRM' })
+  async syncAgencyProfile(@Body() body: AgencyCompanySyncDto) {
+    return this.agencyCompanySync.run({ mode: body.mode, agencyIds: [body.agencyId] });
+  }
 
   // Диагностический эндпоинт: возвращает raw lead JSON с custom_fields_values.
   // Только админ. Нужен для аудита полей amoCRM (sqm, цена и т.д.). Правка 2026-05-12.
