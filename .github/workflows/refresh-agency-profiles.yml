@@ -154,31 +154,32 @@ jobs:
           test "$(timeout 15 docker inspect --format '{{.State.Running}}' st-michael-api)" = true
           test "$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' st-michael-api)" = api
           test "$(timeout 15 docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$expected_sha"
-          verifier=$(cat <<'VERIFY_SOURCE'
-          "use strict";
-          const crypto = require("node:crypto");
-          let source = Buffer.alloc(0);
-          process.stdin.on("data", chunk => {
-            if (source.length + chunk.length > 1048576) process.exit(1);
-            source = Buffer.concat([source, chunk]);
-          });
-          process.stdin.on("end", () => {
-            const actualHash = crypto.createHash("sha256").update(source).digest("hex");
-            if (actualHash !== process.env.REFRESH_EXPECTED_SCRIPT_HASH) process.exit(1);
-            const Module = require("node:module");
-            const runner = new Module("/app/refresh-agency-profiles.cjs", module);
-            runner.filename = "/app/refresh-agency-profiles.cjs";
-            runner.paths = module.paths;
-            runner._compile(source.toString("utf8"), runner.filename);
-            runner.exports.run().catch(error => {
-              runner.exports.reportFailure(error);
-              process.exitCode = 1;
-            });
-          });
-          VERIFY_SOURCE
+          file_runner=$(cat <<'RUN_REVIEWED_FILE'
+          set -eu
+          for required_tool in mktemp sha256sum node head wc rm; do
+            command -v "$required_tool" >/dev/null || exit 1
+          done
+          umask 077
+          runner_file=$(mktemp /app/scripts/.agency-refresh.XXXXXX)
+          trap 'rm -f -- "$runner_file"' EXIT HUP INT TERM
+          case "$runner_file" in /app/scripts/.agency-refresh.*) ;; *) exit 1;; esac
+          test -f "$runner_file" -a ! -L "$runner_file"
+          head -c 1048577 > "$runner_file"
+          if [ "$(wc -c < "$runner_file")" -gt 1048576 ]; then
+            printf '%s\n' '{"agencyProfileRefresh":{"status":"FAILED","code":"SOURCE_SIZE_INVALID"}}' >&2
+            exit 1
+          fi
+          actual_hash=$(sha256sum "$runner_file")
+          actual_hash=${actual_hash%% *}
+          if [ "$actual_hash" != "$REFRESH_EXPECTED_SCRIPT_HASH" ]; then
+            printf '%s\n' '{"agencyProfileRefresh":{"status":"FAILED","code":"SOURCE_HASH_MISMATCH"}}' >&2
+            exit 1
+          fi
+          node "$runner_file"
+          RUN_REVIEWED_FILE
           )
           export REFRESH_EXPECTED_SCRIPT_HASH="$expected_script_hash"
-          timeout 31m docker exec -i -e EXPECTED_DEPLOYED_SHA="$expected_sha" -e MODE="$mode" -e CONFIRM_APPLY="$confirm_apply" -e REFRESH_SOURCE_SHA="$source_sha" -e REFRESH_EXPECTED_SCRIPT_HASH -e REFRESH_BACKUP_COMPLETED_AT="$backup_completed_at" -e REFRESH_BACKUP_DEPLOYED_SHA="$backup_deployed_sha" st-michael-api node -e "$verifier"
+          timeout 31m docker exec -i -e EXPECTED_DEPLOYED_SHA="$expected_sha" -e MODE="$mode" -e CONFIRM_APPLY="$confirm_apply" -e REFRESH_SOURCE_SHA="$source_sha" -e REFRESH_EXPECTED_SCRIPT_HASH -e REFRESH_BACKUP_COMPLETED_AT="$backup_completed_at" -e REFRESH_BACKUP_DEPLOYED_SHA="$backup_deployed_sha" st-michael-api sh -c "$file_runner"
           test "$(git rev-parse HEAD)" = "$expected_sha"
           test "$(stat -Lc '%d:%i' -- "$lock_path")" = "$lock_identity"
           test "$(timeout 15 docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$expected_sha"

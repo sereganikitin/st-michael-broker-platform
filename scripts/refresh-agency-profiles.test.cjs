@@ -299,8 +299,25 @@ test("safe failure handler excludes message stack and untrusted codes", () => {
     console.error = original;
   }
   assert.deepEqual(JSON.parse(output[0]), {
-    agencyProfileRefresh: { status: "FAILED", code: "UNEXPECTED" },
+    agencyProfileRefresh: { status: "FAILED", code: "UNEXPECTED", errorClass: "UNKNOWN", diagnosticCode: null },
   });
+});
+
+test("unexpected failures expose only allowlisted diagnostic classes and codes", () => {
+  const messages = [];
+  const previous = console.error;
+  console.error = value => messages.push(JSON.parse(value));
+  try {
+    reportFailure({ name: "PrismaClientInitializationError", errorCode: "P1001", message: "PRIVATE_DATABASE_URL", stack: "PRIVATE_STACK" });
+    reportFailure({ name: "PRIVATE_NAME", code: "PRIVATE_CODE", message: "PRIVATE_MESSAGE" });
+  } finally {
+    console.error = previous;
+  }
+  assert.equal(messages[0].agencyProfileRefresh.errorClass, "PrismaClientInitializationError");
+  assert.equal(messages[0].agencyProfileRefresh.diagnosticCode, "P1001");
+  assert.equal(messages[1].agencyProfileRefresh.errorClass, "UNKNOWN");
+  assert.equal(messages[1].agencyProfileRefresh.diagnosticCode, null);
+  assert.doesNotMatch(JSON.stringify(messages), /PRIVATE/);
 });
 test("workflow retains exact master, production concurrency, fingerprint and streamed entrypoint gates", () => {
   const workflow = fs.readFileSync(
@@ -324,8 +341,8 @@ test("workflow retains exact master, production concurrency, fingerprint and str
     "DEPLOY_HOST_FINGERPRINT",
     "flock -n 9",
     'EXPECTED_DEPLOYED_SHA="$expected_sha"',
-    "runner.exports.reportFailure(error);",
-    "process.env.REFRESH_EXPECTED_SCRIPT_HASH",
+    'st-michael-api sh -c "$file_runner"',
+    "$REFRESH_EXPECTED_SCRIPT_HASH",
   ])
     assert.ok(workflow.includes(gate), gate);
   assert.ok(
@@ -678,31 +695,131 @@ test("runner never falls back to unbounded text or prints private body fields", 
   assert.ok(code.includes("120000"));
 });
 
-test("container stdin verifier binds exact reviewed source bytes before invoking one entrypoint", () => {
+test("real node file entrypoint runs the dry refresh once with private mocked dependencies", () => {
   const cp = require("node:child_process"),
+    os = require("node:os");
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agency-refresh-file-"),
+  );
+  try {
+    const runner = path.join(directory, ".agency-refresh.fixture");
+    fs.copyFileSync(
+      path.join(__dirname, "refresh-agency-profiles.cjs"),
+      runner,
+    );
+    const database = path.join(directory, "node_modules/@st-michael/database");
+    fs.mkdirSync(database, { recursive: true });
+    fs.writeFileSync(
+      path.join(database, "index.js"),
+      'exports.PrismaClient=class {broker={findFirst:async()=>({id:"private-existing-admin",authVersion:2})}; async $disconnect(){}};',
+    );
+    const preload = path.join(directory, "fixture-preload.cjs");
+    fs.writeFileSync(
+      preload,
+      `
+      if (!process.argv[1]) throw Error("FILE_ENTRY_REQUIRED");
+      let posts = 0;
+      global.fetch = async (url, options) => {
+        let body;
+        if (url.endsWith("/health")) body = { deployedSha: ${JSON.stringify(sha)} };
+        else if (url.endsWith("/health/ready")) body = { status:"ok",checks:{postgresql:"ok",redis:"ok"} };
+        else if (url.endsWith("/sync")) { posts++;body=${JSON.stringify(result())}; }
+        else if (url.endsWith(${JSON.stringify(TARGET_AGENCY_ID)})) body = {item:{id:${JSON.stringify(TARGET_AGENCY_ID)},attributes:{brokerCount:368,activeBrokers:20,activeBrokerWindowDays:90},sourceFreshness:{status:"CURRENT"},phone:"PRIVATE_DO_NOT_PRINT",history:"x".repeat(16*1024*1024)}};
+        else throw Error("UNEXPECTED_LOCAL_ROUTE");
+        return new Response(JSON.stringify(body));
+      };
+      process.on("exit",()=>{if(posts!==1)process.exitCode=9;});
+    `,
+    );
+    const child = cp.spawnSync(
+      process.execPath,
+      ["--require", preload, runner],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ...env,
+          MODE: "dry-run",
+          NODE_PATH: path.join(directory, "node_modules"),
+        },
+      },
+    );
+    assert.equal(child.status, 0, child.stderr);
+    const lines = child.stdout.trim().split("\n");
+    assert.equal(lines.length, 1);
+    const receipt = JSON.parse(lines[0]).agencyProfileRefresh;
+    assert.equal(receipt.target.brokerCount, 368);
+    assert.equal(receipt.target.activeBrokers, 20);
+    assert.ok(!child.stdout.includes("PRIVATE_DO_NOT_PRINT"));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("container file runner verifies exact bytes, runs normal main once, and cleans only its temp file", () => {
+  const cp = require("node:child_process"),
+    os = require("node:os"),
     crypto = require("node:crypto");
   const workflow = fs.readFileSync(
     path.join(__dirname, "../.github/workflows/refresh-agency-profiles.yml"),
     "utf8",
   );
-  const verifier =
-    /verifier=\$\(cat <<'VERIFY_SOURCE'\r?\n([\s\S]*?)\r?\n\s*VERIFY_SOURCE/.exec(
+  const wrapper =
+    /file_runner=\$\(cat <<'RUN_REVIEWED_FILE'\r?\n([\s\S]*?)\r?\n\s*RUN_REVIEWED_FILE/.exec(
       workflow,
     )?.[1];
-  assert.ok(verifier);
+  assert.ok(wrapper);
+  assert.ok(!workflow.includes("Module._compile"));
+  assert.ok(!workflow.includes("runner._compile"));
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agency-refresh-owned-file-"),
+  );
+  const scriptsDirectory = path.join(directory, "scripts");
+  fs.mkdirSync(scriptsDirectory);
+  const unrelated = path.join(scriptsDirectory, "untouched.txt");
+  fs.writeFileSync(unrelated, "keep");
+  const shell =
+    process.platform === "win32"
+      ? "C:/Program Files/Git/bin/bash.exe"
+      : "/bin/sh";
+  const script = wrapper.replaceAll(
+    "/app/scripts/",
+    scriptsDirectory.replaceAll("\\", "/") + "/",
+  );
   const source =
-    'module.exports={run:async()=>console.log("SAFE_RECEIPT"),reportFailure:()=>{}};';
-  const expected = crypto.createHash("sha256").update(source).digest("hex");
-  const runVerifier = (digest) =>
-    cp.spawnSync(process.execPath, ["-e", verifier], {
-      input: source,
+    'if(require.main!==module)process.exit(17);console.log("SAFE_ONCE");';
+  const expectedHash = crypto.createHash("sha256").update(source).digest("hex");
+  const invoke = (digest, input = source) =>
+    cp.spawnSync(shell, ["-c", script], {
+      input,
       encoding: "utf8",
       env: { ...process.env, REFRESH_EXPECTED_SCRIPT_HASH: digest },
     });
-  const valid = runVerifier(expected);
-  assert.equal(valid.status, 0);
-  assert.equal(valid.stdout.trim(), "SAFE_RECEIPT");
-  const invalid = runVerifier("0".repeat(64));
-  assert.equal(invalid.status, 1);
-  assert.equal(invalid.stdout, "");
+  try {
+    const valid = invoke(expectedHash);
+    assert.equal(valid.status, 0, valid.stderr);
+    assert.equal(valid.stdout.trim(), "SAFE_ONCE");
+    const tampered = invoke(expectedHash, source + "// changed");
+    assert.equal(tampered.status, 1);
+    assert.equal(tampered.stdout, "");
+    assert.ok(tampered.stderr.includes("SOURCE_HASH_MISMATCH"));
+    const oversizedSource = " ".repeat(1048577);
+    const oversized = invoke(
+      crypto.createHash("sha256").update(oversizedSource).digest("hex"),
+      oversizedSource,
+    );
+    assert.equal(oversized.status, 1);
+    assert.equal(oversized.stdout, "");
+    assert.ok(oversized.stderr.includes("SOURCE_SIZE_INVALID"));
+    const failingSource = "process.exit(7);";
+    const failed = invoke(
+      crypto.createHash("sha256").update(failingSource).digest("hex"),
+      failingSource,
+    );
+    assert.equal(failed.status, 7);
+    assert.deepEqual(fs.readdirSync(scriptsDirectory), ["untouched.txt"]);
+    assert.equal(fs.readFileSync(unrelated, "utf8"), "keep");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
