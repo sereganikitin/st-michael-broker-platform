@@ -1,7 +1,12 @@
 name: Inspect broker funnel coverage (read-only)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      audit_type:
+        type: choice
+        default: funnel
+        options: [funnel, open_period]
 
 concurrency:
   group: inspect-broker-funnel-coverage
@@ -29,4 +34,9 @@ jobs:
             printf '%s' "$AUDIT_SHA" | grep -Eq '^[0-9a-f]{40}$'
             git fetch https://github.com/sereganikitin/st-michael-broker-platform.git audit/broker-tour-20261109
             test "$(git rev-parse FETCH_HEAD)" = "$AUDIT_SHA"
-            git show "$AUDIT_SHA:scripts/audit-broker-tour-current.cjs" | docker exec -i st-michael-api node
+            case '${{ inputs.audit_type }}' in
+              funnel) SCRIPT=scripts/audit-broker-tour-current.cjs ;;
+              open_period) SCRIPT=scripts/probe-loyalty-open-period.cjs ;;
+              *) exit 1 ;;
+            esac
+            git show "$AUDIT_SHA:$SCRIPT" | docker exec -i st-michael-api node
