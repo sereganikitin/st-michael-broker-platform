@@ -13,6 +13,7 @@ KKH3SJJJNtqB5QCgYFVhguL+OrAuf/NW3MIsQ8ETBt/fNegxgiKBF7JjgWq41bj8
 5a3CsSkqmIw5M4DghKJn4Rn5tDyE4J7Z2M/fnggq2Y2VAgMBAAE=
 -----END PUBLIC KEY-----`;
 async function main() {
+  console.log("AGENCY_AUDIT_STARTED");
   const prisma = new PrismaClient();
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -56,4 +57,5 @@ async function main() {
     }));
   } finally { await prisma.$disconnect(); }
 }
-main().catch((error) => { console.error("AGENCY_AUDIT_FAILED " + String(error?.code || error?.name || "unknown")); process.exitCode = 1; });
+const keepAlive = setInterval(() => {}, 1000);
+main().catch((error) => { console.error("AGENCY_AUDIT_FAILED " + String(error?.code || error?.name || "unknown")); process.exitCode = 1; }).finally(() => clearInterval(keepAlive));
