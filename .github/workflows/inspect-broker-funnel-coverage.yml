@@ -6,7 +6,7 @@ on:
       audit_type:
         type: choice
         default: funnel
-        options: [funnel, open_period, release_status]
+        options: [funnel, open_period, release_status, agency]
 
 concurrency:
   group: inspect-broker-funnel-coverage
@@ -35,5 +35,5 @@ jobs:
             git fetch https://github.com/sereganikitin/st-michael-broker-platform.git audit/broker-tour-20261109
             test "$(git rev-parse FETCH_HEAD)" = "$AUDIT_SHA"
             if [ '${{ inputs.audit_type }}' = release_status ]; then printf 'RELEASE_PHASE api_build_processes=%s web_build_processes=%s\n' "$(pgrep -fc '[d]ocker compose.*build api' || true)" "$(pgrep -fc '[d]ocker compose.*build web' || true)"; fi
-            case '${{ inputs.audit_type }}' in funnel) SCRIPT=scripts/audit-broker-tour-current.cjs ;; open_period) SCRIPT=scripts/probe-loyalty-open-period.cjs ;; release_status) SCRIPT=scripts/probe-release-phase.cjs ;; *) exit 1 ;; esac
+            case '${{ inputs.audit_type }}' in funnel) SCRIPT=scripts/audit-broker-tour-current.cjs ;; open_period) SCRIPT=scripts/probe-loyalty-open-period.cjs ;; release_status) SCRIPT=scripts/probe-release-phase.cjs ;; agency) SCRIPT=scripts/audit-agency-profile-current.cjs ;; *) exit 1 ;; esac
             git show "$AUDIT_SHA:$SCRIPT" | docker exec -i st-michael-api node
