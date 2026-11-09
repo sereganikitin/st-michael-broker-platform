@@ -54,7 +54,7 @@ jobs:
           compare_status=$(gh api "repos/sereganikitin/st-michael-broker-platform/compare/$EXPECTED_SHA...$SOURCE_SHA" --jq '.status')
           [[ "$compare_status" = ahead || "$compare_status" = identical ]]
           git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"
-          git diff --exit-code "$EXPECTED_SHA" "$SOURCE_SHA" -- apps/api packages/database packages/integrations packages/shared > /dev/null
+          git diff --exit-code "$EXPECTED_SHA" "$SOURCE_SHA" -- apps/api packages/database packages/integrations packages/shared package.json package-lock.json turbo.json > /dev/null
           ci_runs=$(gh api --method GET repos/sereganikitin/st-michael-broker-platform/actions/workflows/deploy.yml/runs -f head_sha="$SOURCE_SHA" -f status=completed -f per_page=100)
           ci_run=$(printf '%s' "$ci_runs" | jq -er --arg sha "$SOURCE_SHA" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "master" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == "sereganikitin/st-michael-broker-platform")] | sort_by(.id) | last.id | select(type == "number")')
           ci_jobs=$(gh api --paginate "repos/sereganikitin/st-michael-broker-platform/actions/runs/$ci_run/jobs?per_page=100")
@@ -93,7 +93,7 @@ jobs:
           test "$master_sha" = "$SOURCE_SHA"
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"
-          git diff --exit-code "$EXPECTED_SHA" "$SOURCE_SHA" -- apps/api packages/database packages/integrations packages/shared > /dev/null
+          git diff --exit-code "$EXPECTED_SHA" "$SOURCE_SHA" -- apps/api packages/database packages/integrations packages/shared package.json package-lock.json turbo.json > /dev/null
           backup_completed_at=none
           backup_deployed_sha=none
           if [ "$MODE" = apply ]; then
