@@ -32,6 +32,7 @@ import {
   LoyaltySearchDto,
 } from "./loyalty-base.dto";
 import { withLoyaltyFullScanSlot } from "./loyalty-full-scan-coordinator";
+import { applyAgencyCompanyProjection } from "./agency-profile-projection";
 import { buildPhoneSearchConditions } from "../admin/brokers-import.helper";
 import {
   amoCallStatusLabel,
@@ -9610,7 +9611,9 @@ export class LoyaltyBaseService {
       },
     };
     return {
+      amoCompanySync: true,
       brokerAgencies: {
+        where: { broker: { is: { role: "BROKER", mergedIntoId: null } } },
         include: {
           broker: {
             select: {
@@ -9672,7 +9675,7 @@ export class LoyaltyBaseService {
         where: confirmedDeals,
         select: dealSelect,
       },
-      _count: { select: { brokerAgencies: true } },
+      _count: { select: { brokerAgencies: { where: { broker: { is: { role: "BROKER", mergedIntoId: null } } } } } },
     };
   }
 
@@ -12428,6 +12431,12 @@ export class LoyaltyBaseService {
     const calls = relationMetrics.calls || this.ourCalls(item);
     const latest = this.applyCallSummary(result, "AGENCY", calls);
     this.applyEngagementSummary(result, item);
+    // Only direct agency calls establish a contact with the agency. Events of
+    // related brokers remain available separately as aggregate activity.
+    const directCall = this.lastCall(this.ourCalls(item));
+    result.lastContactAt = directCall ? this.isoDateTime(directCall.occurredAt || this.callSortKey(directCall)) : null;
+    result.lastContactKind = directCall ? "CALL_OUT" : null;
+    result.lastContactSource = directCall ? "cabinet" : null;
     const activityDates = [
       result.lastActivityAt,
       latest ? this.callSortKey(latest) : null,
@@ -12474,7 +12483,37 @@ export class LoyaltyBaseService {
       result.engagementEvents = engagementHistory;
       result.loyaltyHistory = engagementHistory;
     }
+    applyAgencyCompanyProjection(item, result);
     return result;
+  }
+
+  private async attachAgencyActiveBrokers(record: any, item: any) {
+    const from = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const to = new Date();
+    const ids: string[] = uniqueSorted((record.brokerAgencies || []).map((relation: any) => relation.broker?.id));
+    item.attributes.activeBrokerWindowDays = 90;
+    item.attributes.activeBrokerWindowFrom = from.toISOString();
+    item.attributes.activeBrokerWindowTo = to.toISOString();
+    if (!ids.length) {
+      item.attributes.activeBrokers = 0;
+    } else if (!this.prisma.client?.groupBy || !this.prisma.meeting?.groupBy || !this.prisma.deal?.groupBy || !this.registryDealModel?.groupBy) {
+      item.attributes.activeBrokers = null;
+    } else {
+      const active = new Set<string>();
+      for (let offset = 0; offset < ids.length; offset += CANDIDATE_QUERY_BATCH_SIZE) {
+        const batch = ids.slice(offset, offset + CANDIDATE_QUERY_BATCH_SIZE);
+        const rows = await Promise.all([
+          this.prisma.client.groupBy({ by: ["brokerId"], where: { brokerId: { in: batch }, ...fixationClientWhere(), createdAt: { gte: from, lte: to } } }),
+          this.prisma.meeting.groupBy({ by: ["brokerId"], where: { brokerId: { in: batch }, status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" }, date: { gte: from, lte: to } } }),
+          this.prisma.deal.groupBy({ by: ["brokerId"], where: { brokerId: { in: batch }, ...this.ourConfirmedDealWhere({ from, to }) } }),
+          this.registryDealModel.groupBy({ by: ["brokerId"], where: { brokerId: { in: batch }, paidAt: { gte: from, lte: to } } }),
+        ]);
+        for (const row of rows.flat()) if (row.brokerId) active.add(String(row.brokerId));
+      }
+      item.attributes.activeBrokers = active.size;
+    }
+    item.fieldAvailability.activeBrokers = { status: item.attributes.activeBrokers === null ? "NOT_SYNCED" : "AVAILABLE", source: "CABINET", checkedAt: to.toISOString() };
+    item.provenance.push({ field: "activeBrokers", source: "Кабинет · уникальные связанные брокеры с фиксацией, клиентской встречей или ДДУ за 90 дней", updatedAt: to.toISOString(), checkedAt: to.toISOString() });
   }
 
   async exportCsv(
@@ -13652,6 +13691,7 @@ export class LoyaltyBaseService {
       engagementEvents,
     );
     const agencyItem = this.mapOurAgency(agency, null, true);
+    await this.attachAgencyActiveBrokers(agency, agencyItem);
     // 2026-09-07: период применяется и к карточке агентства — те же строки
     // relation-графа, что и в списке (ourAgencyPeriodMetrics).
     if (activityPeriod) {
