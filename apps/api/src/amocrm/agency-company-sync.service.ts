@@ -46,6 +46,7 @@ export interface AgencyCompanySyncStats {
   notFound: number;
   invalidInn: number;
   cycleInvalidInn: number;
+  cycleEligibleRead: number;
   errors: number;
   lookups: number;
   deduplicatedLookups: number;
@@ -74,7 +75,9 @@ interface SyncState {
   cycleStartedAt: string | null;
   lastCompleteAt: string | null;
   lastErrorCode: string | null;
+  pendingSourceFailure: string | null;
   cycleInvalidInn: number;
+  cycleEligibleRead: number;
 }
 
 type Db = Prisma.TransactionClient;
@@ -135,7 +138,9 @@ const emptyState = (): SyncState => ({
   cycleStartedAt: null,
   lastCompleteAt: null,
   lastErrorCode: null,
+  pendingSourceFailure: null,
   cycleInvalidInn: 0,
+  cycleEligibleRead: 0,
 });
 const emptyStats = (): AgencyCompanySyncStats => ({
   total: 0,
@@ -147,6 +152,7 @@ const emptyStats = (): AgencyCompanySyncStats => ({
   notFound: 0,
   invalidInn: 0,
   cycleInvalidInn: 0,
+  cycleEligibleRead: 0,
   errors: 0,
   lookups: 0,
   deduplicatedLookups: 0,
@@ -266,15 +272,17 @@ export class AgencyCompanySyncService {
         throw error;
       }
       state = await this.readState();
-      previousFailure = state.lastErrorCode;
+      previousFailure = state.pendingSourceFailure || state.lastErrorCode;
       if (global && (!state.cursor || options.mode === "dry-run"))
         state = {
           ...state,
           cursor: null,
           cycleStartedAt: new Date(startedAt).toISOString(),
           cycleInvalidInn: 0,
+          cycleEligibleRead: 0,
         };
       stats.cycleInvalidInn = global ? state.cycleInvalidInn : 0;
+      stats.cycleEligibleRead = global ? state.cycleEligibleRead : 0;
       const scope: Prisma.AgencyWhereInput = ids ? { id: { in: ids } } : {};
       const remaining: Prisma.AgencyWhereInput =
         global && state.cursor
@@ -328,7 +336,7 @@ export class AgencyCompanySyncService {
           stats.cycleInvalidInn = global
             ? invalidState.cycleInvalidInn
             : stats.invalidInn;
-          stats.errors++;
+          if (!global) stats.errors++;
           stats.processed++;
           currentAgency = null;
           continue;
@@ -372,6 +380,9 @@ export class AgencyCompanySyncService {
           readByInn.set(inn, read);
         }
         const { resolution, readAt } = read;
+        const validState = global
+          ? { ...state, cycleEligibleRead: state.cycleEligibleRead + 1 }
+          : state;
         const failure =
           resolution.status === "NOT_FOUND" ? "COMPANY_NOT_FOUND" : null;
         await this.checkpoint(
@@ -382,13 +393,18 @@ export class AgencyCompanySyncService {
           failure,
           options.mode,
           global,
-          state,
+          validState,
           deadlineAt,
           stats,
           readAt,
         );
-        if (global && options.mode === "apply")
-          state = { ...state, cursor: agency.id };
+        if (global) {
+          state = {
+            ...validState,
+            ...(options.mode === "apply" ? { cursor: agency.id } : {}),
+          };
+          stats.cycleEligibleRead = state.cycleEligibleRead;
+        } else stats.cycleEligibleRead++;
         if (resolution.status === "NOT_FOUND") stats.notFound++;
         else if (resolution.status === "CONFLICT") stats.conflicts++;
         else stats.linked++;
@@ -398,8 +414,7 @@ export class AgencyCompanySyncService {
       this.assertDeadline(deadlineAt);
       if (rows.length > maxAgencies || stats.processed < stats.remainingAtStart)
         throw new SyncFailure("AGENCY_QUOTA_EXCEEDED");
-      if (stats.invalidInn || (global && state.cycleInvalidInn))
-        throw new SyncFailure("INVALID_INN");
+      if (!global && stats.invalidInn) throw new SyncFailure("INVALID_INN");
     } catch (error) {
       status = "FAILED";
       errorCode = agencyCompanySyncErrorCode(error);
@@ -425,7 +440,8 @@ export class AgencyCompanySyncService {
           errorCode = agencyCompanySyncErrorCode(writeError);
         }
       }
-      await this.failureAlert(errorCode, stats);
+      if (errorCode === "INVALID_INN") await this.invalidInnAlert(stats);
+      else await this.failureAlert(errorCode, stats);
     }
 
     stats.deferred = Math.max(0, stats.remainingAtStart - stats.processed);
@@ -439,10 +455,8 @@ export class AgencyCompanySyncService {
           if (
             options.mode === "apply" &&
             state &&
-            (global || status === "FAILED")
+            (global || (status === "FAILED" && errorCode !== "INVALID_INN"))
           ) {
-            const invalidCycleEnded =
-              global && errorCode === "INVALID_INN" && stats.deferred === 0;
             const next =
               status === "SUCCEEDED" && global
                 ? {
@@ -450,20 +464,25 @@ export class AgencyCompanySyncService {
                     cursor: null,
                     cycleStartedAt: null,
                     cycleInvalidInn: 0,
+                    cycleEligibleRead: 0,
                     lastCompleteAt: new Date().toISOString(),
-                    lastErrorCode: null,
+                    pendingSourceFailure:
+                      stats.cycleEligibleRead > 0
+                        ? null
+                        : state.pendingSourceFailure,
+                    lastErrorCode:
+                      stats.cycleEligibleRead > 0 ||
+                      previousFailure === "INVALID_INN"
+                        ? null
+                        : previousFailure,
                   }
                 : {
                     ...state,
-                    ...(invalidCycleEnded
-                      ? {
-                          cursor: null,
-                          cycleStartedAt: null,
-                          cycleInvalidInn: 0,
-                        }
-                      : {}),
                     lastErrorCode:
                       status === "FAILED" ? errorCode : state.lastErrorCode,
+                    pendingSourceFailure: errorCode?.startsWith("AMO_")
+                      ? errorCode
+                      : state.pendingSourceFailure,
                   };
             await this.saveState(db, next);
           }
@@ -501,14 +520,23 @@ export class AgencyCompanySyncService {
       status === "SUCCEEDED" &&
       options.mode === "apply" &&
       global &&
-      previousFailure
+      previousFailure &&
+      previousFailure.startsWith("AMO_") &&
+      stats.cycleEligibleRead > 0
     ) {
       await this.alert(
-        "Синхронизация данных компаний amoCRM восстановлена. Полный цикл чтения завершён.",
+        `Синхронизация данных компаний amoCRM восстановлена. Полный цикл завершён: источник проверен для ${stats.cycleEligibleRead} агентств с допустимым ИНН, пропущено без допустимого ИНН ${stats.cycleInvalidInn}.`,
         "amo-agency-company-sync:recovery",
         0,
       );
     }
+    if (
+      status === "SUCCEEDED" &&
+      options.mode === "apply" &&
+      global &&
+      stats.cycleInvalidInn > 0
+    )
+      await this.invalidInnAlert(stats);
     this.logger.log(
       `[agency-company-sync] ${status} code=${errorCode || "NONE"} processed=${stats.processed} deferred=${stats.deferred}`,
     );
@@ -672,6 +700,13 @@ export class AgencyCompanySyncService {
       (raw.lastErrorCode !== null &&
         (typeof raw.lastErrorCode !== "string" ||
           !/^[A-Z0-9_]{1,100}$/.test(raw.lastErrorCode))) ||
+      (raw.pendingSourceFailure !== undefined &&
+        raw.pendingSourceFailure !== null &&
+        (typeof raw.pendingSourceFailure !== "string" ||
+          !/^AMO_[A-Z0-9_]{1,96}$/.test(raw.pendingSourceFailure))) ||
+      (raw.cycleEligibleRead !== undefined &&
+        (!Number.isSafeInteger(raw.cycleEligibleRead) ||
+          raw.cycleEligibleRead < 0)) ||
       (raw.cycleInvalidInn !== undefined &&
         (!Number.isSafeInteger(raw.cycleInvalidInn) || raw.cycleInvalidInn < 0))
     )
@@ -682,7 +717,11 @@ export class AgencyCompanySyncService {
       cycleStartedAt: raw.cycleStartedAt,
       lastCompleteAt: raw.lastCompleteAt,
       lastErrorCode: raw.lastErrorCode,
+      pendingSourceFailure:
+        raw.pendingSourceFailure ??
+        (raw.lastErrorCode?.startsWith("AMO_") ? raw.lastErrorCode : null),
       cycleInvalidInn: raw.cycleInvalidInn || 0,
+      cycleEligibleRead: raw.cycleEligibleRead || 0,
     };
   }
 
@@ -696,6 +735,14 @@ export class AgencyCompanySyncService {
       create: { key: AMO_AGENCY_COMPANY_SYNC_STATE_KEY, ...data },
       update: data,
     });
+  }
+
+  private async invalidInnAlert(stats: AgencyCompanySyncStats): Promise<void> {
+    await this.alert(
+      `Данные агентств требуют проверки. ИНН отсутствует или имеет неверный формат у ${stats.cycleInvalidInn} агентств. Успешно прочитан источник для ${stats.cycleEligibleRead} агентств с допустимым ИНН. Поиск по названиям не выполнялся.`,
+      "amo-agency-company-sync:data-quality:invalid-inn",
+      24 * 60 * 60 * 1000,
+    );
   }
 
   private async failureAlert(

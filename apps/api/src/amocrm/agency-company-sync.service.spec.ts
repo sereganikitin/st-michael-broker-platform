@@ -576,7 +576,7 @@ describe("agency company snapshot sync", () => {
       fx.alerts.sendSafely.mock.calls.filter((call) =>
         call[1].dedupKey.endsWith(":recovery"),
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("leaves a failed current INN ahead of the next resume and stops after deadline", async () => {
@@ -748,7 +748,7 @@ describe("agency company snapshot sync", () => {
     });
   });
 
-  it("carries invalid-INN errors across bounded chunks and never announces false recovery", async () => {
+  it("carries invalid-INN data quality across bounded chunks and completes eligible source reads", async () => {
     const fx = fixture({
       agencies: [
         { id: "a", inn: "bad" },
@@ -766,13 +766,18 @@ describe("agency company snapshot sync", () => {
     expect(
       await fx.service.run({ mode: "apply", maxAgencies: 1 }),
     ).toMatchObject({
-      status: "FAILED",
-      errorCode: "INVALID_INN",
-      stats: { invalidInn: 0, cycleInvalidInn: 1 },
+      status: "SUCCEEDED",
+      errorCode: null,
+      stats: {
+        invalidInn: 0,
+        cycleInvalidInn: 1,
+        cycleEligibleRead: 1,
+        errors: 0,
+      },
     });
     expect(fx.state()).toMatchObject({
       cursor: null,
-      lastErrorCode: "INVALID_INN",
+      lastErrorCode: null,
     });
     expect(fx.reader.findCompaniesByInnStrict).toHaveBeenCalledTimes(1);
     expect(
@@ -780,6 +785,111 @@ describe("agency company snapshot sync", () => {
         call[1].dedupKey.endsWith(":recovery"),
       ),
     ).toBe(false);
+  });
+
+  it("classifies all 1379 agencies and reads only the 64 eligible INNs", async () => {
+    const agencies = Array.from({ length: 1379 }, (_, i) => ({
+      id: String(i).padStart(4, "0"),
+      inn: i < 64 ? String(7700000000 + i) : i % 2 ? "missing" : "",
+    }));
+    const fx = fixture({ agencies });
+    expect(await fx.service.run({ mode: "apply" })).toMatchObject({
+      status: "SUCCEEDED",
+      errorCode: null,
+      stats: {
+        processed: 1379,
+        invalidInn: 1315,
+        cycleInvalidInn: 1315,
+        cycleEligibleRead: 64,
+        linked: 64,
+        lookups: 64,
+        errors: 0,
+        cycleComplete: true,
+      },
+    });
+    expect(fx.reader.findCompaniesByInnStrict).toHaveBeenCalledTimes(64);
+    expect(fx.snapshots.get("1378")).toMatchObject({
+      errorCode: "INVALID_INN",
+      lastSuccessAt: null,
+    });
+    expect(fx.state()).toMatchObject({ cursor: null, lastErrorCode: null });
+    expect(fx.alerts.sendSafely.mock.calls.map((call) => call[1])).toEqual([
+      {
+        dedupKey: "amo-agency-company-sync:data-quality:invalid-inn",
+        cooldownMs: 86400000,
+      },
+    ]);
+  });
+
+  it("does not clear or announce auth recovery when a completed cycle has no eligible INN", async () => {
+    const fx = fixture({
+      agencies: [{ id: "a", inn: "" }],
+      state: cursorState(null, "AMO_AUTH_ERROR"),
+    });
+    expect(await fx.service.run({ mode: "apply" })).toMatchObject({
+      status: "SUCCEEDED",
+      stats: { processed: 1, invalidInn: 1, cycleEligibleRead: 0, errors: 0 },
+    });
+    expect(fx.state().lastErrorCode).toBe("AMO_AUTH_ERROR");
+    expect(
+      fx.alerts.sendSafely.mock.calls.some((call) =>
+        call[1].dedupKey.endsWith(":recovery"),
+      ),
+    ).toBe(false);
+    fx.agencies[0].inn = INN_A;
+    await fx.service.run({ mode: "apply" });
+    expect(fx.state().lastErrorCode).toBeNull();
+    expect(
+      fx.alerts.sendSafely.mock.calls.filter((call) =>
+        call[1].dedupKey.endsWith(":recovery"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("retains pending source recovery across quota chunks and an invalid-only final chunk", async () => {
+    const fx = fixture({
+      agencies: [
+        { id: "a", inn: INN_A },
+        { id: "b", inn: "bad" },
+      ],
+      state: cursorState(null, "AMO_AUTH_ERROR"),
+    });
+    expect(
+      await fx.service.run({ mode: "apply", maxAgencies: 1 }),
+    ).toMatchObject({
+      status: "FAILED",
+      errorCode: "AGENCY_QUOTA_EXCEEDED",
+    });
+    expect(fx.state()).toMatchObject({
+      cursor: "a",
+      pendingSourceFailure: "AMO_AUTH_ERROR",
+      cycleEligibleRead: 1,
+    });
+    expect(
+      await fx.service.run({ mode: "apply", maxAgencies: 1 }),
+    ).toMatchObject({
+      status: "SUCCEEDED",
+      stats: { cycleEligibleRead: 1, cycleInvalidInn: 1, errors: 0 },
+    });
+    expect(fx.state().pendingSourceFailure).toBeNull();
+    expect(
+      fx.alerts.sendSafely.mock.calls.filter((call) =>
+        call[1].dedupKey.endsWith(":recovery"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("targeted invalid INN fails with data quality alert without polluting the global integration state", async () => {
+    const state = cursorState("z", "AMO_AUTH_ERROR");
+    const fx = fixture({ agencies: [{ id: "a", inn: "bad" }], state });
+    expect(
+      await fx.service.run({ mode: "apply", agencyIds: ["a"] }),
+    ).toMatchObject({ status: "FAILED", errorCode: "INVALID_INN" });
+    expect(fx.state()).toEqual(state);
+    expect(fx.reader.findCompaniesByInnStrict).not.toHaveBeenCalled();
+    expect(fx.alerts.sendSafely.mock.calls[0][1].dedupKey).toBe(
+      "amo-agency-company-sync:data-quality:invalid-inn",
+    );
   });
 
   it("fails closed on malformed persisted cursor state", async () => {
