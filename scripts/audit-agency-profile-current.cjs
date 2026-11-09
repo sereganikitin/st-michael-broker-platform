@@ -49,20 +49,15 @@ async function main() {
       };
     })();
     console.log("AGENCY_AUDIT_QUERIES_COMPLETE");
-    const key = crypto.randomBytes(32), iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-    const text = JSON.stringify(result, (_key, value) => typeof value === "bigint" ? value.toString() : value);
-    const encrypted = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
-    console.log("AGENCY_AUDIT_PRIVATE " + JSON.stringify({ key: crypto.publicEncrypt({ key: publicKey, oaepHash: "sha256" }, key).toString("base64"), iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), data: encrypted.toString("base64") }));
     console.log("AGENCY_AUDIT_RESULT " + JSON.stringify({
       checkedAt: new Date().toISOString(), deployedSha: process.env.GIT_SHA,
-      matchingAgencies: result.agencies.length, localRelations: result.brokers.length, confirmedAnnaLinks: result.links.length, annaRecords: result.sourceRecords.length,
+      agencies: result.agencies.map(a => ({id:a.id,inn:a.inn,brokerRelations:a._count.brokerAgencies})), registry: result.registry, matchingAgencies: result.agencies.length, localRelations: result.brokers.length, confirmedAnnaLinks: result.links.length, annaRecords: result.sourceRecords.length,
       amoConfigured: Boolean(process.env.AMO_ACCESS_TOKEN), touchSyncEnabled: process.env.AMO_TOUCH_SYNC_ENABLED !== "false",
       opsTokenConfigured: Boolean(process.env.OPS_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN),
       opsRecipientsConfigured: Boolean(process.env.OPS_ALERT_CHAT_ID || process.env.OPS_ALERT_CHAT_IDS),
       timezone: process.env.TZ || "system-default", utcOffsetMinutes: new Date().getTimezoneOffset(),
       syncRuns: result.syncRuns.map(({ counts, ...run }) => run),
-    }));
+    }, (_key, value) => typeof value === "bigint" ? value.toString() : value));
   } catch(error) { console.error("AGENCY_AUDIT_QUERY_FAILED " + String(error?.code || error?.name || "unknown")); throw error; } finally { console.log("AGENCY_AUDIT_DISCONNECTING"); await prisma.$disconnect(); }
 }
 const keepAlive = setInterval(() => {}, 1000);
