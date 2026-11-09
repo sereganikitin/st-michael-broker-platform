@@ -20,18 +20,20 @@ async function main() {
     const data = `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: admin.id, phone: admin.phone, role: "ADMIN", type: "access", authVersion: admin.authVersion, iat: issued, exp: issued + 300 })}`;
     const token = `${data}.${crypto.createHmac("sha256", process.env.JWT_SECRET).update(data).digest("base64url")}`;
     const today = new Date(Date.now() + 10800000).toISOString().slice(0, 10);
-    const from = today.slice(0, 7) + "-01";
+    const from = today;
     const checks = [];
-    for (const route of ["ours/brokers", "ours/agencies", "anna/brokers", "anna/agencies"]) {
+    for (const route of ["anna/brokers", "anna/agencies", "ours/brokers", "ours/agencies"]) {
       const results = [];
       for (const callPeriod of [{ from }, { from, to: today }]) {
+        console.log("OPEN_PERIOD_REQUEST " + JSON.stringify({ route, from, explicitEnd: Boolean(callPeriod.to) }));
         const response = await fetch(`http://localhost:4000/api/loyalty-base/${route}/search`, {
           method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
           body: JSON.stringify({ page: 1, pageSize: 1, search: "", sortBy: "name", sortOrder: "asc", filter: { callPeriod } }),
-          signal: AbortSignal.timeout(45000),
+          signal: AbortSignal.timeout(120000),
         });
         const json = await response.json();
         if (!response.ok) throw new Error(`Search ${route} HTTP ${response.status}`);
+        console.log("OPEN_PERIOD_RESPONSE " + JSON.stringify({ route, status: response.status, total: json.total }));
         results.push({ status: response.status, total: json.total, filterHash: json.filterHash });
       }
       const [open, explicit] = results;
