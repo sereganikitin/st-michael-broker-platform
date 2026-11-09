@@ -45,8 +45,17 @@ describe('agency company sync entry points', () => {
   it('denies operators and brokers without changing their rights', async () => {
     for (role of ['CALL_CENTER', 'BROKER']) {
       await request(app.getHttpServer()).post('/amocrm/agency-profiles/sync').send({ mode: 'apply', agencyId }).expect(403);
+      await request(app.getHttpServer()).post('/amocrm/agency-profiles/sync-all').send({ mode: 'apply' }).expect(403);
     }
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('requires a separate explicit administrator request for a bounded full cycle', async () => {
+    await request(app.getHttpServer()).post('/amocrm/agency-profiles/sync-all').send({ mode: 'dry-run' }).expect(201);
+    expect(run).toHaveBeenCalledWith({ mode: 'dry-run' });
+    await request(app.getHttpServer()).post('/amocrm/agency-profiles/sync-all').send({}).expect(400);
+    await request(app.getHttpServer()).post('/amocrm/agency-profiles/sync-all').send({ mode: 'apply', deadlineMs: 9999999 }).expect(400);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it('runs the nightly service and respects its emergency switch', async () => {

@@ -7,7 +7,7 @@ import { UserRole } from '@st-michael/shared';
 import { CurrentUser, CurrentUserPayload } from '../auth/current-user.decorator';
 import { AmocrmService } from './amocrm.service';
 import { AgencyCompanySyncService } from './agency-company-sync.service';
-import { AgencyCompanySyncDto } from './agency-company-sync.dto';
+import { AgencyCompanySyncAllDto, AgencyCompanySyncDto } from './agency-company-sync.dto';
 
 @ApiTags('amocrm')
 @Controller('amocrm')
@@ -25,6 +25,14 @@ export class AmocrmController {
   @ApiOperation({ summary: 'Admin: refresh one existing agency profile from amoCRM' })
   async syncAgencyProfile(@Body() body: AgencyCompanySyncDto) {
     return this.agencyCompanySync.run({ mode: body.mode, agencyIds: [body.agencyId] });
+  }
+
+  @Post('agency-profiles/sync-all')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin: run the bounded nightly agency profile refresh now' })
+  async syncAllAgencyProfiles(@Body() body: AgencyCompanySyncAllDto) {
+    return this.agencyCompanySync.run({ mode: body.mode });
   }
 
   // Диагностический эндпоинт: возвращает raw lead JSON с custom_fields_values.
