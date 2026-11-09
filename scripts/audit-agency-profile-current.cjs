@@ -32,15 +32,19 @@ async function main() {
         agencyId: true, isPrimary: true, joinedAt: true,
         broker: { select: { id: true, role: true, status: true, mergedIntoId: true, amoContactId: true } },
       } });
+      console.log("AGENCY_AUDIT_BROKERS_READ");
       const links = await tx.loyaltyEntityLink.findMany({ where: { targetType: "AGENCY", targetId: { in: ids }, status: "CONFIRMED", revokedAt: null }, select: { organizationId: true, targetId: true, decidedAt: true } });
+      console.log("AGENCY_AUDIT_LINKS_READ");
       const dataset = await tx.loyaltyDataset.findUnique({ where: { code: "ANNA" }, select: { activeSnapshotId: true } });
       const fields = ["agencySize", "brokerCount", "activeBrokers", "website", "projectsOnSite", "sitePlacementRequirements", "lastAgencyMeetingDate", "agencyBtFormat", "agencyBtDate", "lastContractDate", "nextAgreement", "specialTerms", "specialTermsStatus", "specialTermsValidUntil", "partnershipStatus"];
       const sourceRecords = dataset?.activeSnapshotId ? await tx.loyaltySourceRecord.findMany({ where: {
         snapshotId: dataset.activeSnapshotId, entityType: "AGENCY", OR: [{ taxId: "9702028892" }, { organizationId: { in: links.map((l) => l.organizationId).filter(Boolean) } }],
       }, select: { id: true, organizationId: true, displayName: true, taxId: true, sourceKey: true, createdAt: true, attributes: true } }) : [];
+      console.log("AGENCY_AUDIT_SOURCE_READ");
+      const registry = await tx.registryDeal.findUnique({ where: { id: "f88e7073-ee5a-4be5-bae2-26d082a71c0b" }, select: { id:true, contractNumber:true, project:true, signedAt:true, paidAt:true, amount:true, sqm:true, floor:true, building:true, apartmentNumber:true, objectSource:true, amoLeadId:true, brokerId:true, brokerAmoContactId:true } });
       const syncRuns = await tx.loyaltySyncRun.findMany({ where: { source: "AMOCRM" }, orderBy: { startedAt: "desc" }, take: 5, select: { status: true, ruleVersion: true, startedAt: true, completedAt: true, errorCode: true, counts: true } });
       return {
-        agencies, brokers, links,
+        agencies, brokers, links, registry,
         sourceRecords: sourceRecords.map((r) => ({ ...r, attributes: Object.fromEntries(fields.map((key) => [key, r.attributes?.[key] ?? null])) })),
         syncRuns,
       };
@@ -59,7 +63,9 @@ async function main() {
       timezone: process.env.TZ || "system-default", utcOffsetMinutes: new Date().getTimezoneOffset(),
       syncRuns: result.syncRuns.map(({ counts, ...run }) => run),
     }));
-  } finally { await prisma.$disconnect(); }
+  } catch(error) { console.error("AGENCY_AUDIT_QUERY_FAILED " + String(error?.code || error?.name || "unknown")); throw error; } finally { console.log("AGENCY_AUDIT_DISCONNECTING"); await prisma.$disconnect(); }
 }
 const keepAlive = setInterval(() => {}, 1000);
 main().catch((error) => { console.error("AGENCY_AUDIT_FAILED " + String(error?.code || error?.name || "unknown")); process.exitCode = 1; }).finally(() => clearInterval(keepAlive));
+
+process.on("exit", code => console.log("AGENCY_AUDIT_NODE_EXIT " + code));
