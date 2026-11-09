@@ -25,6 +25,7 @@ import {
   loyaltyMetricSourceLabelRu,
   loyaltyMetricsForDisplay,
   loyaltyOverviewPath,
+  loyaltyFunnelDrillPath,
   normalizeActiveLinks,
   normalizeImportResult,
   normalizeLoyaltyDetail,
@@ -3241,4 +3242,22 @@ test("date-only agency source values do not acquire a fabricated Moscow time", (
   );
   assert.equal(formatLoyaltyDate("2026-02-30"), "2026-02-30");
   assert.equal(formatLoyaltyDate(""), "Нет данных");
+});
+
+
+test("funnel drill preserves the exact cohort, mode, source and page", () => {
+  const path = loyaltyFunnelDrillPath("ours", { step: "paidBooking", mode: "strict", from: "2026-09-30T21:00:00.000Z", to: "2026-11-09T20:59:59.999Z", cabinetSource: "new", page: 2, pageSize: 30 });
+  const url = new URL(path, "https://example.test");
+  assert.equal(url.pathname, "/loyalty-base/ours/funnel/drill");
+  for (const [key, value] of Object.entries({ step: "paidBooking", mode: "strict", from: "2026-09-30T21:00:00.000Z", to: "2026-11-09T20:59:59.999Z", cabinetSource: "new", page: "2", pageSize: "30" })) assert.equal(url.searchParams.get(key), value);
+  const workspace = readFileSync(new URL("../components/loyalty-base/LoyaltyBaseWorkspaceV2.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(workspace, /openFunnelDrill|брони отдельно не фильтруются/);
+  const drill = readFileSync(new URL("../components/loyalty-base/BrokerFunnelDrill.tsx", import.meta.url), "utf8");
+  assert.match(drill, /getLoyaltyFunnelDrill/);
+  assert.match(drill, /snapshot.period.from/);
+  assert.match(drill, /snapshot.period.to/);
+  assert.match(drill, /snapshot.cabinetSource/);
+  assert.match(drill, /item.eventAt/);
+  assert.match(drill, /item.eventId/);
+  assert.match(drill, /encodeURIComponent\(item.brokerId\)/);
 });

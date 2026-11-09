@@ -3312,6 +3312,44 @@ export interface LoyaltyFunnelResponse {
   methodology: Record<string, string>;
 }
 
+export interface LoyaltyFunnelDrillResponse {
+  step: LoyaltyFunnelStep["key"];
+  mode: "strict" | "all";
+  period: { from: string | null; to: string | null };
+  cabinetSource: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  cohort: number;
+  checkedAt: string;
+  items: Array<{
+    brokerId: string;
+    displayName: string;
+    tourAt: string | null;
+    eventAt: string | null;
+    eventId: string | null;
+    eventSource: string | null;
+  }>;
+}
+
+export interface LoyaltyFunnelDrillOptions {
+  step: LoyaltyFunnelStep["key"];
+  mode: "strict" | "all";
+  from?: string;
+  to?: string;
+  cabinetSource?: "old" | "new" | "all";
+  page?: number;
+  pageSize?: number;
+}
+
+export function loyaltyFunnelDrillPath(base: LoyaltyBaseKey, options: LoyaltyFunnelDrillOptions) {
+  return `/loyalty-base/${base}/funnel/drill${queryString({ ...options })}`;
+}
+
+export async function getLoyaltyFunnelDrill(base: LoyaltyBaseKey, options: LoyaltyFunnelDrillOptions): Promise<LoyaltyFunnelDrillResponse> {
+  return responseRoot(await apiGet<unknown>(loyaltyFunnelDrillPath(base, options))) as unknown as LoyaltyFunnelDrillResponse;
+}
+
 export async function getLoyaltyFunnel(
   base: LoyaltyBaseKey,
   options: {

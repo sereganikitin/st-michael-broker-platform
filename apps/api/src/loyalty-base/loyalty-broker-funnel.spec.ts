@@ -300,7 +300,7 @@ describe("broker funnel event windows", () => {
       for (const [query] of model.findMany.mock.calls) {
         expect(query.where.brokerId.in.length).toBeLessThanOrEqual(500);
         expect(query.take).toBeUndefined();
-        expect(Object.keys(query.select).length).toBeLessThanOrEqual(3);
+        expect(Object.keys(query.select).length).toBeLessThanOrEqual(4);
       }
     }
   });
@@ -326,5 +326,149 @@ describe("broker funnel event windows", () => {
       true,
     );
     expect(empty.byMonth).toEqual([]);
+  });
+
+  it("drills into the exact post-tour cohort and the selected fixation source", async () => {
+    const { service, prisma } = harness({
+      brokers: [
+        broker("a"),
+        broker("before-only"),
+        broker("outside", true, date("2026-03-01")),
+      ],
+      fixations: [
+        { id: "before", brokerId: "a", createdAt: date("2026-03-01") },
+        { id: "later", brokerId: "a", createdAt: date("2026-04-10") },
+        { id: "first-after", brokerId: "a", createdAt: date("2026-04-03") },
+        {
+          id: "before-only",
+          brokerId: "before-only",
+          createdAt: date("2026-03-01"),
+        },
+        { id: "outside", brokerId: "outside", createdAt: date("2026-04-03") },
+      ],
+    });
+    const query = {
+      mode: "strict" as const,
+      cabinetSource: "new" as const,
+      from: "2026-04-01",
+      to: "2026-04-30",
+    };
+    const result = await service.brokerFunnel("ours", query, {
+      ...query,
+      step: "fixation",
+    });
+    expect(result.drill).toMatchObject({
+      total: 1,
+      cohort: 2,
+      mode: "strict",
+      cabinetSource: "new",
+      page: 1,
+    });
+    expect(result.drill?.items).toEqual([
+      {
+        brokerId: "a",
+        displayName: "a",
+        tourAt: tour.toISOString(),
+        eventAt: date("2026-04-03").toISOString(),
+        eventId: "first-after",
+        eventSource: "CLIENT",
+      },
+    ]);
+    expect(result.drill?.total).toBe(
+      result.funnel.steps.find((step) => step.key === "fixation")?.count,
+    );
+    expect(prisma.client.findMany.mock.calls[0][0].where).toEqual({
+      brokerId: { in: ["a", "before-only", "outside"] },
+      ...fixationClientWhere("new"),
+    });
+    const all = await service.brokerFunnel(
+      "ours",
+      { ...query, mode: "all" },
+      { ...query, mode: "all", step: "fixation" },
+    );
+    expect(all.drill?.total).toBe(2);
+    expect(all.drill?.items[0].eventId).toBe("before");
+  });
+
+  it("keeps booking evidence separate from a paid DDU and pages brokers deterministically", async () => {
+    const { service } = harness({
+      brokers: [
+        { ...broker("ddu"), fullName: "А" },
+        { ...broker("dvou"), fullName: "Б" },
+      ],
+      registry: [
+        {
+          id: "r-ddu",
+          brokerId: "ddu",
+          paidAt: date("2026-04-03"),
+          dvouPaidAt: null,
+        },
+        {
+          id: "r-dvou",
+          brokerId: "dvou",
+          paidAt: null,
+          dvouPaidAt: date("2026-04-04"),
+        },
+      ],
+    });
+    const booking = await service.brokerFunnel(
+      "ours",
+      { mode: "strict" },
+      { step: "paidBooking", mode: "strict" },
+    );
+    expect(booking.drill?.items).toEqual([
+      expect.objectContaining({
+        brokerId: "dvou",
+        eventId: "r-dvou",
+        eventSource: "REGISTRY_DVOU",
+        eventAt: date("2026-04-04").toISOString(),
+      }),
+    ]);
+    const deal = await service.brokerFunnel(
+      "ours",
+      { mode: "strict" },
+      { step: "deal", mode: "strict" },
+    );
+    expect(deal.drill?.items[0]).toMatchObject({
+      brokerId: "ddu",
+      eventId: "r-ddu",
+      eventSource: "REGISTRY_DDU",
+    });
+    const second = await service.brokerFunnel(
+      "ours",
+      { mode: "strict" },
+      { step: "brokerTour", mode: "strict", page: 2, pageSize: 1 },
+    );
+    expect(second.drill).toMatchObject({ total: 2, page: 2, pageSize: 1 });
+    expect(second.drill?.items).toEqual([
+      expect.objectContaining({
+        brokerId: "dvou",
+        eventSource: "AMO_BROKER_TOUR",
+      }),
+    ]);
+  });
+
+  it("shows undated tours only in all-time drill and returns an empty page for an empty step", async () => {
+    const { service } = harness({
+      brokers: [broker("undated", true, null), broker("no-tour", false, null)],
+    });
+    const all = await service.brokerFunnel(
+      "ours",
+      { mode: "all" },
+      { mode: "all", step: "brokerTour" },
+    );
+    expect(all.drill?.items).toEqual([
+      expect.objectContaining({
+        brokerId: "undated",
+        tourAt: null,
+        eventAt: null,
+      }),
+    ]);
+    const strict = await service.brokerFunnel(
+      "ours",
+      { mode: "strict" },
+      { mode: "strict", step: "brokerTour" },
+    );
+    expect(strict.drill).toMatchObject({ total: 0, items: [] });
   });
 });

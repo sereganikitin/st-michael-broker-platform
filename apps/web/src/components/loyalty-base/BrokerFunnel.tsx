@@ -6,7 +6,7 @@
 // фиксаций, когортами по месяцам, разрезом по агентствам и обратной воронкой.
 // Графики — чистый CSS/SVG, без библиотек. Данные — GET /loyalty-base/ours/funnel.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Download, Loader2, RefreshCcw, X } from "lucide-react";
 import {
   type LoyaltyBaseKey,
@@ -14,6 +14,8 @@ import {
   type LoyaltyFunnelResponse,
   type LoyaltyFunnelStep,
 } from "@/lib/loyalty-base-api";
+
+import { FunnelDrill } from "./BrokerFunnelDrill";
 
 type Mode = "strict" | "all";
 type CabinetSource = "" | "old" | "new";
@@ -242,12 +244,10 @@ export function BrokerFunnelModal({
   base = "ours",
   initialCabinetSource,
   onClose,
-  onDrill,
 }: {
   base?: LoyaltyBaseKey;
   initialCabinetSource: "" | "old" | "new";
   onClose: () => void;
-  onDrill?: (step: FunnelDrillStep, mode: Mode) => void;
 }) {
   const [mode, setMode] = useState<Mode>("strict");
   const [preset, setPreset] = useState<PeriodPreset>("all");
@@ -258,29 +258,34 @@ export function BrokerFunnelModal({
   const [data, setData] = useState<LoyaltyFunnelResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [drill, setDrill] = useState<{ step: FunnelDrillStep; snapshot: LoyaltyFunnelResponse } | null>(null);
+  const requestId = useRef(0);
   const range = useMemo(() => {
     if (preset === "custom") return from && to ? { from, to } : null;
     return presetRange(preset);
   }, [preset, from, to]);
   const load = useCallback(async () => {
+    const currentRequest = ++requestId.current;
+    setDrill(null);
+    setData(null);
     setLoading(true);
     setError("");
     try {
-      setData(
-        await getLoyaltyFunnel(base, {
+      const result = await getLoyaltyFunnel(base, {
           mode,
           from: range ? dayStartIso(range.from) : undefined,
           to: range ? dayEndIso(range.to) : undefined,
           cabinetSource: cabinetSource || undefined,
-        }),
-      );
+        });
+      if (currentRequest === requestId.current) setData(result);
     } catch (reason) {
-      setData(null);
-      setError(reason instanceof Error ? reason.message : "Не удалось загрузить воронку");
+      if (currentRequest === requestId.current) {
+        setError(reason instanceof Error ? reason.message : "Не удалось загрузить воронку");
+      }
     } finally {
-      setLoading(false);
+      if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [mode, range, cabinetSource]);
+  }, [base, mode, range, cabinetSource]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -381,7 +386,7 @@ export function BrokerFunnelModal({
                 </span>
               </div>
               <div className="mt-3">
-                <FunnelBars steps={data.funnel.steps} onDrill={onDrill ? (step) => onDrill(step, data.mode) : undefined} />
+                <FunnelBars steps={data.funnel.steps} onDrill={(step) => setDrill({ step, snapshot: data })} />
               </div>
               <dl className="mt-3 grid gap-2 sm:grid-cols-3">
                 <div className="rounded-lg bg-surface-secondary p-2 text-sm">
@@ -401,6 +406,8 @@ export function BrokerFunnelModal({
                 {data.mode === "strict" ? data.methodology.strict : data.methodology.all} {data.methodology.cohort}
               </p>
             </section>
+
+            {drill && <FunnelDrill key={drill.step} base={base} step={drill.step} snapshot={drill.snapshot} onClose={() => setDrill(null)} />}
 
             <section className="rounded-xl border border-border p-3">
               <h3 className="font-semibold">Когорты по месяцу тура</h3>

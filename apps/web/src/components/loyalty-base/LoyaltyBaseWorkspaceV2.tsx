@@ -104,7 +104,6 @@ import { LoyaltySavedViews } from "./LoyaltySavedViews";
 import { LoyaltyStatusLegend } from "./LoyaltyStatusLegend";
 import {
   BrokerFunnelModal,
-  type FunnelDrillStep,
 } from "./BrokerFunnel";
 import { LoyaltyStatusBadges } from "./LoyaltyStatusBadges";
 import { LoyaltySyncPanel } from "./LoyaltySyncPanel";
@@ -1365,33 +1364,6 @@ export function LoyaltyBaseWorkspaceV2() {
     patch: Partial<LoyaltyFilterFormState>,
     nextSegment: LoyaltySegment | "" = "",
   ) => applyEntityPatch("brokers", patch, nextSegment);
-  // 2026-09-08: клик по ступени воронки → список брокеров «был на туре» с
-  // соответствующим фильтром активности (за всё время; строгий порядок
-  // «после тура» списком не выражается — об этом сказано в баннере).
-  const openFunnelDrill = (step: FunnelDrillStep, mode: "strict" | "all") => {
-    const nextKey = contextKey(base, "brokers");
-    const next = { ...emptyLoyaltyFilters(), bt: "true" as const };
-    const nextColumns: LoyaltyColumnFilters =
-      step === "fixation"
-        ? { activity: "HAS_FIXATIONS" }
-        : step === "meeting"
-          ? { activity: "HAS_MEETINGS" }
-          : step === "deal" || step === "paidBooking"
-            ? { deals: "HAS_DEALS" }
-            : {};
-    setDrafts((current) => ({ ...current, [nextKey]: next }));
-    setApplied((current) => ({ ...current, [nextKey]: next }));
-    setSegmentState((current) => ({ ...current, [nextKey]: "" }));
-    setColumnDrafts((current) => ({ ...current, [nextKey]: nextColumns }));
-    setColumnApplied((current) => ({ ...current, [nextKey]: nextColumns }));
-    setListBanner(
-      `Воронка: брокеры с туром${step === "fixation" ? " и фиксациями" : step === "meeting" ? " и встречами" : step === "deal" ? " и сделками" : step === "paidBooking" ? " и сделками (брони отдельно не фильтруются)" : ""} — за всё время${mode === "strict" ? "; в воронке считались только события после даты тура" : ""}`,
-    );
-    setEntityType("brokers");
-    setFunnelOpen(false);
-    setPage(1);
-    scrollToList();
-  };
   const applyEntityPatch = (
     nextEntity: LoyaltyEntityType,
     patch: Partial<LoyaltyFilterFormState>,
@@ -2414,7 +2386,6 @@ export function LoyaltyBaseWorkspaceV2() {
               base={base}
               initialCabinetSource={filters.cabinetSource}
               onClose={() => setFunnelOpen(false)}
-              onDrill={base === "ours" ? openFunnelDrill : undefined}
             />
           )}
           <section className="card scroll-mt-4" id="loyalty-list">

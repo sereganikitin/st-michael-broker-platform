@@ -20,6 +20,7 @@ import {
   LoyaltyEntityUpdateDto,
   LoyaltyExportDto,
   LoyaltyFunnelQueryDto,
+  LoyaltyFunnelDrillQueryDto,
   LoyaltyActivitySummaryDto,
   LoyaltyImportDto,
   LoyaltyImportRecordDto,
@@ -5812,7 +5813,11 @@ export class LoyaltyBaseService {
    * (брокеры без даты тура выносятся отдельно), all — за всё время.
    * Период — по дате тура (когорта). Отметка и дата тура берутся из amo.
    */
-  async brokerFunnel(baseInput: string, query: LoyaltyFunnelQueryDto) {
+  async brokerFunnel(
+    baseInput: string,
+    query: LoyaltyFunnelQueryDto,
+    drillQuery?: LoyaltyFunnelDrillQueryDto,
+  ) {
     const base = this.parseBase(baseInput);
     if (base !== "ours" && base !== "anna") {
       throw new BadRequestException(
@@ -5862,6 +5867,7 @@ export class LoyaltyBaseService {
           },
           select: {
             id: true,
+            ...(drillQuery ? { fullName: true, displayName: true } : {}),
             brokerTourVisited: true,
             brokerTourDate: true,
             brokerAgencies: {
@@ -5891,6 +5897,8 @@ export class LoyaltyBaseService {
     const firstDeal = selected.deal;
     const firstMeetingAfterFix = new Map<string, Date>();
     const firstDealAfterFix = new Map<string, Date>();
+    type EventEvidence = { id: string; source: string; at: string };
+    const evidenceByStep = new Map<string, Map<string, EventEvidence>>();
     const tourDates = new Map<string, Date>();
     for (const broker of brokers) {
       if (!broker.brokerTourVisited || !broker.brokerTourDate) continue;
@@ -5907,6 +5915,7 @@ export class LoyaltyBaseService {
       id: string,
       value: unknown,
       followingFixation?: Map<string, Date>,
+      evidence?: { step: string; id: string; source: string },
     ) => {
       if (!id || !value) return;
       const date = new Date(value as any);
@@ -5918,29 +5927,39 @@ export class LoyaltyBaseService {
       if (followingFixation && fixation && date >= fixation) {
         keepMin(followingFixation, id, date);
       }
+      if (drillQuery && evidence && (mode === "strict" ? after : all).get(id)?.getTime() === date.getTime()) {
+        const map = evidenceByStep.get(evidence.step) || new Map<string, EventEvidence>();
+        const current = map.get(id);
+        const at = date.toISOString();
+        if (!current || at < current.at ||
+          (at === current.at && `${evidence.source}:${evidence.id}` < `${current.source}:${current.id}`)) {
+          map.set(id, { id: evidence.id, source: evidence.source, at });
+        }
+        evidenceByStep.set(evidence.step, map);
+      }
     };
     for (let offset = 0; offset < ids.length; offset += CANDIDATE_QUERY_BATCH_SIZE) {
       const batch = ids.slice(offset, offset + CANDIDATE_QUERY_BATCH_SIZE);
       const [fixations, meetings, deals, registry] = await Promise.all([
         this.prisma.client.findMany({
           where: { brokerId: { in: batch }, ...fixationClientWhere(cabinetSource) },
-          select: { brokerId: true, createdAt: true },
+          select: { id: true, brokerId: true, createdAt: true },
         }),
         this.prisma.meeting.findMany({
           where: {
             brokerId: { in: batch },
             status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" },
           },
-          select: { brokerId: true, date: true },
+          select: { id: true, brokerId: true, date: true },
         }),
         this.prisma.deal.findMany({
           where: { brokerId: { in: batch }, ...this.ourConfirmedDealWhere() },
-          select: { brokerId: true, signedAt: true },
+          select: { id: true, brokerId: true, signedAt: true },
         }),
         this.registryDealModel
           ? this.registryDealModel.findMany({
               where: { brokerId: { in: batch }, OR: [{ paidAt: { not: null } }, { dvouPaidAt: { not: null } }] },
-              select: { brokerId: true, paidAt: true, dvouPaidAt: true },
+              select: { id: true, brokerId: true, paidAt: true, dvouPaidAt: true },
             })
           : Promise.resolve([]),
       ]);
@@ -5948,12 +5967,23 @@ export class LoyaltyBaseService {
       // tour must survive even when this broker already worked with us before.
       // Process all fixation dates in the batch first so transition medians
       // can find the first meeting/deal following the selected fixation.
-      for (const row of fixations) recordEvent(lifetime.fixation, afterTour.fixation, row.brokerId, row.createdAt);
-      for (const row of meetings) recordEvent(lifetime.meeting, afterTour.meeting, row.brokerId, row.date, firstMeetingAfterFix);
-      for (const row of deals) recordEvent(lifetime.deal, afterTour.deal, row.brokerId, row.signedAt, firstDealAfterFix);
+      for (const row of fixations) {
+        recordEvent(lifetime.fixation, afterTour.fixation, row.brokerId, row.createdAt,
+          undefined, { step: "fixation", id: row.id, source: "CLIENT" });
+      }
+      for (const row of meetings) {
+        recordEvent(lifetime.meeting, afterTour.meeting, row.brokerId, row.date,
+          firstMeetingAfterFix, { step: "meeting", id: row.id, source: "MEETING" });
+      }
+      for (const row of deals) {
+        recordEvent(lifetime.deal, afterTour.deal, row.brokerId, row.signedAt,
+          firstDealAfterFix, { step: "deal", id: row.id, source: "DEAL" });
+      }
       for (const r of (Array.isArray(registry) ? registry : []) as any[]) {
-        recordEvent(lifetime.deal, afterTour.deal, r.brokerId, r.paidAt, firstDealAfterFix);
-        recordEvent(lifetime.booking, afterTour.booking, r.brokerId, r.dvouPaidAt);
+        recordEvent(lifetime.deal, afterTour.deal, r.brokerId, r.paidAt,
+          firstDealAfterFix, { step: "deal", id: r.id, source: "REGISTRY_DDU" });
+        recordEvent(lifetime.booking, afterTour.booking, r.brokerId, r.dvouPaidAt,
+          undefined, { step: "paidBooking", id: r.id, source: "REGISTRY_DVOU" });
       }
     }
     const inPeriod = (date: Date | null) =>
@@ -6021,6 +6051,40 @@ export class LoyaltyBaseService {
       };
     };
     const main = buildFunnel(cohort);
+    const drillPage = drillQuery?.page || 1;
+    const drillPageSize = drillQuery?.pageSize || 30;
+    const stepDates = {
+      brokerTour: tourDates, fixation: firstFix, meeting: firstMeet,
+      paidBooking: firstBooking, deal: firstDeal,
+    };
+    const drillBrokers = drillQuery ? cohort
+      .filter((broker) => drillQuery.step === "brokerTour" || reached(stepDates[drillQuery.step], broker))
+      .sort((left, right) => String(left.displayName || left.fullName || left.id).localeCompare(
+        String(right.displayName || right.fullName || right.id), "ru",
+      ) || left.id.localeCompare(right.id)) : [];
+    const drill = drillQuery ? {
+      step: drillQuery.step,
+      mode,
+      period: { from: from?.toISOString() || null, to: to?.toISOString() || null },
+      cabinetSource: cabinetSource || "all",
+      page: drillPage,
+      pageSize: drillPageSize,
+      total: drillBrokers.length,
+      cohort: cohort.length,
+      checkedAt: new Date().toISOString(),
+      items: drillBrokers.slice((drillPage - 1) * drillPageSize, drillPage * drillPageSize).map((broker) => {
+        const evidence = evidenceByStep.get(drillQuery.step)?.get(broker.id);
+        const tourAt = tourDates.get(broker.id)?.toISOString() || null;
+        return {
+          brokerId: broker.id,
+          displayName: broker.displayName || broker.fullName || broker.id,
+          tourAt,
+          eventAt: drillQuery.step === "brokerTour" ? tourAt : evidence?.at || null,
+          eventId: drillQuery.step === "brokerTour" ? null : evidence?.id || null,
+          eventSource: drillQuery.step === "brokerTour" ? "AMO_BROKER_TOUR" : evidence?.source || null,
+        };
+      }),
+    } : undefined;
     // Когорты по месяцу тура (только с датой): доля с фиксацией за 30/90 дней и со сделкой.
     const byMonthMap = new Map<string, any[]>();
     for (const b of cohort) {
@@ -6117,6 +6181,7 @@ export class LoyaltyBaseService {
         annaTourUnconfirmed,
       },
       funnel: main,
+      drill,
       byMonth,
       byAgency,
       noTourFunnel,
