@@ -27,6 +27,7 @@ async function main() {
   const month = Number(today.slice(5, 7));
   const quarterStart = `${year}-${String(Math.floor((month - 1) / 3) * 3 + 1).padStart(2, "0")}-01`;
   let sourceIds = [];
+  let sourceTours = [];
   let privateEvidence;
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -72,10 +73,11 @@ async function main() {
       const evidenceIds = new Set(evidenceBrokers.map((b) => b.id));
       privateEvidence = {
         checkedAt: now.toISOString(), year, displayedBrokerIds: displayedDealBrokers.map((b) => b.id),
-        brokers: evidenceBrokers, registryDeals: registry.filter((r) => evidenceIds.has(r.brokerId)),
+        brokers: evidenceBrokers, quarterBrokers: quarter, registryDeals: registry.filter((r) => evidenceIds.has(r.brokerId)),
         cabinetDeals: deals.filter((r) => evidenceIds.has(r.brokerId)),
       };
       sourceIds = [...new Set([...sourceIds, ...evidenceBrokers.map((b) => b.amoContactId).filter(Boolean)])];
+      sourceTours = marked.filter((b) => sourceIds.some((id) => String(id) === String(b.amoContactId)));
       const fixes = await tx.client.findMany({ where: { brokerId: { in: ids }, ...fixationClientWhere("new") }, select: { brokerId: true, createdAt: true } });
       const meetings = await tx.meeting.findMany({ where: { brokerId: { in: ids }, status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" } }, select: { brokerId: true, date: true } });
       const fixRows = fixes.map((r) => ({ brokerId: r.brokerId, at: r.createdAt }));
@@ -125,6 +127,9 @@ async function main() {
         source.found = contacts.length;
         source.visited = contacts.filter((c) => c.custom_fields_values?.find((f) => f.field_id === 842303)?.values?.[0]?.value === true).length;
         source.dateYears = {};
+        source.sameMoscowDay = 0;
+        source.differentMoscowDay = 0;
+        source.latestTourMoscowDay = null;
         for (const c of contacts) {
           const raw = c.custom_fields_values?.find((f) => f.field_id === 842305)?.values?.[0]?.value;
           if (!raw) continue;
@@ -132,6 +137,10 @@ async function main() {
           if (!Number.isFinite(date.getTime())) continue;
           const key = moscowDay(date).slice(0, 4);
           source.dateYears[key] = (source.dateYears[key] || 0) + 1;
+          const expected = sourceTours.find((b) => String(b.amoContactId) === String(c.id));
+          if (expected?.brokerTourDate && moscowDay(expected.brokerTourDate) === moscowDay(date)) source.sameMoscowDay++;
+          else source.differentMoscowDay++;
+          if (date <= now && (!source.latestTourMoscowDay || moscowDay(date) > source.latestTourMoscowDay)) source.latestTourMoscowDay = moscowDay(date);
         }
       }
       result.amoSource = source;
