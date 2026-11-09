@@ -579,11 +579,13 @@ export class LoyaltyListQueryDto extends LoyaltyListFiltersDto {
 export class LoyaltyNestedListFiltersDto extends LoyaltyListFiltersDto {}
 
 export class LoyaltyFilterPeriodDto {
+  @IsOptional()
   @IsISO8601({ strict: true })
-  from!: string;
+  from?: string;
 
+  @IsOptional()
   @IsISO8601({ strict: true })
-  to!: string;
+  to?: string;
 }
 
 export class LoyaltyFilterRangeDto {

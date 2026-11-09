@@ -12,11 +12,17 @@ describe("периоды в фильтрах «Нашей базы»", () => {
     (service as any).normalizeListFilter(query, canonical);
 
   describe("одна граница вместо двух", () => {
+    afterEach(() => jest.restoreAllMocks());
+
     it("указана только дата «с» — период до сегодняшнего дня", () => {
+      // В UTC ещё предыдущий день, в Москве уже наступило 9 ноября.
+      jest.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-08T21:30:00Z"));
       const f = normalize({}, { callPeriod: { from: "2026-09-01" } });
       expect(f.callPeriod).toBeDefined();
       expect(f.callPeriod.fromIso).toBe("2026-09-01");
-      expect(f.callPeriod.toIso).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(f.callPeriod.toIso).toBe("2026-11-09");
+      expect(f.callPeriod.from.toISOString()).toBe("2026-08-31T21:00:00.000Z");
+      expect(f.callPeriod.to.toISOString()).toBe("2026-11-09T20:59:59.999Z");
       expect(f.callPeriod.from.getTime()).toBeLessThanOrEqual(f.callPeriod.to.getTime());
     });
 
