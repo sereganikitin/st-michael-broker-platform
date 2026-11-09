@@ -13,7 +13,7 @@ function fixture() {
   let audits = []; const queries = [], updates = []; let occupied = false, auditError = false, readbackError = false;
   const tx = {
     $executeRaw: async (sql) => { queries.push(sql.join("?")); },
-    $queryRaw: async (sql, id) => sql.join("").includes("pg_control_system") ? [{ name: "broker_platform", identifier: ENV.PRODUCTION_PG_SYSTEM_IDENTIFIER }] : row && id === row.id ? [{ id }] : [],
+    $queryRaw: async (sql, id) => { queries.push(sql.join("?")); return sql.join("").includes("pg_control_system") ? [{ name: "broker_platform", identifier: ENV.PRODUCTION_PG_SYSTEM_IDENTIFIER }] : row && id === row.id ? [{ id }] : []; },
     registryDeal: {
       findUnique: async () => { if (readbackError && audits.length) throw new Error("PRIVATE_DB_URL"); return structuredClone(row); },
       findMany: async () => occupied ? [{ id: "other" }] : [],
@@ -130,4 +130,14 @@ test("workflow requires exact master CI, explicit SHA and production guards with
     'test "$container_sha" = "$production_sha"', 'flock -x -n 9', 'actual_script_sha', 'CONFIRMED_LINK_PLAN_SHA256',
     'PRODUCTION_PG_SYSTEM_IDENTIFIER', 'node --test scripts/link-confirmed-tour-contract.test.js']) assert.ok(workflow.includes(token), token);
   assert.ok(!/git (fetch|pull|checkout|reset|clean)|StrictHostKeyChecking=no|appleboy|script_stop|--log\b/.test(workflow));
+});
+
+test("apply obtains the table lock before the first data SELECT establishes a serializable snapshot", async () => {
+  const fx = fixture(), env = await armed(fx);
+  fx.queries.length = 0;
+  await run({ prisma: fx.prisma, mode: "apply", env });
+  const lock = fx.queries.findIndex(q => q.includes("LOCK TABLE registry_deals"));
+  const firstSelect = fx.queries.findIndex(q => q.includes("SELECT"));
+  assert.ok(lock >= 0 && firstSelect > lock);
+  assert.ok(fx.queries[firstSelect].includes("pg_control_system"));
 });

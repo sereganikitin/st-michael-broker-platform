@@ -83,14 +83,15 @@ async function run({ prisma, mode = "dry-run", env = process.env }) {
       if (mode === "dry-run") await tx.$executeRaw`SET TRANSACTION READ ONLY`;
       await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`;
       await tx.$executeRaw`SET LOCAL statement_timeout = '15s'`;
-      await databaseIdentity(tx, env);
       if (mode === "apply") {
         // Blocks other insert/update writers during the occupancy check, since
         // registry_deals has no unique constraint on amo_lead_id.
         await tx.$executeRaw`LOCK TABLE registry_deals IN SHARE ROW EXCLUSIVE MODE`;
+        await databaseIdentity(tx, env);
         const locked = await tx.$queryRaw`SELECT id FROM registry_deals WHERE id = ${TARGET.id} FOR UPDATE`;
         if (locked?.length !== 1 || locked[0].id !== TARGET.id) refuse("TARGET_MISSING");
       }
+      if (mode === "dry-run") await databaseIdentity(tx, env);
       const row = await tx.registryDeal.findUnique({ where: { id: TARGET.id } });
       const linked = identity(row);
       await occupancy(tx);
