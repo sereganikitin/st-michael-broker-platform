@@ -430,6 +430,7 @@ model Agency {
   commissionLevel      CommissionLevel          @default(START) @map("commission_level")
   quarterlyBonusStreak Int                      @default(0) @map("quarterly_bonus_streak")
   brokerAgencies       BrokerAgency[]
+  amoCompanySync       AgencyAmoCompanySync?
   deals                Deal[]
   loyaltyAssignments   LoyaltyCallAssignment[]  @relation("LoyaltyAssignmentOurAgency")
   loyaltyTasks         LoyaltyTask[]            @relation("LoyaltyTaskOurAgency")
@@ -438,6 +439,27 @@ model Agency {
   updatedAt            DateTime                 @updatedAt @map("updated_at")
 
   @@map("agencies")
+}
+
+model AgencyAmoCompanySync {
+  agencyId          String   @id @map("agency_id")
+  agency            Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  linkStatus        String   @default("NOT_FOUND") @map("link_status")
+  companyIds        Json     @default("[]") @map("company_ids")
+  profile           Json     @default("{}")
+  fieldSources      Json     @default("{}") @map("field_sources")
+  conflicts         Json     @default("{}")
+  contracts         Json     @default("[]")
+  sourceUpdatedAt   DateTime? @map("source_updated_at")
+  lastAttemptAt     DateTime @map("last_attempt_at")
+  lastSuccessAt     DateTime? @map("last_success_at")
+  errorCode         String?  @map("error_code")
+  contentHash       String?  @db.VarChar(64) @map("content_hash")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([lastSuccessAt])
+  @@map("agency_amo_company_sync")
 }
 
 // M2M: Брокер ↔ Компании (неограниченное кол-во, не удаляются)
