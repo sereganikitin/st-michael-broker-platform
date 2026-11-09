@@ -3,6 +3,20 @@ import { meetingAmoMark, type MeetingAmoMark } from "./meeting-amo-marks";
 
 export type LoyaltyBaseKey = "anna" | "ours";
 export type LoyaltyEntityType = "brokers" | "agencies";
+export interface LoyaltySourceFreshness {
+  source: "AMOCRM_COMPANY";
+  status: "CURRENT" | "STALE" | "ERROR" | "NOT_SYNCED";
+  lastAttemptAt: string;
+  lastSuccessAt: string;
+  sourceUpdatedAt: string;
+  companyIds: string[];
+  errorCode: string;
+}
+export interface LoyaltyFieldAvailability {
+  status: "AVAILABLE" | "EMPTY_IN_SOURCE" | "FIELD_NOT_IN_SOURCE" | "CONFLICT" | "NOT_SYNCED";
+  source: string;
+  checkedAt: string;
+}
 export type LoyaltySegment =
   | "NOT_CALLED_CURRENT_MONTH"
   | "NEW_BROKER"
@@ -836,6 +850,7 @@ export interface LoyaltyRecord {
   annaDetails: {
     agencySize: string;
     brokerCount: number | null;
+    brokerCountScope: string;
     website: string;
     projectsOnSite: string;
     sitePlacementRequirements: string;
@@ -843,7 +858,9 @@ export interface LoyaltyRecord {
     agencyBtFormat: string;
     agencyBtDate: string;
     activeBrokers: number | null;
+    activeBrokerWindowDays: number | null;
     lastContractDate: string;
+    lastContractNumber: string;
     partnershipStatus: string;
     legalName: string;
     nextAgreement: string;
@@ -861,7 +878,16 @@ export interface LoyaltyRecord {
     dealsWithAmount: number | null;
     verifiedDealIdsCount: number | null;
   } | null;
-  provenance: Array<{ field: string; source: string; updatedAt: string }>;
+  sourceFreshness: LoyaltySourceFreshness | null;
+  fieldAvailability: Record<string, LoyaltyFieldAvailability>;
+  provenance: Array<{
+    field: string;
+    source: string;
+    updatedAt: string;
+    sourceUrl?: string;
+    sourceUpdatedAt?: string;
+    checkedAt?: string;
+  }>;
   metricSource: {
     kind: string;
     label: string;
@@ -2039,7 +2065,96 @@ function normalizeProvenance(value: unknown) {
     updatedAt: stringValue(
       pick(item, "updatedAt", "observedAt", "readAt", "createdAt"),
     ),
+    ...(safeLoyaltyHttpUrl(stringValue(item.sourceUrl))
+      ? { sourceUrl: safeLoyaltyHttpUrl(stringValue(item.sourceUrl)) }
+      : {}),
+    ...(stringValue(item.sourceUpdatedAt)
+      ? { sourceUpdatedAt: stringValue(item.sourceUpdatedAt) }
+      : {}),
+    ...(stringValue(item.checkedAt)
+      ? { checkedAt: stringValue(item.checkedAt) }
+      : {}),
   };
+}
+
+export function safeLoyaltyHttpUrl(value: string): string {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    return ["https:", "http:"].includes(url.protocol) &&
+      !url.username &&
+      !url.password
+      ? url.toString()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Date-only source values have no time of day. Instants use Moscow time. */
+export function formatLoyaltyDate(value: string): string {
+  if (!value) return "Нет данных";
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return value;
+  if (dateOnly && parsed.toISOString().slice(0, 10) !== value) return value;
+  return dateOnly
+    ? parsed.toLocaleDateString("ru-RU", {
+        dateStyle: "medium",
+        timeZone: "UTC",
+      })
+    : parsed.toLocaleString("ru-RU", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Europe/Moscow",
+      });
+}
+
+function normalizeSourceFreshness(
+  value: unknown,
+): LoyaltySourceFreshness | null {
+  const item = nonEmptyRecord(value);
+  if (!item || item.source !== "AMOCRM_COMPANY") return null;
+  const status = item.status;
+  const lastSuccessAt = stringValue(item.lastSuccessAt);
+  const hasSuccessfulCheck = Number.isFinite(Date.parse(lastSuccessAt));
+  return {
+    source: "AMOCRM_COMPANY",
+    status:
+      status === "ERROR" || ((status === "CURRENT" || status === "STALE") && hasSuccessfulCheck)
+        ? status
+        : "NOT_SYNCED",
+    lastAttemptAt: stringValue(item.lastAttemptAt),
+    lastSuccessAt,
+    sourceUpdatedAt: stringValue(item.sourceUpdatedAt),
+    companyIds: uniqueTrimmedStrings(item.companyIds).filter((id) => /^\d+$/.test(id)),
+    errorCode: stringValue(item.errorCode),
+  };
+}
+
+function normalizeFieldAvailability(
+  value: unknown,
+): Record<string, LoyaltyFieldAvailability> {
+  return Object.fromEntries(
+    Object.entries(asRecord(value)).map(([key, raw]) => {
+      const item = asRecord(raw);
+      const status = item.status;
+      return [
+        key,
+        {
+          status:
+            status === "AVAILABLE" ||
+            status === "EMPTY_IN_SOURCE" ||
+            status === "FIELD_NOT_IN_SOURCE" ||
+            status === "CONFLICT"
+              ? status
+              : "NOT_SYNCED",
+          source: stringValue(item.source),
+          checkedAt: stringValue(item.checkedAt),
+        },
+      ];
+    }),
+  );
 }
 
 /** Сцепка с нашей карточкой: API шлёт {type: BROKER|AGENCY, id, linkId}. */
@@ -2084,6 +2199,7 @@ function normalizeLinkedAnna(value: unknown): LoyaltyRecord["linkedAnna"] {
 export function normalizeLoyaltyRecord(
   value: unknown,
   entityType: LoyaltyEntityType,
+  base?: LoyaltyBaseKey,
 ): LoyaltyRecord {
   const item = asRecord(value);
   const linkedOurs = normalizeLinkedOurs(item.linkedOurs);
@@ -2096,6 +2212,8 @@ export function normalizeLoyaltyRecord(
   );
   const activityItems = arrayValue(item.activities);
   const attributes = nonEmptyRecord(item.attributes) || {};
+  const localAgencyCount = entityType === "agencies" &&
+    (base === "ours" || item.base === "ours" || attributes.brokerCountScope === "CABINET_LINKS");
   const activityEvidenceRaw =
     nonEmptyRecord(item.activityEvidence) ||
     nonEmptyRecord(attributes.activityEvidence);
@@ -2165,7 +2283,9 @@ export function normalizeLoyaltyRecord(
     ),
     brokerCount: nullableNumberValue(
       pick(item, "brokerCount") ?? attributes.brokerCount,
-    ),
+    ) ?? (localAgencyCount ? nullableNumberValue(metrics.brokers) : null),
+    brokerCountScope: stringValue(attributes.brokerCountScope,
+      localAgencyCount ? "CABINET_LINKS" : ""),
     website: stringValue(
       pick(item, "website"),
       stringValue(attributes.website),
@@ -2196,10 +2316,12 @@ export function normalizeLoyaltyRecord(
       pick(item, "activeBrokers", "activeBrokerCount") ??
         pick(attributes, "activeBrokers", "activeBrokerCount"),
     ),
+    activeBrokerWindowDays: nullableNumberValue(attributes.activeBrokerWindowDays),
     lastContractDate: stringValue(
       pick(item, "lastContractDate", "lastAgreement"),
       stringValue(pick(attributes, "lastContractDate", "lastAgreement")),
     ),
+    lastContractNumber: stringValue(item.lastContractNumber, stringValue(attributes.lastContractNumber)),
     partnershipStatus: stringValue(
       pick(item, "partnershipStatus", "partnershipLevel"),
       stringValue(pick(attributes, "partnershipStatus", "partnershipLevel")),
@@ -2382,7 +2504,7 @@ export function normalizeLoyaltyRecord(
     linkedAnna: normalizeLinkedAnna(item.linkedAnna),
     linkedOurRecord:
       linkedOurs && nonEmptyRecord(item.linkedOurRecord)
-        ? normalizeLoyaltyRecord(item.linkedOurRecord, linkedOurs.type)
+        ? normalizeLoyaltyRecord(item.linkedOurRecord, linkedOurs.type, "ours")
         : null,
     archived:
       Boolean(pick(item, "archivedAt")) ||
@@ -2545,6 +2667,8 @@ export function normalizeLoyaltyRecord(
     },
     recognitions: arrayValue(attributes.recognitions).map(normalizeRecognition),
     annaDetails: hasAnnaDetails ? annaDetails : null,
+    sourceFreshness: normalizeSourceFreshness(item.sourceFreshness),
+    fieldAvailability: normalizeFieldAvailability(item.fieldAvailability),
     provenance: arrayValue(
       pick(item, "provenance", "fieldSources", "sources"),
     ).map(normalizeProvenance),
@@ -2668,7 +2792,8 @@ export function normalizeLoyaltyList(
       : ["brokers", "BROKER"].includes(stringValue(root.entityType))
         ? "brokers"
         : entityType,
-    items: items.map((item) => normalizeLoyaltyRecord(item, entityType)),
+    items: items.map((item) => normalizeLoyaltyRecord(item, entityType,
+      root.base === "ours" || root.base === "anna" ? root.base : base)),
     page,
     pageSize,
     total,
@@ -2699,7 +2824,8 @@ export function normalizeLoyaltyDetail(
   const root = responseRoot(value);
   const item =
     pick(root, "item", entityType === "brokers" ? "broker" : "agency") ?? root;
-  return normalizeLoyaltyRecord(item, entityType);
+  return normalizeLoyaltyRecord(item, entityType,
+    root.base === "ours" || root.base === "anna" ? root.base : undefined);
 }
 
 function normalizeReconciliationSide(

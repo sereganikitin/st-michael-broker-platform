@@ -26,6 +26,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import {
   formatRubles,
+  formatLoyaltyDate,
   getLoyaltyCallResultOptions,
   getAnnaLoyaltyChanges,
   linkOurBrokerAmoContact,
@@ -35,6 +36,7 @@ import {
   loyaltyContactLabel,
   loyaltyExactnessLabelRu,
   loyaltyMetricSourceLabelRu,
+  safeLoyaltyHttpUrl,
   updateAnnaLoyaltyRecord,
   updateOurBrokerDisplayName,
   type LoyaltyBaseKey,
@@ -98,16 +100,7 @@ const tabs: ReadonlyArray<readonly [Tab, string]> = [
   ["loyalty", "Лояльность"],
   ["provenance", "Происхождение"],
 ];
-const date = (text: string) => {
-  if (!text) return "Нет данных";
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime())
-    ? text
-    : parsed.toLocaleString("ru-RU", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
-};
+const date = formatLoyaltyDate;
 const count = (number: number | null) =>
   number === null ? "Нет данных" : number.toLocaleString("ru-RU");
 const text = (value: string) => value || "Нет данных";
@@ -179,15 +172,7 @@ function Metric({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function safeHttpUrl(value: string) {
-  if (!value) return "";
-  try {
-    const href = new URL(value).toString();
-    return href.startsWith("http://") || href.startsWith("https://")
-      ? href
-      : "";
-  } catch {
-    return "";
-  }
+  return safeLoyaltyHttpUrl(value);
 }
 
 function Website({ value }: { value: string }) {
@@ -487,57 +472,250 @@ function LinkedOurRecordSummary({ linked }: { linked: LoyaltyRecord }) {
   );
 }
 
+const missingAgencyFieldLabels: Record<string, string> = {
+  EMPTY_IN_SOURCE: "Поле не заполнено в источнике",
+  FIELD_NOT_IN_SOURCE: "Такого поля нет в источнике",
+  CONFLICT: "Значения источников требуют сверки",
+  NOT_SYNCED: "Данные ещё не синхронизированы",
+};
+
+function AgencySourceFreshness({ record }: { record: LoyaltyRecord }) {
+  const freshness = record.sourceFreshness;
+  if (!freshness) return null;
+  const message = {
+    CURRENT: "Данные amoCRM проверены",
+    STALE: "Данные amoCRM ожидают обновления",
+    ERROR: freshness.lastSuccessAt
+      ? "Последняя проверка amoCRM завершилась ошибкой. Показаны данные последней успешной загрузки."
+      : "Проверка amoCRM завершилась ошибкой. Успешная загрузка ещё не подтверждена.",
+    NOT_SYNCED: "Профиль amoCRM ещё не синхронизирован",
+  }[freshness.status];
+  return (
+    <section
+      className={`rounded-xl border p-3 text-sm ${freshness.status === "ERROR" || freshness.status === "STALE" ? "border-warning/40 bg-warning/5" : "border-border"}`}
+      aria-label="Актуальность данных агентства"
+    >
+      <p className="font-medium">{message}</p>
+      <dl className="mt-2 grid gap-2 text-xs text-text-muted sm:grid-cols-3">
+        <div>
+          <dt>Последняя успешная проверка</dt>
+          <dd>{date(freshness.lastSuccessAt)}</dd>
+        </div>
+        <div>
+          <dt>Изменено в amoCRM</dt>
+          <dd>{date(freshness.sourceUpdatedAt)}</dd>
+        </div>
+        <div>
+          <dt>Последняя попытка проверки</dt>
+          <dd>{date(freshness.lastAttemptAt)}</dd>
+        </div>
+      </dl>
+      {freshness.companyIds.length > 0 && (
+        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+          {freshness.companyIds.map((id) => (
+            <a
+              key={id}
+              href={`https://stmichael.amocrm.ru/companies/detail/${id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent"
+            >
+              Компания amoCRM #{id}
+            </a>
+          ))}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function AgencyMetric({
+  record,
+  field,
+  label,
+  value,
+  children,
+}: {
+  record: LoyaltyRecord;
+  field: string;
+  label: string;
+  value: string | number | null | undefined;
+  children?: ReactNode;
+}) {
+  const present = value !== null && value !== undefined && value !== "";
+  const state = record.fieldAvailability[field];
+  const missingReason = state ? missingAgencyFieldLabels[state.status] : "";
+  const sources = record.provenance.filter((source) => source.field === field);
+  return (
+    <Metric label={label}>
+      {present ? (children ?? String(value)) : "Нет данных"}
+      {!present && missingReason && (
+        <small className="mt-1 block font-normal text-text-muted">
+          {missingReason}
+        </small>
+      )}
+      {present && sources.length > 0 && (
+        <small className="mt-1 block font-normal text-text-muted">
+          {sources.map((source, index) => (
+            <span key={`${source.source}-${index}`} className="block">
+              {source.sourceUrl ? (
+                <a
+                  className="text-accent"
+                  href={source.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {source.source}
+                </a>
+              ) : (
+                source.source
+              )}
+            </span>
+          ))}
+        </small>
+      )}
+    </Metric>
+  );
+}
+
 function AgencyProfile({ record }: { record: LoyaltyRecord }) {
   const details = record.annaDetails;
   return (
-    <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-      <Metric label="Юридическое название">
-        {text(details?.legalName || "")}
-      </Metric>
-      <Metric label="Размер агентства">
-        {text(details?.agencySize || "")}
-      </Metric>
-      <Metric label="Брокеров всего">
-        {count(details?.brokerCount ?? null)}
-      </Metric>
-      <Metric label="Активных брокеров">
-        {count(details?.activeBrokers ?? null)}
-      </Metric>
-      <Metric label="Сайт">
-        <Website value={details?.website || ""} />
-      </Metric>
-      <Metric label="Размещение проектов">
-        {text(details?.projectsOnSite || "")}
-      </Metric>
-      <Metric label="Требования для размещения">
-        {text(details?.sitePlacementRequirements || "")}
-      </Metric>
-      <Metric label="Последняя встреча">
-        {date(details?.lastAgencyMeetingDate || "")}
-      </Metric>
-      <Metric label="Индивидуальный / выездной БТ">
-        {text(details?.agencyBtFormat || "")}
-      </Metric>
-      <Metric label="Дата БТ">{date(details?.agencyBtDate || "")}</Metric>
-      <Metric label="Последнее соглашение">
-        {date(details?.lastContractDate || "")}
-      </Metric>
-      <Metric label="Следующая договорённость">
-        {text(details?.nextAgreement || record.nextTask)}
-      </Metric>
-      <Metric label="Специальные условия">
-        {text(details?.specialTerms || "")}
-      </Metric>
-      <Metric label="Статус специальных условий">
-        {text(details?.specialTermsStatus || "")}
-      </Metric>
-      <Metric label="Условия действуют до">
-        {date(details?.specialTermsValidUntil || "")}
-      </Metric>
-      <Metric label="Уровень партнёрства">
-        {text(loyaltyStatusLabel(details?.partnershipStatus || record.status))}
-      </Metric>
-    </dl>
+    <div className="space-y-3">
+      <AgencySourceFreshness record={record} />
+      <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <AgencyMetric
+          record={record}
+          field="legalName"
+          label="Юридическое название"
+          value={details?.legalName}
+        />
+        <AgencyMetric
+          record={record}
+          field="agencySize"
+          label="Размер агентства"
+          value={details?.agencySize}
+        />
+        <AgencyMetric
+          record={record}
+          field="brokerCount"
+          label={
+            details?.brokerCountScope === "CABINET_LINKS"
+              ? "Брокеров в кабинете"
+              : "Брокеров всего"
+          }
+          value={details?.brokerCount}
+        >
+          {count(details?.brokerCount ?? null)}
+        </AgencyMetric>
+        <AgencyMetric
+          record={record}
+          field="activeBrokers"
+          label={
+            details?.activeBrokerWindowDays === 90
+              ? "Активных за 90 дней"
+              : "Активных брокеров"
+          }
+          value={details?.activeBrokers}
+        >
+          {count(details?.activeBrokers ?? null)}
+          {details?.activeBrokerWindowDays === 90 && (
+            <small className="mt-1 block font-normal text-text-muted">
+              Есть фиксация, клиентская встреча или сделка за последние 90 дней
+            </small>
+          )}
+        </AgencyMetric>
+        <AgencyMetric
+          record={record}
+          field="website"
+          label="Сайт"
+          value={details?.website}
+        >
+          <Website value={details?.website || ""} />
+        </AgencyMetric>
+        <AgencyMetric
+          record={record}
+          field="projectsOnSite"
+          label="Размещение проектов"
+          value={details?.projectsOnSite}
+        />
+        <AgencyMetric
+          record={record}
+          field="sitePlacementRequirements"
+          label="Требования для размещения"
+          value={details?.sitePlacementRequirements}
+        />
+        <AgencyMetric
+          record={record}
+          field="lastAgencyMeetingDate"
+          label="Последняя встреча"
+          value={details?.lastAgencyMeetingDate}
+        >
+          {date(details?.lastAgencyMeetingDate || "")}
+        </AgencyMetric>
+        <AgencyMetric
+          record={record}
+          field="agencyBtFormat"
+          label="Индивидуальный / выездной БТ"
+          value={details?.agencyBtFormat}
+        />
+        <AgencyMetric
+          record={record}
+          field="agencyBtDate"
+          label="Дата БТ"
+          value={details?.agencyBtDate}
+        >
+          {date(details?.agencyBtDate || "")}
+        </AgencyMetric>
+        <AgencyMetric
+          record={record}
+          field="lastContractDate"
+          label="Последнее соглашение"
+          value={details?.lastContractDate}
+        >
+          {date(details?.lastContractDate || "")}
+          {details?.lastContractNumber && (
+            <small className="mt-1 block font-normal">
+              {details.lastContractNumber}
+            </small>
+          )}
+        </AgencyMetric>
+        <AgencyMetric
+          record={record}
+          field="nextAgreement"
+          label="Следующая договорённость"
+          value={details?.nextAgreement || record.nextTask}
+        />
+        <AgencyMetric
+          record={record}
+          field="specialTerms"
+          label="Специальные условия"
+          value={details?.specialTerms}
+        />
+        <AgencyMetric
+          record={record}
+          field="specialTermsStatus"
+          label="Статус специальных условий"
+          value={details?.specialTermsStatus}
+        />
+        <AgencyMetric
+          record={record}
+          field="specialTermsValidUntil"
+          label="Условия действуют до"
+          value={details?.specialTermsValidUntil}
+        >
+          {date(details?.specialTermsValidUntil || "")}
+        </AgencyMetric>
+        <AgencyMetric
+          record={record}
+          field="partnershipStatus"
+          label="Уровень партнёрства"
+          value={loyaltyStatusLabel(
+            details?.partnershipStatus || record.status,
+          )}
+        />
+      </dl>
+    </div>
   );
 }
 
@@ -2325,7 +2503,7 @@ function DetailBody({
             {record.dataQuality && (
               <Metric label="Качество данных">{text(record.dataQuality)}</Metric>
             )}
-            <Metric label="Последний контакт">
+            <Metric label={record.lastContactAt ? "Последний контакт" : "Последняя активность"}>
               {date(record.lastContactAt || record.lastActivityAt)}
               {record.lastContactAt && (
                 <small className="block text-text-muted">
@@ -3048,6 +3226,7 @@ function DetailBody({
       )}
       {tab === "provenance" && (
         <div className="space-y-4">
+          {record.entityType === "agencies" && <AgencySourceFreshness record={record} />}
           <section>
             <h3 className="mb-2 font-semibold">Идентификаторы источников</h3>
             <div className="rounded-xl border border-border p-3 text-sm break-all">
@@ -3080,7 +3259,8 @@ function DetailBody({
                     <tr>
                       <th className="p-2">Поле</th>
                       <th className="p-2">Источник</th>
-                      <th className="p-2">Обновлено</th>
+                      <th className="p-2">Изменено в источнике</th>
+                      <th className="p-2">Проверено в кабинете</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3090,8 +3270,9 @@ function DetailBody({
                         key={`${item.field}-${index}`}
                       >
                         <td className="p-2">{item.field}</td>
-                        <td className="p-2">{item.source}</td>
-                        <td className="p-2">{date(item.updatedAt)}</td>
+                        <td className="p-2">{item.sourceUrl ? <a className="text-accent" href={item.sourceUrl} target="_blank" rel="noreferrer">{item.source}</a> : item.source}</td>
+                        <td className="p-2">{date(item.sourceUpdatedAt || item.updatedAt)}</td>
+                        <td className="p-2">{date(item.checkedAt || "")}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -3099,7 +3280,7 @@ function DetailBody({
               </div>
             ) : (
               <p className="text-sm text-text-muted">
-                Provenance пока не передан.
+                Источники полей ещё не переданы.
               </p>
             )}
           </section>
