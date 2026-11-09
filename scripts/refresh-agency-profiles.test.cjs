@@ -4,6 +4,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
+  http,
+  responseLimit,
+  requireFreshBackup,
   run,
   inputs,
   signJwt,
@@ -16,6 +19,9 @@ const {
 const sha = "a".repeat(40);
 const env = {
   EXPECTED_DEPLOYED_SHA: sha,
+  REFRESH_SOURCE_SHA: "c".repeat(40),
+  REFRESH_BACKUP_DEPLOYED_SHA: sha,
+  REFRESH_BACKUP_COMPLETED_AT: new Date().toISOString(),
   GIT_SHA: sha,
   JWT_SECRET: "local-test-secret",
 };
@@ -104,7 +110,7 @@ function fixture(extraEnv = {}) {
         },
       };
     else throw Error("Unexpected request");
-    return { ok: true, text: async () => JSON.stringify(body) };
+    return new Response(JSON.stringify(body));
   };
   return {
     deps: {
@@ -183,10 +189,8 @@ test("confirmed apply calls normal HTTP after target dry run and verifies all so
 });
 test("health mismatch stops before Prisma reads or sync", async () => {
   const f = fixture();
-  f.deps.fetch = async () => ({
-    ok: true,
-    text: async () => JSON.stringify({ deployedSha: "b".repeat(40) }),
-  });
+  f.deps.fetch = async () =>
+    new Response(JSON.stringify({ deployedSha: "b".repeat(40) }));
   f.deps.prisma.broker.findFirst = () => {
     throw Error("must not read");
   };
@@ -197,14 +201,12 @@ test("readiness rejects failed dependencies before sync", async () => {
   const original = f.deps.fetch;
   f.deps.fetch = async (url, options) =>
     url.endsWith("/ready")
-      ? {
-          ok: true,
-          text: async () =>
-            JSON.stringify({
-              status: "error",
-              checks: { postgresql: "ok", redis: "error" },
-            }),
-        }
+      ? new Response(
+          JSON.stringify({
+            status: "error",
+            checks: { postgresql: "ok", redis: "error" },
+          }),
+        )
       : original(url, options);
   await assert.rejects(run(f.deps), { safeCode: "NOT_READY" });
   assert.equal(f.calls.length, 1);
@@ -311,13 +313,19 @@ test("workflow retains exact master, production concurrency, fingerprint and str
     "environment: production",
     "timeout-minutes: 35",
     "refs/heads/master",
-    'test "$SOURCE_SHA" = "$EXPECTED_SHA"',
+    'git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"',
+    'git diff --exit-code "$EXPECTED_SHA" "$SOURCE_SHA" -- apps/api packages/database packages/integrations packages/shared',
+    "Build and test release commit",
+    'head_sha="$SOURCE_SHA"',
+    'backup-production-loyalty-predeploy.yml/runs -f head_sha="$EXPECTED_SHA"',
+    "21600",
     'test "$master_sha" = "$SOURCE_SHA"',
     "StrictHostKeyChecking=yes",
     "DEPLOY_HOST_FINGERPRINT",
     "flock -n 9",
     'EXPECTED_DEPLOYED_SHA="$expected_sha"',
-    "run().catch(error => { reportFailure(error); process.exitCode = 1; });",
+    "runner.exports.reportFailure(error);",
+    "process.env.REFRESH_EXPECTED_SCRIPT_HASH",
   ])
     assert.ok(workflow.includes(gate), gate);
   assert.ok(
@@ -382,6 +390,7 @@ test("streamed stdin entrypoint executes the reviewed runner exactly once", asyn
     Buffer,
     process: { env },
     AbortSignal,
+    Uint8Array,
     console,
     deps: f.deps,
   };
@@ -430,7 +439,7 @@ test("complete apply accepts classified missing INN with resumed cumulative cycl
       written: 1378,
       resumed: true,
     });
-    return { ok: true, text: async () => JSON.stringify(response) };
+    return new Response(JSON.stringify(response));
   };
   f.deps.prisma.agency.findMany = async () => [
     ...Array.from({ length: 64 }, () => ({
@@ -451,4 +460,249 @@ test("complete apply accepts classified missing INN with resumed cumulative cycl
   assert.equal(receipt.sources.validInn, 64);
   assert.equal(receipt.sources.missingConfirmedInn, 1315);
   assert.equal(receipt.sources.total, 1379);
+});
+
+test("large valid target detail is streamed and only its safe receipt is emitted", async () => {
+  const f = fixture();
+  const original = f.deps.fetch;
+  f.deps.fetch = async (url, options) => {
+    if (!url.endsWith(`/agencies/${TARGET_AGENCY_ID}`))
+      return original(url, options);
+    return new Response(
+      JSON.stringify({
+        item: {
+          id: TARGET_AGENCY_ID,
+          attributes: {
+            brokerCount: 368,
+            activeBrokers: 20,
+            activeBrokerWindowDays: 90,
+          },
+          sourceFreshness: { status: "CURRENT" },
+          privateHistory:
+            "PRIVATE_CONTACT_DO_NOT_PRINT" + "x".repeat(16 * 1024 * 1024),
+        },
+      }),
+    );
+  };
+  const receipt = await run(f.deps);
+  assert.equal(receipt.target.brokerCount, 368);
+  assert.equal(receipt.target.activeBrokers, 20);
+  assert.ok(!f.emitted.join("").includes("PRIVATE_CONTACT_DO_NOT_PRINT"));
+  assert.ok(f.emitted.join("").length < 4096);
+});
+
+test("only the exact target GET has a 32MiB response budget", () => {
+  const target = `/loyalty-base/ours/agencies/${TARGET_AGENCY_ID}`;
+  assert.equal(responseLimit("GET", target), 32 * 1024 * 1024);
+  for (const [method, route] of [
+    ["POST", target],
+    ["GET", `${target}?extra=1`],
+    ["GET", `${target}/`],
+    ["GET", "/loyalty-base/ours/agencies/other"],
+    ["POST", "/amocrm/agency-profiles/sync-all"],
+    ["GET", "/health"],
+  ])
+    assert.equal(responseLimit(method, route), 1024 * 1024);
+});
+
+for (const [method, route, limit] of [
+  ["POST", "/amocrm/agency-profiles/sync-all", 1024 * 1024],
+  ["GET", `/loyalty-base/ours/agencies/${TARGET_AGENCY_ID}`, 32 * 1024 * 1024],
+]) {
+  test(`oversized ${method} response stops at its byte budget and cancels the body`, async () => {
+    let reads = 0,
+      canceled = 0,
+      released = 0;
+    const chunk = new Uint8Array(65536);
+    const response = {
+      ok: true,
+      headers: new Headers(),
+      body: {
+        getReader: () => ({
+          read: async () => {
+            reads++;
+            return { done: false, value: chunk };
+          },
+          cancel: async () => {
+            canceled++;
+          },
+          releaseLock: () => {
+            released++;
+          },
+        }),
+      },
+      text: () => {
+        throw Error("UNBOUNDED_TEXT_FORBIDDEN");
+      },
+    };
+    await assert.rejects(
+      http(async () => response, method, route),
+      { safeCode: "INVALID_RESPONSE" },
+    );
+    assert.equal(reads, limit / chunk.byteLength + 1);
+    assert.ok(canceled >= 1);
+    assert.equal(released, 1);
+  });
+}
+
+test("declared oversize cancels before acquiring a reader and bounds count bytes rather than characters", async () => {
+  let canceled = 0,
+    readers = 0;
+  const response = {
+    ok: true,
+    headers: new Headers({ "content-length": String(1024 * 1024 + 1) }),
+    body: {
+      cancel: async () => {
+        canceled++;
+      },
+      getReader: () => {
+        readers++;
+        throw Error("must not read");
+      },
+    },
+  };
+  await assert.rejects(
+    http(async () => response, "GET", "/health"),
+    { safeCode: "INVALID_RESPONSE" },
+  );
+  assert.equal(canceled, 1);
+  assert.equal(readers, 0);
+  await assert.rejects(
+    http(
+      async () => new Response(JSON.stringify({ private: "я".repeat(600000) })),
+      "GET",
+      "/health",
+    ),
+    { safeCode: "INVALID_RESPONSE" },
+  );
+});
+
+test("apply requires a fresh backup for the deployed SHA and rechecks it after the dry run", async () => {
+  for (const patch of [
+    { REFRESH_BACKUP_DEPLOYED_SHA: "b".repeat(40) },
+    { REFRESH_BACKUP_COMPLETED_AT: "" },
+    {
+      REFRESH_BACKUP_COMPLETED_AT: new Date(
+        Date.now() - 6 * 3600000,
+      ).toISOString(),
+    },
+    {
+      REFRESH_BACKUP_COMPLETED_AT: new Date(Date.now() + 3600000).toISOString(),
+    },
+  ])
+    assert.throws(() => requireFreshBackup({ ...env, ...patch }), {
+      safeCode: "BACKUP_NOT_CURRENT",
+    });
+  const f = fixture({ MODE: "apply", CONFIRM_APPLY: "true" });
+  const original = f.deps.fetch;
+  f.deps.fetch = async (url, options) => {
+    const response = await original(url, options);
+    if (url.endsWith("/sync"))
+      f.deps.env.REFRESH_BACKUP_COMPLETED_AT = "2020-01-01";
+    return response;
+  };
+  await assert.rejects(run(f.deps), { safeCode: "BACKUP_NOT_CURRENT" });
+  assert.ok(!f.calls.some((call) => call.route.endsWith("/sync-all")));
+});
+
+test("API compatibility gate permits ops-only descendants and rejects changed API or non-ancestor commits", () => {
+  const cp = require("node:child_process"),
+    os = require("node:os");
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agency-refresh-api-compat-"),
+  );
+  const git = (...args) =>
+    cp
+      .execFileSync("git", args, {
+        cwd: directory,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+      .trim();
+  try {
+    git("init");
+    git("config", "user.name", "Local QA");
+    git("config", "user.email", "qa@example.test");
+    fs.mkdirSync(path.join(directory, "apps/api"), { recursive: true });
+    fs.writeFileSync(path.join(directory, "apps/api/contract.txt"), "deployed");
+    git("add", ".");
+    git("commit", "-m", "deployed");
+    const deployed = git("rev-parse", "HEAD");
+    fs.mkdirSync(path.join(directory, "scripts"));
+    fs.writeFileSync(path.join(directory, "scripts/ops.txt"), "ops-only");
+    git("add", ".");
+    git("commit", "-m", "ops");
+    const source = git("rev-parse", "HEAD");
+    git("merge-base", "--is-ancestor", deployed, source);
+    git(
+      "diff",
+      "--exit-code",
+      deployed,
+      source,
+      "--",
+      "apps/api",
+      "packages/database",
+      "packages/integrations",
+      "packages/shared",
+    );
+    fs.appendFileSync(path.join(directory, "apps/api/contract.txt"), "changed");
+    git("add", ".");
+    git("commit", "-m", "changed api");
+    assert.throws(() =>
+      git(
+        "diff",
+        "--exit-code",
+        deployed,
+        "HEAD",
+        "--",
+        "apps/api",
+        "packages/database",
+        "packages/integrations",
+        "packages/shared",
+      ),
+    );
+    assert.throws(() => git("merge-base", "--is-ancestor", "HEAD", deployed));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("runner never falls back to unbounded text or prints private body fields", () => {
+  const code = fs.readFileSync(
+    path.join(__dirname, "refresh-agency-profiles.cjs"),
+    "utf8",
+  );
+  assert.ok(!/response\.(text|json)\(/.test(code));
+  assert.ok(code.includes("reader.cancel"));
+  assert.ok(code.includes("reader.releaseLock"));
+  assert.ok(code.includes("120000"));
+});
+
+test("container stdin verifier binds exact reviewed source bytes before invoking one entrypoint", () => {
+  const cp = require("node:child_process"),
+    crypto = require("node:crypto");
+  const workflow = fs.readFileSync(
+    path.join(__dirname, "../.github/workflows/refresh-agency-profiles.yml"),
+    "utf8",
+  );
+  const verifier =
+    /verifier=\$\(cat <<'VERIFY_SOURCE'\r?\n([\s\S]*?)\r?\n\s*VERIFY_SOURCE/.exec(
+      workflow,
+    )?.[1];
+  assert.ok(verifier);
+  const source =
+    'module.exports={run:async()=>console.log("SAFE_RECEIPT"),reportFailure:()=>{}};';
+  const expected = crypto.createHash("sha256").update(source).digest("hex");
+  const runVerifier = (digest) =>
+    cp.spawnSync(process.execPath, ["-e", verifier], {
+      input: source,
+      encoding: "utf8",
+      env: { ...process.env, REFRESH_EXPECTED_SCRIPT_HASH: digest },
+    });
+  const valid = runVerifier(expected);
+  assert.equal(valid.status, 0);
+  assert.equal(valid.stdout.trim(), "SAFE_RECEIPT");
+  const invalid = runVerifier("0".repeat(64));
+  assert.equal(invalid.status, 1);
+  assert.equal(invalid.stdout, "");
 });

@@ -18,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: read
+  actions: read
 jobs:
   refresh:
     runs-on: ubuntu-latest
@@ -27,6 +28,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Validate reviewed master and inputs
         shell: bash
@@ -43,12 +45,21 @@ jobs:
           test "$SOURCE_REPOSITORY" = sereganikitin/st-michael-broker-platform
           test "$SOURCE_REF" = refs/heads/master
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
-          test "$SOURCE_SHA" = "$EXPECTED_SHA"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           [[ "$MODE" = dry-run || "$MODE" = apply ]]
           if [ "$MODE" = apply ]; then test "$CONFIRM_APPLY" = true; fi
           master_sha=$(gh api repos/sereganikitin/st-michael-broker-platform/git/ref/heads/master --jq '.object.sha')
           test "$master_sha" = "$SOURCE_SHA"
+          compare_status=$(gh api "repos/sereganikitin/st-michael-broker-platform/compare/$EXPECTED_SHA...$SOURCE_SHA" --jq '.status')
+          [[ "$compare_status" = ahead || "$compare_status" = identical ]]
+          git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"
+          git diff --exit-code "$EXPECTED_SHA" "$SOURCE_SHA" -- apps/api packages/database packages/integrations packages/shared package.json package-lock.json turbo.json > /dev/null
+          ci_runs=$(gh api --method GET repos/sereganikitin/st-michael-broker-platform/actions/workflows/deploy.yml/runs -f head_sha="$SOURCE_SHA" -f status=completed -f per_page=100)
+          ci_run=$(printf '%s' "$ci_runs" | jq -er --arg sha "$SOURCE_SHA" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "master" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == "sereganikitin/st-michael-broker-platform")] | sort_by(.id) | last.id | select(type == "number")')
+          ci_jobs=$(gh api --paginate "repos/sereganikitin/st-michael-broker-platform/actions/runs/$ci_run/jobs?per_page=100")
+          printf '%s' "$ci_jobs" | jq -se 'any(.[] | .jobs[]; .name == "Build and test release commit" and .conclusion == "success")' > /dev/null
+          unset ci_runs ci_jobs
           node --test scripts/refresh-agency-profiles.test.cjs
           test "$(git show "$SOURCE_SHA:scripts/refresh-agency-profiles.cjs" | sha256sum | cut -d' ' -f1)" = "$(sha256sum scripts/refresh-agency-profiles.cjs | cut -d' ' -f1)"
       - name: Stream reviewed refresh into existing API container
@@ -62,6 +73,7 @@ jobs:
           EXPECTED_SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           EXPECTED_SHA: ${{ inputs.expected_deployed_sha }}
+          SOURCE_SHA: ${{ github.sha }}
           MODE: ${{ inputs.mode }}
           CONFIRM_APPLY: ${{ inputs.confirm_apply }}
         run: |
@@ -78,7 +90,22 @@ jobs:
           [[ "$CONFIRM_APPLY" = false || "$CONFIRM_APPLY" = true ]]
           if [ "$MODE" = apply ]; then test "$CONFIRM_APPLY" = true; fi
           master_sha=$(gh api repos/sereganikitin/st-michael-broker-platform/git/ref/heads/master --jq '.object.sha')
-          test "$master_sha" = "$EXPECTED_SHA"
+          test "$master_sha" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"
+          git diff --exit-code "$EXPECTED_SHA" "$SOURCE_SHA" -- apps/api packages/database packages/integrations packages/shared package.json package-lock.json turbo.json > /dev/null
+          backup_completed_at=none
+          backup_deployed_sha=none
+          if [ "$MODE" = apply ]; then
+            backup_runs=$(gh api --method GET repos/sereganikitin/st-michael-broker-platform/actions/workflows/backup-production-loyalty-predeploy.yml/runs -f head_sha="$EXPECTED_SHA" -f event=workflow_dispatch -f status=completed -f per_page=100)
+            backup_completed_at=$(printf '%s' "$backup_runs" | jq -er --arg sha "$EXPECTED_SHA" --argjson now "$(date +%s)" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "master" and .event == "workflow_dispatch" and .conclusion == "success" and .repository.full_name == "sereganikitin/st-michael-broker-platform" and .head_repository.full_name == "sereganikitin/st-michael-broker-platform" and ((.updated_at | fromdateiso8601) <= $now) and ($now - (.updated_at | fromdateiso8601) < 21600))] | sort_by(.updated_at) | last.updated_at | select(type == "string")')
+            [[ "$backup_completed_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
+            backup_deployed_sha="$EXPECTED_SHA"
+            unset backup_runs
+          fi
+          script_hash=$(sha256sum scripts/refresh-agency-profiles.cjs | cut -d' ' -f1)
+          [[ "$script_hash" =~ ^[0-9a-f]{64}$ ]]
+          test "$(git show "$SOURCE_SHA:scripts/refresh-agency-profiles.cjs" | sha256sum | cut -d' ' -f1)" = "$script_hash"
           root=$(mktemp -d)
           known_hosts="$root/known_hosts"
           private_key="$root/deploy-key"
@@ -96,8 +123,13 @@ jobs:
           expected_sha=$2
           mode=$3
           confirm_apply=$4
+          source_sha=$5
+          expected_script_hash=$6
+          backup_completed_at=$7
+          backup_deployed_sha=$8
           [[ "$deploy_path" =~ ^/[A-Za-z0-9._/-]+$ && "$expected_sha" =~ ^[0-9a-f]{40}$ ]]
           case "$deploy_path/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ && "$expected_script_hash" =~ ^[0-9a-f]{64}$ ]]
           [[ "$mode" = dry-run || "$mode" = apply ]]
           [[ "$confirm_apply" = false || "$confirm_apply" = true ]]
           if [ "$mode" = apply ]; then test "$confirm_apply" = true; fi
@@ -122,19 +154,40 @@ jobs:
           test "$(timeout 15 docker inspect --format '{{.State.Running}}' st-michael-api)" = true
           test "$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' st-michael-api)" = api
           test "$(timeout 15 docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$expected_sha"
-          timeout 31m docker exec -i -e EXPECTED_DEPLOYED_SHA="$expected_sha" -e MODE="$mode" -e CONFIRM_APPLY="$confirm_apply" st-michael-api node -
+          verifier=$(cat <<'VERIFY_SOURCE'
+          "use strict";
+          const crypto = require("node:crypto");
+          let source = Buffer.alloc(0);
+          process.stdin.on("data", chunk => {
+            if (source.length + chunk.length > 1048576) process.exit(1);
+            source = Buffer.concat([source, chunk]);
+          });
+          process.stdin.on("end", () => {
+            const actualHash = crypto.createHash("sha256").update(source).digest("hex");
+            if (actualHash !== process.env.REFRESH_EXPECTED_SCRIPT_HASH) process.exit(1);
+            const Module = require("node:module");
+            const runner = new Module("/app/refresh-agency-profiles.cjs", module);
+            runner.filename = "/app/refresh-agency-profiles.cjs";
+            runner.paths = module.paths;
+            runner._compile(source.toString("utf8"), runner.filename);
+            runner.exports.run().catch(error => {
+              runner.exports.reportFailure(error);
+              process.exitCode = 1;
+            });
+          });
+          VERIFY_SOURCE
+          )
+          export REFRESH_EXPECTED_SCRIPT_HASH="$expected_script_hash"
+          timeout 31m docker exec -i -e EXPECTED_DEPLOYED_SHA="$expected_sha" -e MODE="$mode" -e CONFIRM_APPLY="$confirm_apply" -e REFRESH_SOURCE_SHA="$source_sha" -e REFRESH_EXPECTED_SCRIPT_HASH -e REFRESH_BACKUP_COMPLETED_AT="$backup_completed_at" -e REFRESH_BACKUP_DEPLOYED_SHA="$backup_deployed_sha" st-michael-api node -e "$verifier"
           test "$(git rev-parse HEAD)" = "$expected_sha"
           test "$(stat -Lc '%d:%i' -- "$lock_path")" = "$lock_identity"
           test "$(timeout 15 docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$expected_sha"
           REMOTE
           )
           printf -v quoted_remote '%q' "$remote_command"
-          {
-            cat scripts/refresh-agency-profiles.cjs
-            printf '\nrun().catch(error => { reportFailure(error); process.exitCode = 1; });\n'
-          } | timeout --foreground 32m ssh -i "$private_key" -p "$SSH_PORT" \
+          cat scripts/refresh-agency-profiles.cjs | timeout --foreground 32m ssh -i "$private_key" -p "$SSH_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o NumberOfPasswordPrompts=0 \
             -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
-            "${SSH_USER}@${SSH_HOST}" "bash -c $quoted_remote -- '$DEPLOY_PATH' '$EXPECTED_SHA' '$MODE' '$CONFIRM_APPLY'"
+            "${SSH_USER}@${SSH_HOST}" "bash -c $quoted_remote -- '$DEPLOY_PATH' '$EXPECTED_SHA' '$MODE' '$CONFIRM_APPLY' '$SOURCE_SHA' '$script_hash' '$backup_completed_at' '$backup_deployed_sha'"

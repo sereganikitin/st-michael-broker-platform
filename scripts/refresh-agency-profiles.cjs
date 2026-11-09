@@ -11,6 +11,7 @@ const SAFE_CODES = new Set([
   "NO_ADMIN",
   "SYNC_INCOMPLETE",
   "SOURCE_INCOMPLETE",
+  "BACKUP_NOT_CURRENT",
 ]);
 function fail(code) {
   const error = new Error(code);
@@ -21,13 +22,18 @@ function inputs(env) {
   const mode = env.MODE || "dry-run";
   if (
     !/^[0-9a-f]{40}$/.test(env.EXPECTED_DEPLOYED_SHA || "") ||
+    !/^[0-9a-f]{40}$/.test(env.REFRESH_SOURCE_SHA || "") ||
     !["apply", "dry-run"].includes(mode)
   )
     fail("INVALID_INPUT");
   if (mode === "apply" && env.CONFIRM_APPLY !== "true") fail("INVALID_INPUT");
   if (env.GIT_SHA !== env.EXPECTED_DEPLOYED_SHA || !env.JWT_SECRET)
     fail("INVALID_INPUT");
-  return { mode, sha: env.EXPECTED_DEPLOYED_SHA };
+  return {
+    mode,
+    sha: env.EXPECTED_DEPLOYED_SHA,
+    sourceSha: env.REFRESH_SOURCE_SHA,
+  };
 }
 function signJwt(admin, secret, now = Date.now()) {
   const encode = (value) =>
@@ -35,10 +41,51 @@ function signJwt(admin, secret, now = Date.now()) {
   const data = `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: admin.id, role: "ADMIN", type: "access", authVersion: admin.authVersion, iat: Math.floor(now / 1000), exp: Math.floor(now / 1000) + 1800 })}`;
   return `${data}.${crypto.createHmac("sha256", secret).update(data).digest("base64url")}`;
 }
-async function http(fetchImpl, method, path, token, body, timeoutMs = 30000) {
-  let response;
+const DEFAULT_RESPONSE_BYTES = 1024 * 1024;
+const TARGET_DETAIL_RESPONSE_BYTES = 32 * 1024 * 1024;
+function responseLimit(method, path) {
+  return method === "GET" &&
+    path === `/loyalty-base/ours/agencies/${TARGET_AGENCY_ID}`
+    ? TARGET_DETAIL_RESPONSE_BYTES
+    : DEFAULT_RESPONSE_BYTES;
+}
+async function readBoundedJson(response, limit) {
+  if (!response.body || typeof response.body.getReader !== "function")
+    fail("INVALID_RESPONSE");
+  const length = response.headers?.get("content-length");
+  if (length && /^\d+$/.test(length) && Number(length) > limit) {
+    await response.body.cancel();
+    fail("INVALID_RESPONSE");
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
   try {
-    response = await fetchImpl(`http://127.0.0.1:4000/api${path}`, {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array) || value.byteLength > limit - bytes) {
+        await reader.cancel();
+        fail("INVALID_RESPONSE");
+      }
+      bytes += value.byteLength;
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks, bytes).toString("utf8"));
+  } catch {
+    fail("INVALID_RESPONSE");
+  }
+}
+async function http(fetchImpl, method, path, token, body, timeoutMs = 30000) {
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:4000/api${path}`, {
       method,
       headers: {
         "content-type": "application/json",
@@ -47,14 +94,25 @@ async function http(fetchImpl, method, path, token, body, timeoutMs = 30000) {
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) fail("HTTP_FAILED");
-    const text = await response.text();
-    if (text.length > 1024 * 1024) fail("INVALID_RESPONSE");
-    return JSON.parse(text);
+    if (!response.ok) {
+      await response.body?.cancel();
+      fail("HTTP_FAILED");
+    }
+    return await readBoundedJson(response, responseLimit(method, path));
   } catch (error) {
     if (SAFE_CODES.has(error?.safeCode)) throw error;
     fail("HTTP_FAILED");
   }
+}
+function requireFreshBackup(env, now = Date.now()) {
+  const completedAt = Date.parse(env.REFRESH_BACKUP_COMPLETED_AT || "");
+  if (
+    env.REFRESH_BACKUP_DEPLOYED_SHA !== env.EXPECTED_DEPLOYED_SHA ||
+    !Number.isFinite(completedAt) ||
+    completedAt > now ||
+    now - completedAt >= 6 * 3600000
+  )
+    fail("BACKUP_NOT_CURRENT");
 }
 const COUNT_KEYS = [
   "total",
@@ -186,6 +244,7 @@ function detailReceipt(response) {
 async function run(deps = {}) {
   const env = deps.env || process.env;
   const config = inputs(env);
+  if (config.mode === "apply") requireFreshBackup(env);
   const fetchImpl = deps.fetch || fetch;
   const health = await http(fetchImpl, "GET", "/health");
   if (health.deployedSha !== config.sha) fail("HEALTH_MISMATCH");
@@ -227,9 +286,11 @@ async function run(deps = {}) {
     const receipt = {
       mode: config.mode,
       deployedSha: config.sha,
+      reviewedSourceSha: config.sourceSha,
       targetDryRun: syncReceipt(dry, "dry-run", false),
     };
     if (config.mode === "apply") {
+      requireFreshBackup(env);
       const applied = await http(
         fetchImpl,
         "POST",
@@ -297,6 +358,9 @@ function reportFailure(error) {
   );
 }
 module.exports = {
+  http,
+  responseLimit,
+  requireFreshBackup,
   run,
   reportFailure,
   inputs,
