@@ -561,9 +561,14 @@ export class AmoCrmAdapter {
         process.env.AMO_REDIRECT_URI || "https://broker.stmichael.ru/";
       const subdomain = process.env.AMO_SUBDOMAIN || "stmichael";
       const url = `https://${subdomain}.amocrm.ru/oauth2/access_token`;
+      // Bound both the HTTP request and its body read so every caller waiting
+      // on the shared refresh can reach its existing failure/alert handling.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), AMO_REQUEST_TIMEOUT_MS);
       try {
         const res = await fetch(url, {
           method: "POST",
+          signal: controller.signal,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             client_id: clientId,
@@ -602,6 +607,8 @@ export class AmoCrmAdapter {
       } catch {
         console.error("[amo-refresh] network exception");
         return false;
+      } finally {
+        clearTimeout(timer);
       }
     })();
     try {
