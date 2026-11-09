@@ -384,6 +384,8 @@ type AmoTokens = { access: string; refresh: string };
 type AmoTokenRefreshHook = (tokens: AmoTokens) => Promise<void> | void;
 type AmoRequestOptions = {
   retryTransient?: boolean;
+  retryRateLimit?: boolean;
+  deadlineAt?: number;
   maxResponseBytes?: number;
   timeoutMs?: number;
 };
@@ -630,6 +632,9 @@ export class AmoCrmAdapter {
     attempt = 1,
     didRefresh = false,
   ): Promise<T> {
+    if (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt) {
+      throw new Error("AMO_COMPANY_DEADLINE");
+    }
     if (
       options.maxResponseBytes !== undefined &&
       (!Number.isSafeInteger(options.maxResponseBytes) ||
@@ -645,6 +650,9 @@ export class AmoCrmAdapter {
       noteInteractiveAmoActivity();
     } else {
       await backgroundThrottle();
+    }
+    if (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt) {
+      throw new Error("AMO_COMPANY_DEADLINE");
     }
     if (!this.token) {
       if (
@@ -662,10 +670,12 @@ export class AmoCrmAdapter {
     const safePath = safeAmoRequestPath(path);
     let res: Response;
     const controller = new AbortController();
-    const timeoutMs =
+    const configuredTimeoutMs =
       Number.isSafeInteger(options.timeoutMs) && (options.timeoutMs as number) > 0
         ? (options.timeoutMs as number)
         : AMO_REQUEST_TIMEOUT_MS;
+    const timeoutMs = options.deadlineAt === undefined ? configuredTimeoutMs
+      : Math.max(1, Math.min(configuredTimeoutMs, options.deadlineAt - Date.now()));
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     amoRequestCounter += 1;
     try {
@@ -685,6 +695,7 @@ export class AmoCrmAdapter {
       });
     } catch {
       clearTimeout(timer);
+      if (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt) throw new Error("AMO_COMPANY_DEADLINE");
       // Network-level (timeout, ECONNRESET) — ретраим до 3 раз.
       if (options.retryTransient !== false && attempt < 3) {
         await sleep(500 * attempt);
@@ -710,14 +721,15 @@ export class AmoCrmAdapter {
     // 429 (rate-limit) и 5xx — retry. Уважаем Retry-After если пришёл.
     if (
       options.retryTransient !== false &&
-      (res.status === 429 || res.status >= 500) &&
+      ((res.status === 429 && options.retryRateLimit !== false) || res.status >= 500) &&
       attempt < 4
     ) {
       clearTimeout(timer);
       const retryAfter = Number(res.headers.get("Retry-After")) || 0;
       const wait =
         retryAfter > 0 ? retryAfter * 1000 : 300 * Math.pow(2, attempt); // 300 / 600 / 1200ms
-      await sleep(wait);
+      const remainingWait = options.deadlineAt === undefined ? wait : Math.max(0, Math.min(wait, options.deadlineAt - Date.now()));
+      await sleep(remainingWait);
       return this.request<T>(path, init, options, attempt + 1, didRefresh);
     }
 
@@ -1647,6 +1659,40 @@ export class AmoCrmAdapter {
   }
 
   // === Companies ===
+  /** Complete, bounded GET-only company evidence. Upstream failures stay errors. */
+  async findCompaniesByInnStrict(
+    inn: string,
+    options: { maxPages?: number; deadlineAt?: number } = {},
+  ): Promise<AmoReadonlyScanResult<AmoCompany>> {
+    if (!/^\d{10}$|^\d{12}$/.test(inn)) throw new Error("AMO_COMPANY_INN_INVALID");
+    const maxPages = options.maxPages ?? 4;
+    if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 10) {
+      throw new Error("AMO_COMPANY_PAGE_LIMIT_INVALID");
+    }
+    if (options.deadlineAt !== undefined && !Number.isFinite(options.deadlineAt)) throw new Error("AMO_COMPANY_DEADLINE_INVALID");
+    const items: AmoCompany[] = [];
+    let previousId = 0;
+    for (let page = 1; page <= maxPages; page++) {
+      const params = new URLSearchParams({ query: inn, limit: "250", page: String(page), "order[id]": "asc" });
+      const data = await this.request<any>(`/companies?${params.toString()}`, {}, {
+        maxResponseBytes: AMO_READONLY_MAX_RESPONSE_BYTES,
+        retryRateLimit: false,
+        deadlineAt: options.deadlineAt,
+      });
+      if (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt) throw new Error("AMO_COMPANY_DEADLINE");
+      const rows = data === null ? [] : data?._embedded?.companies;
+      if (!Array.isArray(rows) || rows.length > 250) throw new Error("AMO_COMPANY_PAGE_INVALID");
+      for (const row of rows) {
+        const id = Number(row?.id);
+        if (!Number.isSafeInteger(id) || id <= previousId) throw new Error("AMO_COMPANY_PAGE_ORDER_INVALID");
+        previousId = id;
+        items.push(row);
+      }
+      if (rows.length < 250) return { items, pagesRead: page, complete: true, readAt: new Date().toISOString() };
+    }
+    throw new Error("AMO_COMPANY_PAGE_BOUND_EXCEEDED");
+  }
+
   async findCompanyByInn(inn: string): Promise<AmoCompany | null> {
     try {
       const data = await this.request<any>(
