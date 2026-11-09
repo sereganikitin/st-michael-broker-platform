@@ -299,8 +299,25 @@ test("safe failure handler excludes message stack and untrusted codes", () => {
     console.error = original;
   }
   assert.deepEqual(JSON.parse(output[0]), {
-    agencyProfileRefresh: { status: "FAILED", code: "UNEXPECTED" },
+    agencyProfileRefresh: { status: "FAILED", code: "UNEXPECTED", errorClass: "UNKNOWN", diagnosticCode: null },
   });
+});
+
+test("unexpected failures expose only allowlisted diagnostic classes and codes", () => {
+  const messages = [];
+  const previous = console.error;
+  console.error = value => messages.push(JSON.parse(value));
+  try {
+    reportFailure({ name: "PrismaClientInitializationError", errorCode: "P1001", message: "PRIVATE_DATABASE_URL", stack: "PRIVATE_STACK" });
+    reportFailure({ name: "PRIVATE_NAME", code: "PRIVATE_CODE", message: "PRIVATE_MESSAGE" });
+  } finally {
+    console.error = previous;
+  }
+  assert.equal(messages[0].agencyProfileRefresh.errorClass, "PrismaClientInitializationError");
+  assert.equal(messages[0].agencyProfileRefresh.diagnosticCode, "P1001");
+  assert.equal(messages[1].agencyProfileRefresh.errorClass, "UNKNOWN");
+  assert.equal(messages[1].agencyProfileRefresh.diagnosticCode, null);
+  assert.doesNotMatch(JSON.stringify(messages), /PRIVATE/);
 });
 test("workflow retains exact master, production concurrency, fingerprint and streamed entrypoint gates", () => {
   const workflow = fs.readFileSync(

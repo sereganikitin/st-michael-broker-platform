@@ -348,11 +348,25 @@ async function run(deps = {}) {
   }
 }
 function reportFailure(error) {
+  const classes = new Set([
+    "Error", "TypeError", "SyntaxError", "ReferenceError",
+    "PrismaClientKnownRequestError", "PrismaClientUnknownRequestError",
+    "PrismaClientInitializationError", "PrismaClientValidationError",
+  ]);
+  const rawCode = error?.code || error?.errorCode;
+  const safeCode = typeof rawCode === "string" && (
+    /^P\d{4}$/.test(rawCode) ||
+    ["MODULE_NOT_FOUND", "ERR_INVALID_ARG_TYPE", "ERR_INVALID_STATE", "ECONNREFUSED", "ETIMEDOUT"].includes(rawCode)
+  ) ? rawCode : null;
   console.error(
     JSON.stringify({
       agencyProfileRefresh: {
         status: "FAILED",
         code: SAFE_CODES.has(error?.safeCode) ? error.safeCode : "UNEXPECTED",
+        ...(SAFE_CODES.has(error?.safeCode) ? {} : {
+          errorClass: classes.has(error?.name) ? error.name : "UNKNOWN",
+          diagnosticCode: safeCode,
+        }),
       },
     }),
   );
