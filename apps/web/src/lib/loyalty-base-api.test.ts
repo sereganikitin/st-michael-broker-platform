@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { funnelToCsv } from "../components/loyalty-base/BrokerFunnel";
 import {
   AGENCY_CALL_RESULT_OPTIONS,
   AGENCY_CALL_RESULTS,
@@ -15,6 +16,7 @@ import {
   getLoyaltyList,
   getActiveLoyaltyLinks,
   formatRubles,
+  formatLoyaltyDate,
   hasLoyaltyActivityEvidence,
   loyaltyActivityEvidenceCompleteness,
   loyaltyAvailabilityLabelRu,
@@ -23,6 +25,7 @@ import {
   loyaltyMetricSourceLabelRu,
   loyaltyMetricsForDisplay,
   loyaltyOverviewPath,
+  loyaltyFunnelDrillPath,
   normalizeActiveLinks,
   normalizeImportResult,
   normalizeLoyaltyDetail,
@@ -31,8 +34,10 @@ import {
   normalizeReconciliation,
   publishAnnaImport,
   safeAmoLeadUrl,
+  safeLoyaltyHttpUrl,
   selectLoyaltyLeader,
   stageAnnaImport,
+  type LoyaltyFunnelResponse,
   unlinkActiveLoyaltyLink,
 } from "./loyalty-base-api";
 import {
@@ -2769,6 +2774,37 @@ test("marks unconfirmed backfilled meetings with amoMark for the orange badge", 
   assert.match(componentSource, /meetingAmoMarkLabel\(item\.amoMark\)/);
 });
 
+test("funnel export describes independent cohort shares and Moscow tour dates", () => {
+  const data: LoyaltyFunnelResponse = {
+    mode: "strict",
+    period: { from: "2026-09-30T21:00:00.000Z", to: "2026-11-09T20:59:59.999Z" },
+    cabinetSource: "new",
+    totals: { brokers: 1112, withTourMark: 1112, withTourDate: 1112, withoutTourDate: 0, cohort: 1112, tourYears: { "2026": 1112 }, annaTourUnconfirmed: 0 },
+    funnel: {
+      steps: [
+        { key: "fixation", label: "Сделал фиксацию", count: 2, fromStart: 0.2, fromPrevious: 0.2 },
+        { key: "meeting", label: "Провёл встречу с клиентом", count: 49, fromStart: 4.4, fromPrevious: 2450 },
+      ],
+      medianDays: { tourToFixation: null, fixationToMeeting: null, fixationToDeal: null },
+    },
+    byMonth: [], byAgency: [],
+    noTourFunnel: { brokers: 0, withFixation: 0, withMeeting: 0, withPaidBooking: 0, withDeal: 0 },
+    methodology: { steps: "Каждый показатель независимо считает уникальных брокеров выбранной когорты." },
+  };
+  const csv = funnelToCsv(data);
+  assert.match(csv, /Воронка брокера;после тура/);
+  assert.match(csv, /2026-10-01 — 2026-11-09/);
+  assert.match(csv, /Показатель;Брокеров;% от когорты/);
+  assert.match(csv, /Провёл встречу с клиентом;49;4\.4/);
+  assert.doesNotMatch(csv, /2450|от предыдущей/);
+  assert.match(funnelToCsv({ ...data, mode: "all" }), /Воронка брокера;за всё время/);
+
+  const source = readFileSync(new URL("../components/loyalty-base/BrokerFunnel.tsx", import.meta.url), "utf8");
+  assert.match(source, /<option value="strict">После тура<\/option>/);
+  assert.match(source, /от когорты/);
+  assert.doesNotMatch(source, /fromPrevious|от предыдущей/);
+});
+
 // 2026-09-14 (две просьбы владельца): фильтр по датам должен работать и с
 // одной заполненной границей, а у фиксаций, встреч и сделок должны быть
 // свои даты, не мешающие друг другу.
@@ -3024,4 +3060,204 @@ test("привязка к контакту amo зовёт POST /ours/brokers/:id
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+
+test("OUR agency keeps known local broker counts and labels their scope without borrowing Anna metrics", () => {
+  const ours = normalizeLoyaltyDetail(
+    {
+      base: "ours",
+      item: {
+        id: "agency-1",
+        metrics: { brokers: 27 },
+        attributes: { activeBrokers: 0, activeBrokerWindowDays: 90 },
+      },
+    },
+    "agencies",
+  );
+  assert.equal(ours.annaDetails?.brokerCount, 27);
+  assert.equal(ours.annaDetails?.brokerCountScope, "CABINET_LINKS");
+  assert.equal(ours.annaDetails?.activeBrokers, 0);
+  assert.equal(ours.annaDetails?.activeBrokerWindowDays, 90);
+
+  const anna = normalizeLoyaltyDetail(
+    {
+      base: "anna",
+      item: {
+        id: "agency-1",
+        metrics: { brokers: 27 },
+        attributes: { agencySize: "Среднее" },
+      },
+    },
+    "agencies",
+  );
+  assert.equal(anna.annaDetails?.brokerCount, null);
+  assert.equal(anna.annaDetails?.brokerCountScope, "");
+
+  const unknown = normalizeLoyaltyDetail(
+    { base: "ours", item: { id: "a" } },
+    "agencies",
+  );
+  assert.equal(unknown.annaDetails?.brokerCount, null);
+  assert.equal(unknown.annaDetails?.activeBrokers, null);
+  const blank = normalizeLoyaltyDetail({ base: "ours", item: {
+    attributes: { brokerCount: "" }, metrics: { brokers: 4 },
+  } }, "agencies");
+  assert.equal(blank.annaDetails?.brokerCount, 4);
+});
+
+test("OUR list and linked records retain zero local count with explicit cabinet scope", () => {
+  const list = normalizeLoyaltyList(
+    { items: [{ id: "a", metrics: { brokers: 0 } }] },
+    "ours",
+    "agencies",
+    1,
+    30,
+  );
+  assert.equal(list.items[0].annaDetails?.brokerCount, 0);
+  assert.equal(list.items[0].annaDetails?.brokerCountScope, "CABINET_LINKS");
+  const linked = normalizeLoyaltyDetail(
+    {
+      base: "anna",
+      item: {
+        linkedOurs: { type: "AGENCY", id: "a", linkId: "l" },
+        linkedOurRecord: { id: "a", metrics: { brokers: 12 } },
+      },
+    },
+    "agencies",
+  );
+  assert.equal(linked.linkedOurRecord?.annaDetails?.brokerCount, 12);
+  assert.equal(
+    linked.linkedOurRecord?.annaDetails?.brokerCountScope,
+    "CABINET_LINKS",
+  );
+});
+
+test("agency keeps prior profile after a failed refresh and distinguishes source updates from checks", () => {
+  const detail = normalizeLoyaltyDetail(
+    {
+      base: "ours",
+      item: {
+        id: "a",
+        lastActivityAt: "2026-11-09",
+        attributes: {
+          website: "https://agency.example/",
+          lastContractDate: "2025-11-22",
+          lastContractNumber: "УБ76-12/2025",
+        },
+        sourceFreshness: {
+          source: "AMOCRM_COMPANY",
+          status: "ERROR",
+          lastAttemptAt: "2026-11-09T22:00:00Z",
+          lastSuccessAt: "2026-11-08T22:00:00Z",
+          sourceUpdatedAt: "2026-11-07T09:00:40Z",
+          companyIds: ["43419077", "javascript:bad"],
+          errorCode: "AMO_AUTH_ERROR",
+        },
+        fieldAvailability: {
+          agencySize: {
+            status: "FIELD_NOT_IN_SOURCE",
+            source: "AMOCRM_COMPANY",
+          },
+          website: { status: "AVAILABLE", checkedAt: "2026-11-08T22:00:00Z" },
+          specialTerms: { status: "CONFLICT" },
+          invalid: { status: "SOMETHING_ELSE" },
+        },
+        provenance: [
+          {
+            field: "lastContractDate",
+            source: "amoCRM · компания #43419077",
+            updatedAt: "2026-11-07T09:00:40Z",
+            sourceUpdatedAt: "2026-11-07T09:00:40Z",
+            checkedAt: "2026-11-08T22:00:00Z",
+            sourceUrl: "https://stmichael.amocrm.ru/companies/detail/43419077",
+          },
+        ],
+      },
+    },
+    "agencies",
+  );
+  assert.equal(detail.annaDetails?.website, "https://agency.example/");
+  assert.equal(detail.annaDetails?.lastContractDate, "2025-11-22");
+  assert.equal(detail.annaDetails?.lastContractNumber, "УБ76-12/2025");
+  assert.equal(detail.lastContactAt, "");
+  assert.equal(detail.lastActivityAt, "2026-11-09");
+  assert.equal(detail.sourceFreshness?.status, "ERROR");
+  assert.deepEqual(detail.sourceFreshness?.companyIds, ["43419077"]);
+  assert.equal(detail.sourceFreshness?.lastSuccessAt, "2026-11-08T22:00:00Z");
+  assert.equal(
+    detail.fieldAvailability.agencySize.status,
+    "FIELD_NOT_IN_SOURCE",
+  );
+  assert.equal(detail.fieldAvailability.specialTerms.status, "CONFLICT");
+  assert.equal(detail.fieldAvailability.invalid.status, "NOT_SYNCED");
+  assert.equal(detail.provenance[0].checkedAt, "2026-11-08T22:00:00Z");
+  assert.equal(detail.provenance[0].sourceUpdatedAt, "2026-11-07T09:00:40Z");
+});
+
+test("unknown freshness and unsafe source URLs cannot claim a current linked source", () => {
+  const detail = normalizeLoyaltyDetail(
+    {
+      base: "ours",
+      item: {
+        sourceFreshness: { source: "AMOCRM_COMPANY", status: "unexpected" },
+        provenance: [
+          {
+            field: "website",
+            source: "source",
+            sourceUrl: "javascript:alert(1)",
+          },
+        ],
+      },
+    },
+    "agencies",
+  );
+  assert.equal(detail.sourceFreshness?.status, "NOT_SYNCED");
+  assert.equal(detail.provenance[0].sourceUrl, undefined);
+  const unchecked = normalizeLoyaltyDetail({ item: {
+    sourceFreshness: { source: "AMOCRM_COMPANY", status: "CURRENT", lastSuccessAt: null },
+  } }, "agencies");
+  assert.equal(unchecked.sourceFreshness?.status, "NOT_SYNCED");
+  for (const url of [
+    "javascript:alert(1)",
+    "data:text/html,x",
+    "//evil.example",
+    "https://user:password@example.com",
+    "/local",
+  ])
+    assert.equal(safeLoyaltyHttpUrl(url), "");
+  assert.equal(
+    safeLoyaltyHttpUrl("https://agency.example/path"),
+    "https://agency.example/path",
+  );
+});
+
+test("date-only agency source values do not acquire a fabricated Moscow time", () => {
+  const day = formatLoyaltyDate("2026-11-09");
+  assert.match(day, /9.*нояб.*2026/);
+  assert.doesNotMatch(day, /03:00|00:00/);
+  assert.match(
+    formatLoyaltyDate("2026-11-08T21:30:00Z"),
+    /9.*нояб.*2026.*00:30/,
+  );
+  assert.equal(formatLoyaltyDate("2026-02-30"), "2026-02-30");
+  assert.equal(formatLoyaltyDate(""), "Нет данных");
+});
+
+
+test("funnel drill preserves the exact cohort, mode, source and page", () => {
+  const path = loyaltyFunnelDrillPath("ours", { step: "paidBooking", mode: "strict", from: "2026-09-30T21:00:00.000Z", to: "2026-11-09T20:59:59.999Z", cabinetSource: "new", page: 2, pageSize: 30 });
+  const url = new URL(path, "https://example.test");
+  assert.equal(url.pathname, "/loyalty-base/ours/funnel/drill");
+  for (const [key, value] of Object.entries({ step: "paidBooking", mode: "strict", from: "2026-09-30T21:00:00.000Z", to: "2026-11-09T20:59:59.999Z", cabinetSource: "new", page: "2", pageSize: "30" })) assert.equal(url.searchParams.get(key), value);
+  const workspace = readFileSync(new URL("../components/loyalty-base/LoyaltyBaseWorkspaceV2.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(workspace, /openFunnelDrill|брони отдельно не фильтруются/);
+  const drill = readFileSync(new URL("../components/loyalty-base/BrokerFunnelDrill.tsx", import.meta.url), "utf8");
+  assert.match(drill, /getLoyaltyFunnelDrill/);
+  assert.match(drill, /snapshot.period.from/);
+  assert.match(drill, /snapshot.period.to/);
+  assert.match(drill, /snapshot.cabinetSource/);
+  assert.match(drill, /item.eventAt/);
+  assert.match(drill, /item.eventId/);
+  assert.match(drill, /encodeURIComponent\(item.brokerId\)/);
 });

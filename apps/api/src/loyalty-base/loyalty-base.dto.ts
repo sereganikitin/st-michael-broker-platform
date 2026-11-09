@@ -302,6 +302,25 @@ export class LoyaltyFunnelQueryDto {
   cabinetSource?: "old" | "new" | "all";
 }
 
+// Drill reads the same funnel cohort and qualifying events with bounded pages.
+export class LoyaltyFunnelDrillQueryDto extends LoyaltyFunnelQueryDto {
+  @IsIn(["brokerTour", "fixation", "meeting", "paidBooking", "deal"])
+  step!: "brokerTour" | "fixation" | "meeting" | "paidBooking" | "deal";
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
+}
+
 // 2026-09-07: карточка контакта принимает выбранный «Период встреч и сделок»,
 // чтобы применить его к периодным метрикам карточки (как в списке).
 export class LoyaltyDetailQueryDto {

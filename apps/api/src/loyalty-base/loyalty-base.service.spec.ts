@@ -4715,7 +4715,6 @@ describe("LoyaltyBaseService", () => {
     ["AGENCY", { relationshipStages: ["NEW"] }],
     ["AGENCY", { dataQuality: ["MISSING_PHONE"] }],
     ["AGENCY", { agencySizes: ["LARGE"] }],
-    ["AGENCY", { websitePresent: false }],
     ["AGENCY", { projectsOnSite: ["NO"] }],
   ] as const)(
     "rejects an unsupported OUR %s dimension before a full scan: %j",
@@ -6613,12 +6612,12 @@ describe("LoyaltyBaseService", () => {
         "AGENCY",
         { page: 1, pageSize: 30 } as any,
         undefined,
-        { websitePresent: true } as any,
+        { agencySizes: ["LARGE"] } as any,
       ),
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         code: "LOYALTY_FILTER_UNAVAILABLE",
-        fields: ["websitePresent"],
+        fields: ["agencySizes"],
       }),
     });
   });

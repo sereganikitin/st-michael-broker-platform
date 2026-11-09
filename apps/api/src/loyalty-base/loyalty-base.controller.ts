@@ -42,6 +42,7 @@ import {
   LoyaltyDetailQueryDto,
   LoyaltyExportDto,
   LoyaltyFunnelQueryDto,
+  LoyaltyFunnelDrillQueryDto,
   LoyaltyActivitySummaryDto,
   LoyaltyImportDto,
   LoyaltyListQueryDto,
@@ -136,6 +137,17 @@ export class LoyaltyBaseController {
   ) {
     await this.permissions.require(user, "READ_ALL");
     return this.loyalty.brokerFunnel(base, query);
+  }
+
+  @Get(":base/funnel/drill")
+  async funnelDrill(
+    @Param("base") base: string,
+    @Query() query: LoyaltyFunnelDrillQueryDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    await this.permissions.require(user, "READ_ALL");
+    const result = await this.loyalty.brokerFunnel(base, query, query);
+    return result.drill;
   }
 
   @Get(":base/brokers")
