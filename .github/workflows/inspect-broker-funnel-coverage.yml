@@ -34,16 +34,5 @@ jobs:
             printf '%s' "$AUDIT_SHA" | grep -Eq '^[0-9a-f]{40}$'
             git fetch https://github.com/sereganikitin/st-michael-broker-platform.git audit/broker-tour-20261109
             test "$(git rev-parse FETCH_HEAD)" = "$AUDIT_SHA"
-            case '${{ inputs.audit_type }}' in
-              funnel) SCRIPT=scripts/audit-broker-tour-current.cjs ;;
-              open_period) SCRIPT=scripts/probe-loyalty-open-period.cjs ;;
-              release_status)
-                api_builds=$(pgrep -fc '[d]ocker compose.*build api' || true)
-                web_builds=$(pgrep -fc '[d]ocker compose.*build web' || true)
-                printf 'RELEASE_PHASE api_build_processes=%s web_build_processes=%s\n' "$api_builds" "$web_builds"
-                docker exec st-michael-api node -e 'fetch("http://localhost:4000/api/health").then(r=>r.json()).then(j=>console.log("RELEASE_HEALTH "+JSON.stringify({status:j.status,deployedSha:j.deployedSha}))).catch(()=>process.exit(1))'
-                exit 0
-                ;;
-              *) exit 1 ;;
-            esac
+            case '${{ inputs.audit_type }}' in funnel) SCRIPT=scripts/audit-broker-tour-current.cjs ;; open_period) SCRIPT=scripts/probe-loyalty-open-period.cjs ;; release_status) SCRIPT=scripts/probe-release-phase.cjs ;; *) exit 1 ;; esac
             git show "$AUDIT_SHA:$SCRIPT" | docker exec -i st-michael-api node
