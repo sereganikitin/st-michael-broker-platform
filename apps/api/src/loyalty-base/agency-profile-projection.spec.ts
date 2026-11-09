@@ -31,6 +31,14 @@ describe("agency profile evidence projection", () => {
     expect(target.sourceFreshness.errorCode).toBe("AMO_AUTH_ERROR");
   });
 
+  it("does not show a previous legal entity profile after the agency INN changes", () => {
+    const target = item();
+    applyAgencyCompanyProjection({ inn: "7700000001", amoCompanySync: { ...snapshot(), profile: { ...snapshot().profile, _sourceInn: "7700000002" } } }, target, now);
+    expect(target.attributes.lastContractNumber).toBeUndefined();
+    expect(target.sourceFreshness).toMatchObject({ status: "ERROR", errorCode: "AGENCY_IDENTITY_CHANGED", lastSuccessAt: null });
+    expect(target.agreementHistory).toEqual([]);
+  });
+
   it("separates stale, absent and conflicting evidence", () => {
     const stale = item();
     applyAgencyCompanyProjection({ amoCompanySync: { ...snapshot(), lastSuccessAt: "2026-11-01T00:00:00Z" } }, stale, now);

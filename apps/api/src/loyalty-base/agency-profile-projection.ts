@@ -27,20 +27,23 @@ const numericIds = (value: unknown): string[] => Array.isArray(value)
 
 /** Attach stored CRM evidence without making any CRM requests during page reads. */
 export function applyAgencyCompanyProjection(record: any, item: any, now = new Date()) {
-  const snapshot = record?.amoCompanySync;
-  const profile = object(snapshot?.profile);
+  const stored = record?.amoCompanySync;
+  const storedInn = object(stored?.profile)._sourceInn;
+  const identityChanged = storedInn !== undefined && storedInn !== String(record?.inn || "").replace(/\D/g, "");
+  const snapshot = identityChanged ? null : stored;
+  const { _sourceInn, ...profile } = object(snapshot?.profile);
   const conflicts = object(snapshot?.conflicts);
   const sources = object(snapshot?.fieldSources);
   const lastSuccessAt = iso(snapshot?.lastSuccessAt);
   const companyIds = numericIds(snapshot?.companyIds);
-  const status = snapshot?.errorCode ? "ERROR"
+  const status = identityChanged || snapshot?.errorCode ? "ERROR"
     : !lastSuccessAt ? "NOT_SYNCED"
       : now.getTime() - Date.parse(lastSuccessAt) > 36 * 60 * 60 * 1000 ? "STALE" : "CURRENT";
   item.sourceFreshness = {
     source: "AMOCRM_COMPANY", status,
     lastAttemptAt: iso(snapshot?.lastAttemptAt), lastSuccessAt,
     sourceUpdatedAt: iso(snapshot?.sourceUpdatedAt), companyIds,
-    errorCode: snapshot?.errorCode ? String(snapshot.errorCode) : null,
+    errorCode: identityChanged ? "AGENCY_IDENTITY_CHANGED" : snapshot?.errorCode ? String(snapshot.errorCode) : null,
   };
   item.attributes = { ...item.attributes, ...profile };
   item.attributes.brokerCount = item.metrics?.brokers ?? null;

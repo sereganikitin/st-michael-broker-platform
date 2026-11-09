@@ -182,6 +182,7 @@ export function resolveAgencyCompanyProfile(
     companyIds: unique(matched.map((entry) => entry.companyId)),
     status: matched.length ? "LINKED" : "NOT_FOUND",
     profile: {
+      _sourceInn: normalizedInn,
       website: null,
       companyType: null,
       industry: null,

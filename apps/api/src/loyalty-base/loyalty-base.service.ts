@@ -12542,6 +12542,7 @@ export class LoyaltyBaseService {
       item.attributes.activeBrokers = null;
     } else {
       const active = new Set<string>();
+      let available = true;
       for (let offset = 0; offset < ids.length; offset += CANDIDATE_QUERY_BATCH_SIZE) {
         const batch = ids.slice(offset, offset + CANDIDATE_QUERY_BATCH_SIZE);
         const rows = await Promise.all([
@@ -12550,9 +12551,13 @@ export class LoyaltyBaseService {
           this.prisma.deal.groupBy({ by: ["brokerId"], where: { brokerId: { in: batch }, ...this.ourConfirmedDealWhere({ from, to }) } }),
           this.registryDealModel.groupBy({ by: ["brokerId"], where: { brokerId: { in: batch }, paidAt: { gte: from, lte: to } } }),
         ]);
+        if (rows.some((result) => !Array.isArray(result))) {
+          available = false;
+          break;
+        }
         for (const row of rows.flat()) if (row.brokerId) active.add(String(row.brokerId));
       }
-      item.attributes.activeBrokers = active.size;
+      item.attributes.activeBrokers = available ? active.size : null;
     }
     item.fieldAvailability.activeBrokers = { status: item.attributes.activeBrokers === null ? "NOT_SYNCED" : "AVAILABLE", source: "CABINET", checkedAt: to.toISOString() };
     item.provenance.push({ field: "activeBrokers", source: "Кабинет · уникальные связанные брокеры с фиксацией, клиентской встречей или ДДУ за 90 дней", updatedAt: to.toISOString(), checkedAt: to.toISOString() });
