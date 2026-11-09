@@ -1,0 +1,140 @@
+name: Refresh agency profiles through deployed HTTP API
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+        required: true
+      confirm_apply:
+        type: boolean
+        default: false
+      expected_deployed_sha:
+        type: string
+        required: true
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate reviewed master and inputs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ inputs.expected_deployed_sha }}
+          MODE: ${{ inputs.mode }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_REPOSITORY" = sereganikitin/st-michael-broker-platform
+          test "$SOURCE_REF" = refs/heads/master
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$SOURCE_SHA" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          [[ "$MODE" = dry-run || "$MODE" = apply ]]
+          if [ "$MODE" = apply ]; then test "$CONFIRM_APPLY" = true; fi
+          master_sha=$(gh api repos/sereganikitin/st-michael-broker-platform/git/ref/heads/master --jq '.object.sha')
+          test "$master_sha" = "$SOURCE_SHA"
+          node --test scripts/refresh-agency-profiles.test.cjs
+          test "$(git show "$SOURCE_SHA:scripts/refresh-agency-profiles.cjs" | sha256sum | cut -d' ' -f1)" = "$(sha256sum scripts/refresh-agency-profiles.cjs | cut -d' ' -f1)"
+      - name: Stream reviewed refresh into existing API container
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          EXPECTED_SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          EXPECTED_SHA: ${{ inputs.expected_deployed_sha }}
+          MODE: ${{ inputs.mode }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" -a -n "$SSH_USER" -a -n "$SSH_PRIVATE_KEY" -a -n "$DEPLOY_PATH"
+          case "$SSH_HOST" in ""|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && test "$SSH_PORT" -ge 1 -a "$SSH_PORT" -le 65535
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY_PATH/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_SSH_FINGERPRINT" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
+          [[ "$MODE" = dry-run || "$MODE" = apply ]]
+          [[ "$CONFIRM_APPLY" = false || "$CONFIRM_APPLY" = true ]]
+          if [ "$MODE" = apply ]; then test "$CONFIRM_APPLY" = true; fi
+          master_sha=$(gh api repos/sereganikitin/st-michael-broker-platform/git/ref/heads/master --jq '.object.sha')
+          test "$master_sha" = "$EXPECTED_SHA"
+          root=$(mktemp -d)
+          known_hosts="$root/known_hosts"
+          private_key="$root/deploy-key"
+          trap 'rm -f -- "$known_hosts" "$private_key"; rmdir -- "$root" 2>/dev/null || true' EXIT
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$private_key"
+          chmod 600 "$private_key"
+          timeout 15 ssh-keyscan -p "$SSH_PORT" -t ed25519 "$SSH_HOST" > "$known_hosts" 2>/dev/null
+          mapfile -t fingerprints < <(ssh-keygen -lf "$known_hosts" -E sha256 | awk '{print $2}' | sort -u)
+          test "${#fingerprints[@]}" -eq 1
+          test "${fingerprints[0]}" = "$EXPECTED_SSH_FINGERPRINT"
+          remote_command=$(cat <<'REMOTE'
+          set -euo pipefail
+          deploy_path=$1
+          expected_sha=$2
+          mode=$3
+          confirm_apply=$4
+          [[ "$deploy_path" =~ ^/[A-Za-z0-9._/-]+$ && "$expected_sha" =~ ^[0-9a-f]{40}$ ]]
+          case "$deploy_path/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          [[ "$mode" = dry-run || "$mode" = apply ]]
+          [[ "$confirm_apply" = false || "$confirm_apply" = true ]]
+          if [ "$mode" = apply ]; then test "$confirm_apply" = true; fi
+          deploy_root=$(readlink -f -- "$deploy_path")
+          test -n "$deploy_root" -a "$deploy_root" != / -a -d "$deploy_root"
+          lock_path=/tmp/st-michael-production-deploy.lock
+          test -f "$lock_path" -a ! -L "$lock_path"
+          lock_identity=$(stat -Lc '%d:%i' -- "$lock_path")
+          exec 9<"$lock_path"
+          test "$(stat -Lc '%d:%i' -- /proc/$$/fd/9)" = "$lock_identity"
+          flock -n 9 || { echo production_lock_busy=true; exit 1; }
+          test "$(stat -Lc '%d:%i' -- "$lock_path")" = "$lock_identity"
+          cd -- "$deploy_root"
+          test "$(git rev-parse --show-toplevel)" = "$deploy_root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
+          test "$(git rev-parse HEAD)" = "$expected_sha"
+          test -z "${DOCKER_HOST:-}" -a -z "${DOCKER_CONTEXT:-}"
+          test "$(timeout 15 docker context show)" = default
+          test "$(timeout 15 docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          test -S /var/run/docker.sock
+          test "$(timeout 15 docker inspect --format '{{.State.Running}}' st-michael-api)" = true
+          test "$(timeout 15 docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' st-michael-api)" = api
+          test "$(timeout 15 docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$expected_sha"
+          timeout 31m docker exec -i -e EXPECTED_DEPLOYED_SHA="$expected_sha" -e MODE="$mode" -e CONFIRM_APPLY="$confirm_apply" st-michael-api node -
+          test "$(git rev-parse HEAD)" = "$expected_sha"
+          test "$(stat -Lc '%d:%i' -- "$lock_path")" = "$lock_identity"
+          test "$(timeout 15 docker exec st-michael-api sh -c 'printf %s "$GIT_SHA"')" = "$expected_sha"
+          REMOTE
+          )
+          printf -v quoted_remote '%q' "$remote_command"
+          {
+            cat scripts/refresh-agency-profiles.cjs
+            printf '\nrun().catch(error => { reportFailure(error); process.exitCode = 1; });\n'
+          } | timeout --foreground 32m ssh -i "$private_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o NumberOfPasswordPrompts=0 \
+            -o HostKeyAlgorithms=ssh-ed25519 -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "${SSH_USER}@${SSH_HOST}" "bash -c $quoted_remote -- '$DEPLOY_PATH' '$EXPECTED_SHA' '$MODE' '$CONFIRM_APPLY'"
