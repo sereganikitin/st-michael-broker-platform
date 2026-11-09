@@ -40,10 +40,12 @@ async function main() {
         snapshotId: dataset.activeSnapshotId, entityType: "AGENCY", OR: [{ taxId: "9702028892" }, { organizationId: { in: links.map((l) => l.organizationId).filter(Boolean) } }],
       }, select: { id: true, organizationId: true, displayName: true, taxId: true, sourceKey: true, createdAt: true, attributes: true } }) : [];
       console.log("AGENCY_AUDIT_SOURCE_READ");
+      const allAgencyInns = await tx.agency.findMany({ select: { id:true,inn:true } });
+      const scopeQuality = { total: allAgencyInns.length, invalidInnIds: allAgencyInns.filter(a => !/^\d{10}$|^\d{12}$/.test(String(a.inn||" ").replace(/\D/g,""))).map(a=>a.id) };
       const registry = await tx.registryDeal.findUnique({ where: { id: "f88e7073-ee5a-4be5-bae2-26d082a71c0b" }, select: { id:true, contractNumber:true, project:true, signedAt:true, paidAt:true, amount:true, sqm:true, floor:true, building:true, apartmentNumber:true, objectSource:true, amoLeadId:true, brokerId:true, brokerAmoContactId:true } });
       const syncRuns = await tx.loyaltySyncRun.findMany({ where: { source: "AMOCRM" }, orderBy: { startedAt: "desc" }, take: 5, select: { status: true, ruleVersion: true, startedAt: true, completedAt: true, errorCode: true, counts: true } });
       return {
-        agencies, brokers, links, registry,
+        agencies, brokers, links, registry, scopeQuality,
         sourceRecords: sourceRecords.map((r) => ({ ...r, attributes: Object.fromEntries(fields.map((key) => [key, r.attributes?.[key] ?? null])) })),
         syncRuns,
       };
@@ -51,7 +53,7 @@ async function main() {
     console.log("AGENCY_AUDIT_QUERIES_COMPLETE");
     console.log("AGENCY_AUDIT_RESULT " + JSON.stringify({
       checkedAt: new Date().toISOString(), deployedSha: process.env.GIT_SHA,
-      agencies: result.agencies.map(a => ({id:a.id,inn:a.inn,brokerRelations:a._count.brokerAgencies})), registry: result.registry, matchingAgencies: result.agencies.length, localRelations: result.brokers.length, confirmedAnnaLinks: result.links.length, annaRecords: result.sourceRecords.length,
+      scopeQuality: result.scopeQuality, agencies: result.agencies.map(a => ({id:a.id,inn:a.inn,brokerRelations:a._count.brokerAgencies})), registry: result.registry, matchingAgencies: result.agencies.length, localRelations: result.brokers.length, confirmedAnnaLinks: result.links.length, annaRecords: result.sourceRecords.length,
       amoConfigured: Boolean(process.env.AMO_ACCESS_TOKEN), touchSyncEnabled: process.env.AMO_TOUCH_SYNC_ENABLED !== "false",
       opsTokenConfigured: Boolean(process.env.OPS_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN),
       opsRecipientsConfigured: Boolean(process.env.OPS_ALERT_CHAT_ID || process.env.OPS_ALERT_CHAT_IDS),
