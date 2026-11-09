@@ -19,12 +19,14 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
+          fingerprint: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
           script_stop: true
           command_timeout: 10m
           script: |
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
-            git fetch origin master
-            git show origin/master:scripts/inspect-broker-funnel-coverage.js > /tmp/inspect-broker-funnel-coverage.js
-            docker cp /tmp/inspect-broker-funnel-coverage.js st-michael-api:/app/scripts/inspect-broker-funnel-coverage.js
-            docker compose exec -T api node /app/scripts/inspect-broker-funnel-coverage.js
+            AUDIT_SHA='${{ github.sha }}'
+            printf '%s' "$AUDIT_SHA" | grep -Eq '^[0-9a-f]{40}$'
+            git fetch https://github.com/sereganikitin/st-michael-broker-platform.git audit/broker-tour-20261109
+            test "$(git rev-parse FETCH_HEAD)" = "$AUDIT_SHA"
+            git show "$AUDIT_SHA:scripts/audit-broker-tour-current.cjs" | docker exec -i st-michael-api node
