@@ -2,7 +2,7 @@
 
 // 2026-09-08 (владелец): воронка брокера «Был на брокер-туре → фиксация →
 // встреча → платная бронь → сделка». Карточка в обзоре + окно с режимами
-// «строго после тура / за всё время», периодом по дате тура, источником
+// «после тура / за всё время», периодом по дате тура, источником
 // фиксаций, когортами по месяцам, разрезом по агентствам и обратной воронкой.
 // Графики — чистый CSS/SVG, без библиотек. Данные — GET /loyalty-base/ours/funnel.
 
@@ -60,16 +60,18 @@ function csvCell(value: unknown): string {
 export function funnelToCsv(data: LoyaltyFunnelResponse): string {
   const rows: Array<Array<unknown>> = [];
   const push = (...cells: unknown[]) => rows.push(cells);
-  push("Воронка брокера", data.mode === "strict" ? "строго после тура" : "за всё время");
-  push("Период по дате тура", data.period.from ? `${data.period.from.slice(0, 10)} — ${data.period.to?.slice(0, 10) || ""}` : "за всё время");
+  const moscowDate = (value: string) => new Date(Date.parse(value) + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  push("Воронка брокера", data.mode === "strict" ? "после тура" : "за всё время");
+  push("Период по дате тура", data.period.from ? `${moscowDate(data.period.from)} — ${data.period.to ? moscowDate(data.period.to) : ""}` : "за всё время");
   push("Источник фиксаций", data.cabinetSource === "old" ? "старый кабинет" : data.cabinetSource === "new" ? "новый кабинет" : "оба");
   push("Брокеров всего", data.totals.brokers);
   push("С отметкой тура", data.totals.withTourMark);
   push("С датой тура", data.totals.withTourDate);
   push("В когорте", data.totals.cohort);
   push();
-  push("Ступень", "Брокеров", "% от предыдущей", "% от тура");
-  for (const step of data.funnel.steps) push(step.label, step.count, step.fromPrevious ?? "", step.fromStart ?? "");
+  push("Показатель", "Брокеров", "% от когорты");
+  for (const step of data.funnel.steps) push(step.label, step.count, step.fromStart ?? "");
+  push("Методика показателей", data.methodology.steps);
   push();
   push("Медиана дней: тур → фиксация", data.funnel.medianDays.tourToFixation ?? "");
   push("Медиана дней: фиксация → встреча", data.funnel.medianDays.fixationToMeeting ?? "");
@@ -123,7 +125,7 @@ function FunnelBars({
                 <b>{fmt(step.count)}</b>
                 {index > 0 && (
                   <span className="ml-2 text-xs text-text-muted">
-                    {pct(step.fromPrevious)} от предыдущей · {pct(step.fromStart)} от тура
+                    {pct(step.fromStart)} от когорты
                   </span>
                 )}
               </span>
@@ -197,7 +199,8 @@ export function BrokerFunnelPanel({
         <div>
           <h2 className="font-semibold">Воронка брокера: тур → фиксация → встреча → бронь → сделка</h2>
           <p className="text-xs text-text-muted">
-            Уникальные брокеры, строго после даты тура, за всё время наблюдений.
+            Уникальные брокеры после даты тура, за всё время наблюдений.
+            Каждый показатель считается отдельно, доля — от всей когорты.
             {data ? ` В когорте ${fmt(data.totals.cohort)} брокеров с датой тура; ещё ${fmt(data.totals.withoutTourDate)} с отметкой без даты.` : ""}
           </p>
         </div>
@@ -289,7 +292,7 @@ export function BrokerFunnelModal({
           <div>
             <h2 className="text-lg font-semibold">Воронка брокера</h2>
             <p className="text-xs text-text-muted">
-              Был на брокер-туре → сделал фиксацию → провёл встречу с клиентом → платная бронь → сделка. Уникальные брокеры, правила те же, что в KPI «Нашей базы».
+              Уникальные брокеры с посещением тура, фиксациями, встречами, платными бронями и сделками. Каждый показатель считается отдельно по правилам KPI «Нашей базы».
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -308,7 +311,7 @@ export function BrokerFunnelModal({
           <label className="block text-sm">
             <span className="text-xs text-text-muted">Режим</span>
             <select className="input mt-1" value={mode} onChange={(event) => setMode(event.target.value as Mode)}>
-              <option value="strict">Строго после тура</option>
+              <option value="strict">После тура</option>
               <option value="all">За всё время</option>
             </select>
           </label>
@@ -342,6 +345,10 @@ export function BrokerFunnelModal({
             </select>
           </label>
         </div>
+
+        <p className="mt-2 text-xs text-text-muted">
+          Источник «старый / новый кабинет» влияет только на фиксации. Доли всех показателей считаются от выбранной когорты брокеров.
+        </p>
 
         {error && (
           <div className="mt-4 flex justify-between rounded-lg bg-error/10 p-3 text-sm text-error">

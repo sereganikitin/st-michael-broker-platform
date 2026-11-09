@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { funnelToCsv } from "../components/loyalty-base/BrokerFunnel";
 import {
   AGENCY_CALL_RESULT_OPTIONS,
   AGENCY_CALL_RESULTS,
@@ -33,6 +34,7 @@ import {
   safeAmoLeadUrl,
   selectLoyaltyLeader,
   stageAnnaImport,
+  type LoyaltyFunnelResponse,
   unlinkActiveLoyaltyLink,
 } from "./loyalty-base-api";
 import {
@@ -2767,6 +2769,37 @@ test("marks unconfirmed backfilled meetings with amoMark for the orange badge", 
   );
   assert.match(componentSource, /item\.amoMark/);
   assert.match(componentSource, /meetingAmoMarkLabel\(item\.amoMark\)/);
+});
+
+test("funnel export describes independent cohort shares and Moscow tour dates", () => {
+  const data: LoyaltyFunnelResponse = {
+    mode: "strict",
+    period: { from: "2026-09-30T21:00:00.000Z", to: "2026-11-09T20:59:59.999Z" },
+    cabinetSource: "new",
+    totals: { brokers: 1112, withTourMark: 1112, withTourDate: 1112, withoutTourDate: 0, cohort: 1112, tourYears: { "2026": 1112 }, annaTourUnconfirmed: 0 },
+    funnel: {
+      steps: [
+        { key: "fixation", label: "Сделал фиксацию", count: 2, fromStart: 0.2, fromPrevious: 0.2 },
+        { key: "meeting", label: "Провёл встречу с клиентом", count: 49, fromStart: 4.4, fromPrevious: 2450 },
+      ],
+      medianDays: { tourToFixation: null, fixationToMeeting: null, fixationToDeal: null },
+    },
+    byMonth: [], byAgency: [],
+    noTourFunnel: { brokers: 0, withFixation: 0, withMeeting: 0, withPaidBooking: 0, withDeal: 0 },
+    methodology: { steps: "Каждый показатель независимо считает уникальных брокеров выбранной когорты." },
+  };
+  const csv = funnelToCsv(data);
+  assert.match(csv, /Воронка брокера;после тура/);
+  assert.match(csv, /2026-10-01 — 2026-11-09/);
+  assert.match(csv, /Показатель;Брокеров;% от когорты/);
+  assert.match(csv, /Провёл встречу с клиентом;49;4\.4/);
+  assert.doesNotMatch(csv, /2450|от предыдущей/);
+  assert.match(funnelToCsv({ ...data, mode: "all" }), /Воронка брокера;за всё время/);
+
+  const source = readFileSync(new URL("../components/loyalty-base/BrokerFunnel.tsx", import.meta.url), "utf8");
+  assert.match(source, /<option value="strict">После тура<\/option>/);
+  assert.match(source, /от когорты/);
+  assert.doesNotMatch(source, /fromPrevious|от предыдущей/);
 });
 
 // 2026-09-14 (две просьбы владельца): фильтр по датам должен работать и с

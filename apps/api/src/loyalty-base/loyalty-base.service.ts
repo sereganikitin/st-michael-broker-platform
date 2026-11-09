@@ -5810,8 +5810,7 @@ export class LoyaltyBaseService {
    * оплаченный ДВОУ, сделка — оплаченный ДДУ реестра или подтверждённая
    * сделка кабинета. Режимы: strict — событие только не раньше даты тура
    * (брокеры без даты тура выносятся отдельно), all — за всё время.
-   * Период — по дате тура (когорта). Данные о турах: отметка/дата из amo,
-   * даты есть только с 2026 г. (ограничение источника, а не расчёта).
+   * Период — по дате тура (когорта). Отметка и дата тура берутся из amo.
    */
   async brokerFunnel(baseInput: string, query: LoyaltyFunnelQueryDto) {
     const base = this.parseBase(baseInput);
@@ -5873,37 +5872,70 @@ export class LoyaltyBaseService {
           },
         });
     const ids = brokers.map((b) => b.id);
-    const firstFix = new Map<string, Date>();
-    const firstMeet = new Map<string, Date>();
-    const firstBooking = new Map<string, Date>();
-    const firstDeal = new Map<string, Date>();
-    const keepMin = (map: Map<string, Date>, id: unknown, value: unknown) => {
+    const lifetime = {
+      fixation: new Map<string, Date>(),
+      meeting: new Map<string, Date>(),
+      booking: new Map<string, Date>(),
+      deal: new Map<string, Date>(),
+    };
+    const afterTour = {
+      fixation: new Map<string, Date>(),
+      meeting: new Map<string, Date>(),
+      booking: new Map<string, Date>(),
+      deal: new Map<string, Date>(),
+    };
+    const selected = mode === "strict" ? afterTour : lifetime;
+    const firstFix = selected.fixation;
+    const firstMeet = selected.meeting;
+    const firstBooking = selected.booking;
+    const firstDeal = selected.deal;
+    const firstMeetingAfterFix = new Map<string, Date>();
+    const firstDealAfterFix = new Map<string, Date>();
+    const tourDates = new Map<string, Date>();
+    for (const broker of brokers) {
+      if (!broker.brokerTourVisited || !broker.brokerTourDate) continue;
+      const date = new Date(broker.brokerTourDate);
+      if (Number.isFinite(date.getTime())) tourDates.set(broker.id, date);
+    }
+    const keepMin = (map: Map<string, Date>, id: string, date: Date) => {
+      const current = map.get(id);
+      if (!current || date < current) map.set(id, date);
+    };
+    const recordEvent = (
+      all: Map<string, Date>,
+      after: Map<string, Date>,
+      id: string,
+      value: unknown,
+      followingFixation?: Map<string, Date>,
+    ) => {
       if (!id || !value) return;
       const date = new Date(value as any);
       if (!Number.isFinite(date.getTime())) return;
-      const current = map.get(String(id));
-      if (!current || date < current) map.set(String(id), date);
+      keepMin(all, id, date);
+      const tour = tourDates.get(id);
+      if (tour && date >= tour) keepMin(after, id, date);
+      const fixation = firstFix.get(id);
+      if (followingFixation && fixation && date >= fixation) {
+        keepMin(followingFixation, id, date);
+      }
     };
     for (let offset = 0; offset < ids.length; offset += CANDIDATE_QUERY_BATCH_SIZE) {
       const batch = ids.slice(offset, offset + CANDIDATE_QUERY_BATCH_SIZE);
       const [fixations, meetings, deals, registry] = await Promise.all([
-        (this.prisma.client as any).groupBy({
-          by: ["brokerId"],
+        this.prisma.client.findMany({
           where: { brokerId: { in: batch }, ...fixationClientWhere(cabinetSource) },
-          _min: { createdAt: true },
+          select: { brokerId: true, createdAt: true },
         }),
-        (this.prisma.meeting as any).groupBy({
-          by: ["brokerId"],
+        this.prisma.meeting.findMany({
           where: {
             brokerId: { in: batch },
             status: { in: ["CONFIRMED", "COMPLETED"] }, type: { not: "BROKER_TOUR" },
           },
-          _min: { date: true },
+          select: { brokerId: true, date: true },
         }),
-        (this.prisma.deal as any).groupBy({
-          by: ["brokerId"],
+        this.prisma.deal.findMany({
           where: { brokerId: { in: batch }, ...this.ourConfirmedDealWhere() },
-          _min: { signedAt: true },
+          select: { brokerId: true, signedAt: true },
         }),
         this.registryDealModel
           ? this.registryDealModel.findMany({
@@ -5912,12 +5944,16 @@ export class LoyaltyBaseService {
             })
           : Promise.resolve([]),
       ]);
-      for (const g of (Array.isArray(fixations) ? fixations : []) as any[]) keepMin(firstFix, g.brokerId, g._min?.createdAt);
-      for (const g of (Array.isArray(meetings) ? meetings : []) as any[]) keepMin(firstMeet, g.brokerId, g._min?.date);
-      for (const g of (Array.isArray(deals) ? deals : []) as any[]) keepMin(firstDeal, g.brokerId, g._min?.signedAt);
+      // Do not reduce to the lifetime minimum in SQL: a later event after the
+      // tour must survive even when this broker already worked with us before.
+      // Process all fixation dates in the batch first so transition medians
+      // can find the first meeting/deal following the selected fixation.
+      for (const row of fixations) recordEvent(lifetime.fixation, afterTour.fixation, row.brokerId, row.createdAt);
+      for (const row of meetings) recordEvent(lifetime.meeting, afterTour.meeting, row.brokerId, row.date, firstMeetingAfterFix);
+      for (const row of deals) recordEvent(lifetime.deal, afterTour.deal, row.brokerId, row.signedAt, firstDealAfterFix);
       for (const r of (Array.isArray(registry) ? registry : []) as any[]) {
-        keepMin(firstDeal, r.brokerId, r.paidAt);
-        keepMin(firstBooking, r.brokerId, r.dvouPaidAt);
+        recordEvent(lifetime.deal, afterTour.deal, r.brokerId, r.paidAt, firstDealAfterFix);
+        recordEvent(lifetime.booking, afterTour.booking, r.brokerId, r.dvouPaidAt);
       }
     }
     const inPeriod = (date: Date | null) =>
@@ -5959,20 +5995,22 @@ export class LoyaltyBaseService {
         { key: "meeting", label: "Провёл встречу с клиентом", count: withMeeting.length },
         { key: "paidBooking", label: "Платная бронь (ДВОУ)", count: withBooking.length },
         { key: "deal", label: "Сделка (оплачен ДДУ)", count: withDeal.length },
-      ].map((step, index, all) => ({
+      ].map((step) => ({
         ...step,
-        fromStart: pct(step.count, all[0].count),
-        fromPrevious: index === 0 ? null : pct(step.count, all[index - 1].count),
+        fromStart: pct(step.count, group.length),
+        // Events are independent observations of the same cohort, not a
+        // sequential conversion. Keep the transport field for older clients.
+        fromPrevious: null,
       }));
       const btToFix = group
-        .filter((b) => b.brokerTourDate && firstFix.get(b.id) && (firstFix.get(b.id) as Date) >= new Date(b.brokerTourDate))
-        .map((b) => daysBetween(new Date(b.brokerTourDate), firstFix.get(b.id) as Date));
+        .filter((b) => afterTour.fixation.has(b.id))
+        .map((b) => daysBetween(new Date(b.brokerTourDate), afterTour.fixation.get(b.id) as Date));
       const fixToMeet = group
-        .filter((b) => firstFix.get(b.id) && firstMeet.get(b.id) && (firstMeet.get(b.id) as Date) >= (firstFix.get(b.id) as Date))
-        .map((b) => daysBetween(firstFix.get(b.id) as Date, firstMeet.get(b.id) as Date));
+        .filter((b) => firstMeetingAfterFix.has(b.id))
+        .map((b) => daysBetween(firstFix.get(b.id) as Date, firstMeetingAfterFix.get(b.id) as Date));
       const fixToDeal = group
-        .filter((b) => firstFix.get(b.id) && firstDeal.get(b.id) && (firstDeal.get(b.id) as Date) >= (firstFix.get(b.id) as Date))
-        .map((b) => daysBetween(firstFix.get(b.id) as Date, firstDeal.get(b.id) as Date));
+        .filter((b) => firstDealAfterFix.has(b.id))
+        .map((b) => daysBetween(firstFix.get(b.id) as Date, firstDealAfterFix.get(b.id) as Date));
       return {
         steps,
         medianDays: {
@@ -5986,9 +6024,10 @@ export class LoyaltyBaseService {
     // Когорты по месяцу тура (только с датой): доля с фиксацией за 30/90 дней и со сделкой.
     const byMonthMap = new Map<string, any[]>();
     for (const b of cohort) {
-      if (!b.brokerTourDate) continue;
-      const parts = moscowDateParts(new Date(b.brokerTourDate));
-      const key = `${parts.year}-${String(parts.month).padStart(2, "0")}`;
+      const tour = tourDates.get(b.id);
+      if (!tour) continue;
+      const parts = moscowDateParts(tour);
+      const key = `${parts.year}-${String(parts.month + 1).padStart(2, "0")}`;
       const list = byMonthMap.get(key) || [];
       list.push(b);
       byMonthMap.set(key, list);
@@ -6004,8 +6043,8 @@ export class LoyaltyBaseService {
       .map(([month, group]) => ({
         month,
         brokers: group.length,
-        fixation30: group.filter((b) => within(b, firstFix, 30)).length,
-        fixation90: group.filter((b) => within(b, firstFix, 90)).length,
+        fixation30: group.filter((b) => within(b, afterTour.fixation, 30)).length,
+        fixation90: group.filter((b) => within(b, afterTour.fixation, 90)).length,
         fixationAny: group.filter((b) => reached(firstFix, b)).length,
         meetingAny: group.filter((b) => reached(firstMeet, b)).length,
         dealAny: group.filter((b) => reached(firstDeal, b)).length,
@@ -6034,10 +6073,10 @@ export class LoyaltyBaseService {
     const noTour = brokers.filter((b) => !b.brokerTourVisited);
     const noTourFunnel = {
       brokers: noTour.length,
-      withFixation: noTour.filter((b) => firstFix.has(b.id)).length,
-      withMeeting: noTour.filter((b) => firstMeet.has(b.id)).length,
-      withPaidBooking: noTour.filter((b) => firstBooking.has(b.id)).length,
-      withDeal: noTour.filter((b) => firstDeal.has(b.id)).length,
+      withFixation: noTour.filter((b) => lifetime.fixation.has(b.id)).length,
+      withMeeting: noTour.filter((b) => lifetime.meeting.has(b.id)).length,
+      withPaidBooking: noTour.filter((b) => lifetime.booking.has(b.id)).length,
+      withDeal: noTour.filter((b) => lifetime.deal.has(b.id)).length,
     };
     // Отметки тура из среза Анны у наших сцепленных брокеров без нашей отметки — справочно.
     let annaTourUnconfirmed = 0;
@@ -6086,14 +6125,14 @@ export class LoyaltyBaseService {
           (base === "anna"
             ? "База Анны: берутся только карточки кабинета, подтверждённо сцепленные с её записями; события (фиксации, встречи, брони, сделки) — из кабинета. "
             : "") +
-          "Когорта — брокеры с отметкой «Был на брокер-туре» из amoCRM; период отбирает по дате тура. Даты туров в amo есть только с 2026 года, поэтому для более ранних туров доступен только режим «за всё время».",
+          "Когорта — брокеры с отметкой «Был на брокер-туре» из amoCRM. Период отбирает брокеров по дате тура. Границы календарных дней считаются по Москве. При выборе периода брокеры без даты тура в когорту не входят.",
         strict:
-          "«Строго после тура»: ступень засчитывается, только если первое событие брокера не раньше даты тура. Брокеры без даты тура в этот режим не входят (показаны отдельно).",
-        all: "«За всё время»: ступень засчитывается, если событие есть у брокера когда-либо (в том числе до тура — история старого кабинета).",
+          "В режиме «После тура» учитывается любое подходящее событие не раньше даты тура, даже если у брокера были события до него. Брокеры без даты тура показаны отдельно.",
+        all: "В режиме «За всё время» учитываются подходящие события брокера до и после тура. Выбранный источник кабинета ограничивает только фиксации.",
         steps:
-          "Считаются уникальные брокеры. Фиксация — по правилам фиксации кабинета и выбранному источнику (старый/новый/оба); встреча — подтверждённая или состоявшаяся встреча с клиентом (брокер-тур встречей не считается); платная бронь — оплаченный ДВОУ из реестра; сделка — оплаченный ДДУ из реестра или подтверждённая сделка кабинета.",
+          "Каждый показатель независимо считает уникальных брокеров выбранной когорты. Доля считается от всей когорты. Фиксация определяется по правилам KPI кабинета. Источник «старый/новый/оба» влияет только на фиксации. Встреча — подтверждённая или состоявшаяся встреча с клиентом, кроме брокер-тура. Платная бронь — оплаченный ДВОУ из реестра. Сделка — оплаченный ДДУ из реестра или подтверждённая сделка кабинета.",
         medians:
-          "Медиана дней считается по брокерам, у которых оба события есть и второе не раньше первого.",
+          "Для интервала от тура берётся первая фиксация не раньше тура. Остальные интервалы начинаются с первой фиксации выбранного режима и заканчиваются первым подходящим событием не раньше неё. В режиме «После тура» обе даты относятся к работе после тура. Брокеры без подходящей пары исключаются из медианы.",
         noTour:
           "Обратная воронка — активность брокеров без отметки тура: показывает, какая часть фиксаций и сделок идёт не через брокер-туры.",
       },
