@@ -18,9 +18,8 @@ async function main() {
   try {
     await prisma.$connect();
     console.log("AGENCY_AUDIT_CONNECTED");
-    const result = await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
-      await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '30s'");
+    const result = await (async () => {
+      const tx = prisma;
       console.log("AGENCY_AUDIT_TRANSACTION");
       const agencies = await tx.agency.findMany({ where: { OR: [{ inn: "9702028892" }, { name: { contains: "Онлайн Недвижимость", mode: "insensitive" } }] }, select: {
         id: true, name: true, inn: true, legalName: true, createdAt: true, updatedAt: true,
@@ -48,7 +47,8 @@ async function main() {
         sourceRecords: sourceRecords.map((r) => ({ ...r, attributes: Object.fromEntries(fields.map((key) => [key, r.attributes?.[key] ?? null])) })),
         syncRuns,
       };
-    }, { isolationLevel: "RepeatableRead", timeout: 60000 });
+    })();
+    console.log("AGENCY_AUDIT_QUERIES_COMPLETE");
     const key = crypto.randomBytes(32), iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
     const text = JSON.stringify(result, (_key, value) => typeof value === "bigint" ? value.toString() : value);
