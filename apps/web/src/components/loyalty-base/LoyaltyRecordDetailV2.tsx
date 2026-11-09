@@ -482,7 +482,7 @@ const missingAgencyFieldLabels: Record<string, string> = {
 function AgencySourceFreshness({ record }: { record: LoyaltyRecord }) {
   const freshness = record.sourceFreshness;
   if (!freshness) return null;
-  const message = {
+  const sourceMessage = {
     CURRENT: "Данные amoCRM проверены",
     STALE: "Данные amoCRM ожидают обновления",
     ERROR: freshness.lastSuccessAt
@@ -490,6 +490,13 @@ function AgencySourceFreshness({ record }: { record: LoyaltyRecord }) {
       : "Проверка amoCRM завершилась ошибкой. Успешная загрузка ещё не подтверждена.",
     NOT_SYNCED: "Профиль amoCRM ещё не синхронизирован",
   }[freshness.status];
+  const message = freshness.errorCode === "INVALID_INN"
+    ? "Для сопоставления с amoCRM нужен подтверждённый ИНН агентства."
+    : freshness.errorCode === "COMPANY_NOT_FOUND"
+      ? "Компания с этим ИНН не найдена в amoCRM. Сопоставление требует проверки."
+      : freshness.errorCode === "AGENCY_IDENTITY_CHANGED"
+        ? "ИНН агентства изменился. Требуется новая проверка компании amoCRM."
+        : sourceMessage;
   return (
     <section
       className={`rounded-xl border p-3 text-sm ${freshness.status === "ERROR" || freshness.status === "STALE" ? "border-warning/40 bg-warning/5" : "border-border"}`}

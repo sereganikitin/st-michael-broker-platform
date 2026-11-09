@@ -39,6 +39,14 @@ describe("agency profile evidence projection", () => {
     expect(target.agreementHistory).toEqual([]);
   });
 
+  it("explains an unmatchable identity separately from a failed CRM connection", () => {
+    const target = item();
+    applyAgencyCompanyProjection({ amoCompanySync: { lastAttemptAt: now, errorCode: "INVALID_INN" } }, target, now);
+    expect(target.sourceFreshness).toMatchObject({ status: "NOT_SYNCED", errorCode: "INVALID_INN" });
+    expect(target.fieldAvailability.website.status).toBe("NOT_SYNCED");
+    expect(target.fieldAvailability.agencySize.status).toBe("FIELD_NOT_IN_SOURCE");
+  });
+
   it("separates stale, absent and conflicting evidence", () => {
     const stale = item();
     applyAgencyCompanyProjection({ amoCompanySync: { ...snapshot(), lastSuccessAt: "2026-11-01T00:00:00Z" } }, stale, now);

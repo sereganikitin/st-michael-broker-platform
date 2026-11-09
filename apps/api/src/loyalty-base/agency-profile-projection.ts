@@ -36,7 +36,9 @@ export function applyAgencyCompanyProjection(record: any, item: any, now = new D
   const sources = object(snapshot?.fieldSources);
   const lastSuccessAt = iso(snapshot?.lastSuccessAt);
   const companyIds = numericIds(snapshot?.companyIds);
-  const status = identityChanged || snapshot?.errorCode ? "ERROR"
+  const missingIdentity = snapshot?.errorCode === "INVALID_INN";
+  const status = missingIdentity ? "NOT_SYNCED"
+    : identityChanged || snapshot?.errorCode ? "ERROR"
     : !lastSuccessAt ? "NOT_SYNCED"
       : now.getTime() - Date.parse(lastSuccessAt) > 36 * 60 * 60 * 1000 ? "STALE" : "CURRENT";
   item.sourceFreshness = {
@@ -53,8 +55,8 @@ export function applyAgencyCompanyProjection(record: any, item: any, now = new D
     const value = item.attributes[field];
     const availability = conflicts[field] ? "CONFLICT"
       : value !== null && value !== undefined && value !== "" ? "AVAILABLE"
-        : !lastSuccessAt ? "NOT_SYNCED"
-          : fieldId === null ? "FIELD_NOT_IN_SOURCE" : "EMPTY_IN_SOURCE";
+        : fieldId === null ? "FIELD_NOT_IN_SOURCE"
+          : !lastSuccessAt ? "NOT_SYNCED" : "EMPTY_IN_SOURCE";
     item.fieldAvailability[field] = { status: availability, source: "AMOCRM_COMPANY", checkedAt: lastSuccessAt };
   }
   const subdomain = /^[a-z0-9-]+$/i.test(process.env.AMO_SUBDOMAIN || "")
