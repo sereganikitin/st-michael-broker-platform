@@ -413,6 +413,7 @@ export class AgencyCompanySyncService {
         try {
           await this.prisma.$transaction(async (db) => {
             await this.assertOwnership(db, runId!);
+            await this.assertAgencyIdentity(db, currentAgency!);
             await this.writeAttemptFailure(
               db,
               currentAgency!,
@@ -543,6 +544,17 @@ export class AgencyCompanySyncService {
     if (held.count !== 1) throw new SyncFailure("RUN_OWNERSHIP_LOST");
   }
 
+  private async assertAgencyIdentity(db: Db, agency: AgencyRow): Promise<void> {
+    // Hold the agency row until snapshot and cursor commit, without touching its
+    // updatedAt or manual fields. A concurrent INN edit must precede or follow us.
+    const rows = await db.$queryRaw<
+      AgencyRow[]
+    >`SELECT "id", "inn" FROM "agencies" WHERE "id" = ${agency.id} FOR UPDATE`;
+    const normalize = (inn: string) => String(inn || "").replace(/\D/g, "");
+    if (rows.length !== 1 || normalize(rows[0].inn) !== normalize(agency.inn))
+      throw new SyncFailure("AGENCY_IDENTITY_CHANGED");
+  }
+
   private async checkpoint(
     runId: string,
     agency: AgencyRow,
@@ -559,6 +571,11 @@ export class AgencyCompanySyncService {
     const contentHash =
       resolution && resolution.status !== "NOT_FOUND" ? hash(resolution) : null;
     const write = async (db: Db) => {
+      if (mode === "apply") {
+        this.assertDeadline(deadlineAt);
+        await this.assertOwnership(db, runId);
+        await this.assertAgencyIdentity(db, agency);
+      }
       const existing = await db.agencyAmoCompanySync.findUnique({
         where: { agencyId: agency.id },
         select: { contentHash: true },
@@ -567,7 +584,6 @@ export class AgencyCompanySyncService {
         contentHash !== null && existing?.contentHash !== contentHash;
       if (mode === "apply") {
         this.assertDeadline(deadlineAt);
-        await this.assertOwnership(db, runId);
         if (errorCode)
           await this.writeAttemptFailure(db, agency, attemptAt, errorCode);
         else {

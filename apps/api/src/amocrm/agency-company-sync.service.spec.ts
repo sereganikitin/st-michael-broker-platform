@@ -86,6 +86,11 @@ function fixture(options: any = {}) {
     return true;
   };
   const prisma: any = {
+    $queryRaw: jest.fn(async (_sql: unknown, id: string) =>
+      agencies
+        .filter((row: any) => row.id === id)
+        .map(({ id, inn }: any) => ({ id, inn })),
+    ),
     agency: {
       count: jest.fn(
         async ({ where }) =>
@@ -225,6 +230,80 @@ describe("agency company snapshot sync", () => {
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
+  });
+
+  it("completes all 1008 agencies and starts a fresh full cycle the next day", async () => {
+    const agencies = Array.from({ length: 1008 }, (_, i) => ({
+      id: String(i).padStart(4, "0"),
+      inn: String(7700000000 + i),
+    }));
+    const fx = fixture({ agencies });
+    for (let day = 0; day < 2; day++) {
+      const result = await fx.service.run({ mode: "apply" });
+      expect(result).toMatchObject({
+        status: "SUCCEEDED",
+        stats: {
+          processed: 1008,
+          deferred: 0,
+          resumed: false,
+          cycleComplete: true,
+        },
+      });
+      expect(fx.state().cursor).toBeNull();
+      jest.advanceTimersByTime(86400000);
+    }
+    expect(fx.reader.findCompaniesByInnStrict).toHaveBeenCalledTimes(2016);
+  });
+
+  it.each(["changed", "deleted", "changed-before-error"])(
+    "rejects stale agency identity after a lookup: %s",
+    async (scenario) => {
+      const old = oldSnapshot();
+      const fx = fixture({ snapshots: [old] });
+      fx.reader.findCompaniesByInnStrict.mockImplementationOnce(async () => {
+        if (scenario === "deleted") fx.agencies.splice(0, 1);
+        else fx.agencies[0].inn = INN_B;
+        if (scenario === "changed-before-error")
+          throw new Error("amoCRM 429 /companies");
+        return readResponse();
+      });
+      expect(await fx.service.run({ mode: "apply" })).toMatchObject({
+        status: "FAILED",
+        errorCode: "AGENCY_IDENTITY_CHANGED",
+        stats: { processed: 0 },
+      });
+      expect(fx.snapshots.get("a")).toEqual(old);
+      expect(fx.prisma.agencyAmoCompanySync.upsert).not.toHaveBeenCalled();
+      expect(fx.state().cursor).toBeNull();
+    },
+  );
+
+  it("keeps the source lock until the awaited failure alert completes", async () => {
+    const fx = fixture();
+    let release: () => void = () => undefined;
+    fx.alerts.sendSafely.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          release = () => resolve(true);
+        }),
+    );
+    fx.reader.findCompaniesByInnStrict.mockRejectedValueOnce(
+      new Error("AMO_ACCESS_TOKEN not configured"),
+    );
+    const pending = fx.service.run({ mode: "apply" });
+    for (let i = 0; i < 100 && !fx.alerts.sendSafely.mock.calls.length; i++)
+      await Promise.resolve();
+    expect(fx.alerts.sendSafely).toHaveBeenCalledTimes(1);
+    expect([...fx.runs.values()][0].status).toBe("RUNNING");
+    expect(await fx.service.run({ mode: "apply" })).toMatchObject({
+      status: "SKIPPED",
+    });
+    release();
+    expect(await pending).toMatchObject({
+      status: "FAILED",
+      errorCode: "AMO_AUTH_ERROR",
+    });
+    expect([...fx.runs.values()][0].status).toBe("FAILED");
   });
 
   it("uses the shared AMOCRM lock and existing admin, and writes only the source snapshot", async () => {
