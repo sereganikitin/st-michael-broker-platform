@@ -16,13 +16,17 @@ async function main() {
   console.log("AGENCY_AUDIT_STARTED");
   const prisma = new PrismaClient();
   try {
+    await prisma.$connect();
+    console.log("AGENCY_AUDIT_CONNECTED");
     const result = await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
       await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '30s'");
+      console.log("AGENCY_AUDIT_TRANSACTION");
       const agencies = await tx.agency.findMany({ where: { OR: [{ inn: "9702028892" }, { name: { contains: "Онлайн Недвижимость", mode: "insensitive" } }] }, select: {
         id: true, name: true, inn: true, legalName: true, createdAt: true, updatedAt: true,
         _count: { select: { brokerAgencies: true } },
       } });
+      console.log("AGENCY_AUDIT_AGENCIES_READ");
       const ids = agencies.map((a) => a.id);
       const brokers = await tx.brokerAgency.findMany({ where: { agencyId: { in: ids } }, select: {
         agencyId: true, isPrimary: true, joinedAt: true,
