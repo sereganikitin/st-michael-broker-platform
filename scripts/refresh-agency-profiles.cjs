@@ -270,6 +270,8 @@ async function run(deps = {}) {
         "GET",
         `/loyalty-base/ours/agencies/${TARGET_AGENCY_ID}`,
         token,
+        undefined,
+        120000,
       ),
     );
     if (config.mode === "apply" && receipt.target.sourceStatus !== "CURRENT")
