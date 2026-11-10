@@ -2,8 +2,8 @@
 const crypto = require("node:crypto");
 const { PrismaClient } = require("@st-michael/database");
 // Configure the immutable merged release and pre-deploy legacy cutoff before dispatch.
-const EXPECTED_RELEASE_SHA = "dbebc57c08ac0305aaa415068c397de6d62187c5";
-const LEGACY_BEFORE_UTC = "2026-11-10T08:57:26.000Z";
+const EXPECTED_RELEASE_SHA = "b5154383201aecc2c944ad2e8335685c009e9f1a";
+const LEGACY_BEFORE_UTC = "2026-11-10T09:17:53.000Z";
 const MANUAL_MIGRATION = "20261110000100_agency_manual_profile";
 const RULE = "amo-agency-company-v1";
 const TARGET = "372fa09f-373d-4c13-9ee2-484b75f4f3be";
