@@ -70,6 +70,9 @@ jobs:
       - name: Verify durable Telegram quiet-hours contracts
         run: node --test ops/telegram-quiet-hours.test.js ops/telegram-quiet-gateway.test.js scripts/monitor-plaud-file-names.test.mjs scripts/monitor-plaud-server-runner.test.mjs
 
+      - name: Verify reviewed installment calculator and atomic publisher
+        run: node --test scripts/installment-calculator.test.cjs scripts/publish-installment-calculator-20261110.test.cjs
+
       - name: Verify immutable historical amo agency proof
         run: node --test scripts/fixed-amo-historical-agency-proof.test.js scripts/link-existing-fixed-amo-case.test.js
 
