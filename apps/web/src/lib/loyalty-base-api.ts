@@ -1,3 +1,4 @@
+import type { AgencyManualProfile } from "./agency-profile";
 import { apiDownload, apiGet, apiPatch, apiPost, apiUpload } from "./api";
 import { meetingAmoMark, type MeetingAmoMark } from "./meeting-amo-marks";
 
@@ -864,6 +865,8 @@ export interface LoyaltyRecord {
     partnershipStatus: string;
     legalName: string;
     nextAgreement: string;
+    nextAgreementDueAt: string;
+    partnershipLevel: string;
     specialTerms: string;
     specialTermsStatus: string;
     specialTermsValidUntil: string;
@@ -880,6 +883,8 @@ export interface LoyaltyRecord {
   } | null;
   sourceFreshness: LoyaltySourceFreshness | null;
   fieldAvailability: Record<string, LoyaltyFieldAvailability>;
+  agencyProfileAttributes: Record<string, unknown>;
+  manualProfile: AgencyManualProfile;
   provenance: Array<{
     field: string;
     source: string;
@@ -2330,6 +2335,8 @@ export function normalizeLoyaltyRecord(
       pick(item, "legalName"),
       stringValue(attributes.legalName),
     ),
+    nextAgreementDueAt: stringValue(attributes.nextAgreementDueAt),
+    partnershipLevel: stringValue(attributes.partnershipLevel),
     nextAgreement: stringValue(
       pick(item, "nextAgreement"),
       stringValue(attributes.nextAgreement),
@@ -2669,6 +2676,19 @@ export function normalizeLoyaltyRecord(
     annaDetails: hasAnnaDetails ? annaDetails : null,
     sourceFreshness: normalizeSourceFreshness(item.sourceFreshness),
     fieldAvailability: normalizeFieldAvailability(item.fieldAvailability),
+    agencyProfileAttributes: entityType === "agencies" ? attributes : {},
+    manualProfile: {
+      version: Math.max(
+        1,
+        numberValue(asRecord(item.manualProfile).version, 1),
+      ),
+      attributes: asRecord(
+        asRecord(item.manualProfile).attributes,
+      ) as AgencyManualProfile["attributes"],
+      updatedAt: stringValue(asRecord(item.manualProfile).updatedAt) || null,
+      updatedById:
+        stringValue(asRecord(item.manualProfile).updatedById) || null,
+    },
     provenance: arrayValue(
       pick(item, "provenance", "fieldSources", "sources"),
     ).map(normalizeProvenance),

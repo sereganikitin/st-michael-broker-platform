@@ -87,7 +87,13 @@ function fixture() {
     createCampaign: jest.fn().mockResolvedValue({ id: "campaign", version: 1 }),
     createAssignments: jest.fn().mockResolvedValue({ createdCount: 1 }),
     forTransaction: jest.fn(),
-    prepareCampaign: jest.fn().mockResolvedValue({ filterSnapshot: {}, filterHash: "hash", snapshotId: null }),
+    prepareCampaign: jest
+      .fn()
+      .mockResolvedValue({
+        filterSnapshot: {},
+        filterHash: "hash",
+        snapshotId: null,
+      }),
   };
   workflow.forTransaction.mockReturnValue(workflow);
   const base: any = {
@@ -129,7 +135,8 @@ describe("Agency v1/2 workspace", () => {
     expect(result.cards).toEqual([]);
     expect(result.source.reviewCount).toBeNull();
     expect(
-      f.db.loyaltyCallAssignment.findMany.mock.calls[0][0].where.AND[0].OR[0].assignedToId,
+      f.db.loyaltyCallAssignment.findMany.mock.calls[0][0].where.AND[0].OR[0]
+        .assignedToId,
     ).toBe(user.id);
     expect(f.db.agency.updateMany).not.toHaveBeenCalled();
   });
@@ -162,7 +169,9 @@ describe("Agency v1/2 workspace", () => {
     expect(result.cards[0].tasks).toEqual([
       { id: "own-task", assignedToId: user.id },
     ]);
-    expect(result.cards[0].attempts).toEqual([{ id: "attempt", operatorId: user.id }]);
+    expect(result.cards[0].attempts).toEqual([
+      { id: "attempt", operatorId: user.id },
+    ]);
   });
 
   it("defaults report period to Moscow midnight", async () => {
@@ -412,38 +421,54 @@ describe("Agency v1/2 workspace", () => {
       "COOPERATION_AGREED",
     ]) {
       expect(() =>
-        service.validateAttemptComment("AGENCY", {
-          result,
-          comment: "Synthetic",
-        }, true),
+        service.validateAttemptComment(
+          "AGENCY",
+          {
+            result,
+            comment: "Synthetic",
+          },
+          true,
+        ),
       ).toThrow(BadRequestException);
       expect(() =>
-        service.validateAttemptComment("AGENCY", {
-          result,
-          comment: "Synthetic",
-          nextStep: "Call",
-          nextActionKind: "CALL",
-          nextActionAt: "2026-10-27T12:00:00",
-        }, true),
+        service.validateAttemptComment(
+          "AGENCY",
+          {
+            result,
+            comment: "Synthetic",
+            nextStep: "Call",
+            nextActionKind: "CALL",
+            nextActionAt: "2026-10-27T12:00:00",
+          },
+          true,
+        ),
       ).toThrow(BadRequestException);
       expect(() =>
-        service.validateAttemptComment("AGENCY", {
-          result,
-          comment: "Synthetic",
-          nextStep: "Call",
-          nextActionKind: "CALL",
-          nextActionAt: "2026-10-27T12:00:00+03:00",
-        }, true),
+        service.validateAttemptComment(
+          "AGENCY",
+          {
+            result,
+            comment: "Synthetic",
+            nextStep: "Call",
+            nextActionKind: "CALL",
+            nextActionAt: "2026-10-27T12:00:00+03:00",
+          },
+          true,
+        ),
       ).not.toThrow();
     }
     expect(() =>
-      service.validateAttemptComment("AGENCY", {
-        result: "DO_NOT_CALL",
-        comment: "Stop",
-        nextStep: "Call",
+      service.validateAttemptComment(
+        "AGENCY",
+        {
+          result: "DO_NOT_CALL",
+          comment: "Stop",
+          nextStep: "Call",
           nextActionKind: "CALL",
-        nextActionAt: "2026-10-27T12:00:00Z",
-      }, true),
+          nextActionAt: "2026-10-27T12:00:00Z",
+        },
+        true,
+      ),
     ).toThrow(BadRequestException);
   });
 
@@ -768,4 +793,48 @@ describe("Agency v1/2 workspace", () => {
     ).rejects.toBeInstanceOf(ConflictException);
     expect(f.db.loyaltyCallAttempt.create).not.toHaveBeenCalled();
   });
+});
+
+it("uses explicit factual call dates across metrics while legacy corrections retain root dates and operators", () => {
+  const root = {
+    id: "root",
+    operatorId: "original",
+    occurredAt: new Date("2026-08-20T10:00:00Z"),
+    result: "INFORMED",
+  };
+  const correction = {
+    id: "correction",
+    operatorId: "editor",
+    correctsAttemptId: "root",
+    occurredAt: new Date("2026-09-01T10:00:00Z"),
+    result: "INFORMED",
+    metadata: { callOccurredAt: "2026-08-25T10:00:00Z" },
+  };
+  const cards: any = [
+    { id: "agency", assignments: [], tasks: [], attempts: [root, correction] },
+  ];
+  const originalDay = agencyMetrics(
+    cards,
+    new Date("2026-08-20"),
+    new Date("2026-08-21"),
+    new Date(),
+  );
+  const correctedDay = agencyMetrics(
+    cards,
+    new Date("2026-08-25"),
+    new Date("2026-08-26"),
+    new Date(),
+  );
+  expect(originalDay.attempts).toBe(0);
+  expect(correctedDay.attempts).toBe(1);
+  expect(correctedDay.evidence.attempts[0].eventId).toBe("root");
+  delete (correction as any).metadata;
+  expect(
+    agencyMetrics(
+      cards,
+      new Date("2026-08-20"),
+      new Date("2026-08-21"),
+      new Date(),
+    ).attempts,
+  ).toBe(1);
 });

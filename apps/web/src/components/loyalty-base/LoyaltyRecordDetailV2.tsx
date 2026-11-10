@@ -24,6 +24,8 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useAgencyDraftGuard } from "@/lib/use-agency-draft";
+import { AgencyManualProfileEditor } from "./AgencyManualProfileEditor";
 import {
   formatRubles,
   formatLoyaltyDate,
@@ -693,6 +695,24 @@ function AgencyProfile({ record }: { record: LoyaltyRecord }) {
           label="Следующая договорённость"
           value={details?.nextAgreement || record.nextTask}
         />
+        <AgencyMetric
+          record={record}
+          field="nextAgreementDueAt"
+          label="Срок договорённости"
+          value={details?.nextAgreementDueAt}
+        >
+          {date(details?.nextAgreementDueAt || "")}
+        </AgencyMetric>
+        {details?.partnershipLevel && (
+          <AgencyMetric
+            record={record}
+            field="partnershipLevel"
+            label={record.manualProfile.attributes.partnershipLevel
+              ? "Уровень партнёрства · вручную"
+              : "Уровень партнёрства · источник"}
+            value={details.partnershipLevel}
+          />
+        )}
         <AgencyMetric
           record={record}
           field="specialTerms"
@@ -1947,6 +1967,7 @@ function DetailBody({
   showFullLink?: boolean;
 }) {
   const { broker: me } = useAuth();
+  useAgencyDraftGuard(me?.id || "");
   const [tab, setTab] = useState<Tab>("summary");
   const [tasks, setTasks] = useState<LoyaltyTask[]>([]);
   const [events, setEvents] = useState<LoyaltyEngagementEvent[]>([]);
@@ -2533,7 +2554,30 @@ function DetailBody({
           {record.entityType === "brokers" ? (
             <BrokerProfile record={record} />
           ) : (
-            <AgencyProfile record={record} />
+            <div className="space-y-3">
+              <AgencyProfile record={record} />
+              {base === "ours" && (
+                <AgencyManualProfileEditor
+                  agencyId={record.id}
+                  scope={me?.id || ""}
+                  attributes={record.agencyProfileAttributes}
+                  manualProfile={record.manualProfile}
+                  canEdit={canReadAll && canEdit}
+                  showProfile={false}
+                  onChanged={async () => {
+                    window.location.reload();
+                  }}
+                />
+              )}
+              {base === "ours" && (
+                <Link
+                  className="text-sm text-accent underline"
+                  href={`/admin/agencies-v1-2/workspace?agencyId=${record.id}`}
+                >
+                  Рабочая карточка и звонки
+                </Link>
+              )}
+            </div>
           )}
           {/* 2026-09-07: данные нашей карточки по сцепке (сверка → LINK):
               всё, что найдено/дополнено для нашей базы (телефоны,

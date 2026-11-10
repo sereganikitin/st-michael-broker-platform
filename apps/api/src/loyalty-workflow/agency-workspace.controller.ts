@@ -22,6 +22,7 @@ import {
   AgencyCallControlDto,
   AgencyClaimDto,
   AgencyContactsDto,
+  AgencyManualProfileDto,
   AgencyPilotDto,
   AgencyReassignDto,
   AgencyScriptDto,
@@ -124,6 +125,15 @@ export class AgencyWorkspaceController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     return this.workspace.resumeTask(id, body.expectedVersion, user);
+  }
+
+  @Patch(":id/profile")
+  profile(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body() body: AgencyManualProfileDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.workspace.profile(id, body, user);
   }
 
   @Patch(":id/contacts")

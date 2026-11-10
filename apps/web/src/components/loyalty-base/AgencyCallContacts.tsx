@@ -13,6 +13,7 @@ export type AgencyCallContact = {
   name: string;
   role: string;
   phone: string;
+  email?: string;
   alternatePhone: string;
   source: string;
   verifiedAt: string;
@@ -24,6 +25,7 @@ const empty = (): AgencyCallContact => ({
   name: "",
   role: "",
   phone: "",
+  email: "",
   alternatePhone: "",
   source: "",
   verifiedAt: "",
@@ -73,6 +75,16 @@ export function AgencyCallContacts({
       item: { ...current.item, ...part },
     }));
   async function save(contact: AgencyCallContact, archive = false) {
+    if (
+      !archive &&
+      (!contact.name.trim() ||
+        !contact.source.trim() ||
+        !Number.isFinite(Date.parse(contact.verifiedAt)) ||
+        Date.parse(contact.verifiedAt) > Date.now())
+    ) {
+      setError("Укажите имя, источник и дату проверки, которая уже наступила");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -109,14 +121,18 @@ export function AgencyCallContacts({
               {c.phone || "Основной телефон не указан"}{" "}
               {c.alternatePhone && `· Запасной: ${c.alternatePhone}`}
             </p>
+            {c.email && (
+              <p>
+                <a className="text-accent" href={`mailto:${c.email}`}>
+                  {c.email}
+                </a>
+              </p>
+            )}
             <p className="text-xs text-text-muted">
-              Источник: {c.source} · Проверено{" "}
-              {new Intl.DateTimeFormat("ru-RU", {
-                dateStyle: "short",
-                timeStyle: "short",
-                timeZone: "Europe/Moscow",
-              }).format(new Date(c.verifiedAt))}{" "}
-              МСК
+              Источник: {c.source} ·{" "}
+              {Number.isFinite(Date.parse(c.verifiedAt))
+                ? `Проверено ${new Intl.DateTimeFormat("ru-RU", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Moscow" }).format(new Date(c.verifiedAt))} МСК`
+                : "Дата проверки не указана"}
             </p>
             {canCall && c.phone && c.phone.replace(/\D/g, "").length >= 5 && (
               <a
@@ -199,6 +215,15 @@ export function AgencyCallContacts({
                 maxLength={30}
                 value={draft.alternatePhone}
                 onChange={(e) => patch({ alternatePhone: e.target.value })}
+              />
+              <input
+                aria-label="Email контакта"
+                placeholder="Email"
+                type="email"
+                maxLength={254}
+                className="input"
+                value={draft.email || ""}
+                onChange={(event) => patch({ email: event.target.value })}
               />
               <input
                 aria-label="Источник контакта"

@@ -1,3 +1,5 @@
+import { agencyCallOccurredAt } from "./agency-call-date";
+import { isISO8601 } from "class-validator";
 import {
   BadRequestException,
   ConflictException,
@@ -783,6 +785,7 @@ export class LoyaltyWorkflowService {
     const assignment = await this.attemptAssignment(assignmentId);
     this.requireAssignmentExecution(user, assignment.assignedToId);
     this.validateCallResult(assignment.campaign.entityType, body.result);
+    this.validateAgencyCallMetadata(assignment.campaign.entityType, body);
     if (
       assignment.campaign.entityType === "AGENCY" &&
       body.result === "DO_NOT_CALL" &&
@@ -869,6 +872,10 @@ export class LoyaltyWorkflowService {
             submissionId: body.submissionId,
             operatorId: user.id,
             result: body.result,
+            ...(body.occurredAt
+              ? { occurredAt: new Date(body.occurredAt) }
+              : {}),
+            metadata: this.agencyCallMetadata(body),
             nextActionKind: body.nextActionKind ?? null,
             comment: this.nullable(body.comment),
             nextStep: this.nullable(body.nextStep),
@@ -1050,6 +1057,7 @@ export class LoyaltyWorkflowService {
       nextStep: row.nextStep ?? "",
       nextActionAt: row.nextActionAt,
       occurredAt: row.occurredAt,
+      metadata: row.metadata ?? {},
       correctsAttemptId: row.correctsAttemptId,
       correctionReason: row.correctionReason ?? "",
       operator: this.operatorResponse(row.operator),
@@ -1092,6 +1100,10 @@ export class LoyaltyWorkflowService {
             original.assignment.campaign.entityType,
             body.result,
           );
+          this.validateAgencyCallMetadata(
+            original.assignment.campaign.entityType,
+            body,
+          );
           this.validateAttemptComment(
             original.assignment.campaign.entityType,
             body,
@@ -1108,7 +1120,7 @@ export class LoyaltyWorkflowService {
               existing.assignmentId === assignmentId &&
               existing.operatorId === user.id &&
               existing.correctsAttemptId === attemptId &&
-              this.sameAttemptValues(existing, body) &&
+              this.sameAttemptValues(existing, body, original.metadata) &&
               existing.correctionReason === body.correctionReason;
             if (!compatible) this.idempotencyConflict();
             return { ...existing, idempotent: true };
@@ -1127,6 +1139,7 @@ export class LoyaltyWorkflowService {
               submissionId: body.submissionId,
               operatorId: user.id,
               result: body.result,
+              metadata: this.agencyCallMetadata(body, original.metadata),
               nextActionKind: body.nextActionKind ?? null,
               comment: this.nullable(body.comment),
               nextStep: this.nullable(body.nextStep),
@@ -1218,12 +1231,16 @@ export class LoyaltyWorkflowService {
         const raced = await this.db.loyaltyCallAttempt.findUnique({
           where: { submissionId: body.submissionId },
         });
+        const original = await this.db.loyaltyCallAttempt.findUnique({
+          where: { id: attemptId },
+        });
         if (
           raced &&
+          original &&
           raced.assignmentId === assignmentId &&
           raced.operatorId === user.id &&
           raced.correctsAttemptId === attemptId &&
-          this.sameAttemptValues(raced, body) &&
+          this.sameAttemptValues(raced, body, original.metadata) &&
           raced.correctionReason === body.correctionReason
         ) {
           return { ...raced, idempotent: true };
@@ -2391,10 +2408,62 @@ export class LoyaltyWorkflowService {
     return { ...existing, idempotent: true };
   }
 
+  private validateAgencyCallMetadata(
+    entityType: string,
+    body: CreateAttemptDto | CorrectAttemptDto,
+  ): void {
+    if (
+      ["occurredAt", "interest", "refusalReason", "agreement"].some(
+        (key) => (body as any)[key] !== undefined,
+      ) &&
+      entityType !== "AGENCY"
+    )
+      throw new BadRequestException(
+        "Дополнительные поля звонка доступны для агентств",
+      );
+    if (
+      body.occurredAt &&
+      (!/(Z|[+-]\d{2}:\d{2})$/.test(body.occurredAt) ||
+        !isISO8601(body.occurredAt, { strict: true }) ||
+        Date.parse(body.occurredAt) > Date.now())
+    )
+      throw new BadRequestException(
+        "Дата звонка должна быть фактической и содержать часовой пояс",
+      );
+  }
+
+  private agencyCallMetadata(
+    body: CreateAttemptDto | CorrectAttemptDto,
+    previous: any = {},
+  ): Record<string, unknown> {
+    const metadata: Record<string, unknown> =
+      previous && typeof previous === "object" && !Array.isArray(previous)
+        ? { ...previous }
+        : {};
+    for (const key of ["interest", "refusalReason", "agreement"] as const) {
+      const value =
+        body[key] === undefined ? previous?.[key] : this.nullable(body[key]);
+      if (typeof value === "string" && value) metadata[key] = value;
+      else if (
+        key === "agreement" &&
+        value === null &&
+        (body[key] !== undefined ||
+          Object.prototype.hasOwnProperty.call(previous || {}, key))
+      )
+        metadata[key] = null;
+      else delete metadata[key];
+    }
+    if (body.occurredAt)
+      metadata.callOccurredAt = new Date(body.occurredAt).toISOString();
+    return metadata;
+  }
+
   private sameAttemptValues(
     existing: any,
     body: CreateAttemptDto | CorrectAttemptDto,
+    previousMetadata: any = {},
   ): boolean {
+    const expectedMetadata = this.agencyCallMetadata(body, previousMetadata);
     const existingNext = existing.nextActionAt
       ? new Date(existing.nextActionAt).toISOString()
       : null;
@@ -2406,7 +2475,22 @@ export class LoyaltyWorkflowService {
       (existing.nextActionKind ?? null) === (body.nextActionKind ?? null) &&
       (existing.comment ?? null) === this.nullable(body.comment) &&
       (existing.nextStep ?? null) === this.nullable(body.nextStep) &&
-      existingNext === bodyNext
+      existingNext === bodyNext &&
+      (!body.occurredAt ||
+        new Date(agencyCallOccurredAt(existing)).toISOString() ===
+          new Date(body.occurredAt).toISOString()) &&
+      (existing.metadata?.callOccurredAt ?? null) ===
+        (expectedMetadata.callOccurredAt ?? null) &&
+      Object.prototype.hasOwnProperty.call(
+        existing.metadata || {},
+        "agreement",
+      ) ===
+        Object.prototype.hasOwnProperty.call(expectedMetadata, "agreement") &&
+      (["interest", "refusalReason", "agreement"] as const).every(
+        (key) =>
+          (existing.metadata?.[key] ?? null) ===
+          (expectedMetadata[key] ?? null),
+      )
     );
   }
 

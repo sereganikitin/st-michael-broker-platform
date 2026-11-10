@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiPatch, apiPost, apiDownload } from "@/lib/api";
-import { contactDateFromInput } from "@/lib/moscow-contact-date";
+import {
+  contactDateFromInput,
+  contactDateToInput,
+} from "@/lib/moscow-contact-date";
 import {
   agencyQueueContact,
   restoredAgencyFilters,
@@ -33,6 +36,10 @@ import {
   type AgencyCallContact,
 } from "@/components/loyalty-base/AgencyCallContacts";
 
+import { AgencyManualProfileEditor } from "@/components/loyalty-base/AgencyManualProfileEditor";
+import { AgencyCardModal } from "@/components/loyalty-base/AgencyCardModal";
+import type { AgencyManualProfile } from "@/lib/agency-profile";
+
 type Assignment = {
   claimed: boolean;
   id: string;
@@ -44,6 +51,13 @@ type Assignment = {
   assignedTo: { id: string; fullName: string };
 };
 type Attempt = {
+  metadata?: {
+    interest?: string;
+    refusalReason?: string;
+    agreement?: string;
+    callOccurredAt?: string;
+  };
+  campaign?: { id: string; name: string };
   id: string;
   assignmentId: string;
   result: string;
@@ -67,6 +81,8 @@ type Task = {
   assignedTo: { fullName: string };
 };
 type Card = {
+  attributes?: Record<string, unknown>;
+  manualProfile?: AgencyManualProfile;
   callContacts: AgencyCallContact[];
   callContactsVersion: number;
   id: string;
@@ -137,6 +153,10 @@ type Data = {
   period: { from: string; to: string };
 };
 type Draft = {
+  occurredAt: string;
+  interest: string;
+  refusalReason: string;
+  agreement: string;
   kind: string;
   result: LoyaltyCallResult | "";
   comment: string;
@@ -144,6 +164,10 @@ type Draft = {
   when: string;
 };
 const blank = (): Draft => ({
+  occurredAt: "",
+  interest: "",
+  refusalReason: "",
+  agreement: "",
   kind: "",
   result: "",
   comment: "",
@@ -190,6 +214,7 @@ export default function AgencyCallWorkspace() {
   const [view, setView] = useState("queue");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
+  const [callModalAgency, setCallModalAgency] = useState("");
   const [queueFields, setQueueFields] = useState<AgencyQueueField[]>([
     ...AGENCY_QUEUE_FIELDS,
   ]);
@@ -378,7 +403,7 @@ export default function AgencyCallWorkspace() {
   });
   const card = cards.find((c) => c.id === selected) || cards[0];
   const assignment = card && active(card);
-  const draft = card ? drafts[card.id] || blank() : blank();
+  const draft = card ? { ...blank(), ...drafts[card.id] } : blank();
   const eligible =
     !!assignment &&
     !!data?.permissions.includes("CALL_EXECUTE") &&
@@ -501,8 +526,28 @@ export default function AgencyCallWorkspace() {
     });
   };
   const save = async () => {
-    if (!assignment || !card || !draft.result) return;
+    if (
+      !assignment ||
+      !card ||
+      !draft.result ||
+      !editable ||
+      !data?.script.current
+    )
+      return;
+    const occurredAt = contactDateFromInput(draft.occurredAt);
+    if (
+      !occurredAt ||
+      !Number.isFinite(Date.parse(occurredAt)) ||
+      Date.parse(occurredAt) > Date.now()
+    ) {
+      setError("Укажите дату и время состоявшегося звонка по Москве");
+      return;
+    }
     const payload = {
+      occurredAt,
+      interest: draft.interest.trim() || undefined,
+      refusalReason: draft.refusalReason.trim() || undefined,
+      agreement: draft.agreement.trim() || undefined,
       workSessionId: claims[assignment.id]?.sessionId,
       assignmentId: assignment.id,
       expectedVersion: assignment.version,
@@ -521,6 +566,7 @@ export default function AgencyCallWorkspace() {
     submissions.current[assignment.id] = { signature, id: submissionId };
     await action(async () => {
       await submitLoyaltyCall({ ...payload, submissionId });
+      setCallModalAgency("");
       localClaimReleases.current[assignment.id]?.();
       setDrafts((current) => {
         const next = { ...current };
@@ -1141,6 +1187,26 @@ export default function AgencyCallWorkspace() {
                 </p>
               )}
             </section>
+            <AgencyManualProfileEditor
+              key={`profile:${card.id}`}
+              agencyId={card.id}
+              scope={draftScope}
+              attributes={card.attributes || {}}
+              manualProfile={
+                card.manualProfile || {
+                  version: 1,
+                  attributes: {},
+                  updatedAt: null,
+                  updatedById: null,
+                }
+              }
+              canEdit={
+                !!data?.permissions.includes("ENTITY_EDIT") &&
+                (!!data?.permissions.includes("READ_ALL") ||
+                  assignment?.assignedToId === data?.currentUserId)
+              }
+              onChanged={load}
+            />
             <AgencyCallContacts
               draftScope={draftScope}
               key={card.id}
@@ -1235,97 +1301,234 @@ export default function AgencyCallWorkspace() {
                   </div>
                 ))}
             </section>
-            {assignment && (
-              <fieldset disabled={!editable || busy} className="grid gap-3">
-                <legend className="font-semibold">
-                  Результат · ответственный {assignment.assignedTo.fullName}
-                </legend>
-                <label>
-                  Результат
-                  <select
-                    aria-label="Результат звонка"
-                    className="input"
-                    value={draft.result}
-                    onChange={(e) =>
-                      patch({ result: e.target.value as Draft["result"] })
-                    }
-                  >
-                    <option value="">Выберите</option>
-                    {options.map((o) => (
-                      <option key={o.code} value={o.code}>
-                        {o.label}
+            <section className="space-y-2">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => {
+                  if (!draft.occurredAt)
+                    patch({
+                      occurredAt: contactDateToInput(new Date().toISOString()),
+                    });
+                  setCallModalAgency(card.id);
+                }}
+              >
+                Добавить звонок
+              </button>
+              {!data?.script.current && (
+                <p className="text-sm text-text-muted">
+                  Сохранение звонка доступно после утверждения актуального
+                  скрипта руководителем.
+                </p>
+              )}
+              {!assignment && (
+                <p className="text-sm text-text-muted">
+                  Для звонка нужно открытое назначение в кампании.
+                </p>
+              )}
+              {assignment && !editable && (
+                <p className="text-sm text-text-muted">
+                  Результат вносит назначенный оператор после закрепления
+                  карточки за сеансом.
+                </p>
+              )}
+            </section>
+            {callModalAgency === card.id && (
+              <AgencyCardModal
+                title="Добавить звонок"
+                busy={busy}
+                onClose={() => setCallModalAgency("")}
+              >
+                <p className="mb-3 text-sm text-text-muted">
+                  {!assignment
+                    ? "Сохранение недоступно. Для агентства нет открытого назначения в кампании."
+                    : !data?.permissions.includes("CALL_EXECUTE")
+                      ? "Для сохранения нужен доступ к выполнению звонков."
+                      : !eligible
+                        ? "Сохранение доступно назначенному оператору. Проверьте назначение и запрет звонков."
+                        : !editable
+                          ? "Перед сохранением закрепите карточку за текущим сеансом кнопкой «Взять в работу»."
+                          : !data?.script.current
+                            ? "Для сохранения руководителю нужно утвердить актуальный скрипт."
+                            : "Оператор и кампания определены текущим назначением."}
+                </p>
+                <fieldset disabled={busy} className="grid gap-3">
+                  <legend className="font-semibold">
+                    Результат · ответственный{" "}
+                    {assignment?.assignedTo.fullName || "Не назначен"}
+                  </legend>
+                  <label>
+                    Дата звонка, МСК
+                    <input
+                      aria-label="Дата звонка, МСК"
+                      className="input"
+                      type="datetime-local"
+                      max={contactDateToInput(new Date().toISOString())}
+                      value={draft.occurredAt}
+                      onChange={(event) =>
+                        patch({ occurredAt: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Оператор
+                    <input
+                      aria-label="Оператор звонка"
+                      className="input"
+                      value={assignment?.assignedTo.fullName || "Не назначен"}
+                      readOnly
+                    />
+                  </label>
+                  <label>
+                    Кампания
+                    <input
+                      aria-label="Кампания звонка"
+                      className="input"
+                      value={assignment?.campaign.name || "Не назначена"}
+                      readOnly
+                    />
+                  </label>
+                  <label>
+                    Уровень интереса
+                    <select
+                      aria-label="Уровень интереса"
+                      className="input"
+                      value={draft.interest}
+                      onChange={(event) =>
+                        patch({ interest: event.target.value })
+                      }
+                    >
+                      <option value="">Не указан</option>
+                      <option>Высокий</option>
+                      <option>Средний</option>
+                      <option>Низкий</option>
+                    </select>
+                  </label>
+                  <label>
+                    Причина отказа
+                    <textarea
+                      aria-label="Причина отказа"
+                      className="input"
+                      maxLength={2000}
+                      value={draft.refusalReason}
+                      onChange={(event) =>
+                        patch({ refusalReason: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Договорённость
+                    <textarea
+                      aria-label="Договорённость"
+                      className="input"
+                      maxLength={2000}
+                      value={draft.agreement}
+                      onChange={(event) =>
+                        patch({ agreement: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Результат
+                    <select
+                      aria-label="Результат звонка"
+                      className="input"
+                      value={draft.result}
+                      onChange={(e) =>
+                        patch({ result: e.target.value as Draft["result"] })
+                      }
+                    >
+                      <option value="">Выберите</option>
+                      {options.map((o) => (
+                        <option key={o.code} value={o.code}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Комментарий *
+                    <textarea
+                      aria-label="Комментарий / договорённость"
+                      className="input"
+                      maxLength={4000}
+                      value={draft.comment}
+                      onChange={(e) => patch({ comment: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Тип следующего действия
+                    <select
+                      className="input"
+                      value={draft.kind}
+                      onChange={(e) => patch({ kind: e.target.value })}
+                    >
+                      <option value="">Выберите тип</option>
+                      <option value="CALL">Позвонить</option>
+                      <option value="SEND_MATERIALS">
+                        Отправить материалы
                       </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Комментарий / договорённость *
-                  <textarea
-                    aria-label="Комментарий / договорённость"
-                    className="input"
-                    maxLength={4000}
-                    value={draft.comment}
-                    onChange={(e) => patch({ comment: e.target.value })}
-                  />
-                </label>
-                <label>
-                  Тип следующего действия
-                  <select
-                    className="input"
-                    value={draft.kind}
-                    onChange={(e) => patch({ kind: e.target.value })}
+                      <option value="MEETING">Встреча / тур</option>
+                      <option value="OTHER">Другое</option>
+                    </select>
+                  </label>
+                  <label>
+                    Следующий шаг (обязателен для договорённости)
+                    <input
+                      className="input"
+                      maxLength={240}
+                      value={draft.nextStep}
+                      onChange={(e) => patch({ nextStep: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Срок, московское время
+                    <input
+                      className="input"
+                      type="datetime-local"
+                      value={draft.when}
+                      onChange={(e) => patch({ when: e.target.value })}
+                    />
+                  </label>
+                  <button
+                    className="btn btn-primary"
+                    disabled={
+                      !editable ||
+                      !data?.script.current ||
+                      busy ||
+                      !draft.result ||
+                      !draft.comment.trim()
+                    }
+                    onClick={() => void save()}
                   >
-                    <option value="">Выберите тип</option>
-                    <option value="CALL">Позвонить</option>
-                    <option value="SEND_MATERIALS">Отправить материалы</option>
-                    <option value="MEETING">Встреча / тур</option>
-                    <option value="OTHER">Другое</option>
-                  </select>
-                </label>
-                <label>
-                  Следующий шаг (обязателен для договорённости)
-                  <input
-                    className="input"
-                    maxLength={240}
-                    value={draft.nextStep}
-                    onChange={(e) => patch({ nextStep: e.target.value })}
-                  />
-                </label>
-                <label>
-                  Срок, московское время
-                  <input
-                    className="input"
-                    type="datetime-local"
-                    value={draft.when}
-                    onChange={(e) => patch({ when: e.target.value })}
-                  />
-                </label>
-                <button
-                  className="btn btn-primary"
-                  disabled={!draft.result || !draft.comment.trim()}
-                  onClick={() => void save()}
-                >
-                  Сохранить и следующий
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "Удалить несохранённый результат этого агентства?",
+                    Сохранить звонок
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "Удалить несохранённый результат этого агентства?",
+                        )
                       )
-                    )
-                      setDrafts((old) => {
-                        const next = { ...old };
-                        delete next[card.id];
-                        return next;
-                      });
-                  }}
-                >
-                  Отменить черновик результата
-                </button>
-              </fieldset>
+                        setDrafts((old) => {
+                          const next = { ...old };
+                          delete next[card.id];
+                          return next;
+                        });
+                    }}
+                  >
+                    Отменить черновик результата
+                  </button>
+                  {error && (
+                    <p role="alert" className="text-error">
+                      {error}
+                    </p>
+                  )}
+                </fieldset>
+              </AgencyCardModal>
             )}
             <details>
               <summary className="cursor-pointer font-semibold">
@@ -1335,9 +1538,33 @@ export default function AgencyCallWorkspace() {
                 .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
                 .map((a) => (
                   <div key={a.id} className="border-b border-border py-3">
-                    <b>{resultLabel(a.result)}</b> · {moscow(a.occurredAt)} МСК
-                    · {a.operator.fullName}
+                    <b>{resultLabel(a.result)}</b> ·{" "}
+                    {moscow(a.metadata?.callOccurredAt || a.occurredAt)} МСК ·{" "}
+                    {a.operator.fullName}
+                    <p className="text-xs text-text-muted">
+                      Кампания:{" "}
+                      {a.campaign?.name ||
+                        card.assignments.find(
+                          (item) => item.id === a.assignmentId,
+                        )?.campaign.name ||
+                        "Не указана"}
+                    </p>
                     <p className="whitespace-pre-wrap">{a.comment}</p>
+                    {a.metadata?.interest && (
+                      <p className="whitespace-pre-wrap">
+                        Уровень интереса: {a.metadata?.interest}
+                      </p>
+                    )}
+                    {a.metadata?.refusalReason && (
+                      <p className="whitespace-pre-wrap">
+                        Причина отказа: {a.metadata?.refusalReason}
+                      </p>
+                    )}
+                    {a.metadata?.agreement && (
+                      <p className="whitespace-pre-wrap">
+                        Договорённость: {a.metadata?.agreement}
+                      </p>
+                    )}
                     {a.nextStep && (
                       <p>
                         {a.nextStep} · {moscow(a.nextActionAt)} МСК

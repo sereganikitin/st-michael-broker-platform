@@ -178,7 +178,12 @@ export default function AgenciesV12Page() {
           <h1 className="text-2xl font-semibold mt-2">Агентства v1/2</h1>
         </div>
         <div className="flex gap-2">
-            <Link href="/admin/agencies-v1-2/workspace" className="btn btn-primary">Мой обзвон</Link>
+          <Link
+            href="/admin/agencies-v1-2/workspace"
+            className="btn btn-primary"
+          >
+            Мой обзвон
+          </Link>
           <button
             onClick={() => void load()}
             disabled={busy}
@@ -509,6 +514,17 @@ export default function AgenciesV12Page() {
                             <span aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
                             <span>{item.name}</span>
                           </button>
+                          {item.matchedAgency && (
+                            <Link
+                              className="mt-1 block text-sm text-accent underline"
+                              onClick={(event: MouseEvent<HTMLAnchorElement>) =>
+                                event.stopPropagation()
+                              }
+                              href={`/admin/agencies-v1-2/workspace?agencyId=${item.matchedAgency.id}`}
+                            >
+                              Открыть рабочую карточку
+                            </Link>
+                          )}
                           <p className="text-text-muted">
                             {item.type}
                             {item.periods.length > 1

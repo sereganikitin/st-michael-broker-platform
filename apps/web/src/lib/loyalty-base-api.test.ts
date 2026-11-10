@@ -3261,3 +3261,134 @@ test("funnel drill preserves the exact cohort, mode, source and page", () => {
   assert.match(drill, /item.eventId/);
   assert.match(drill, /encodeURIComponent\(item.brokerId\)/);
 });
+
+test("manual agency profile normalizes explicit overrides separately from source values", () => {
+  const record = normalizeLoyaltyDetail(
+    {
+      base: "ours",
+      item: {
+        id: "agency",
+        attributes: {
+          website: "https://manual.example/",
+          nextAgreement: "Проверить условия",
+          brokerCount: 368,
+          activeBrokers: 20,
+        },
+        manualProfile: {
+          version: 7,
+          attributes: { website: "https://manual.example/" },
+          updatedAt: "2026-11-10T06:00:00Z",
+          updatedById: "actor",
+        },
+        provenance: [
+          {
+            field: "website",
+            source: "MANUAL_CABINET",
+            checkedAt: "2026-11-10T06:00:00Z",
+          },
+        ],
+      },
+    },
+    "agencies",
+  );
+  assert.equal(record.manualProfile.version, 7);
+  assert.equal(
+    record.manualProfile.attributes.website,
+    "https://manual.example/",
+  );
+  assert.equal(
+    record.agencyProfileAttributes.nextAgreement,
+    "Проверить условия",
+  );
+  assert.equal(record.annaDetails?.website, "https://manual.example/");
+  assert.equal(record.manualProfile.updatedById, "actor");
+});
+
+test("manual agency form changes only edited fields and clears overrides explicitly", async () => {
+  const { agencyProfileValues, agencyProfilePatch } =
+    await import("./agency-profile");
+  const baseline = agencyProfileValues({
+    website: "https://source.example/",
+    lastAgencyMeetingDate: "2026-11-09",
+    nextAgreementDueAt: "2026-11-10T07:30:00Z",
+    brokerCount: 368,
+  });
+  assert.equal(baseline.nextAgreementDueAt, "2026-11-10T10:30");
+  assert.deepEqual(agencyProfilePatch(baseline, baseline), {});
+  assert.deepEqual(
+    agencyProfilePatch(
+      {
+        ...baseline,
+        nextAgreement: "Созвониться",
+        nextAgreementDueAt: "2026-11-11T12:45",
+      },
+      baseline,
+    ),
+    {
+      nextAgreement: "Созвониться",
+      nextAgreementDueAt: "2026-11-11T12:45:00+03:00",
+    },
+  );
+  assert.deepEqual(agencyProfilePatch({ ...baseline, website: "" }, baseline), {
+    website: null,
+  });
+  assert.deepEqual(agencyProfilePatch(baseline, baseline, ["website"]), {
+    website: null,
+  });
+  assert.ok(!("brokerCount" in baseline));
+  assert.throws(() =>
+    agencyProfilePatch(
+      { ...baseline, website: "javascript:alert(1)" },
+      baseline,
+    ),
+  );
+  assert.throws(() =>
+    agencyProfilePatch(
+      { ...baseline, website: "https://user:password@example.test" },
+      baseline,
+    ),
+  );
+  assert.throws(() =>
+    agencyProfilePatch(
+      { ...baseline, specialTerms: "x".repeat(2001) },
+      baseline,
+    ),
+  );
+});
+
+test("legacy contact with an invalid verification date renders a safe fallback", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { AgencyCallContacts } =
+    await import("../components/loyalty-base/AgencyCallContacts");
+  const globals = globalThis as typeof globalThis & { React?: typeof React };
+  const previous = globals.React;
+  globals.React = React;
+  try {
+    const html = renderToStaticMarkup(
+      React.createElement(AgencyCallContacts, {
+        draftScope: "local-qa",
+        agencyId: "legacy",
+        contacts: [
+          {
+            id: "legacy",
+            name: "QA",
+            role: "",
+            phone: "",
+            alternatePhone: "",
+            source: "QA",
+            verifiedAt: "not-a-date",
+            archived: false,
+          },
+        ],
+        version: 1,
+        canEdit: false,
+        canCall: false,
+        onChanged: async () => {},
+      }),
+    );
+    assert.ok(html.includes("Дата проверки не указана"));
+  } finally {
+    globals.React = previous;
+  }
+});
