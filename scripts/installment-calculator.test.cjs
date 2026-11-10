@@ -450,7 +450,10 @@ function hostedCalculator() {
   const document = {
     body: { prepend() {} },
     activeElement: null,
-    getElementById: element,
+    getElementById: (id) =>
+      id === "e-dvou" && element("form").innerHTML.includes('name="dvou-pct"')
+        ? null
+        : element(id),
     querySelector: (selector) =>
       element(selector.startsWith("#") ? selector.slice(1) : selector),
     querySelectorAll: () => [],
@@ -519,4 +522,17 @@ test("Silver Bor reservation amount follows a price change immediately", () => {
   assert.equal(page.element("f-dvou .fixed").textContent, "100 000 ₽");
   page.change("dvou-pct", "0.02");
   assert.equal(page.element("f-dvou .fixed").textContent, "200 000 ₽");
+});
+
+test("switching from parking to Silver Bor updates results without an editable DVOu error node", () => {
+  const page = hostedCalculator();
+  page.changeProject("parking");
+  assert.ok(page.result().includes("Машино-место"));
+  page.changeProject("serbor");
+  page.change("program", "quarterly");
+  page.change("term", "8");
+  assert.ok(page.result().includes("Стандартные условия"));
+  assert.ok(page.result().includes("Ежеквартальный платёж"));
+  assert.ok(page.result().includes("Месяц 8"));
+  assert.ok(!page.result().includes("Машино-место"));
 });

@@ -505,7 +505,8 @@ function validate(){
   ["price","dvou","dop"].forEach(function(k){
     var f = document.getElementById("f-"+k), e = document.getElementById("e-"+k), inp = document.getElementById(k);
     if(!f) return;
-    f.classList.toggle("err", !!errs[k]); e.hidden = !errs[k]; e.textContent = errs[k] || "";
+    f.classList.toggle("err", !!errs[k]);
+    if(e){ e.hidden = !errs[k]; e.textContent = errs[k] || ""; }
     if(inp) inp.setAttribute("aria-invalid", errs[k] ? "true" : "false");
   });
   return errs;
