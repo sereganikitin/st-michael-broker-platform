@@ -419,6 +419,11 @@ model Agency {
   callControlUpdatedAt DateTime?                @map("call_control_updated_at")
   callContacts         Json                     @default("[]") @map("call_contacts")
   callContactsVersion  Int                      @default(1) @map("call_contacts_version")
+  manualProfile Json @default("{}") @map("manual_profile")
+  manualProfileFieldSources Json @default("{}") @map("manual_profile_field_sources")
+  manualProfileVersion Int @default(1) @map("manual_profile_version")
+  manualProfileUpdatedAt DateTime? @map("manual_profile_updated_at")
+  manualProfileUpdatedById String? @map("manual_profile_updated_by_id")
   email                String?
   address              String?
   legalAddress         String?                  @map("legal_address")
@@ -1547,6 +1552,7 @@ model LoyaltyCallAssignment {
 /// Append-only call result. A correction is another row linked to the row it
 /// corrects; submissionId provides retry-safe operator saves.
 model LoyaltyCallAttempt {
+  metadata Json @default("{}")
   id                String                @id @default(uuid())
   assignmentId      String                @map("assignment_id")
   assignment        LoyaltyCallAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)

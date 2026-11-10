@@ -171,17 +171,13 @@ export function agencySupervisorProjection(
         w.types[c.type] = (w.types[c.type] || 0) + 1;
         if (data.quality.noPhone.includes(c.id)) w.withoutPhone++;
       }
-    for (const a of c.attempts)
-      if (
-        !a.correctsAttemptId &&
-        within(a.occurredAt) &&
-        (!assigneeId || (a.operatorId ?? a.operator?.id) === assigneeId)
-      )
-        worker(
-          a.operatorId ?? a.operator?.id,
-          a.operator?.fullName || "Сотрудник не найден",
-        ).attempts++;
   }
+  for (const a of effective)
+    if (!assigneeId || a.callOperatorId === assigneeId)
+      worker(
+        a.callOperatorId,
+        a.callOperator?.fullName || "Сотрудник не найден",
+      ).attempts++;
   for (const t of overdue)
     worker(t.assignedTo.id, t.assignedTo.fullName).overdue++;
   const qaSample = effective.map((a) => ({

@@ -243,6 +243,19 @@ export class QueueQueryDto extends LoyaltyListQueryDto {
 }
 
 export class CreateAttemptDto extends ExpectedVersionDto {
+  @IsOptional() @IsISO8601({ strict: true }) occurredAt?: string;
+  @IsOptional() @Transform(trim) @IsString() @MaxLength(1000) interest?: string;
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(2000)
+  refusalReason?: string;
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(2000)
+  agreement?: string;
+
   @IsOptional()
   @IsUUID("4")
   workSessionId?: string;
@@ -281,6 +294,19 @@ export class CreateAttemptDto extends ExpectedVersionDto {
 }
 
 export class CorrectAttemptDto {
+  @IsOptional() @IsISO8601({ strict: true }) occurredAt?: string;
+  @IsOptional() @Transform(trim) @IsString() @MaxLength(1000) interest?: string;
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(2000)
+  refusalReason?: string;
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(2000)
+  agreement?: string;
+
   @Transform(trim)
   @IsString()
   @Length(8, 80)

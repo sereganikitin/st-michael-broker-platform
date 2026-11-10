@@ -6,6 +6,9 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsEmail,
+  ValidateIf,
+  IsObject,
   IsISO8601,
   IsOptional,
   IsIn,
@@ -54,6 +57,11 @@ export class AgencyCallControlDto {
 }
 
 export class AgencyContactDto {
+  @IsOptional()
+  @ValidateIf((_o, value) => value !== "")
+  @IsEmail()
+  @MaxLength(254)
+  email?: string;
   @IsUUID("4") id!: string;
   @IsString() @MinLength(1) @MaxLength(160) name!: string;
   @IsString() @MaxLength(160) role!: string;
@@ -81,4 +89,9 @@ export class AgencyReassignDto {
 export class AgencyClaimDto {
   @Type(() => Number) @IsInt() @Min(1) expectedVersion!: number;
   @IsUUID("4") workSessionId!: string;
+}
+
+export class AgencyManualProfileDto {
+  @Type(() => Number) @IsInt() @Min(1) expectedVersion!: number;
+  @IsObject() attributes!: Record<string, unknown>;
 }

@@ -669,6 +669,10 @@ export async function submitLoyaltyCall(body: {
   nextStep?: string;
   nextActionKind?: string;
   nextActionAt?: string;
+  occurredAt?: string;
+  interest?: string;
+  refusalReason?: string;
+  agreement?: string;
 }): Promise<LoyaltyCallSubmissionResult> {
   const response = object(
     await apiPost<unknown>(

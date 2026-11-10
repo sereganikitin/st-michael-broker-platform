@@ -1,3 +1,5 @@
+import { agencyCallOccurredAt } from "../loyalty-workflow/agency-call-date";
+import { applyAgencyManualProjection } from "../loyalty-workflow/agency-manual-profile";
 import {
   CabinetSource,
   cabinetSourceWhere,
@@ -271,6 +273,8 @@ interface LoyaltyCallView {
   effective?: boolean;
   superseded?: boolean;
   correctedAt?: string | null;
+  interest?: string | null;
+  refusalReason?: string | null;
 }
 
 interface LoyaltyWorkflowCallReadModel {
@@ -6683,6 +6687,7 @@ export class LoyaltyBaseService {
         source: true,
         correctsAttemptId: true,
         correctionReason: true,
+        metadata: true,
         occurredAt: true,
         createdAt: true,
         operator: { select: { id: true, fullName: true } },
@@ -6744,8 +6749,8 @@ export class LoyaltyBaseService {
         const current = ordered[ordered.length - 1];
         effective.push(
           this.workflowCallView(
-            current,
-            root?.occurredAt || current?.occurredAt,
+            entityType === "AGENCY" ? { ...current, operator: root?.operator, operatorId: root?.operatorId } : current,
+            entityType === "AGENCY" ? agencyCallOccurredAt(current, root) : root?.occurredAt || current?.occurredAt,
             true,
             current?.id === root?.id ? null : current?.occurredAt,
           ),
@@ -6754,7 +6759,7 @@ export class LoyaltyBaseService {
           history.push({
             ...this.workflowCallView(
               attempt,
-              attempt?.occurredAt,
+              entityType === "AGENCY" && attempt?.metadata?.callOccurredAt ? agencyCallOccurredAt(attempt, root) : attempt?.occurredAt,
               attempt?.id === current?.id,
               attempt?.id === root?.id ? null : attempt?.occurredAt,
             ),
@@ -6816,7 +6821,9 @@ export class LoyaltyBaseService {
       employeeName,
       result,
       resultCode: result,
-      agreement: comment,
+      agreement: Object.prototype.hasOwnProperty.call(attempt?.metadata || {}, "agreement") ? attempt.metadata.agreement : comment,
+      interest: attempt?.metadata?.interest ?? null,
+      refusalReason: attempt?.metadata?.refusalReason ?? null,
       comment,
       nextStep:
         attempt?.nextStep === null || attempt?.nextStep === undefined
@@ -12591,6 +12598,7 @@ export class LoyaltyBaseService {
       result.loyaltyHistory = engagementHistory;
     }
     applyAgencyCompanyProjection(item, result);
+    applyAgencyManualProjection(item, result);
     return result;
   }
 

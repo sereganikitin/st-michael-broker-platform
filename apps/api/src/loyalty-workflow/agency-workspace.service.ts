@@ -1,3 +1,9 @@
+import { agencyCallOccurredAt } from "./agency-call-date";
+import { applyAgencyCompanyProjection } from "../loyalty-base/agency-profile-projection";
+import {
+  applyAgencyManualProjection,
+  normalizeAgencyManualPatch,
+} from "./agency-manual-profile";
 import {
   BadRequestException,
   ConflictException,
@@ -17,6 +23,7 @@ import {
   AgencyCallControlDto,
   AgencyClaimDto,
   AgencyContactsDto,
+  AgencyManualProfileDto,
   AgencyPilotDto,
   AgencyReassignDto,
   AgencyScriptDto,
@@ -110,7 +117,8 @@ export function agencyEffectiveAttempts(cards: any[], from: Date, to: Date) {
       }
       return {
         ...attempt,
-        callOccurredAt: root.occurredAt,
+        callOccurredAt: agencyCallOccurredAt(attempt, root),
+        callRootAttemptId: root.id,
         callOperatorId: root.operatorId ?? root.operator?.id,
         callOperator: root.operator,
       };
@@ -139,6 +147,12 @@ export function agencyMetrics(
     c.attempts.map((a: any) => ({ ...a, agencyId: c.id })),
   );
   const effective = agencyEffectiveAttempts(cards, from, to);
+  const rootIds = new Set(
+    attempts.filter((a) => !a.correctsAttemptId).map((a) => a.id),
+  );
+  const countedAttempts = effective.filter((a) =>
+    rootIds.has(a.callRootAttemptId),
+  );
   const attempted = new Set(effective.map((a) => a.agencyId));
   const spoken = new Set(
     effective.filter((a) => CONVERSATION.has(a.result)).map((a) => a.agencyId),
@@ -183,9 +197,7 @@ export function agencyMetrics(
   return {
     assignedAgencies: assignedIds.length,
     attemptedAgencies: attempted.size,
-    attempts: attempts.filter(
-      (a) => !a.correctsAttemptId && within(a.occurredAt),
-    ).length,
+    attempts: countedAttempts.length,
     conversationAgencies: spoken.size,
     agreements: agreements.length,
     tasksDue: due.length,
@@ -222,9 +234,9 @@ export function agencyMetrics(
         eventId: agencyId,
         kind: "AGENCY",
       })),
-      attempts: attempts
-        .filter((a) => !a.correctsAttemptId && within(a.occurredAt))
-        .map((a) => event(a, "ATTEMPT")),
+      attempts: countedAttempts.map((a) =>
+        event({ ...a, id: a.callRootAttemptId }, "ATTEMPT"),
+      ),
       conversationAgencies: [...spoken].map((agencyId) => ({
         agencyId,
         eventId: agencyId,
@@ -372,6 +384,13 @@ export class AgencyWorkspaceService {
         callControlReason: true,
         callContacts: true,
         callContactsVersion: true,
+        inn: true,
+        amoCompanySync: true,
+        manualProfile: true,
+        manualProfileFieldSources: true,
+        manualProfileVersion: true,
+        manualProfileUpdatedAt: true,
+        manualProfileUpdatedById: true,
       },
     } as any);
     const visibleIds = new Set(assignments.map((a) => a.ourAgencyId));
@@ -382,13 +401,27 @@ export class AgencyWorkspaceService {
       )
       .map((a) => {
         const own = assignments.filter((x) => x.ourAgencyId === a.id);
+        const projection: any = { attributes: {} };
+        applyAgencyCompanyProjection(a, projection);
+        applyAgencyManualProjection(a, projection);
+        const {
+          inn,
+          amoCompanySync,
+          manualProfile,
+          manualProfileFieldSources,
+          manualProfileVersion,
+          manualProfileUpdatedAt,
+          manualProfileUpdatedById,
+          ...visibleAgency
+        } = a as any;
         return {
           ...(sources.get(a.id) ?? {
             periods: [],
             sourceNames: [],
             type: "Связь с источником требует проверки",
           }),
-          ...a,
+          ...visibleAgency,
+          ...projection,
           sourceMatched: sources.has(a.id),
           assignments: own.map(({ attempts, tasks, ...assignment }) => {
             const { workSessionHash, ...publicAssignment } = assignment as any;
@@ -887,6 +920,92 @@ export class AgencyWorkspaceService {
     });
   }
 
+  async profile(
+    id: string,
+    body: AgencyManualProfileDto,
+    user: CurrentUserPayload,
+  ) {
+    await this.permissions.require(user, "ENTITY_EDIT");
+    const effective = await this.permissions.effective(user);
+    const all = effective.permissions.includes("READ_ALL");
+    const patch = normalizeAgencyManualPatch(body.attributes);
+    return this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM agencies WHERE id = ${id} FOR UPDATE`;
+      if (
+        !all &&
+        !(await tx.loyaltyCallAssignment.findFirst({
+          where: {
+            ourAgencyId: id,
+            assignedToId: user.id,
+            status: { in: OPEN as any },
+          },
+        }))
+      )
+        throw new ForbiddenException(
+          "Нет собственного назначения для агентства",
+        );
+      const before = await tx.agency.findUnique({ where: { id } });
+      if (!before) throw new BadRequestException("Агентство не найдено");
+      const attributes = {
+        ...((before.manualProfile as Record<string, unknown>) || {}),
+      };
+      const fieldSources = {
+        ...((before.manualProfileFieldSources as Record<string, unknown>) ||
+          {}),
+      };
+      const at = new Date();
+      for (const [field, value] of Object.entries(patch)) {
+        if (value === null) {
+          delete attributes[field];
+          delete fieldSources[field];
+        } else {
+          attributes[field] = value;
+          fieldSources[field] = {
+            actorId: user.id,
+            updatedAt: at.toISOString(),
+          };
+        }
+      }
+      const changed = await tx.agency.updateMany({
+        where: { id, manualProfileVersion: body.expectedVersion },
+        data: {
+          manualProfile: attributes as any,
+          manualProfileFieldSources: fieldSources as any,
+          manualProfileVersion: { increment: 1 },
+          manualProfileUpdatedAt: at,
+          manualProfileUpdatedById: user.id,
+        },
+      });
+      if (changed.count !== 1)
+        throw new ConflictException("Карточка уже изменена, обновите данные");
+      await tx.loyaltyWorkflowAudit.create({
+        data: {
+          actorId: user.id,
+          action: "AGENCY_MANUAL_PROFILE_UPDATED",
+          entityType: "AGENCY",
+          entityId: id,
+          before: {
+            version: before.manualProfileVersion,
+            attributes: before.manualProfile,
+            fieldSources: before.manualProfileFieldSources,
+          } as any,
+          after: {
+            version: body.expectedVersion + 1,
+            attributes,
+            fieldSources,
+          } as any,
+        },
+      });
+      return {
+        version: body.expectedVersion + 1,
+        attributes,
+        fieldSources,
+        updatedAt: at.toISOString(),
+        updatedById: user.id,
+      };
+    });
+  }
+
   async contacts(
     id: string,
     body: AgencyContactsDto,
@@ -1096,8 +1215,8 @@ export class AgencyWorkspaceService {
           root = byId.get(root.correctsAttemptId);
         }
         if (
-          new Date(root.occurredAt) < data.period.from ||
-          new Date(root.occurredAt) >= data.period.to
+          new Date(agencyCallOccurredAt(attempt, root)) < data.period.from ||
+          new Date(agencyCallOccurredAt(attempt, root)) >= data.period.to
         )
           continue;
         rows.push([
@@ -1110,7 +1229,7 @@ export class AgencyWorkspaceService {
           attempt.nextStep,
           attempt.nextActionAt?.toISOString(),
           attempt.correctsAttemptId,
-          new Date(root.occurredAt).toISOString(),
+          new Date(agencyCallOccurredAt(attempt, root)).toISOString(),
           !superseded.has(attempt.id),
         ]);
       }

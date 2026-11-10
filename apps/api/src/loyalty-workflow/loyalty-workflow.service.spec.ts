@@ -1920,3 +1920,167 @@ describe("LoyaltyWorkflowService security and concurrency", () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+it("preserves factual agency metadata and call date on an omitted-field correction retry", async () => {
+  const { prisma, service } = harness();
+  const root: any = callAttempt({
+    metadata: {
+      interest: "projects",
+      agreement: "follow up",
+      callOccurredAt: "2026-08-19T09:00:00.000Z",
+    },
+    assignment: { assignedToId: admin.id, campaign: { entityType: "AGENCY" } },
+  });
+  const rows: any[] = [root];
+  prisma.loyaltyCallAttempt.findUnique.mockImplementation(({ where }: any) =>
+    Promise.resolve(
+      rows.find((row) =>
+        where.id
+          ? row.id === where.id
+          : row.submissionId === where.submissionId,
+      ) || null,
+    ),
+  );
+  prisma.loyaltyCallAttempt.findMany.mockImplementation(({ where }: any) =>
+    Promise.resolve(
+      rows.filter((row) => row.correctsAttemptId === where.correctsAttemptId),
+    ),
+  );
+  prisma.loyaltyCallAttempt.create.mockImplementation(({ data }: any) => {
+    const row = callAttempt({
+      ...data,
+      id: "correction",
+      assignment: root.assignment,
+      occurredAt: new Date("2026-08-22T00:00:00Z"),
+    });
+    rows.push(row);
+    return Promise.resolve(row);
+  });
+  const body = {
+    submissionId: "correction-metadata-retry",
+    result: "INFORMED",
+    comment: "clarified",
+    correctionReason: "clarification",
+  };
+  await service.correctAttempt("assignment-1", "attempt-1", body, admin);
+  const retry = await service.correctAttempt(
+    "assignment-1",
+    "attempt-1",
+    body,
+    admin,
+  );
+  expect(retry.idempotent).toBe(true);
+  expect(prisma.loyaltyCallAttempt.create).toHaveBeenCalledTimes(1);
+  const data = prisma.loyaltyCallAttempt.create.mock.calls[0][0].data;
+  expect(data.metadata).toEqual(root.metadata);
+  expect(data).not.toHaveProperty("occurredAt");
+  await expect(
+    service.correctAttempt(
+      "assignment-1",
+      "attempt-1",
+      { ...body, interest: "changed" },
+      admin,
+    ),
+  ).rejects.toBeInstanceOf(ConflictException);
+});
+
+it("records dated agency call metadata through the claimed approved-script pipeline and rejects changed retries", async () => {
+  const { prisma, service } = harness();
+  const workSessionId = "11111111-1111-4111-8111-111111111111";
+  prisma.systemSetting = {
+    findUnique: jest.fn().mockResolvedValue({
+      value: JSON.stringify({
+        text: "Approved",
+        validUntil: "2099-01-01T00:00:00Z",
+      }),
+    }),
+  };
+  prisma.agency.findMany.mockResolvedValue([
+    { id: "agency-1", doNotCall: false },
+  ]);
+  prisma.loyaltyCallAssignment.findUnique.mockResolvedValue({
+    id: "assignment-1",
+    assignedToId: admin.id,
+    campaignId: "campaign-1",
+    status: "IN_PROGRESS",
+    version: 1,
+    ourAgencyId: "agency-1",
+    workSessionHash: require("node:crypto")
+      .createHash("sha256")
+      .update(workSessionId)
+      .digest("hex"),
+    campaign: {
+      id: "campaign-1",
+      status: "ACTIVE",
+      base: "OUR",
+      entityType: "AGENCY",
+      filterSnapshot: { agencyWorkspace: true },
+    },
+  });
+  prisma.loyaltyCallAttempt.findUnique.mockResolvedValue(null);
+  prisma.loyaltyCallAssignment.updateMany.mockResolvedValue({ count: 1 });
+  prisma.loyaltyCallAssignment.count.mockResolvedValue(2);
+  prisma.loyaltyCallAttempt.create.mockImplementation(({ data }: any) =>
+    Promise.resolve({ id: "attempt-created", ...data }),
+  );
+  const body = {
+    expectedVersion: 1,
+    submissionId: "dated-agency-call-01",
+    result: "INFORMED",
+    comment: "Contacted",
+    workSessionId,
+    occurredAt: "2026-08-19T12:00:00+03:00",
+    interest: "project",
+    refusalReason: "",
+    agreement: "",
+  };
+  const created = await service.createAttempt("assignment-1", body, admin);
+  expect(prisma.systemSetting.findUnique).toHaveBeenCalled();
+  expect(created.occurredAt.toISOString()).toBe("2026-08-19T09:00:00.000Z");
+  expect(created.metadata).toEqual({
+    interest: "project",
+    agreement: null,
+    callOccurredAt: "2026-08-19T09:00:00.000Z",
+  });
+  prisma.loyaltyCallAttempt.findUnique.mockResolvedValue({
+    id: "attempt-created",
+    correctsAttemptId: null,
+    ...prisma.loyaltyCallAttempt.create.mock.calls[0][0].data,
+  });
+  expect(
+    (await service.createAttempt("assignment-1", body, admin)).idempotent,
+  ).toBe(true);
+  await expect(
+    service.createAttempt(
+      "assignment-1",
+      { ...body, interest: "changed" },
+      admin,
+    ),
+  ).rejects.toBeInstanceOf(ConflictException);
+  expect(prisma.loyaltyCallAttempt.create).toHaveBeenCalledTimes(1);
+});
+
+it("rejects omission of an originally explicit date while preserving legacy default retries", () => {
+  const { service } = harness();
+  const local: any = service;
+  const base = {
+    result: "INFORMED",
+    occurredAt: new Date("2026-01-01T00:00:00Z"),
+  };
+  expect(
+    local.sameAttemptValues(
+      { ...base, metadata: { callOccurredAt: "2026-01-01T00:00:00.000Z" } },
+      { expectedVersion: 1, result: "INFORMED" },
+    ),
+  ).toBe(false);
+  expect(
+    local.sameAttemptValues(base, { expectedVersion: 1, result: "INFORMED" }),
+  ).toBe(true);
+  expect(
+    local.sameAttemptValues(
+      { ...base, metadata: { interest: "changed" } },
+      { result: "INFORMED" },
+      { interest: "original" },
+    ),
+  ).toBe(false);
+});
