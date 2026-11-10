@@ -547,7 +547,7 @@ export default function AgencyCallWorkspace() {
       occurredAt,
       interest: draft.interest.trim() || undefined,
       refusalReason: draft.refusalReason.trim() || undefined,
-      agreement: draft.agreement.trim() || undefined,
+      agreement: draft.agreement.trim(),
       workSessionId: claims[assignment.id]?.sessionId,
       assignmentId: assignment.id,
       expectedVersion: assignment.version,
