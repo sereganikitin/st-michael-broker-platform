@@ -1,5 +1,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@st-michael/database';
+import { BROKER_CONTACT_EMAIL, CONTACT_EMAIL_TERMS_VERSION } from '../common/broker-contact-email';
+import { getArchivedLegalTerms, sameLegalEdition } from '../common/legal-terms-archive';
 
 const OFFER_KEY = 'offer_terms';
 
@@ -10,8 +12,8 @@ export interface OfferTerms {
   updatedAt: string;
 }
 
-const DEFAULT_OFFER: OfferTerms = {
-  version: '2026-06-15',
+export const DEFAULT_OFFER: OfferTerms = {
+  version: CONTACT_EMAIL_TERMS_VERSION,
   title: 'Договор-оферта о сотрудничестве с партнёрами по продаже недвижимости',
   body: `1. ТЕРМИНЫ И ОПРЕДЕЛЕНИЯ
 
@@ -155,10 +157,10 @@ const DEFAULT_OFFER: OfferTerms = {
   ИНН / КПП: [указывается в момент акцепта в разделе «Документы» Личного кабинета].
   ОГРН: [указывается в момент акцепта в разделе «Документы» Личного кабинета].
   Юридический адрес: г. Москва, ул. Зорге, д. 9.
-  Контактный e-mail: info@zorge9.com.
+  Контактный e-mail: ${BROKER_CONTACT_EMAIL}.
 
 12.4. Настоящий Договор составлен на русском языке и в случае разночтений с переводами на иные языки русскоязычная версия имеет приоритет.`,
-  updatedAt: '2026-06-15T00:00:00.000Z',
+  updatedAt: '2026-10-06T00:00:00.000Z',
 };
 
 @Injectable()
@@ -257,13 +259,25 @@ export class OfferService {
     });
     if (!broker) throw new NotFoundException('Broker not found');
 
-    const offer = await this.getCurrent();
-    const acceptance = await this.prisma.offerAcceptance.findFirst({
-      where: { brokerId, offerVersion: offer.version },
+    const currentOffer = await this.getCurrent();
+    let offer: OfferTerms;
+    let acceptance = await this.prisma.offerAcceptance.findFirst({
+      where: { brokerId, offerVersion: currentOffer.version },
       orderBy: { acceptedAt: 'desc' },
     });
     if (!acceptance) {
-      throw new BadRequestException('Текущая версия оферты не принята');
+      acceptance = await this.prisma.offerAcceptance.findFirst({
+        where: { brokerId }, orderBy: { acceptedAt: 'desc' },
+      });
+      if (!acceptance) throw new BadRequestException('Оферта ещё не принята');
+    }
+    try {
+      const archived = await getArchivedLegalTerms(this.prisma, 'offer_terms', acceptance.offerVersion);
+      if (!archived || (acceptance.offerVersion === currentOffer.version && !sameLegalEdition(archived, currentOffer as any)))
+        throw new Error('ARCHIVED_TERMS_MISSING_OR_CHANGED');
+      offer = archived;
+    } catch {
+      throw new BadRequestException('Принятая редакция оферты недоступна в архиве');
     }
 
     const agency = broker.brokerAgencies[0]?.agency;

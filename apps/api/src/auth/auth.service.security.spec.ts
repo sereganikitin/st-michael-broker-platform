@@ -2,6 +2,7 @@ import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import { UserStatus } from "@st-michael/database";
 import * as bcrypt from "bcrypt";
 import { AuthService } from "./auth.service";
+import { CONTACT_EMAIL_TERMS_VERSION } from "../common/broker-contact-email";
 
 function broker(overrides: Record<string, unknown> = {}) {
   return {
@@ -53,6 +54,27 @@ describe("AuthService active-account boundary", () => {
   beforeEach(() => {
     AuthService.lastFeedSyncAt = Date.now();
   });
+
+  it.each([null, { value: { version: "saved-custom-version" } }])(
+    "records exactly the public legal version during registration",
+    async (current) => {
+      const { prisma, service } = createHarness();
+      prisma.broker.findUnique.mockResolvedValue(null);
+      prisma.broker.create.mockResolvedValue({ id: "broker-1" });
+      prisma.siteContent.findUnique.mockResolvedValue(current);
+      await service.register({
+        phone: "+79990000000", fullName: "Test Broker", password: "safe-password",
+        offerAccepted: true, privacyAccepted: true,
+      });
+      const version = current?.value.version || CONTACT_EMAIL_TERMS_VERSION;
+      expect(prisma.offerAcceptance.create).toHaveBeenCalledWith({ data: {
+        brokerId: "broker-1", offerVersion: version, ip: null, userAgent: null,
+      } });
+      expect(prisma.privacyAcceptance.create).toHaveBeenCalledWith({ data: {
+        brokerId: "broker-1", privacyVersion: version, ip: null, userAgent: null,
+      } });
+    },
+  );
 
   it("activates only an existing PENDING BROKER without a password", async () => {
     const { prisma, service } = createHarness();

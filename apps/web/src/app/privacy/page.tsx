@@ -24,7 +24,7 @@ async function loadPrivacy(): Promise<Privacy | null> {
 const FALLBACK: Privacy = {
   version: '—',
   title: 'Согласие на обработку персональных данных',
-  body: 'Текст согласия временно недоступен. Пожалуйста, обратитесь к менеджеру: info@zorge9.com',
+  body: 'Текст согласия временно недоступен. Пожалуйста, обратитесь к менеджеру: broker@stmichael.ru',
   updatedAt: new Date().toISOString(),
 };
 

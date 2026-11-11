@@ -7,6 +7,7 @@ import * as webpush from 'web-push';
 import * as sgMail from '@sendgrid/mail';
 import { SmsService } from '../sms/sms.service';
 import { SMS_KINDS, SmsKind } from '../sms/sms-templates';
+import { BROKER_CONTACT_EMAIL } from '../common/broker-contact-email';
 
 interface NotificationJob {
   brokerId: string;
@@ -47,7 +48,7 @@ function configureWebPush() {
   if (webPushConfigured) return;
   const pub = process.env.VAPID_PUBLIC_KEY;
   const prv = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT || 'mailto:info@zorge9.com';
+  const subject = process.env.VAPID_SUBJECT || `mailto:${BROKER_CONTACT_EMAIL}`;
   if (pub && prv) {
     webpush.setVapidDetails(subject, pub, prv);
     webPushConfigured = true;
@@ -209,10 +210,10 @@ export class NotificationProcessor {
       return;
     }
 
-    // 2026-07-02: Real SendGrid отправка. FROM_EMAIL — верифицированный
-    // отправитель в SendGrid (Ксения настраивает через Sender Authentication).
-    // Fallback: info@zorge9.com — уже есть в CMS-блоке contact.
-    const from = process.env.SENDGRID_FROM || 'info@zorge9.com';
+    // SendGrid requires an explicitly configured verified sender identity.
+    // A public support contact or SMTP login is not a verified FROM fallback.
+    const from = process.env.SENDGRID_FROM?.trim();
+    if (!from) throw new Error('[Email] SENDGRID_FROM is not configured');
     const fromName = process.env.SENDGRID_FROM_NAME || 'ST Michael';
 
     // Тело письма: если body содержит HTML-теги, используем его как HTML.
