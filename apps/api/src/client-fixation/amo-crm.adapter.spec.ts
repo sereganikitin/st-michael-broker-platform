@@ -227,6 +227,52 @@ describe("AmoCrmAdapter broker contact safety", () => {
     );
   });
 
+  it.each([false, true])(
+    "routes a KC in-work lead to existing-lead review when a broker is attached: %s",
+    async (hasBrokerAttached) => {
+      const adapter = new AmoCrmAdapter();
+      const contacts = [{ id: 170 }];
+      if (hasBrokerAttached) contacts.push({ id: 172 });
+      jest.spyOn(adapter, "findContactByPhone").mockResolvedValue({
+        id: 170,
+        name: "Client",
+      });
+      const request = jest
+        .spyOn(adapter as any, "request")
+        .mockResolvedValueOnce({ _embedded: { leads: [{ id: 171 }] } })
+        .mockResolvedValueOnce({
+          _embedded: {
+            leads: [{
+              id: 171,
+              pipeline_id: AMO_PIPELINES.KC,
+              status_id: 88201058,
+              _embedded: { contacts },
+            }],
+          },
+        })
+        .mockResolvedValueOnce({
+          _embedded: {
+            contacts: contacts.map((contact) => ({
+              id: contact.id,
+              custom_fields_values: contact.id === 172
+                ? [{ field_id: AMO_CONTACT_FIELDS.IS_BROKER, values: [{ value: true }] }]
+                : [],
+            })),
+          },
+        });
+
+      await expect(adapter.checkUniqueness("+79990000017")).resolves.toEqual(
+        expect.objectContaining({
+          rule: "RULE_1",
+          verdict: "ALARM",
+          contactId: 170,
+          triggerLeadId: 171,
+        }),
+      );
+      expect(request).toHaveBeenCalledTimes(3);
+    },
+  );
+
   it("fails closed for a known active sales stage with no explicit uniqueness rule", async () => {
     const adapter = new AmoCrmAdapter();
     jest.spyOn(adapter, "findContactByPhone").mockResolvedValue({

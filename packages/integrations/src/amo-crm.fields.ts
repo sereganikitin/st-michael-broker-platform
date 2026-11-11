@@ -91,6 +91,7 @@ export const AMO_KC_STATUS = {
   UNSORTED: 62907114,
   NEW_REQUEST: 62907118,       // Новое обращение
   NO_ANSWER: 62907122,
+  IN_WORK: 88201058,          // ВЗЯТ В РАБОТУ — ранняя стадия КЦ до встречи
   DEFERRED: 62907126,          // Отложенный спрос
   QUALIFIED: 62907282,         // Классифицировали, выводим на встречу
   MEETING_SCHEDULED: 62907286, // Встреча назначена
@@ -390,7 +391,7 @@ export function isDeferredDemandStatus(pipelineId: number, statusId: number): bo
 
 /**
  * 2026-06-11: Лид попадает под Правило 1 — старый лид в КЦ-воронке (7600542)
- * в ранних стадиях (до встречи): Неразобранное / Новое обращение / Недозвон /
+ * в ранних стадиях (до встречи): Неразобранное / Новое обращение / Недозвон / Взят в работу /
  * Отложенный спрос / Классифицировали. Поведение при новой фиксации:
  *   - НЕ создавать новый лид в amoCRM
  *   - Прикрепить нового брокера как контакт на старый лид
@@ -403,6 +404,7 @@ export function isFixationRule1Lead(pipelineId: number, statusId: number): boole
     statusId === AMO_KC_STATUS.UNSORTED ||
     statusId === AMO_KC_STATUS.NEW_REQUEST ||
     statusId === AMO_KC_STATUS.NO_ANSWER ||
+    statusId === AMO_KC_STATUS.IN_WORK ||
     statusId === AMO_KC_STATUS.DEFERRED ||
     statusId === AMO_KC_STATUS.QUALIFIED
   );
