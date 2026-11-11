@@ -329,7 +329,10 @@ candidates=${quote(`${id}|1|123|api|unit-api:synthetic-private`)}
 all_ids=${quote(id)}
 protected_ids=${quote(another)}
 awk() { if [ "$failure" = count ]; then return 1; fi; command awk "$@"; }
-sha256sum() { case "$failure" in hash) return 1;; invalid_hash) printf 'invalid\\n';; *) printf '%s\\n' ${quote("d".repeat(64))};; esac; }
+sha256sum() {
+  cat >/dev/null || return 1
+  case "$failure" in hash) return 1;; invalid_hash) printf 'invalid\\n';; *) printf '%s\\n' ${quote("d".repeat(64))};; esac
+}
 df() { case "$failure" in df) return 1;; invalid_metric) printf 'header\\nfs 1 2 invalid 1%% /\\n';; *) printf 'header\\nfs 10000 1000 9000 10%% /\\n';; esac; }
 ${functionSource("prepare_attestation_metrics")}
 prepare_attestation_metrics || exit 1
