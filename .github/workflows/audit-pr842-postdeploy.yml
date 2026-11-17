@@ -1,0 +1,100 @@
+name: PR842 exact release read-only acceptance
+on:
+  push:
+    branches: [audit/pr842-postdeploy-20261117]
+permissions:
+  contents: read
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - name: Inspect exact published release and durable request aggregates
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          EXPECTED_SSH_FINGERPRINT: ${{ vars.DEPLOY_HOST_FINGERPRINT }}
+          RELEASE_SHA: 756db0d8fd346ea28a86668af0b839fb08f92e26
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = sereganikitin/st-michael-broker-platform
+          test "$GITHUB_REF" = refs/heads/audit/pr842-postdeploy-20261117
+          test -n "$SSH_HOST" -a -n "$SSH_USER" -a -n "$SSH_PRIVATE_KEY" -a -n "$DEPLOY_PATH"
+          case "$SSH_HOST" in ""|-*|*[[:space:]]*) exit 1;; esac
+          [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,63}$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && test "$SSH_PORT" -ge 1 -a "$SSH_PORT" -le 65535
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          case "$DEPLOY_PATH/" in *"/../"*|*"/./"*|*"//"*) exit 1;; esac
+          [[ "$EXPECTED_SSH_FINGERPRINT" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          health=$(curl --fail --silent --show-error --max-time 15 --proto '=https' --tlsv1.2 https://broker.stmichael.ru/api/health)
+          test "$(jq -r .deployedSha <<< "$health")" = "$RELEASE_SHA"
+          test "$(jq -r .status <<< "$health")" = ok
+          unset health
+          root=$(mktemp -d)
+          known_hosts="$root/known_hosts"
+          private_key="$root/deploy-key"
+          trap 'rm -f -- "$known_hosts" "$private_key"; rmdir -- "$root" 2>/dev/null || true' EXIT
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$private_key"
+          chmod 600 "$private_key"
+          timeout 15 ssh-keyscan -p "$SSH_PORT" -t ed25519 "$SSH_HOST" > "$known_hosts" 2>/dev/null
+          mapfile -t fingerprints < <(ssh-keygen -lf "$known_hosts" -E sha256 | awk '{print $2}' | sort -u)
+          test "${#fingerprints[@]}" -eq 1
+          test "${fingerprints[0]}" = "$EXPECTED_SSH_FINGERPRINT"
+          ssh -i "$private_key" -p "$SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known_hosts" -o ConnectTimeout=15 \
+            "${SSH_USER}@${SSH_HOST}" "bash -s -- '$DEPLOY_PATH' '$RELEASE_SHA'" <<'REMOTE'
+          set -euo pipefail
+          deploy_root=$(readlink -f -- "$1")
+          test -n "$deploy_root" -a "$deploy_root" != / -a -d "$deploy_root"
+          expected_sha=$2
+          test -f /tmp/st-michael-production-deploy.lock -a ! -L /tmp/st-michael-production-deploy.lock
+          exec 9</tmp/st-michael-production-deploy.lock
+          flock -s -n 9
+          cd -- "$deploy_root"
+          test "$(git rev-parse --show-toplevel)" = "$deploy_root"
+          test "$(git remote get-url origin)" = https://github.com/sereganikitin/st-michael-broker-platform.git
+          test "$(git symbolic-ref --short HEAD)" = master
+          test "$(git rev-parse HEAD)" = "$expected_sha"
+          test "$(docker context show)" = default
+          test "$(docker context inspect default --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock
+          test "$(docker inspect --format '{{.State.Running}}' st-michael-api)" = true
+          timeout 60 docker exec -i -e EXPECTED_RELEASE_SHA="$expected_sha" st-michael-api node <<'NODE'
+          const assert = require('node:assert/strict');
+          const { PrismaClient } = require('@prisma/client');
+          async function main() {
+            assert.equal(process.env.GIT_SHA,process.env.EXPECTED_RELEASE_SHA);
+            const url = new URL(process.env.DATABASE_URL);
+            assert(['postgres:','postgresql:'].includes(url.protocol));
+            url.searchParams.set('options','-c default_transaction_read_only=on -c statement_timeout=15000');
+            url.searchParams.set('connection_limit','1');
+            const db = new PrismaClient({datasources:{db:{url:String(url)}}});
+            try {
+              const result = await db.$transaction(async tx=>{
+                const mode=await tx.$queryRaw`SELECT current_setting('transaction_read_only') AS mode`;
+                assert.equal(mode[0].mode,'on');
+                const migrations=await tx.$queryRaw`SELECT count(*)::int AS count FROM public._prisma_migrations WHERE migration_name='20261117000100_durable_fixation_requests' AND finished_at IS NOT NULL AND rolled_back_at IS NULL`;
+                assert.equal(migrations[0].count,1);
+                const rows=await tx.fixationRequest.groupBy({by:['state','phase'],_count:{_all:true}});
+                const states=new Set(['PENDING','PROCESSING','RETRY','COMPLETED','DELIVERY_PENDING','NEEDS_REVIEW']);
+                const phases=new Set(['CHECKING','MUTATING']);
+                const counts=rows.map(r=>({state:states.has(r.state)?r.state:'UNKNOWN',phase:phases.has(r.phase)?r.phase:'UNKNOWN',count:r._count._all}));
+                return {readOnly:true,migrationApplied:true,counts,
+                  activeLeases:await tx.fixationRequest.count({where:{state:'PROCESSING',leaseUntil:{gt:new Date()}}}),
+                  expiredLeases:await tx.fixationRequest.count({where:{state:'PROCESSING',leaseUntil:{lte:new Date()}}}),
+                  linkedClients:await tx.client.count({where:{fixationRequestId:{not:null}}})};
+              },{isolationLevel:'RepeatableRead',timeout:20000});
+              console.log('PR842_ACCEPTANCE='+JSON.stringify({releaseSha:process.env.EXPECTED_RELEASE_SHA,...result}));
+            } finally {await db.$disconnect();}
+          }
+          main().catch(()=>{console.error('PR842_READONLY_ACCEPTANCE_FAILED');process.exit(1);});
+          NODE
+          REMOTE
