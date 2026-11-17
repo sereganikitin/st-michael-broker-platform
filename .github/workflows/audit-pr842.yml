@@ -1,0 +1,50 @@
+name: Isolated PR842 full application audit
+on:
+  push:
+    branches: [audit/pr842-full-application-20261117]
+permissions:
+  contents: read
+jobs:
+  isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql://fixation_test:local-test-only@127.0.0.1:55441/fixation_local_test
+      TS_NODE_PROJECT: apps/api/tsconfig.json
+      NODE_ENV: test
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 56381
+      JWT_SECRET: fixation-local-integration-only
+      JWT_REFRESH_SECRET: fixation-local-refresh-only
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:4000/api
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate && npm run build
+      - name: Start disposable databases
+        run: |
+          docker pull postgres:16-alpine
+          docker pull redis:7-alpine
+          docker compose -f docker/compose.fixation-test.yml up -d --wait --pull never
+          node node_modules/prisma/build/index.js migrate deploy --schema packages/database/prisma/schema.prisma
+      - name: Existing real PostgreSQL Redis crash and retry scenarios
+        run: node -r ts-node/register/transpile-only apps/api/test/fixation-local/run.ts
+      - name: Existing populated database migration checks
+        run: node scripts/test-fixation-migration.cjs
+      - name: Full AppModule and compiled Next application
+        run: node -r ts-node/register/transpile-only apps/api/test/fixation-local/full-app-audit.ts
+      - name: Preserve safe results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr842-isolated-audit
+          path: |
+            tmp/fixation-local/results.json
+            tmp/fixation-local/migration-upgrade.json
+            tmp/fixation-local/full-app-audit.json
