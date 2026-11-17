@@ -51,6 +51,9 @@ async function main() {
     assert.equal(readiness.checks.postgresql,'ok'); assert.equal(readiness.checks.redis,'ok');
     results.push('Real readiness PostgreSQL Redis');
     const broker = await seedBroker(db), other = await seedBroker(db), manager = await seedBroker(db,'MANAGER');
+    // Real AuthService rejects unregistered seed-only brokers without a password.
+    const bcrypt = await import('bcrypt');
+    await db.broker.updateMany({where:{id:{in:[broker.id,other.id,manager.id]}},data:{passwordHash:await bcrypt.hash('isolated-test-only-password',4)}});
     const token = (actor = broker) => sign({sub:actor.id,authVersion:0,type:'access'},process.env.JWT_SECRET!,{expiresIn:'15m'});
     const api = async (path: string, data?: any, actor = broker) => {
       const response = await fetch(`http://127.0.0.1:4000/api${path}`,{
