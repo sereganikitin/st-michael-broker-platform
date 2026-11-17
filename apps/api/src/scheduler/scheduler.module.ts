@@ -1,3 +1,4 @@
+import { WebhooksModule } from '../webhooks/webhooks.module';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
@@ -16,6 +17,7 @@ import { ContentFreshnessService } from './content-freshness.service';
   imports: [
     ScheduleModule.forRoot(),
     DatabaseModule,
+    WebhooksModule,
     CatalogModule,
     // 2026-06-09: scheduler дёргает GoogleSheetsSyncService раз в 30 мин.
     AdminModule,

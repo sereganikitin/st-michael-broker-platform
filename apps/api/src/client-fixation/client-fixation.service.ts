@@ -1,3 +1,5 @@
+import { AMO_UNIQUENESS_QUEUE, AMO_UNIQUENESS_JOB_OPTIONS } from '../common/amo-uniqueness';
+import { FixationExecution, markFixationPreflightFailure, withFixationFailureCode } from "./fixation-preflight";
 import {
   cabinetSourceWhere,
   isHistoricalClient,
@@ -99,7 +101,7 @@ const NON_RETRYABLE_AMO_LOOKUP_ERRORS = new Set([
 
 function isTransientAmoLookupError(error: unknown): boolean {
   const raw = String((error as any)?.message || error || "");
-  if (raw === "AMBIGUOUS_EXACT_CONTACT") return false; // бизнес-ответ, наверх
+  if (raw === "AMBIGUOUS_EXACT_CONTACT" || raw.startsWith("AMO_UNIQUENESS_")) return false; // бизнес-ответ, наверх
   return !NON_RETRYABLE_AMO_LOOKUP_ERRORS.has(sanitizeAmoSyncError(error));
 }
 
@@ -239,6 +241,7 @@ export class ClientFixationService {
     private amoCrmAdapter: AmoCrmAdapter,
     @InjectQueue("notifications") private notificationQueue: Queue,
     @Optional() private readonly opsAlerts?: OpsAlertService,
+    @Optional() @InjectQueue(AMO_UNIQUENESS_QUEUE) private readonly uniquenessQueue?: Queue,
   ) {}
 
   // Injectable для тестов (fake timers не нужны — тесты подменяют sleep).
@@ -289,10 +292,20 @@ export class ClientFixationService {
     brokerId: string,
     data: Parameters<ClientFixationService["fixClientInner"]>[1],
     assertAmoCreateLeaseOwned: () => Promise<void>,
+    execution?: FixationExecution,
   ) {
-    return runInteractive(() =>
-      this.fixClientInner(brokerId, data, assertAmoCreateLeaseOwned),
-    );
+    let mutationStarted = false;
+    const beforeMutation = async () => {
+      await execution?.beforeMutation();
+      mutationStarted = true;
+    };
+    try {
+      return await runInteractive(() =>
+        this.fixClientInner(brokerId, data, assertAmoCreateLeaseOwned, { requestId: execution?.requestId, beforeMutation }),
+      );
+    } catch (error) {
+      throw mutationStarted ? error : markFixationPreflightFailure(error);
+    }
   }
 
   private async fixClientInner(
@@ -325,6 +338,7 @@ export class ClientFixationService {
       responsibleBrokerId?: string;
     },
     assertAmoCreateLeaseOwned: () => Promise<void>,
+    execution: { requestId?: string; beforeMutation(): Promise<void> },
   ) {
     const broker = await this.prisma.broker.findUnique({
       where: { id: brokerId },
@@ -544,18 +558,22 @@ export class ClientFixationService {
     } catch (e: any) {
       const uniquenessLookupError = String(e?.message || e || "");
       if (uniquenessLookupError === "AMBIGUOUS_EXACT_CONTACT") {
-        throw new ConflictException(
+        throw withFixationFailureCode(new ConflictException(
           "В amoCRM найдено несколько контактов с этим телефоном; создание новой сделки заблокировано до ручной сверки",
-        );
+        ), "AMBIGUOUS_EXACT_CONTACT");
       }
       const safeLookupError = sanitizeAmoSyncError(e);
       console.error(
         `[fixClient] amo checkUniqueness failed; lead creation is blocked: ${safeLookupError}`,
       );
-      throw new ServiceUnavailableException(
+      const lookupCode = /^AMO_UNIQUENESS_[A-Z_]{3,60}$/.test(uniquenessLookupError) ? uniquenessLookupError : safeLookupError;
+      throw withFixationFailureCode(new ServiceUnavailableException(
         "Полную проверку уникальности в amoCRM завершить не удалось; создание новой сделки временно заблокировано",
-      );
+      ), lookupCode);
     }
+
+    // Durable checkpoint before any Client, lead-link, note or task mutation.
+    await execution.beforeMutation();
 
     // The company displayed on an amoCRM broker contact follows the broker who
     // actually handles the client. In delegated fixation this is the selected
@@ -598,6 +616,7 @@ export class ClientFixationService {
         brokerId,
         existingClient,
         fixationFormFields,
+        requestId: execution.requestId,
       });
       return agencyWarning
         ? { ...alarmResult, agencyWarning }
@@ -611,6 +630,7 @@ export class ClientFixationService {
     if (amoVerdict && amoVerdict.rule === "RULE_REJECT_SALES_DEAL") {
       const client = await this.prisma.client.create({
         data: {
+          ...(execution.requestId ? { fixationRequestId: execution.requestId } : {}),
           brokerId,
           responsibleBrokerId: responsibleBroker.id,
           phone: data.phone,
@@ -681,6 +701,7 @@ export class ClientFixationService {
         // Создаём запись в UNDER_REVIEW у НОВОГО брокера и уведомляем менеджеров.
         const client = await this.prisma.client.create({
           data: {
+          ...(execution.requestId ? { fixationRequestId: execution.requestId } : {}),
             brokerId,
             responsibleBrokerId: responsibleBroker.id,
             phone: data.phone,
@@ -759,6 +780,7 @@ export class ClientFixationService {
       await this.assertNoUnresolvedSamePhoneAmoCreate(data.phone);
       const client = await this.prisma.client.create({
         data: {
+          ...(execution.requestId ? { fixationRequestId: execution.requestId } : {}),
           brokerId,
           responsibleBrokerId: responsibleBroker.id,
           phone: data.phone,
@@ -1040,6 +1062,7 @@ export class ClientFixationService {
         }
       }
 
+      if (isExceptionAfterSalesMeeting && amoSyncOk && createdAmoLeadId) await this.scheduleUniquenessReview(createdAmoLeadId);
       const newClientSync = amoCreateOutcomeWrite(
         amoSyncOk,
         amoSyncError,
@@ -1047,7 +1070,7 @@ export class ClientFixationService {
       );
       return {
         client,
-        status: "CONDITIONALLY_UNIQUE",
+        status: isExceptionAfterSalesMeeting ? "UNDER_REVIEW" : "CONDITIONALLY_UNIQUE",
         amoSyncStatus: newClientSync.amoSyncStatus,
         message: amoSyncOk
           ? "Client conditionally fixed. Expires in 30 days."
@@ -1099,6 +1122,7 @@ export class ClientFixationService {
     await this.assertNoUnresolvedSamePhoneAmoCreate(data.phone);
     const newClient = await this.prisma.client.create({
       data: {
+          ...(execution.requestId ? { fixationRequestId: execution.requestId } : {}),
         brokerId,
         responsibleBrokerId: responsibleBroker.id,
         phone: data.phone,
@@ -1340,6 +1364,7 @@ export class ClientFixationService {
       }
     }
 
+    if (isExceptionAfterSalesMeeting && amoSyncOk && createdAmoLeadId) await this.scheduleUniquenessReview(createdAmoLeadId);
     const refixSync = amoCreateOutcomeWrite(
       amoSyncOk,
       amoSyncError,
@@ -1386,6 +1411,15 @@ export class ClientFixationService {
    * Ограничение @@unique([brokerId, amoLeadId]) роняло запрос в 500 —
    * здесь распознаём именно его и возвращаем уже созданную заявку.
    */
+  private async scheduleUniquenessReview(leadId: number) {
+    try {
+      if (!this.uniquenessQueue) return;
+      await this.uniquenessQueue.add('reconcile', { leadId }, { ...AMO_UNIQUENESS_JOB_OPTIONS, delay: 60_000 });
+    } catch {
+      console.error('[fixClient] UNIQUENESS_FOLLOWUP_QUEUE_FAILED');
+    }
+  }
+
   private async findClientByBrokerAndLead(
     error: any,
     brokerId: string,
@@ -1424,6 +1458,7 @@ export class ClientFixationService {
     brokerId: string;
     existingClient: any | null;
     fixationFormFields: any;
+    requestId?: string;
   }): Promise<any> {
     const {
       amoVerdict,
@@ -1484,6 +1519,7 @@ export class ClientFixationService {
     try {
       client = await this.prisma.client.create({
         data: {
+          ...(params.requestId ? { fixationRequestId: params.requestId } : {}),
           brokerId,
           responsibleBrokerId: responsibleBroker.id,
           phone: data.phone,

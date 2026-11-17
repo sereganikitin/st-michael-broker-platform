@@ -1279,7 +1279,7 @@ export class AmoCrmAdapter {
     completeTillSec?: number; // default: +24h
     taskTypeId?: number; // default: 1 (звонок)
     responsibleUserId?: number; // если знаем кому именно
-  }): Promise<void> {
+  }, options: { retryTransient?: boolean } = {}): Promise<void> {
     const completeTill =
       data.completeTillSec || Math.floor(Date.now() / 1000) + 24 * 60 * 60;
     const body: any = {
@@ -1294,7 +1294,7 @@ export class AmoCrmAdapter {
     await this.request("/tasks", {
       method: "POST",
       body: JSON.stringify([body]),
-    });
+    }, options);
   }
 
   // 2026-06-15: список НЕзавершённых задач конкретного ответственного
@@ -1411,6 +1411,7 @@ export class AmoCrmAdapter {
     const limit = touchesPageLimit(opts.limit);
     const maxPages = touchesMaxPages(opts.maxPages);
     const out: AmoTask[] = [];
+    const seenTaskIds = new Set<number>();
     for (let page = 1; page <= maxPages; page += 1) {
       const params = new URLSearchParams({
         limit: String(limit),
@@ -1424,15 +1425,20 @@ export class AmoCrmAdapter {
       if (opts.order) params.set("order[complete_till]", opts.order);
       const data = await this.request<any>(`/tasks?${params.toString()}`);
       // amo отвечает 204 (request → null), когда задач нет.
+      if (data === undefined && opts.requireComplete) throw new Error("AMO_TASK_EVIDENCE_INVALID");
       if (data === null || data === undefined) break;
       const items = data?._embedded?.tasks;
       if (!Array.isArray(items)) throw new Error("AMO_TOUCHES_PAGE_INVALID");
       for (const raw of items) {
         const task = normalizeAmoTask(raw);
-        if (task) out.push(task);
+        if (opts.requireComplete && (!task || !ids.includes(task.entity_id) || task.entity_type !== entityType || typeof task.text !== 'string' || seenTaskIds.has(task.id))) {
+          throw new Error("AMO_TASK_EVIDENCE_INVALID");
+        }
+        if (task) { seenTaskIds.add(task.id); out.push(task); }
       }
       if (!hasNextPage(data, items.length, limit)) break;
       if (page === maxPages) {
+        if (opts.requireComplete) throw new Error("AMO_TASK_EVIDENCE_INCOMPLETE");
         console.warn(
           `[getTasksForEntities] ${entityType}: достигнут maxPages=${maxPages}, хвост не прочитан`,
         );

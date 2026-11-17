@@ -1,3 +1,4 @@
+import { FixationRequestService } from "./fixation-request.service";
 import { Controller, Post, Get, Patch, Body, Param, UseGuards, Query, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { audienceForRole } from '../common/safe-messages';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -25,6 +26,7 @@ export class ClientFixationController {
   constructor(
     private readonly clientFixationService: ClientFixationService,
     private readonly fixationSafety: ClientFixationSafetyService,
+    private readonly fixationRequests: FixationRequestService,
   ) {}
 
   @Post('import')
@@ -47,15 +49,31 @@ export class ClientFixationController {
   async fixClient(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
     const data = fixClientDtoSchema.parse(body) as any;
     const { idempotencyKey, ...fixation } = data;
-    return this.fixationSafety.execute(
-      {
-        actorId: user.id,
-        payload: fixation,
-        idempotencyKey,
-      },
-      ({ assertOwned }) =>
-        this.clientFixationService.fixClient(user.id, fixation, assertOwned),
-    );
+    return this.fixationRequests.submit(user.id, fixation, idempotencyKey);
+  }
+
+  @Get('fixation-requests')
+  async getFixationRequests(@CurrentUser() user: CurrentUserPayload) {
+    return this.fixationRequests.list(user.id);
+  }
+
+  @Get('fixation-requests/:requestId')
+  async getFixationRequest(@CurrentUser() user: CurrentUserPayload, @Param('requestId') requestId: string) {
+    return this.fixationRequests.get(user.id, requestId);
+  }
+
+  @Get('fixation-requests/admin/queue')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  async fixationReviewQueue() {
+    return this.fixationRequests.reviewQueue();
+  }
+
+  @Post('fixation-requests/:requestId/retry-check')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.MANAGER, UserRole.ADMIN)
+  async retryFixationCheck(@CurrentUser() user: CurrentUserPayload, @Param('requestId') requestId: string) {
+    return this.fixationRequests.retryCheck(user.id, requestId);
   }
 
   // 2026-06-19: список коллег по агентству — для координаторов в форме фиксации,

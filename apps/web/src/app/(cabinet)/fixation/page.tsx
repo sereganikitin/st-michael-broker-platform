@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Plus, Trash2, CheckCircle2, X } from 'lucide-react';
+import { FixationRequests } from '@/components/FixationRequests';
+import { fixationRequestIdentity } from '@/lib/fixation-request-identity';
 
 interface Participant {
   firstName: string;
@@ -82,9 +84,11 @@ export default function FixationPage() {
   const submitInFlightRef = useRef(false);
   // Keep the UUID stable for a retry of the same payload after a lost response.
   // A changed payload (including confirmDuplicate=true) gets a fresh UUID.
-  const requestIdentityRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const requestIdentityRef = useRef<{ fingerprint: string; key: string; storageKey: string } | null>(null);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('Заявка принята. Проверка начнётся автоматически.');
+  const [requestsRevision, setRequestsRevision] = useState(0);
   // КБ7 (2026-05-26): пользователь нажал «Отправить» хотя бы раз —
   // с этого момента подсвечиваем красным невалидные поля и пишем
   // под каждым «Заполните это поле». До первой попытки не дёргаем.
@@ -205,14 +209,12 @@ export default function FixationPage() {
     updateParticipant(i, 'phone', d.slice(0, 10));
   };
 
-  const idempotencyKeyFor = (payload: Record<string, unknown>): string => {
+  const idempotencyKeyFor = async (payload: Record<string, unknown>): Promise<string> => {
     const fingerprint = JSON.stringify(payload);
-    if (requestIdentityRef.current?.fingerprint === fingerprint) {
-      return requestIdentityRef.current.key;
-    }
-    const key = crypto.randomUUID();
-    requestIdentityRef.current = { fingerprint, key };
-    return key;
+    if (requestIdentityRef.current?.fingerprint === fingerprint) return requestIdentityRef.current.key;
+    const identity = await fixationRequestIdentity(broker?.id || '', payload, localStorage);
+    requestIdentityRef.current = { fingerprint, ...identity };
+    return identity.key;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -288,13 +290,11 @@ export default function FixationPage() {
         })),
       ...(respMode === 'other' && responsibleBroker ? { responsibleBrokerId: responsibleBroker.id } : {}),
     };
-    const payload = {
-      ...fixationPayload,
-      idempotencyKey: idempotencyKeyFor(fixationPayload),
-    };
-
     try {
+      const payload = { ...fixationPayload, idempotencyKey: await idempotencyKeyFor(fixationPayload) };
       const result: any = await apiPost('/clients/fix', payload);
+      setSuccessMessage(result?.message || 'Заявка принята. Проверка начнётся автоматически.');
+      setRequestsRevision(value => value + 1);
       // 2026-05-26: если бэк говорит «уже есть твой клиент» — спрашиваем
       // подтверждение и при OK повторяем с confirmDuplicate=true.
       if (result?.status === 'REQUIRES_CONFIRMATION') {
@@ -312,7 +312,7 @@ export default function FixationPage() {
         const confirmedPayload = { ...fixationPayload, confirmDuplicate: true };
         const result2: any = await apiPost('/clients/fix', {
           ...confirmedPayload,
-          idempotencyKey: idempotencyKeyFor(confirmedPayload),
+          idempotencyKey: await idempotencyKeyFor(confirmedPayload),
         });
         if (result2?.amoSyncStatus === 'FAILED' && Array.isArray(result2?.managerContacts)) {
           setAmoWarn({
@@ -345,6 +345,9 @@ export default function FixationPage() {
   };
 
   const resetForm = () => {
+    if (requestIdentityRef.current?.storageKey) {
+      try { localStorage.removeItem(requestIdentityRef.current.storageKey); } catch { /* keep the older identity if storage is unavailable */ }
+    }
     setPhoneDigits('');
     setForeignPhone('');
     setIsForeign(false);
@@ -377,6 +380,7 @@ export default function FixationPage() {
     <div className="max-w-3xl">
       <h1 className="text-2xl md:text-3xl font-bold mb-6">Фиксация клиента</h1>
 
+      <FixationRequests actorId={broker?.id} refreshKey={requestsRevision} />
       <div className="card" data-tour="fixation-form">
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
@@ -842,7 +846,7 @@ export default function FixationPage() {
                     <CheckCircle2 className="w-10 h-10 text-success" />
                   </div>
                   <h2 className="text-2xl font-bold mb-2">Запрос отправлен</h2>
-                  <p className="text-text-muted mb-6 text-sm">Заявка на фиксацию клиента успешно создана.</p>
+                  <p className="text-text-muted mb-6 text-sm">{successMessage}</p>
                 </>
               )}
               {/* 2026-09-07: предупреждение по агентству — жёлтая плашка.

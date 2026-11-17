@@ -230,6 +230,8 @@ export interface AmoTask {
 }
 
 export interface AmoTasksListOptions {
+  /** Refuse truncated or malformed evidence when deciding whether a task exists. */
+  requireComplete?: boolean;
   /** filter[is_completed]=1|0. Не задано — все. */
   isCompleted?: boolean;
   /** Размер страницы, 1..250 (по умолчанию 250). */

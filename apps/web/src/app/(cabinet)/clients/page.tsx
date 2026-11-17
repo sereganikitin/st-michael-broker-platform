@@ -1,5 +1,7 @@
 'use client';
 
+import { FixationRequests } from '@/components/FixationRequests';
+
 import { useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -573,6 +575,7 @@ export default function ClientsPage() {
 
   return (
     <div>
+      <FixationRequests actorId={broker?.id} asStaff={isStaff} />
       <div className="flex items-start justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">
