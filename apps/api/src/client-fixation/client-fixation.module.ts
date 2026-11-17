@@ -1,3 +1,5 @@
+import { AMO_UNIQUENESS_QUEUE } from '../common/amo-uniqueness';
+import { FixationRequestService } from "./fixation-request.service";
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
 import { ClientFixationController } from './client-fixation.controller';
@@ -12,12 +14,13 @@ import { AmoFixationPhoneLockModule } from '../common/amo-fixation-phone-lock.mo
 @Module({
   imports: [
     DatabaseModule,
-    BullModule.registerQueue({ name: 'notifications' }),
+    BullModule.registerQueue({ name: 'notifications' }, { name: AMO_UNIQUENESS_QUEUE }),
     AmoFixationPhoneLockModule,
   ],
   controllers: [ClientFixationController, QuickFixController],
   providers: [
     ClientFixationService,
+    FixationRequestService,
     ClientFixationSafetyService,
     AmoCrmAdapter,
     FixationFailureInterceptor,

@@ -1,3 +1,4 @@
+import { AmoUniquenessRecoveryService } from '../webhooks/amo-uniqueness-recovery.service';
 import { Injectable, Inject, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient, UniquenessStatus } from '@st-michael/database';
@@ -87,6 +88,7 @@ export class SchedulerService {
     // 2026-09-28: ночной синк касаний amo → BrokerAmoContactSync.
     @Optional() private readonly amoTouchSync?: AmoTouchSyncService,
     @Optional() private readonly agencyCompanySync?: AgencyCompanySyncService,
+    @Optional() private readonly uniquenessRecovery?: AmoUniquenessRecoveryService,
   ) {}
 
   // 2026-09-24: подтянуть статусы доставки недавних СМС (каждые 10 минут).
@@ -103,10 +105,12 @@ export class SchedulerService {
     }
   }
 
-  // Placeholder — AmoReconciliationService не подключён в этой версии.
+  // Recover missed uniqueness events with bounded, persistent cursors.
   @Cron('30 */10 * * * *')
   async handleAmoUniquenessReconciliation() {
-    // no-op until amo-reconciliation.service is deployed
+    if (!this.uniquenessRecovery) return;
+    try { await this.uniquenessRecovery.runBatch(); }
+    catch { this.logger.error('AMO_UNIQUENESS_RECOVERY_FAILED'); }
   }
 
   // amoCRM contact fields are the source of truth for broker-tour attendance.

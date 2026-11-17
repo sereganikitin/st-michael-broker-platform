@@ -1,3 +1,7 @@
+import { Optional } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
+import { AMO_UNIQUENESS_QUEUE, AMO_UNIQUENESS_JOB_OPTIONS, SALES_MEETING_EXCEPTION_PREFIX, salesMeetingConflictLeadId } from '../common/amo-uniqueness';
 import {
   Injectable,
   Inject,
@@ -29,7 +33,14 @@ export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
   private readonly amo = new AmoCrmAdapter();
 
-  constructor(@Inject('PrismaClient') private prisma: PrismaClient) {}
+  constructor(
+    @Inject('PrismaClient') private prisma: PrismaClient,
+    @Optional() @InjectQueue(AMO_UNIQUENESS_QUEUE) private readonly uniquenessQueue?: Queue,
+  ) {}
+
+  async reconcileLeadUniqueness(leadId: number): Promise<void> {
+    await this.syncBrokerAttachmentFromLead(leadId);
+  }
 
   private verifyHmac(payload: string, signature: string, secret: string): boolean {
     if (!secret) return true; // Skip verification if no secret configured
@@ -262,7 +273,14 @@ export class WebhooksService {
     try {
       await this.syncBrokerAttachmentFromLead(ev.id);
     } catch (e: any) {
-      this.logger.error(`syncBrokerAttachmentFromLead failed for lead ${ev.id}: ${e?.message || e}`);
+      this.logger.error(`syncBrokerAttachmentFromLead failed for lead ${ev.id}`);
+      try {
+        if (!this.uniquenessQueue) throw new Error('UNIQUENESS_QUEUE_UNAVAILABLE');
+        await this.uniquenessQueue.add('reconcile', { leadId: ev.id }, AMO_UNIQUENESS_JOB_OPTIONS);
+      } catch {
+        // The bounded periodic sweep also covers queue outages and lost webhooks.
+        this.logger.error(`UNIQUENESS_RETRY_ENQUEUE_FAILED lead=${ev.id}`);
+      }
     }
 
     // Find deal linked to this amoCRM lead
@@ -807,19 +825,21 @@ export class WebhooksService {
     }
   }
 
-  private async syncBrokerAttachmentFromLead(leadId: number): Promise<void> {
+  private async syncBrokerAttachmentFromLead(leadId: number, followDependents = true): Promise<void> {
     if (!leadId) return;
 
     const lead: any = await this.amo.getLead(leadId).catch(() => null);
     if (!lead) {
-      this.logger.warn(`syncBrokerAttachmentFromLead: lead ${leadId} not found in amo`);
-      return;
+      throw new Error('AMO_UNIQUENESS_LEAD_UNAVAILABLE');
     }
     const leadContactIds: number[] = ((lead?._embedded?.contacts as any[]) || [])
       .map((c) => Number(c.id))
       .filter((id) => !isNaN(id));
     const leadStatusId = Number(lead?.status_id || 0);
     const leadPipelineId = Number(lead?.pipeline_id || 0);
+    if (!Number.isSafeInteger(leadStatusId) || leadStatusId <= 0 || !Number.isSafeInteger(leadPipelineId) || leadPipelineId <= 0) {
+      throw new Error('AMO_UNIQUENESS_LEAD_FIELDS_INVALID');
+    }
 
     const clients = await this.prisma.client.findMany({
       where: { amoLeadId: BigInt(leadId) },
@@ -846,7 +866,6 @@ export class WebhooksService {
       const brokerAmoId = effectiveBroker?.amoContactId
         ? Number(effectiveBroker.amoContactId)
         : null;
-      if (!brokerAmoId) continue; // нечего проверять — брокер не синкан с amo
 
       // 2026-06-16 (правка 3, жёсткая версия): если КЦ-лид закрылся в
       // статусе 143 «Закрыто и не реализовано» — у ВСЕХ Client с этим
@@ -890,6 +909,12 @@ export class WebhooksService {
         continue;
       }
 
+      // A closed linked lead is conclusive even without the broker mapping.
+      if (!brokerAmoId) continue;
+      if (!Array.isArray(lead?._embedded?.contacts)) throw new Error('AMO_UNIQUENESS_CONTACTS_UNAVAILABLE');
+      if (lead._embedded.contacts.some((contact: any) => !Number.isSafeInteger(Number(contact?.id)) || Number(contact.id) <= 0)) {
+        throw new Error('AMO_UNIQUENESS_CONTACTS_INVALID');
+      }
       const attached = leadContactIds.includes(brokerAmoId);
 
       // 2026-09-01: delegated clients follow the selected responsible broker.
@@ -959,13 +984,23 @@ export class WebhooksService {
       }
 
       if (attached && isExceptionClient && client.uniquenessStatus === UniquenessStatus.UNDER_REVIEW) {
-        if (exceptionLiftStatuses.has(leadStatusId)) {
+        const advanced = leadPipelineId === 7600542 && exceptionLiftStatuses.has(leadStatusId);
+        const conflictLeadId = salesMeetingConflictLeadId(client.uniquenessReason);
+        let originalClosed = false;
+        if (!advanced && conflictLeadId && conflictLeadId !== leadId) {
+          const original = await this.amo.getLead(conflictLeadId);
+          if (!original) throw new Error('AMO_CONFLICT_LEAD_UNAVAILABLE');
+          originalClosed = Number(original.status_id) === 143 && isSalesPipeline(Number(original.pipeline_id));
+        }
+        if (advanced || originalClosed) {
           await this.prisma.client.update({
             where: { id: client.id },
             data: {
               uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
               uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
-              uniquenessReason: `КЦ-лид перешёл в статус ${leadStatusId} — исключение снято`,
+              uniquenessReason: originalClosed
+                ? `Исходная сделка ${conflictLeadId} закрыта — исключение снято`
+                : `КЦ-лид перешёл в статус ${leadStatusId} — исключение снято`,
             },
           });
           await this.prisma.auditLog.create({
@@ -973,7 +1008,7 @@ export class WebhooksService {
               action: 'UNIQUENESS_RESOLVED',
               entity: 'Client',
               entityId: client.id,
-              payload: { trigger: 'EXCEPTION_LIFTED_BY_KC_STATUS', amoLeadId: leadId, leadStatusId },
+              payload: { trigger: originalClosed ? 'EXCEPTION_LIFTED_BY_BROKER_A_FAILED' : 'EXCEPTION_LIFTED_BY_KC_STATUS', amoLeadId: leadId, conflictLeadId, leadStatusId },
             },
           });
           this.logger.log(`Client ${client.id}: EXCEPTION UNDER_REVIEW → CONDITIONALLY_UNIQUE (L2 ${leadId} достиг status=${leadStatusId})`);
@@ -1051,39 +1086,23 @@ export class WebhooksService {
       }
     }
 
-    // 2026-06-16: если этот лид закрылся 143 (КЦ или sales), и у нас
-    // есть Client-записи с маркером EXCEPTION_AFTER_SALES_MEETING на
-    // том же телефоне (брокер B ждал решения) — снимаем UNDER_REVIEW
-    // → CONDITIONALLY_UNIQUE. Брокер A провалился, B свободен.
-    if (leadStatusId === 143 && clients.length > 0) {
-      const phones = Array.from(new Set(clients.map((c) => c.phone))).filter(Boolean);
-      if (phones.length > 0) {
-        const exceptionClients = await this.prisma.client.findMany({
-          where: {
-            phone: { in: phones as string[] },
-            uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
-            uniquenessReason: { startsWith: 'EXCEPTION_AFTER_SALES_MEETING:' },
-          },
-        });
-        for (const ec of exceptionClients) {
-          await this.prisma.client.update({
-            where: { id: ec.id },
-            data: {
-              uniquenessStatus: UniquenessStatus.CONDITIONALLY_UNIQUE,
-              uniquenessExpiresAt: new Date(Date.now() + msInDays(UNIQUENESS_DAYS)),
-              uniquenessReason: `Брокер A провалился (lead ${leadId} закрыт 143), исключение снято`,
-            },
-          });
-          await this.prisma.auditLog.create({
-            data: {
-              action: 'UNIQUENESS_RESOLVED',
-              entity: 'Client',
-              entityId: ec.id,
-              payload: { trigger: 'EXCEPTION_LIFTED_BY_BROKER_A_FAILED', amoLeadId: leadId },
-            },
-          });
-          this.logger.log(`Client ${ec.id}: EXCEPTION UNDER_REVIEW → CONDITIONALLY_UNIQUE (брокер A провалился на лиде ${leadId})`);
-        }
+    // Only the exact blocking sales lead may release an exception. A closed
+    // new KC lead must never approve unrelated requests sharing a phone.
+    if (followDependents && leadStatusId === 143 && isSalesPipeline(leadPipelineId)) {
+      const marker = `${SALES_MEETING_EXCEPTION_PREFIX}${leadId}`;
+      const dependents = await this.prisma.client.findMany({
+        where: {
+          uniquenessStatus: UniquenessStatus.UNDER_REVIEW,
+          amoLeadId: { not: null },
+          OR: [{ uniquenessReason: marker }, { uniquenessReason: { startsWith: `${marker} ` } }],
+        },
+        take: 100,
+      });
+      for (const dependent of dependents) {
+        const ownLeadId = Number(dependent.amoLeadId);
+        if (salesMeetingConflictLeadId(dependent.uniquenessReason) !== leadId || !ownLeadId || ownLeadId === leadId) continue;
+        if (this.uniquenessQueue) await this.uniquenessQueue.add('reconcile', { leadId: ownLeadId }, AMO_UNIQUENESS_JOB_OPTIONS);
+        else await this.syncBrokerAttachmentFromLead(ownLeadId, false);
       }
     }
 

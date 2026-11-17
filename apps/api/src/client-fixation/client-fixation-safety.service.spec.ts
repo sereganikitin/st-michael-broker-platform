@@ -1,3 +1,4 @@
+import { markFixationPreflightFailure } from "./fixation-preflight";
 import {
   ClientFixationSafetyService,
   clientFixationFingerprint,
@@ -183,7 +184,7 @@ describe("ClientFixationSafetyService", () => {
       ),
     ).rejects.toMatchObject({
       response: expect.objectContaining({
-        message: "По этому номеру сейчас обрабатывается другая заявка. Повторите через минуту.",
+        message: "По этому номеру сейчас обрабатывается другая заявка. Дождитесь завершения обработки.",
       }),
       fixationGuardConflict: true,
     });
@@ -605,5 +606,27 @@ describe("ClientFixationSafetyService", () => {
     expect(clientFixationFingerprint(payload)).not.toBe(
       clientFixationFingerprint({ ...payload, confirmDuplicate: true }),
     );
+  });
+});
+
+
+describe("proven preflight failures", () => {
+  it("releases only its own keys when checking failed before mutations", async () => {
+    const { service, redis } = createService();
+    const request = { actorId: "preflight-actor", payload: { phone: "+79990000001" }, idempotencyKey: "preflight-key" };
+    const error = markFixationPreflightFailure(new Error("lookup failed before create"));
+    await expect(service.execute(request, async () => { throw error; })).rejects.toBe(error);
+    expect(redis.values.size).toBe(0);
+    await expect(service.execute(request, async () => ({ id: "one-lead" }))).resolves.toEqual({ id: "one-lead" });
+  });
+
+  it("keeps an unclassified error blocked even when it looks like a validation error", async () => {
+    const { service, redis } = createService();
+    const request = { actorId: "actor", payload: { phone: "+79990000001" } };
+    const action = jest.fn(async () => { throw Object.assign(new Error("unknown mutation boundary"), { status: 400 }); });
+    await expect(service.execute(request, action)).rejects.toThrow("unknown mutation boundary");
+    redis.advance(60_000);
+    await expect(service.execute(request, action)).rejects.toMatchObject({ status: 409 });
+    expect(action).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,7 @@
 import { ClientFixationController } from "./client-fixation.controller";
+import { Reflector } from "@nestjs/core";
+import { RolesGuard } from "../auth/roles.guard";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 
 const validBody = {
   phone: "+79990000001",
@@ -8,64 +11,65 @@ const validBody = {
 };
 
 describe("ClientFixationController idempotency", () => {
-  it("guards the parsed request and keeps the transport UUID out of domain data", async () => {
-    const clientFixationService = {
-      fixClient: jest.fn().mockResolvedValue({ client: { id: "client-1" } }),
-    };
-    const assertOwned = jest.fn().mockResolvedValue(undefined);
-    const fixationSafety = {
-      execute: jest.fn((_request, action) => action({ assertOwned })),
-    };
-    const controller = new ClientFixationController(
-      clientFixationService as any,
-      fixationSafety as any,
-    );
-    const idempotencyKey = "b5066154-6973-4730-bc62-d3df0dc85925";
+  it("restricts operational inspection and retries to authenticated staff", () => {
+    expect(
+      Reflect.getMetadata("__guards__", ClientFixationController),
+    ).toContain(JwtAuthGuard);
+    const guard = new RolesGuard(new Reflector());
+    for (const handler of [
+      ClientFixationController.prototype.fixationReviewQueue,
+      ClientFixationController.prototype.retryFixationCheck,
+    ]) {
+      expect(Reflect.getMetadata("__guards__", handler)).toContain(RolesGuard);
+      const context = (role: string) =>
+        ({
+          getHandler: () => handler,
+          getClass: () => ClientFixationController,
+          switchToHttp: () => ({ getRequest: () => ({ user: { role } }) }),
+        }) as any;
+      expect(guard.canActivate(context("BROKER"))).toBe(false);
+      expect(guard.canActivate(context("MANAGER"))).toBe(true);
+      expect(guard.canActivate(context("ADMIN"))).toBe(true);
+    }
+  });
 
+  it("persists the parsed request and keeps its key out of domain data", async () => {
+    const requests = {
+      submit: jest
+        .fn()
+        .mockResolvedValue({ requestId: "request-1", requestState: "PENDING" }),
+    };
+    const service = { fixClient: jest.fn() };
+    const controller = new ClientFixationController(
+      service as any,
+      {} as any,
+      requests as any,
+    );
+    const key = "b5066154-6973-4730-bc62-d3df0dc85925";
     await expect(
       controller.fixClient({ id: "broker-1" } as any, {
         ...validBody,
-        idempotencyKey,
+        idempotencyKey: key,
       }),
-    ).resolves.toEqual({ client: { id: "client-1" } });
-
-    expect(fixationSafety.execute).toHaveBeenCalledWith(
-      {
-        actorId: "broker-1",
-        payload: validBody,
-        idempotencyKey,
-      },
-      expect.any(Function),
-    );
-    expect(clientFixationService.fixClient).toHaveBeenCalledWith(
-      "broker-1",
-      validBody,
-      assertOwned,
-    );
+    ).resolves.toMatchObject({ requestState: "PENDING" });
+    expect(requests.submit).toHaveBeenCalledWith("broker-1", validBody, key);
+    expect(service.fixClient).not.toHaveBeenCalled();
   });
 
-  it("keeps legacy clients without a UUID compatible", async () => {
-    const clientFixationService = {
-      fixClient: jest.fn().mockResolvedValue({ client: { id: "client-1" } }),
-    };
-    const assertOwned = jest.fn().mockResolvedValue(undefined);
-    const fixationSafety = {
-      execute: jest.fn((_request, action) => action({ assertOwned })),
+  it("accepts legacy clients without a key into the same durable intake", async () => {
+    const requests = {
+      submit: jest.fn().mockResolvedValue({ requestId: "request-1" }),
     };
     const controller = new ClientFixationController(
-      clientFixationService as any,
-      fixationSafety as any,
+      {} as any,
+      {} as any,
+      requests as any,
     );
-
     await controller.fixClient({ id: "broker-1" } as any, validBody);
-
-    expect(fixationSafety.execute).toHaveBeenCalledWith(
-      {
-        actorId: "broker-1",
-        payload: validBody,
-        idempotencyKey: undefined,
-      },
-      expect.any(Function),
+    expect(requests.submit).toHaveBeenCalledWith(
+      "broker-1",
+      validBody,
+      undefined,
     );
   });
 
@@ -75,6 +79,7 @@ describe("ClientFixationController idempotency", () => {
     const controller = new ClientFixationController(
       clientFixationService as any,
       fixationSafety as any,
+      { submit: jest.fn() } as any,
     );
 
     await expect(
@@ -87,67 +92,37 @@ describe("ClientFixationController idempotency", () => {
     expect(clientFixationService.fixClient).not.toHaveBeenCalled();
   });
 
-  it("accepts a 12-digit personal agency INN from the broker profile", async () => {
-    const clientFixationService = {
-      fixClient: jest.fn().mockResolvedValue({ client: { id: "client-1" } }),
-    };
-    const assertOwned = jest.fn().mockResolvedValue(undefined);
-    const fixationSafety = {
-      execute: jest.fn((_request, action) => action({ assertOwned })),
-    };
-    const controller = new ClientFixationController(
-      clientFixationService as any,
-      fixationSafety as any,
-    );
-
-    await expect(
-      controller.fixClient({ id: "broker-1" } as any, {
-        ...validBody,
-        agencyInn: "123456789777",
-      }),
-    ).resolves.toEqual({ client: { id: "client-1" } });
-
-    expect(clientFixationService.fixClient).toHaveBeenCalledWith(
-      "broker-1",
-      expect.objectContaining({ agencyInn: "123456789777" }),
-      assertOwned,
-    );
-  });
-
-  // 2026-09-07: схема стала мягкой (4-20 цифр) — 11-значный ИНН больше не
-  // валит запрос 400-кой. Строгая проверка 10/12 живёт в сервисе фиксации,
-  // который оформляет фиксацию без агентства и возвращает agencyWarning.
-  it("accepts an 11-digit agency INN and lets the service decide (soft schema)", async () => {
-    const clientFixationService = {
-      fixClient: jest.fn().mockResolvedValue({
-        client: { id: "client-1" },
-        agencyWarning: "warning",
-      }),
-    };
-    const assertOwned = jest.fn().mockResolvedValue(undefined);
-    const fixationSafety = {
-      execute: jest.fn((_request, action) => action({ assertOwned })),
-    };
-    const controller = new ClientFixationController(
-      clientFixationService as any,
-      fixationSafety as any,
-    );
-
-    await expect(
-      controller.fixClient({ id: "broker-1" } as any, {
-        ...validBody,
-        agencyInn: "12345678901",
-      }),
-    ).resolves.toEqual(
-      expect.objectContaining({ agencyWarning: "warning" }),
-    );
-
-    expect(clientFixationService.fixClient).toHaveBeenCalledWith(
-      "broker-1",
-      expect.objectContaining({ agencyInn: "12345678901" }),
-      assertOwned,
-    );
-  });
+  it.each(["123456789777", "12345678901"])(
+    "persists soft-validated agency INN %s for domain processing",
+    async (agencyInn) => {
+      const requests = {
+        submit: jest
+          .fn()
+          .mockResolvedValue({
+            requestId: "request-1",
+            requestState: "PENDING",
+          }),
+      };
+      const service = { fixClient: jest.fn() };
+      const controller = new ClientFixationController(
+        service as any,
+        {} as any,
+        requests as any,
+      );
+      await expect(
+        controller.fixClient({ id: "broker-1" } as any, {
+          ...validBody,
+          agencyInn,
+        }),
+      ).resolves.toMatchObject({ requestState: "PENDING" });
+      expect(requests.submit).toHaveBeenCalledWith(
+        "broker-1",
+        expect.objectContaining({ agencyInn }),
+        undefined,
+      );
+      expect(service.fixClient).not.toHaveBeenCalled();
+    },
+  );
 
   it("still rejects a non-numeric agency INN by schema", async () => {
     const clientFixationService = { fixClient: jest.fn() };
@@ -155,6 +130,7 @@ describe("ClientFixationController idempotency", () => {
     const controller = new ClientFixationController(
       clientFixationService as any,
       fixationSafety as any,
+      { submit: jest.fn() } as any,
     );
 
     await expect(

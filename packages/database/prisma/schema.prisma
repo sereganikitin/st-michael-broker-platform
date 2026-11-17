@@ -609,7 +609,45 @@ model Broker {
   @@map("brokers")
 }
 
+model FixationRequest {
+  id              String   @id @default(uuid())
+  actorId         String   @map("actor_id")
+  fingerprint     String
+  phoneKey        String   @map("phone_key")
+  payload         Json
+  state           String   @default("PENDING")
+  phase           String   @default("CHECKING")
+  attempts        Int      @default(0)
+  nextAttemptAt   DateTime @default(now()) @map("next_attempt_at")
+  leaseToken      String?  @map("lease_token")
+  leaseUntil      DateTime? @map("lease_until")
+  result          Json?
+  errorCode       String?  @map("error_code")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  keys            FixationRequestKey[]
+  createdClient   Client?
+
+  @@index([state, nextAttemptAt])
+  @@index([actorId, fingerprint])
+  @@index([actorId, createdAt])
+  @@map("fixation_requests")
+}
+
+model FixationRequestKey {
+  actorId   String @map("actor_id")
+  key       String
+  requestId String @map("request_id")
+  request   FixationRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@id([actorId, key])
+  @@index([requestId])
+  @@map("fixation_request_keys")
+}
+
 model Client {
+  fixationRequestId String? @unique @map("fixation_request_id")
+  fixationRequest FixationRequest? @relation(fields: [fixationRequestId], references: [id], onDelete: Restrict)
   id                   String           @id @default(uuid())
   brokerId             String           @map("broker_id") // владелец кабинета (для координатора — координатор)
   broker               Broker           @relation(fields: [brokerId], references: [id])

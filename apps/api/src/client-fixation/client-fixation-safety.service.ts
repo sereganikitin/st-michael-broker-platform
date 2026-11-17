@@ -1,3 +1,4 @@
+import { isFixationPreflightFailure } from "./fixation-preflight";
 import {
   ConflictException,
   Injectable,
@@ -23,11 +24,11 @@ const REPLAY_KEY_REUSED_MESSAGE =
 const SAME_REQUEST_IN_FLIGHT_MESSAGE =
   "Заявка уже отправляется. Подождите несколько секунд и не отправляйте её повторно.";
 const SAME_REQUEST_UNCERTAIN_MESSAGE =
-  "Предыдущая отправка этой заявки завершилась неоднозначно. Подождите минуту и повторите — если повторится, напишите в поддержку.";
+  "Предыдущая отправка этой заявки завершилась неоднозначно. Результат требует сверки. Повторная отправка может создать дубль; обратитесь в поддержку.";
 const OTHER_REQUEST_IN_FLIGHT_MESSAGE =
-  "По этому номеру сейчас обрабатывается другая заявка. Повторите через минуту.";
+  "По этому номеру сейчас обрабатывается другая заявка. Дождитесь завершения обработки.";
 const OTHER_REQUEST_UNCERTAIN_MESSAGE =
-  "По этому номеру предыдущая заявка завершилась неоднозначно. Подождите минуту и повторите — если повторится, напишите в поддержку.";
+  "По этому номеру предыдущая заявка завершилась неоднозначно. Результат требует сверки. Повторная отправка может создать дубль; обратитесь в поддержку.";
 const STORED_STATE_BROKEN_MESSAGE =
   "Не удалось проверить предыдущую отправку заявки. Обновите страницу и попробуйте снова.";
 
@@ -296,6 +297,11 @@ export class ClientFixationSafetyService {
       return result;
     } catch (error) {
       await lease.stop();
+      if (isFixationPreflightFailure(error)) {
+        if (ownsSemantic) await this.releaseOwned(redis, semanticKey, owner);
+        if (replayKey && ownsReplay) await this.releaseOwned(redis, replayKey, owner);
+        throw error;
+      }
       // The failure can happen after amoCRM accepted POST /leads. Keep a
       // bounded fail-closed marker instead of releasing the lock and turning
       // an ambiguous response into a second lead on retry.

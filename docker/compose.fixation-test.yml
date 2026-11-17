@@ -1,0 +1,35 @@
+# Disposable local data only. Do not combine with the production compose file.
+name: codex-fixation-local-20261117
+services:
+  postgres:
+    image: postgres:16-alpine
+    pull_policy: never
+    environment:
+      POSTGRES_DB: fixation_local_test
+      POSTGRES_USER: fixation_test
+      POSTGRES_PASSWORD: local-test-only
+    ports:
+      - "127.0.0.1:55441:5432"
+    volumes:
+      - fixation-test-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fixation_test -d fixation_local_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    pull_policy: never
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:56381:6379"
+    volumes:
+      - fixation-test-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+volumes:
+  fixation-test-pg:
+  fixation-test-redis:
