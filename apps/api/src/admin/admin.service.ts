@@ -1133,6 +1133,36 @@ export class AdminService {
     });
   }
 
+  async setAgencyAdmin(actorId: string, brokerId: string, agencyId: string, isAgencyAdmin: boolean) {
+    return this.prisma.$transaction(async (tx) => {
+      const actor = await tx.broker.findUnique({ where: { id: actorId }, select: { role: true, status: true, mergedIntoId: true } });
+      if (actor?.role !== 'ADMIN' || actor.status !== 'ACTIVE' || actor.mergedIntoId) {
+        throw new ForbiddenException('Требуется системный администратор');
+      }
+      await tx.$queryRaw`SELECT id FROM broker_agencies WHERE broker_id = ${brokerId} AND agency_id = ${agencyId} FOR UPDATE`;
+      const membership = await tx.brokerAgency.findUnique({
+        where: { brokerId_agencyId: { brokerId, agencyId } },
+        include: { broker: { select: { role: true, status: true, mergedIntoId: true } } },
+      });
+      if (!membership) throw new NotFoundException('Брокер не состоит в этом агентстве');
+      if (isAgencyAdmin && (membership.broker.role !== 'BROKER' || membership.broker.status !== 'ACTIVE' || membership.broker.mergedIntoId)) {
+        throw new BadRequestException('Назначить можно активного брокера с действующей карточкой');
+      }
+      if (membership.isAgencyAdmin === isAgencyAdmin) return { brokerId, agencyId, isAgencyAdmin };
+      await tx.brokerAgency.update({ where: { id: membership.id }, data: { isAgencyAdmin } });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          action: isAgencyAdmin ? 'AGENCY_ADMIN_GRANTED' : 'AGENCY_ADMIN_REVOKED',
+          entity: 'BrokerAgency',
+          entityId: membership.id,
+          payload: { brokerId, agencyId, previous: membership.isAgencyAdmin, isAgencyAdmin },
+        },
+      });
+      return { brokerId, agencyId, isAgencyAdmin };
+    });
+  }
+
   // ─── Ручная смена uniquenessStatus клиента (admin only, критические случаи) ──
   // 2026-06-17: бывает что webhook / amoCRM-логика не довела клиента до правильного
   // статуса (баг, race condition, ручная правка в amo). Админ из кабинета может

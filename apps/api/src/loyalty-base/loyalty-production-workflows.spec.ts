@@ -3,6 +3,8 @@ import { spawnSync } from "child_process";
 import { resolve } from "path";
 import { parse } from "yaml";
 
+const { bashTestTimeout } = require("../../test/bash-test-runtime.cjs");
+
 describe("loyalty production workflow safety", () => {
   const repositoryRoot = resolve(__dirname, "../../../..");
   const readRepositoryFile = (path: string) =>
@@ -859,7 +861,7 @@ describe("loyalty production workflow safety", () => {
 
     // Parse only: never execute maintenance, sudo, Docker, SSH, or database calls.
     const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
-    const syntax = spawnSync(bash, ["-n"], { input: run, encoding: "utf8", timeout: 5000,
+    const syntax = spawnSync(bash, ["-n"], { input: run, encoding: "utf8", timeout: bashTestTimeout,
       env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
     expect(syntax.error).toBeUndefined();
     expect(syntax.status).toBe(0);
@@ -931,7 +933,7 @@ printf 'status=%s\\n' "$result"
 printf '%b' "$calls"
 `;
     const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
-    const execution = spawnSync(bash, ["-s"], { input, encoding: "utf8", timeout: 5000,
+    const execution = spawnSync(bash, ["-s"], { input, encoding: "utf8", timeout: bashTestTimeout,
       env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
     expect(execution.error).toBeUndefined();
     expect(execution.status).toBe(0);
@@ -945,7 +947,7 @@ printf '%b' "$calls"
     const definition = remote.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?^\\}`, "m"))![0];
     const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
     const execution = spawnSync(bash, ["-s"], { input: `set -euo pipefail\ndocker() { return 1; }\n${definition}\nif snapshot=$(${name}); then exit 90; else exit 0; fi\n`,
-      encoding: "utf8", timeout: 5000, env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
+      encoding: "utf8", timeout: bashTestTimeout, env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
     expect(execution.error).toBeUndefined();
     expect(execution.status).toBe(0);
   });
@@ -1042,7 +1044,7 @@ else result=$?; fi
 printf 'status=%s prunes=%s missing=%s\\n' "$result" "$prune_calls" "$metadata_missing_image_references"
 `;
     const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
-    const execution = spawnSync(bash, ["-s"], { input, encoding: "utf8", timeout: 5000,
+    const execution = spawnSync(bash, ["-s"], { input, encoding: "utf8", timeout: bashTestTimeout,
       env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
     expect(execution.error).toBeUndefined();
     expect(execution.status).toBe(0);
@@ -1347,7 +1349,7 @@ printf 'status=%s prunes=%s missing=%s\\n' "$result" "$prune_calls" "$metadata_m
       spawnSync(bash, ["-s"], {
         input: `set -euo pipefail\nexport LC_ALL=C\n${hashMethod}\n${methods}\n${dockerFixture}\n${method} | inventory_hash\n`,
         encoding: "utf8",
-        timeout: 5000,
+        timeout: bashTestTimeout,
         // Do not forward deployment credentials or app configuration to mocks.
         env: {
           PATH: process.env.PATH,

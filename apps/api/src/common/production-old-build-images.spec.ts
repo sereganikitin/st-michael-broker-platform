@@ -3,6 +3,8 @@ import { resolve } from "path";
 import { spawnSync } from "child_process";
 import { parse } from "yaml";
 
+const { bashTestTimeout } = require("../../test/bash-test-runtime.cjs");
+
 describe("read-only old production build image inventory", () => {
   const root = resolve(__dirname, "../../../..");
   const source = readFileSync(resolve(root, ".github/workflows/inspect-production-old-build-images.yml"), "utf8");
@@ -10,15 +12,17 @@ describe("read-only old production build image inventory", () => {
   const run = workflow.jobs.inspect.steps[1].run.replace(/\r\n/g, "\n");
   const remote = run.split("<<'REMOTE'\n")[1].split("\nREMOTE")[0];
   const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
-  const python = process.platform === "win32"
-    ? "C:/Users/PC-OpenClaw/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe"
-    : "python3";
+  const python = process.env.PYTHON_PATH || (process.platform === "win32" ? "python" : "python3");
   const quote = (value: string) => `'${value.replace(/'/g, `'"'"'`)}'`;
   const functionSource = (name: string) => remote.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?^\\}`, "m"))![0];
-  const runIsolated = (script: string) => spawnSync(bash, ["-s"], {
-    input: `set -euo pipefail\n${script}\n`, encoding: "utf8", timeout: 5000,
-    env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot },
-  });
+  const runIsolated = (script: string) => {
+    const result = spawnSync(bash, ["-s"], {
+      input: `set -euo pipefail\n${script}\n`, encoding: "utf8", timeout: bashTestTimeout,
+      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot },
+    });
+    expect(result.error).toBeUndefined();
+    return result;
+  };
   const id = "sha256:" + "a".repeat(64);
   const another = "sha256:" + "b".repeat(64);
   const now = 1801958400;
@@ -52,7 +56,7 @@ describe("read-only old production build image inventory", () => {
   });
 
   it("parses the full actual Bash script without executing it", () => {
-    const result = spawnSync(bash, ["-n"], { input: run, encoding: "utf8", timeout: 5000 });
+    const result = spawnSync(bash, ["-n"], { input: run, encoding: "utf8", timeout: bashTestTimeout });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");

@@ -53,8 +53,8 @@ export class ClientFixationController {
   }
 
   @Get('fixation-requests')
-  async getFixationRequests(@CurrentUser() user: CurrentUserPayload) {
-    return this.fixationRequests.list(user.id);
+  async getFixationRequests(@CurrentUser() user: CurrentUserPayload, @Query('submittedForOthers') submittedForOthers?: string) {
+    return this.fixationRequests.list(user.id, submittedForOthers === 'true');
   }
 
   @Get('fixation-requests/:requestId')
@@ -140,6 +140,7 @@ export class ClientFixationController {
       // 2026-09-07: источник «старый / новый кабинет» (только для ADMIN/MANAGER).
       cabinetSource: typeof query.cabinetSource === 'string' ? query.cabinetSource : undefined,
       asStaff: user.role === 'ADMIN' || user.role === 'MANAGER',
+      submittedForOthers: query.submittedForOthers === 'true',
     });
   }
 

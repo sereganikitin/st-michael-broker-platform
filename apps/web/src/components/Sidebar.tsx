@@ -117,6 +117,9 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
           <Link href="/" className="block hover:opacity-80 transition" title="Вернуться на главную">
             <h2 className="text-xl font-bold text-accent">ST Michael</h2>
             <p className="text-sm text-text-muted">Кабинет брокера</p>
+            {broker?.role === 'BROKER' && broker.agencies.some(agency => agency.isAgencyAdmin) && (
+              <p className="text-xs text-text-muted mt-2">Администратор агентства</p>
+            )}
           </Link>
           {onClose && (
             <button

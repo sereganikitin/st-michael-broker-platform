@@ -220,15 +220,14 @@ function ClientDetail({ client: shallowClient, onClose }: { client: any; onClose
         )}
 
         <div className="flex flex-wrap gap-2 mb-4">
-          {/* 2026-07-02: если брокер только исполнитель по фиксации (А зафиксировал
-              на него) — не показываем «Уникален», показываем «Исполнитель»:
-              уникальность принадлежит создателю (А). */}
+          {/* Ответственный видит свою роль и текущий статус общей заявки. */}
           {isExecutorView(client, broker?.id) && !clientTransferUnconfirmed(client) ? (
             <span
               className="text-xs px-2 py-1 rounded bg-info/20 text-info"
               title="Заявку на этого клиента подали за вас. Клиент закреплён за вами — вы ведёте показы и сделку."
             >
               Исполнитель по фиксации
+              <span className="ml-2">Статус заявки: {displayedStatus.label}</span>
             </span>
           ) : (
             <span className={`text-xs px-2 py-1 rounded ${displayedStatus.cls}`}>
@@ -546,26 +545,46 @@ export default function ClientsPage() {
   const [sourceFilter, setSourceFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState<any>(null);
+  const [submittedForOthers, setSubmittedForOthers] = useState(false);
+  const isAgencyAdmin = broker?.role === 'BROKER' && broker.agencies.some(agency => agency.isAgencyAdmin);
+  const fetchSequence = useRef(0);
+  const currentActor = useRef(broker?.id);
+  currentActor.current = broker?.id;
 
-  const fetchClients = async () => {
-    setLoading(true);
+  const fetchClients = async (quiet = false) => {
+    if (!broker?.id) return;
+    const actorId = broker.id;
+    const sequence = ++fetchSequence.current;
+    if (!quiet) setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: '15' });
       if (search) params.set('search', search);
       if (statusFilter) params.set('status', statusFilter);
       if (projectFilter) params.set('project', projectFilter);
       if (sourceFilter) params.set('cabinetSource', sourceFilter);
+      if (submittedForOthers) params.set('submittedForOthers', 'true');
       const data = await apiGet(`/clients?${params}`);
+      if (currentActor.current !== actorId || sequence !== fetchSequence.current) return;
       setClients(data.clients || []);
       setTotal(data.total || 0);
       setTotalPages(data.totalPages || 1);
     } catch {
-      setClients([]);
+      if (currentActor.current === actorId && sequence === fetchSequence.current && !quiet) setClients([]);
     }
-    setLoading(false);
+    if (currentActor.current === actorId && sequence === fetchSequence.current) setLoading(false);
   };
 
-  useEffect(() => { fetchClients(); }, [page, statusFilter, projectFilter, sourceFilter]);
+  const fetchLatest = useRef(fetchClients);
+  fetchLatest.current = fetchClients;
+  useEffect(() => {
+    setClients([]);
+    void fetchLatest.current();
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'hidden') void fetchLatest.current(true);
+    }, 10_000);
+    return () => { clearInterval(interval); fetchSequence.current++; };
+  }, [broker?.id, page, statusFilter, projectFilter, sourceFilter, submittedForOthers]);
+  useEffect(() => { if (!isAgencyAdmin) setSubmittedForOthers(false); }, [isAgencyAdmin]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -575,7 +594,7 @@ export default function ClientsPage() {
 
   return (
     <div>
-      <FixationRequests actorId={broker?.id} asStaff={isStaff} />
+      <FixationRequests actorId={broker?.id} asStaff={isStaff} submittedForOthers={submittedForOthers} />
       <div className="flex items-start justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">
@@ -629,6 +648,13 @@ export default function ClientsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </form>
+          {isAgencyAdmin && (
+            <select className="input w-auto" aria-label="Кто подал заявку" value={submittedForOthers ? 'delegated' : 'all'}
+              onChange={event => { setSubmittedForOthers(event.target.value === 'delegated'); setPage(1); }}>
+              <option value="all">Все мои клиенты</option>
+              <option value="delegated">Поданные на коллег</option>
+            </select>
+          )}
           <select
             className="input w-auto"
             value={projectFilter}
@@ -734,8 +760,7 @@ export default function ClientsPage() {
                       )}
                       <td className="py-3">{projectLabels[c.project] || c.project}</td>
                       <td className="py-3">
-                        {/* 2026-07-02: исполнитель по фиксации не видит «Уникален» —
-                            уникальность принадлежит создателю (А). */}
+                        {/* Роль ответственного и статус заявки отображаются вместе. */}
                         {isExecutorView(c, broker?.id) && !clientTransferUnconfirmed(c) ? (
                           <>
                             <span
@@ -744,6 +769,7 @@ export default function ClientsPage() {
                             >
                               Исполнитель по фиксации
                             </span>
+                            <div className="text-xs mt-1">Статус заявки: {clientStatusDisplay(c).label}</div>
                           </>
                         ) : (
                           <>

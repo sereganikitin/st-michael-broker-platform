@@ -75,6 +75,7 @@ export async function fakeCrm() {
   const leads = new Map<number, any>();
   const tasks: any[] = [];
   const posts: any[] = [];
+  const payloads: any[] = [];
   let loseTaskResponse = false;
   let failLeadReads = false;
   const server = createServer(async (req, res) => {
@@ -112,6 +113,7 @@ export async function fakeCrm() {
     }
     if (path.pathname === "/api/v4/leads" && req.method === "POST") {
       const input = JSON.parse(raw)[0];
+      payloads.push(input);
       const id = 900000 + posts.length + 1;
       const row = {
         id,
@@ -181,6 +183,7 @@ export async function fakeCrm() {
     leads,
     tasks,
     posts,
+    payloads,
     loseNextTaskResponse: () => {
       loseTaskResponse = true;
     },

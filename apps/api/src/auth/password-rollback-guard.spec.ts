@@ -3,6 +3,8 @@ import { resolve } from "path";
 import { spawnSync } from "child_process";
 import { AUTH_PASSWORD_COMPATIBILITY } from "./password-compatibility";
 
+const { bashTestTimeout } = require("../../test/bash-test-runtime.cjs");
+
 describe("production authentication rollback fence", () => {
   const root = resolve(__dirname, "../../../..");
   const source = readFileSync(resolve(root, "deploy-update.sh"), "utf8").replace(/\r\n/g, "\n");
@@ -79,7 +81,7 @@ printf 'guard_stopped=%s guard_replaced=%s\\n' "$stopped" "$replaced"
 exit "$result"
 `;
     return spawnSync(bash, ["-s"], {
-      input, encoding: "utf8", timeout: 5000,
+      input, encoding: "utf8", timeout: bashTestTimeout,
       env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot },
     });
   }
@@ -97,7 +99,7 @@ exit "$result"
   });
 
   it("parses the entire deploy Bash source without executing it", () => {
-    const result = spawnSync(bash, ["-n"], { input: source, encoding: "utf8", timeout: 5000 });
+    const result = spawnSync(bash, ["-n"], { input: source, encoding: "utf8", timeout: bashTestTimeout });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");

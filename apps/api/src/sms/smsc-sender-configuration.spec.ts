@@ -4,6 +4,8 @@ import { createHash } from "crypto";
 import { spawnSync } from "child_process";
 import { parse } from "yaml";
 
+const { bashTestTimeout } = require("../../test/bash-test-runtime.cjs");
+
 const root = resolve(__dirname, "../../../..");
 const { run } = require(resolve(root, "scripts/configure-smsc-sender.js"));
 const env = {
@@ -222,7 +224,7 @@ describe("protected sender-only production workflow", () => {
   });
   it("parses both runner source and the real assembled SSH program", () => {
     for (const input of [run, assemble(script)]) {
-      const result = spawnSync(bash, ["-n"], { input, encoding: "utf8", timeout: 5000 });
+      const result = spawnSync(bash, ["-n"], { input, encoding: "utf8", timeout: bashTestTimeout });
       expect(result.error).toBeUndefined(); expect(result.status).toBe(0); expect(result.stderr).toBe("");
     }
   });
@@ -255,7 +257,7 @@ git() { printf '%s' "$runtime_sha"; }
 test() { if [ "$1" = -f ] && [ "$2" = /dev/null ]; then return 0; fi; builtin test "$@"; }
 stat() { printf synthetic-inode; }
 ${operation}`;
-    const result = spawnSync(bash, ["-s"], { input: fixture, encoding: "utf8", timeout: 5000, env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
+    const result = spawnSync(bash, ["-s"], { input: fixture, encoding: "utf8", timeout: bashTestTimeout, env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot } });
     expect(result.error).toBeUndefined(); expect(result.status).toBe(tampered ? 1 : 0);
     if (tampered) {
       expect(result.stdout).not.toContain("SYNTHETIC_CONFIG_EXECUTED"); expect(result.stdout).not.toContain("remote_final_attestation");

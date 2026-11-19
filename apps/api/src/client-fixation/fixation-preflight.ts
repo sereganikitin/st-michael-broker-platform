@@ -35,5 +35,6 @@ export const RETRYABLE_FIXATION_CODES = new Set([
 
 export interface FixationExecution {
   requestId: string;
+  responsibleBrokerId?: string;
   beforeMutation(): Promise<void>;
 }
