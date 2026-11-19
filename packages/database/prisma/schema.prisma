@@ -435,6 +435,7 @@ model Agency {
   commissionLevel      CommissionLevel          @default(START) @map("commission_level")
   quarterlyBonusStreak Int                      @default(0) @map("quarterly_bonus_streak")
   brokerAgencies       BrokerAgency[]
+  fixationRequests     FixationRequest[]
   amoCompanySync       AgencyAmoCompanySync?
   deals                Deal[]
   loyaltyAssignments   LoyaltyCallAssignment[]  @relation("LoyaltyAssignmentOurAgency")
@@ -475,6 +476,7 @@ model BrokerAgency {
   agencyId  String   @map("agency_id")
   agency    Agency   @relation(fields: [agencyId], references: [id])
   isPrimary Boolean  @default(false) @map("is_primary") // Основная компания
+  isAgencyAdmin Boolean @default(false) @map("is_agency_admin")
   joinedAt  DateTime @default(now()) @map("joined_at")
 
   @@unique([brokerId, agencyId]) // Без повторов
@@ -551,6 +553,7 @@ model Broker {
   phones                            BrokerPhone[]
   callLogs                          CallLog[]
   clients                           Client[]
+  responsibleFixationRequests       FixationRequest[] @relation("FixationRequestResponsible")
   responsibleForClients             Client[]                     @relation("ClientResponsibleBroker")
   deals                             Deal[]
   calls                             Call[]
@@ -612,6 +615,10 @@ model Broker {
 model FixationRequest {
   id              String   @id @default(uuid())
   actorId         String   @map("actor_id")
+  responsibleBrokerId String? @map("responsible_broker_id")
+  responsibleBroker Broker? @relation("FixationRequestResponsible", fields: [responsibleBrokerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  fixationAgencyId String? @map("fixation_agency_id")
+  fixationAgency Agency? @relation(fields: [fixationAgencyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   fingerprint     String
   phoneKey        String   @map("phone_key")
   payload         Json
@@ -631,6 +638,7 @@ model FixationRequest {
   @@index([state, nextAttemptAt])
   @@index([actorId, fingerprint])
   @@index([actorId, createdAt])
+  @@index([responsibleBrokerId, state, createdAt])
   @@map("fixation_requests")
 }
 

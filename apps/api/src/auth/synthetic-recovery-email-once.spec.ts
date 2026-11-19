@@ -3,6 +3,8 @@ import { spawnSync } from "child_process";
 import { resolve } from "path";
 import { parse } from "yaml";
 
+const { bashTestTimeout } = require("../../test/bash-test-runtime.cjs");
+
 const root = resolve(__dirname, "../../../..");
 const workflowPath = resolve(root, ".github/workflows/send-synthetic-recovery-email-once.yml");
 function workflowRun(): string {
@@ -11,7 +13,7 @@ function workflowRun(): string {
 function runLocalGate(source: string, environment: Record<string, string>) {
   const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
   const result = spawnSync(bash, ["-c", source], {
-    env: { ...process.env, ...environment }, encoding: "utf8", timeout: 5000,
+    env: { ...process.env, ...environment }, encoding: "utf8", timeout: bashTestTimeout,
   });
   if (result.error) throw result.error;
   return result;

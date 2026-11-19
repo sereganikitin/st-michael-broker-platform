@@ -11,16 +11,21 @@ type Request = {
   createdAt: string;
   errorCode?: string;
   canRetryCheck?: boolean;
+  submittedBy?: { id: string; fullName: string };
+  responsibleBroker?: { id: string; fullName: string } | null;
+  agency?: { id: string; name: string } | null;
 };
 
 export function FixationRequests({
   actorId,
   refreshKey = 0,
   asStaff = false,
+  submittedForOthers = false,
 }: {
   actorId?: string;
   refreshKey?: number;
   asStaff?: boolean;
+  submittedForOthers?: boolean;
 }) {
   const [rows, setRows] = useState<Request[]>([]);
   const [unavailable, setUnavailable] = useState(false);
@@ -39,7 +44,7 @@ export function FixationRequests({
         const result = await apiGet<Request[]>(
           asStaff
             ? "/clients/fixation-requests/admin/queue"
-            : "/clients/fixation-requests",
+            : `/clients/fixation-requests${submittedForOthers ? '?submittedForOthers=true' : ''}`,
         );
         if (!stopped) {
           setRows(result);
@@ -59,14 +64,14 @@ export function FixationRequests({
       stopped = true;
       clearInterval(interval);
     };
-  }, [actorId, refreshKey, asStaff, revision]);
+  }, [actorId, refreshKey, asStaff, revision, submittedForOthers]);
   if (!rows.length && !unavailable && !actionMessage) return null;
   return (
-    <section className="card mb-6" aria-label="Отправленные заявки">
+    <section className="card mb-6" aria-label="Заявки на фиксацию">
       <h2 className="font-semibold mb-3">
         {asStaff
           ? "Заявки, требующие проверки передачи"
-          : "Отправленные заявки"}
+          : "Заявки на фиксацию"}
       </h2>
       {actionMessage && (
         <p className="text-sm mb-3" role="status">
@@ -89,6 +94,12 @@ export function FixationRequests({
               {row.fullName} · {new Date(row.createdAt).toLocaleString("ru-RU")}
             </p>
             <p className="text-sm text-text-muted">{row.message}</p>
+            {row.submittedBy && row.responsibleBroker && row.submittedBy.id !== row.responsibleBroker.id && (
+              <p className="text-sm text-text-muted mt-1">
+                Подал: {row.submittedBy.fullName} · Ответственный брокер: {row.responsibleBroker.fullName}
+              </p>
+            )}
+            {row.agency && <p className="text-xs text-text-muted">{row.agency.name}</p>}
             {asStaff && row.errorCode && (
               <p className="text-xs text-text-muted">
                 Причина для диагностики: {row.errorCode}

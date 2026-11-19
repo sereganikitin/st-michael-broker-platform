@@ -3,6 +3,8 @@ import { resolve } from "path";
 import { spawnSync } from "child_process";
 import { parse } from "yaml";
 
+const { bashTestTimeout } = require("../../test/bash-test-runtime.cjs");
+
 describe("guarded initialization of the one production operation lock", () => {
   const root = resolve(__dirname, "../../../..");
   const helper = readFileSync(resolve(root, "scripts/initialize-production-operation-lock.py"), "utf8");
@@ -48,15 +50,13 @@ describe("guarded initialization of the one production operation lock", () => {
 
   it("parses actual full Bash without executing any workflow command", () => {
     const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
-    const result = spawnSync(bash, ["-n"], { input: run, encoding: "utf8", timeout: 5000 });
+    const result = spawnSync(bash, ["-n"], { input: run, encoding: "utf8", timeout: bashTestTimeout });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
   });
 
   it("executes only synthetic Python filesystem/proc/locking mocks", () => {
-    const python = process.platform === "win32"
-      ? "C:/Users/PC-OpenClaw/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe"
-      : "python3";
+    const python = process.env.PYTHON_PATH || (process.platform === "win32" ? "python" : "python3");
     const program = `import base64, json, stat, sys, types
 fake_fcntl = types.SimpleNamespace(LOCK_EX=2, LOCK_NB=4, flock=lambda fd,flags: None)
 sys.modules['fcntl'] = fake_fcntl

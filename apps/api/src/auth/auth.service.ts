@@ -1207,6 +1207,7 @@ export class AuthService {
         name: ba.agency.name,
         inn: ba.agency.inn,
         isPrimary: ba.isPrimary,
+        isAgencyAdmin: broker.role === 'BROKER' && broker.status === 'ACTIVE' && !broker.mergedIntoId && ba.isAgencyAdmin,
         commissionLevel: ba.agency.commissionLevel,
         // 2026-07-02: полный набор реквизитов агентства.
         legalAddress: ba.agency.legalAddress,

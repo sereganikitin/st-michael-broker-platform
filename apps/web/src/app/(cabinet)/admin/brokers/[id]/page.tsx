@@ -67,8 +67,33 @@ export default function AdminBrokerDetailPage() {
   const [savingMango, setSavingMango] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
+  const [savingAgencyId, setSavingAgencyId] = useState<string | null>(null);
+  const agencySaveInFlight = useRef(false);
 
   const isAdmin = currentUser?.role === 'ADMIN';
+
+  const setAgencyAdmin = async (agencyId: string, enabled: boolean) => {
+    if (!isAdmin || agencySaveInFlight.current) return;
+    agencySaveInFlight.current = true;
+    const routeId = id;
+    setSavingAgencyId(agencyId);
+    setMessage('');
+    try {
+      await api(`/admin/brokers/${routeId}/agencies/${agencyId}/admin`, {
+        method: 'PATCH', body: JSON.stringify({ isAgencyAdmin: enabled }),
+      });
+      if (activeRouteId.current !== routeId) return;
+      setBroker((current: any) => ({ ...current, brokerAgencies: current.brokerAgencies.map((membership: any) =>
+        membership.agencyId === agencyId ? { ...membership, isAgencyAdmin: enabled } : membership,
+      ) }));
+      setMessage(enabled ? 'Администратор агентства назначен' : 'Право администратора агентства снято');
+    } catch (error: any) {
+      if (activeRouteId.current === routeId) setMessage(error.message || 'Не удалось сохранить право');
+    } finally {
+      agencySaveInFlight.current = false;
+      setSavingAgencyId(null);
+    }
+  };
 
   const load = async () => {
     const sequence = ++loadSequence.current;
@@ -302,6 +327,21 @@ export default function AdminBrokerDetailPage() {
             Зарегистрирован: {new Date(broker.createdAt).toLocaleDateString('ru-RU')}
             {broker.brokerAgencies?.length > 0 && <> · Агентств: {broker.brokerAgencies.length}</>}
           </div>
+
+          {broker.role === 'BROKER' && (
+            <section className="mb-4 p-3 rounded-lg border border-border" aria-label="Администратор агентства">
+              <h3 className="font-medium mb-2">Администратор агентства</h3>
+              <p className="text-sm text-text-muted mb-3">Наблюдает за заявками, которые подал на других брокеров.</p>
+              {broker.brokerAgencies?.length ? broker.brokerAgencies.map((membership: any) => (
+                <label key={membership.id} className="flex items-center gap-2 text-sm py-2">
+                  <input type="checkbox" checked={!!membership.isAgencyAdmin}
+                    disabled={!isAdmin || savingAgencyId !== null || (!membership.isAgencyAdmin && (broker.status !== 'ACTIVE' || !!broker.mergedIntoId))}
+                    onChange={event => setAgencyAdmin(membership.agencyId, event.target.checked)} />
+                  {membership.agency.name}
+                </label>
+              )) : <p className="text-sm text-text-muted">Сначала привяжите брокера к агентству.</p>}
+            </section>
+          )}
 
           {/* КБ6 (2026-05-25): статус договора-оферты. */}
           <div className="mb-4 p-3 rounded-lg border border-border bg-surface-secondary">

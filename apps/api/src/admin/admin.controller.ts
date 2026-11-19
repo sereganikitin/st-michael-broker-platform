@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards, UseInterceptors, UploadedFile, ParseUUIDPipe, HttpCode } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Param, Body, Query, UseGuards, UseInterceptors, UploadedFile, ParseUUIDPipe, HttpCode, BadRequestException } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
@@ -468,6 +468,19 @@ export class AdminController {
     @Body() body: { isCoordinator: boolean },
   ) {
     return this.adminService.setBrokerCoordinator(id, !!body.isCoordinator);
+  }
+
+  @Patch('brokers/:id/agencies/:agencyId/admin')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Назначить или снять администратора конкретного агентства' })
+  async setAgencyAdmin(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Param('agencyId') agencyId: string,
+    @Body() body: { isAgencyAdmin: boolean },
+  ) {
+    if (typeof body?.isAgencyAdmin !== 'boolean') throw new BadRequestException('isAgencyAdmin должен быть boolean');
+    return this.adminService.setAgencyAdmin(user.id, id, agencyId, body.isAgencyAdmin);
   }
 
   // 2026-06-17: ручная смена uniquenessStatus админом из кабинета брокера.

@@ -31,7 +31,7 @@ async function main() {
     withFileTypes: true,
   })) {
     if (
-      entry.name === name ||
+      (entry.isDirectory() && entry.name >= name) ||
       (!entry.isDirectory() && entry.name !== "migration_lock.toml")
     )
       continue;
@@ -88,11 +88,12 @@ async function main() {
       amoLeadId: true,
     },
   });
-  fs.cpSync(
-    path.resolve("packages/database/prisma/migrations", name),
-    path.join(work, "migrations", name),
-    { recursive: true },
-  );
+  for (const entry of fs.readdirSync("packages/database/prisma/migrations", { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name >= name) fs.cpSync(
+      path.resolve("packages/database/prisma/migrations", entry.name),
+      path.join(work, "migrations", entry.name), { recursive: true },
+    );
+  }
   migrate();
   const current = await db.client.findUniqueOrThrow({
     where: { id: client.id },

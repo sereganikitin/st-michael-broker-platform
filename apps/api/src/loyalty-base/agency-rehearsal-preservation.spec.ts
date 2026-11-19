@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
+const { bashTestTimeout } = require("../../test/bash-test-runtime.cjs");
+
 const source = readFileSync(
   resolve(__dirname, "../../../../scripts/rehearse-loyalty-migration.sh"),
   "utf8",
@@ -13,9 +15,9 @@ const bash =
     ? "C:/Program Files/Git/bin/bash.exe"
     : "/bin/bash";
 function run(mode: string) {
-  return spawnSync(bash, ["-s"], {
+  const result = spawnSync(bash, ["-s"], {
     encoding: "utf8",
-    timeout: 5000,
+    timeout: bashTestTimeout,
     input: `
 set -eu
 SCHEMA_CONTEXT=$(mktemp -d)
@@ -45,6 +47,8 @@ phase=after
 verify_operational_state
 `,
   });
+  expect(result.error).toBeUndefined();
+  return result;
 }
 describe("isolated rehearsal operational preservation gate", () => {
   it("accepts unchanged existing columns and empty newly added tables", () => {

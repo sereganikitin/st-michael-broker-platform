@@ -7,6 +7,8 @@ import { spawnSync } from "child_process";
 import { runInNewContext } from "vm";
 import { parse } from "yaml";
 
+const { bashTestTimeout } = require("../../test/bash-test-runtime.cjs");
+
 describe("DRAFT protected exact-case wrapper (no providers or production commands)", () => {
   const root = resolve(__dirname, "../../../..");
   const source = readFileSync(resolve(root, "scripts/run-fixed-amo-fixation-case.js"), "utf8");
@@ -296,17 +298,17 @@ describe("DRAFT protected exact-case wrapper (no providers or production command
       const environment = { ...process.env, PATH: path, RUNNER_TEMP: temp.replace(/\\/g, "/"), EXPECTED_REPOSITORY: attestation.repository,
         EXPECTED_ACTOR: attestation.actor, EXPECTED_SHA: attestation.sourceGitSha, PLAN_RUN_ID: attestation.planRunId,
         EXPECTED_DEPLOYED_SHA: attestation.deployedGitSha, EXPECTED_CASE_HASH: attestation.caseHash, EXPECTED_CANDIDATE_HASH: attestation.candidateHash };
-      const accepted = spawnSync(bash, ["-c", bindPlanStep.run], { env: environment, encoding: "utf8", timeout: 5000 });
+      const accepted = spawnSync(bash, ["-c", bindPlanStep.run], { env: environment, encoding: "utf8", timeout: bashTestTimeout });
       expect({ status: accepted.status, stderr: accepted.stderr }).toEqual({ status: 0, stderr: "" });
       writeFileSync(file, JSON.stringify({ ...attestation, candidateHash: "f".repeat(64) }));
-      const refused = spawnSync(bash, ["-c", bindPlanStep.run], { env: environment, encoding: "utf8", timeout: 5000 });
+      const refused = spawnSync(bash, ["-c", bindPlanStep.run], { env: environment, encoding: "utf8", timeout: bashTestTimeout });
       expect(refused.status).not.toBe(0);
     } finally { rmSync(temp, { recursive: true, force: true }); }
   });
   it.each(["1", "01", "2", "", "true", "1\n"])("actual trusted Bash run-attempt gate accepts only literal first attempt: %j", (attempt) => {
     const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
     const gate = gateStep.run.split("\n").find((line: string) => line.includes('test "$EXPECTED_RUN_ATTEMPT" = 1'));
-    const result = spawnSync(bash, ["-c", `${gate}\nprintf gate_passed`], { env: { ...process.env, EXPECTED_RUN_ATTEMPT: attempt }, encoding: "utf8", timeout: 5000 });
+    const result = spawnSync(bash, ["-c", `${gate}\nprintf gate_passed`], { env: { ...process.env, EXPECTED_RUN_ATTEMPT: attempt }, encoding: "utf8", timeout: bashTestTimeout });
     expect(result.status).toBe(attempt === "1" ? 0 : 1);
     expect(result.stdout).toBe(attempt === "1" ? "gate_passed" : "");
   });
@@ -366,13 +368,13 @@ describe("DRAFT protected exact-case wrapper (no providers or production command
   it("parses ALL actual Bash steps and assembled streamed program without executing any", () => {
     const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
     for (const step of steps.filter((step: any) => step.shell === "bash")) {
-      const result = spawnSync(bash, ["-n"], { input: step.run, encoding: "utf8", timeout: 5000 });
+      const result = spawnSync(bash, ["-n"], { input: step.run, encoding: "utf8", timeout: bashTestTimeout });
       expect(result.stderr).toBe(""); expect(result.status).toBe(0);
     }
     const prefix = stream.split("<<'REMOTE_PREFIX'\n")[1].split("\nREMOTE_PREFIX")[0];
     const suffix = stream.split("<<'REMOTE_SUFFIX'\n")[1].split("\nREMOTE_SUFFIX")[0];
     const actual = `${prefix}\nZml4dHVyZQ==\nFIXED_CASE_PAYLOAD\n${suffix}`;
-    const result = spawnSync(bash, ["-n"], { input: actual, encoding: "utf8", timeout: 5000 });
+    const result = spawnSync(bash, ["-n"], { input: actual, encoding: "utf8", timeout: bashTestTimeout });
     expect(result.stderr).toBe(""); expect(result.status).toBe(0);
   });
 });

@@ -19,6 +19,7 @@ interface Broker {
     name: string;
     inn: string;
     isPrimary: boolean;
+    isAgencyAdmin?: boolean;
     commissionLevel: string;
   }[];
   createdAt: string;

@@ -9,6 +9,7 @@ import {
 import { Cron } from "@nestjs/schedule";
 import { PrismaClient } from "@st-michael/database";
 import { randomUUID } from "node:crypto";
+import { resolveFixationBrokers } from "./fixation-assignment";
 import { ClientFixationService } from "./client-fixation.service";
 import {
   ClientFixationSafetyService,
@@ -77,10 +78,32 @@ export class FixationRequestService {
           where: { actorId, fingerprint, state: { in: ACTIVE } },
           orderBy: { createdAt: "asc" },
         });
-        if (!row)
+        if (!row) {
+          const { responsibleBroker } = await resolveFixationBrokers(
+            tx,
+            actorId,
+            typeof payload.responsibleBrokerId === "string"
+              ? payload.responsibleBrokerId
+              : undefined,
+          );
+          const inn = String(payload.agencyInn || "").replace(/\D/g, "");
+          const agency = /^\d{10}$|^\d{12}$/.test(inn)
+            ? await tx.agency.findUnique({
+                where: { inn },
+                select: { id: true },
+              })
+            : null;
           row = await tx.fixationRequest.create({
-            data: { actorId, fingerprint, phoneKey, payload: json(payload) },
+            data: {
+              actorId,
+              fingerprint,
+              phoneKey,
+              payload: json(payload),
+              responsibleBrokerId: responsibleBroker.id,
+              fixationAgencyId: agency?.id || null,
+            },
           });
+        }
         await tx.fixationRequestKey.create({
           data: { actorId, key, requestId: row.id },
         });
@@ -112,21 +135,24 @@ export class FixationRequestService {
 
   async get(actorId: string, id: string) {
     const row = await this.prisma.fixationRequest.findFirst({
-      where: { id, actorId },
+      where: { id, OR: [{ actorId }, { responsibleBrokerId: actorId }] },
     });
     if (!row) throw new NotFoundException("Заявка не найдена");
     return (await this.views([row]))[0];
   }
 
-  async list(actorId: string) {
+  async list(actorId: string, submittedForOthers = false) {
+    const ownership = submittedForOthers
+      ? { actorId, responsibleBrokerId: { not: actorId } }
+      : { OR: [{ actorId }, { responsibleBrokerId: actorId }] };
     const [active, recent] = await Promise.all([
       this.prisma.fixationRequest.findMany({
-        where: { actorId, state: { in: ACTIVE } },
+        where: { ...ownership, state: { in: ACTIVE } },
         orderBy: { createdAt: "asc" },
         take: 50,
       }),
       this.prisma.fixationRequest.findMany({
-        where: { actorId, state: "COMPLETED" },
+        where: { ...ownership, state: "COMPLETED" },
         orderBy: { createdAt: "desc" },
         take: 20,
       }),
@@ -197,9 +223,58 @@ export class FixationRequestService {
     const byRequest = new Map(
       clients.map((client) => [client.fixationRequestId, client]),
     );
-    return rows.map((row) =>
-      this.view(row, byRequest.get(row.id) || byId.get(row.result?.client?.id)),
+    const brokerIds = [
+      ...new Set(
+        rows
+          .flatMap((row) => [row.actorId, row.responsibleBrokerId])
+          .filter(Boolean),
+      ),
+    ];
+    const agencyIds = [
+      ...new Set(rows.map((row) => row.fixationAgencyId).filter(Boolean)),
+    ];
+    const [brokers, agencies] = await Promise.all([
+      brokerIds.length
+        ? this.prisma.broker.findMany({
+            where: { id: { in: brokerIds } },
+            select: { id: true, fullName: true },
+          })
+        : [],
+      agencyIds.length
+        ? this.prisma.agency.findMany({
+            where: { id: { in: agencyIds } },
+            select: { id: true, name: true },
+          })
+        : [],
+    ]);
+    const brokerNames = new Map(
+      brokers.map((broker) => [broker.id, broker.fullName] as const),
     );
+    const agencyNames = new Map(
+      agencies.map((agency) => [agency.id, agency.name] as const),
+    );
+    return rows.map((row) => ({
+      ...this.view(
+        row,
+        byRequest.get(row.id) || byId.get(row.result?.client?.id),
+      ),
+      submittedBy: {
+        id: row.actorId,
+        fullName: brokerNames.get(row.actorId) || "Пользователь",
+      },
+      responsibleBroker: row.responsibleBrokerId
+        ? {
+            id: row.responsibleBrokerId,
+            fullName: brokerNames.get(row.responsibleBrokerId) || "Брокер",
+          }
+        : null,
+      agency: row.fixationAgencyId
+        ? {
+            id: row.fixationAgencyId,
+            name: agencyNames.get(row.fixationAgencyId) || "Агентство",
+          }
+        : null,
+    }));
   }
 
   private view(
@@ -342,6 +417,25 @@ export class FixationRequestService {
         .catch(() => undefined);
     }, 30_000);
     try {
+      if (!row.responsibleBrokerId) {
+        const { responsibleBroker } = await resolveFixationBrokers(
+          this.prisma,
+          row.actorId,
+          (row.payload as Record<string, any>)?.responsibleBrokerId,
+        );
+        const assigned = await this.prisma.fixationRequest.updateMany({
+          where: {
+            ...owned,
+            phase: "CHECKING",
+            leaseUntil: { gt: new Date() },
+            responsibleBrokerId: null,
+          },
+          data: { responsibleBrokerId: responsibleBroker.id },
+        });
+        if (assigned.count !== 1)
+          throw new Error("FIXATION_REQUEST_LEASE_LOST");
+        row.responsibleBrokerId = responsibleBroker.id;
+      }
       const result: any = await this.safety.execute(
         { actorId: row.actorId, payload: row.payload, idempotencyKey: row.id },
         async ({ assertOwned }) => {
@@ -359,6 +453,7 @@ export class FixationRequestService {
             },
             {
               requestId: row.id,
+              responsibleBrokerId: row.responsibleBrokerId,
               beforeMutation: async () => {
                 await assertOwned();
                 const marked = await this.prisma.fixationRequest.updateMany({
@@ -383,6 +478,9 @@ export class FixationRequestService {
             ? "DELIVERY_PENDING"
             : "COMPLETED",
           result: json(result),
+          ...(result?.client?.fixationAgencyId
+            ? { fixationAgencyId: result.client.fixationAgencyId }
+            : {}),
           errorCode: ["FAILED", "PENDING"].includes(result?.amoSyncStatus)
             ? "AMO_DELIVERY_UNCONFIRMED"
             : null,
@@ -396,7 +494,9 @@ export class FixationRequestService {
       const code = isFixationGuardConflict(error)
         ? "FIXATION_GUARD_BUSY"
         : fixationFailureCode(error);
-      const transient = !enteredAction || RETRYABLE_FIXATION_CODES.has(code);
+      const transient =
+        !(error instanceof BadRequestException) &&
+        (!enteredAction || RETRYABLE_FIXATION_CODES.has(code));
       const retry = safeToRepeat && transient && row.attempts < MAX_ATTEMPTS;
       await this.prisma.fixationRequest.updateMany({
         where: owned,

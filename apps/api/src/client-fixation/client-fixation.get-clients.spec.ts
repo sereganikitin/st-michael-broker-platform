@@ -43,6 +43,13 @@ describe("ClientFixationService.getClients", () => {
     );
   });
 
+  it('keeps the delegated filter scoped to clients submitted by the caller', async () => {
+    await service.getClients('author', { submittedForOthers: true, search: 'Synthetic' });
+    expect(prisma.client.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      AND: expect.arrayContaining([{ brokerId: 'author', responsibleBrokerId: { not: 'author' } }]),
+    }) }));
+  });
+
   it("lets staff filter uniqueness rows to one broker", async () => {
     await service.getClients("admin-1", { asStaff: true, brokerId: "broker-9" });
     expect(prisma.client.findMany).toHaveBeenCalledWith(

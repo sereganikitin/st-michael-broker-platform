@@ -70,6 +70,7 @@ import {
   findUnresolvedSamePhoneAmoClient,
 } from "../common/amo-fixation-phone-state";
 import { findLatestFixationBrokerId } from "../common/latest-fixation-broker";
+import { resolveFixationBrokers } from "./fixation-assignment";
 
 const UNIQUENESS_DAYS = 30;
 const msInDays = (days: number) => days * 24 * 60 * 60 * 1000;
@@ -301,7 +302,7 @@ export class ClientFixationService {
     };
     try {
       return await runInteractive(() =>
-        this.fixClientInner(brokerId, data, assertAmoCreateLeaseOwned, { requestId: execution?.requestId, beforeMutation }),
+        this.fixClientInner(brokerId, data, assertAmoCreateLeaseOwned, { requestId: execution?.requestId, responsibleBrokerId: execution?.responsibleBrokerId, beforeMutation }),
       );
     } catch (error) {
       throw mutationStarted ? error : markFixationPreflightFailure(error);
@@ -338,78 +339,16 @@ export class ClientFixationService {
       responsibleBrokerId?: string;
     },
     assertAmoCreateLeaseOwned: () => Promise<void>,
-    execution: { requestId?: string; beforeMutation(): Promise<void> },
+    execution: { requestId?: string; responsibleBrokerId?: string; beforeMutation(): Promise<void> },
   ) {
-    const broker = await this.prisma.broker.findUnique({
-      where: { id: brokerId },
-      include: {
-        brokerAgencies: {
-          where: { isPrimary: true },
-          include: { agency: true },
-          take: 1,
-        },
-      },
-    });
-    if (!broker) throw new BadRequestException("Broker not found");
-
-    // 2026-07-01 (refactor): роль координатора убрана. Любой брокер может
-    // фиксировать клиента на другого — новый брокер создаётся через
-    // /create-new-broker перед fixClient, его id прилетает как
-    // responsibleBrokerId. Если responsibleBrokerId прислан — проверяем что
-    // этот брокер существует и активен. Если не прислан — responsibleBroker =
-    // сам вызывающий (фиксация на себя).
-    let responsibleBroker = broker as any;
-    if (data.responsibleBrokerId && data.responsibleBrokerId !== broker.id) {
-      let candidate = await this.prisma.broker.findUnique({
-        where: { id: data.responsibleBrokerId },
-        include: {
-          brokerAgencies: {
-            where: { isPrimary: true },
-            include: { agency: true },
-            take: 1,
-          },
-        },
-      });
-      if (!candidate) {
-        throw new BadRequestException(
-          "Указанный ответственный брокер не найден",
-        );
-      }
-      if (candidate.role !== "BROKER") {
-        throw new BadRequestException("Указанная карточка не является брокером");
-      }
-      // ID-based selection must use the same rule as phone-based delegation:
-      // only the responsible destination changes; the signed-in actor stays
-      // the submitter/owner for auditing. Never apply this to self-fixation.
-      const latestResponsibleId = await findLatestFixationBrokerId(this.prisma, candidate.phone);
-      if (latestResponsibleId && latestResponsibleId !== candidate.id) {
-        candidate = await this.prisma.broker.findUnique({
-          where: { id: latestResponsibleId },
-          include: {
-            brokerAgencies: { where: { isPrimary: true }, include: { agency: true }, take: 1 },
-          },
-        });
-        if (!candidate || candidate.role !== "BROKER") {
-          throw new BadRequestException("Актуальная карточка ответственного брокера изменилась — повторите поиск");
-        }
-      }
-      if (candidate.role !== "BROKER") {
-        throw new BadRequestException("Указанная карточка не является брокером");
-      }
-      // 2026-09-07: заявку нельзя повесить на заблокированную или слитую
-      // карточку — её владелец не сможет её увидеть.
-      if ((candidate as any).status === "BLOCKED") {
-        throw new BadRequestException(
-          "Указанный ответственный брокер заблокирован — выберите другого или обратитесь в поддержку",
-        );
-      }
-      if ((candidate as any).mergedIntoId) {
-        throw new BadRequestException(
-          "Карточка ответственного брокера объединена с другой — выберите актуальную карточку",
-        );
-      }
-      responsibleBroker = candidate;
-    }
+    const resolved = await resolveFixationBrokers(
+      this.prisma,
+      brokerId,
+      execution.responsibleBrokerId || data.responsibleBrokerId,
+      !!execution.responsibleBrokerId,
+    );
+    const broker = resolved.broker;
+    let responsibleBroker = resolved.responsibleBroker as any;
 
     // Resolve the responsible broker before any path can create an amo lead.
     // A failed live sync must not hide a already-committed Broker.amoContactId:
@@ -572,6 +511,18 @@ export class ClientFixationService {
       ), lookupCode);
     }
 
+    // Проверяем сначала запись ЭТОГО брокера — если он уже фиксировал, обновляем её.
+    const existingClient = await this.prisma.client.findFirst({
+      where: { phone: data.phone, brokerId },
+      include: { deals: true, broker: true },
+    });
+
+    if (existingClient && (existingClient.responsibleBrokerId || existingClient.brokerId) !== responsibleBroker.id) {
+      throw withFixationFailureCode(new ConflictException(
+        "У поданной ранее фиксации другой ответственный брокер — требуется проверка сотрудником",
+      ), "FIXATION_RESPONSIBLE_CONFLICT");
+    }
+
     // Durable checkpoint before any Client, lead-link, note or task mutation.
     await execution.beforeMutation();
 
@@ -591,12 +542,6 @@ export class ClientFixationService {
         console.error("[fixClient] broker agency company sync failed");
       }
     }
-
-    // Проверяем сначала запись ЭТОГО брокера — если он уже фиксировал, обновляем её.
-    const existingClient = await this.prisma.client.findFirst({
-      where: { phone: data.phone, brokerId },
-      include: { deals: true, broker: true },
-    });
 
     // 2026-06-11: RULE_1/RULE_2 — alarm-flow, не создаём новый amoCRM лид,
     // не выпускаем duplicate-confirmation. Срабатывает независимо от того,
@@ -1544,6 +1489,11 @@ export class ClientFixationService {
         ? await this.findClientByBrokerAndLead(error, brokerId, triggerLeadIdNum)
         : null;
       if (!previous) throw error;
+      if ((previous.responsibleBrokerId || previous.brokerId) !== responsibleBroker.id) {
+        throw withFixationFailureCode(new ConflictException(
+          "Связанная сделка относится к другой фиксации — требуется проверка сотрудником",
+        ), "FIXATION_RESPONSIBLE_CONFLICT");
+      }
       try {
         await this.logAudit(
           brokerId,
@@ -1846,6 +1796,7 @@ export class ClientFixationService {
       brokerId?: string;
       asStaff?: boolean;
       cabinetSource?: string;
+      submittedForOthers?: boolean;
     },
   ) {
     const page = Number(query.page) || 1;
@@ -1866,6 +1817,9 @@ export class ClientFixationService {
       OR: [{ brokerId: scopedBrokerId }, { responsibleBrokerId: scopedBrokerId }],
     };
     const where: any = query.asStaff && !query.brokerId ? {} : { ...ownershipFilter };
+    if (query.submittedForOthers) {
+      where.AND = [{ brokerId, responsibleBrokerId: { not: brokerId } }];
+    }
     if (query.status) where.uniquenessStatus = query.status;
     if (query.project) where.project = query.project;
     if (query.search) {
@@ -1882,7 +1836,7 @@ export class ClientFixationService {
       if (query.asStaff && !query.brokerId) {
         Object.assign(where, searchOr);
       } else {
-        where.AND = [ownershipFilter, searchOr];
+        where.AND = [...(where.AND || []), ownershipFilter, searchOr];
         delete where.OR;
       }
     }

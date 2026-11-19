@@ -4,6 +4,8 @@ import { dirname, resolve } from "path";
 import { parse } from "yaml";
 import { AMO_CONTACT_FIELDS } from "../../../../packages/integrations/src/amo-crm.fields";
 
+const { bashTestTimeout } = require("../../test/bash-test-runtime.cjs");
+
 describe("approved single-client GET-only amo inspector", () => {
   const root = resolve(__dirname, "../../../..");
   const scriptPath = resolve(root, "scripts/inspect-fixed-amo-fixation-case.js");
@@ -545,7 +547,7 @@ describe("approved single-client GET-only amo inspector", () => {
   });
   it("parses actual Bash, without executing SSH/Docker/production commands", () => {
     const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
-    const result = spawnSync(bash, ["-n"], { input: runSource, encoding: "utf8", timeout: 5000 });
+    const result = spawnSync(bash, ["-n"], { input: runSource, encoding: "utf8", timeout: bashTestTimeout });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
   });

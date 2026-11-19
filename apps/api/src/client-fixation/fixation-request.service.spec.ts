@@ -16,6 +16,7 @@ const matches = (row: any, where: any): boolean =>
     if (key === "OR")
       return value.some((condition: any) => matches(row, condition));
     if (value && typeof value === "object" && !(value instanceof Date)) {
+      if ("not" in value) return row[key] != null && row[key] !== value.not;
       if ("in" in value) return value.in.includes(row[key]);
       if ("lte" in value) return row[key] != null && row[key] <= value.lte;
       if ("gt" in value) return row[key] != null && row[key] > value.gt;
@@ -41,6 +42,12 @@ function fixture() {
   };
   const prisma: any = {
     $executeRaw: jest.fn().mockResolvedValue(1),
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    broker: {
+      findUnique: jest.fn(async ({ where }) => ({ id: where.id, role: 'BROKER', status: 'ACTIVE', phone: '+79990000010', fullName: where.id, brokerAgencies: [] })),
+      findMany: jest.fn(async ({ where }) => where.id.in.map((id: string) => ({ id, fullName: id }))),
+    },
+    agency: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     fixationRequest: {
       findFirst: jest.fn(async ({ where }) => {
         const row = rows.find((r) => matches(r, where));
@@ -142,6 +149,40 @@ function fixture() {
 }
 
 describe("durable fixation intake and delivery boundary", () => {
+  it('shows a pending delegated request to its author and verified recipient only', async () => {
+    const f = fixture();
+    const accepted = await f.service.submit('author', { ...payload, responsibleBrokerId: 'recipient' }, 'delegated');
+    expect(accepted.responsibleBroker).toMatchObject({ id: 'recipient' });
+    expect(await f.service.get('recipient', accepted.requestId)).toMatchObject({ requestState: 'PENDING' });
+    expect((await f.service.list('recipient')).map(row => row.requestId)).toEqual([accepted.requestId]);
+    expect((await f.service.list('author', true)).map(row => row.requestId)).toEqual([accepted.requestId]);
+    await expect(f.service.get('unrelated', accepted.requestId)).rejects.toThrow('Заявка не найдена');
+    expect(await f.service.list('unrelated')).toEqual([]);
+    expect(await f.service.list('recipient', true)).toEqual([]);
+    for (const state of ['PROCESSING', 'RETRY', 'DELIVERY_PENDING', 'NEEDS_REVIEW', 'COMPLETED']) {
+      f.rows[0].state = state;
+      expect((await f.service.list('recipient')).map(row => row.requestId)).toEqual([accepted.requestId]);
+    }
+  });
+
+  it('validates the destination before persisting a receipt or exposing submitted data', async () => {
+    const f = fixture();
+    f.prisma.broker.findUnique.mockResolvedValueOnce({ id: 'author' }).mockResolvedValueOnce(null);
+    await expect(f.service.submit('author', { ...payload, responsibleBrokerId: 'missing' }, 'bad')).rejects.toThrow();
+    expect(f.rows).toHaveLength(0);
+    expect(f.keys).toHaveLength(0);
+    expect(f.fixation.fixClient).not.toHaveBeenCalled();
+  });
+
+  it('pins the verified destination across delivery retries and lost acknowledgements', async () => {
+    const f = fixture();
+    const accepted = await f.service.submit('author', { ...payload, responsibleBrokerId: 'recipient' }, 'delegated');
+    await f.service.process(accepted.requestId);
+    expect(f.fixation.fixClient).toHaveBeenCalledWith('author', expect.anything(), expect.any(Function), expect.objectContaining({ responsibleBrokerId: 'recipient' }));
+    expect(await f.service.submit('author', { ...payload, responsibleBrokerId: 'recipient' }, 'delegated')).toMatchObject({ requestId: accepted.requestId });
+    expect(f.rows).toHaveLength(1);
+  });
+
   it.each(["PENDING", "FAILED"])(
     "does not report a %s delivery as completed or rerun its creation",
     async (deliveryState) => {

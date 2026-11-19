@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import { Test } from "@nestjs/testing";
 import { Controller, Get, Req, UseGuards, Logger } from "@nestjs/common";
 import { PassportModule } from "@nestjs/passport";
+import { ThrottlerModule } from "@nestjs/throttler";
 import { sign } from "jsonwebtoken";
 import { ClientFixationController } from "../../src/client-fixation/client-fixation.controller";
 import { ClientFixationService } from "../../src/client-fixation/client-fixation.service";
@@ -20,6 +21,10 @@ import { WebhooksService } from "../../src/webhooks/webhooks.service";
 import { JwtStrategy } from "../../src/auth/jwt.strategy";
 import { JwtAuthGuard } from "../../src/auth/jwt-auth.guard";
 import { AuthService } from "../../src/auth/auth.service";
+import { AdminController } from "../../src/admin/admin.controller";
+import { AdminService } from "../../src/admin/admin.service";
+import { GoogleSheetsSyncService } from "../../src/admin/google-sheets-sync.service";
+import { SmsService } from "../../src/sms/sms.service";
 import {
   configureLocal,
   fakeCrm,
@@ -30,23 +35,13 @@ import {
 } from "./harness";
 
 Logger.overrideLogger(false);
+(BigInt.prototype as any).toJSON = function () { return this.toString(); };
 @Controller("auth")
 @UseGuards(JwtAuthGuard)
 class LocalProfileController {
+  constructor(private readonly auth: AuthService) {}
   @Get("me") me(@Req() req: any) {
-    return {
-      ...req.user,
-      status: "ACTIVE",
-      agencies: [
-        {
-          id: "local-agency",
-          name: "Local test agency",
-          inn: "7700000000",
-          isPrimary: true,
-        },
-      ],
-      funnelStage: "FIXATION",
-    };
+    return this.auth.getProfile(req.user.id);
   }
 }
 
@@ -63,6 +58,7 @@ async function main() {
   }
   const runId = randomUUID();
   const browserOnly = process.argv.includes("--serve");
+  const agencyOnly = process.argv.includes("--agency-only");
   const crm = await fakeCrm();
   configureLocal(crm.origin);
   const context = services(runId);
@@ -75,7 +71,7 @@ async function main() {
     error?: string;
   }> = [];
   const test = async (name: string, action: () => Promise<void>) => {
-    if (browserOnly) return;
+    if (browserOnly || (agencyOnly && !name.startsWith('agency admin:') && !name.startsWith('delegation:'))) return;
     const started = Date.now();
     try {
       await action();
@@ -150,26 +146,37 @@ async function main() {
     );
     const broker = await seedBroker(db),
       otherBroker = await seedBroker(db),
-      manager = await seedBroker(db, "MANAGER");
-    await db.agency.upsert({
+      manager = await seedBroker(db, "MANAGER"),
+      systemAdmin = await seedBroker(db, "ADMIN");
+    const agency = await db.agency.upsert({
       where: { inn: "7700000000" },
       create: { inn: "7700000000", name: "Local test agency" },
       update: {},
     });
+    await db.brokerAgency.create({ data: { brokerId: broker.id, agencyId: agency.id, isPrimary: true } });
+    const adminService = Object.create(AdminService.prototype) as AdminService;
+    (adminService as any).prisma = db;
+    const authProfile = Object.create(AuthService.prototype) as AuthService;
+    (authProfile as any).prisma = db;
     const module = await Test.createTestingModule({
-      imports: [PassportModule],
+      imports: [PassportModule, ThrottlerModule.forRoot([{ ttl: 60_000, limit: 1000 }])],
       controllers: [
         ClientFixationController,
         WebhooksController,
         LocalProfileController,
+        AdminController,
       ],
       providers: [
         JwtStrategy,
         FixationFailureInterceptor,
         { provide: "PrismaClient", useValue: db },
+        { provide: AdminService, useValue: adminService },
+        { provide: GoogleSheetsSyncService, useValue: {} },
+        { provide: SmsService, useValue: {} },
         {
           provide: AuthService,
           useValue: {
+            getProfile: (id: string) => authProfile.getProfile(id),
             validateBroker: (id: string) =>
               db.broker.findUnique({ where: { id } }),
           },
@@ -186,6 +193,7 @@ async function main() {
     }).compile();
     app = module.createNestApplication({ logger: false });
     if (browserOnly) {
+      await adminService.setAgencyAdmin(systemAdmin.id, broker.id, agency.id, true);
       app
         .getHttpAdapter()
         .get("/local-test/drain", async (_req: any, res: any) => {
@@ -219,9 +227,9 @@ async function main() {
         process.env.JWT_SECRET!,
         { expiresIn: "2h" },
       );
-    const api = async (path: string, body?: any, actor = broker) => {
+    const api = async (path: string, body?: any, actor = broker, method?: string) => {
       const response = await fetch(`${origin}${path}`, {
-        method: body === undefined ? "GET" : "POST",
+        method: method || (body === undefined ? "GET" : "POST"),
         headers: {
           Authorization: `Bearer ${token(actor)}`,
           "Content-Type": "application/json",
@@ -600,6 +608,58 @@ async function main() {
       }
     });
 
+    await test("agency admin: system-only assignment, membership scope, audit and revocation", async () => {
+      // The preceding outage test intentionally invalidates this fixture's pool.
+      await db.$disconnect();
+      await db.$connect();
+      const path = `/admin/brokers/${broker.id}/agencies/${agency.id}/admin`;
+      assert.equal((await api(path, { isAgencyAdmin: true }, broker, 'PATCH')).status, 403);
+      assert.equal((await api(path, { isAgencyAdmin: true }, manager, 'PATCH')).status, 403);
+      assert.equal((await api(path, { isAgencyAdmin: 'true' }, systemAdmin, 'PATCH')).status, 400);
+      assert.equal((await api(path, { isAgencyAdmin: true }, systemAdmin, 'PATCH')).status, 200);
+      const me = (await api('/auth/me')).body;
+      assert.equal(me.role, 'BROKER');
+      assert.equal(me.agencies[0].isAgencyAdmin, true);
+      assert.equal((await api('/clients/fixation-requests/admin/queue')).status, 403);
+      const otherAgency = await db.agency.create({ data: { inn: '7800000000', name: 'Other synthetic agency' } });
+      assert.equal((await api(`/admin/brokers/${broker.id}/agencies/${otherAgency.id}/admin`, { isAgencyAdmin: true }, systemAdmin, 'PATCH')).status, 404);
+      assert.equal(await db.brokerAgency.count({ where: { brokerId: broker.id, agencyId: otherAgency.id } }), 0);
+      await Promise.all(Array.from({ length: 4 }, () => api(path, { isAgencyAdmin: true }, systemAdmin, 'PATCH')));
+      const membership = await db.brokerAgency.findUniqueOrThrow({ where: { brokerId_agencyId: { brokerId: broker.id, agencyId: agency.id } } });
+      assert.equal(await db.auditLog.count({ where: { entityId: membership.id, action: 'AGENCY_ADMIN_GRANTED' } }), 1);
+      assert.equal((await api(path, { isAgencyAdmin: false }, systemAdmin, 'PATCH')).status, 200);
+      assert.equal((await api('/auth/me')).body.agencies[0].isAgencyAdmin, false);
+      assert.equal(await db.auditLog.count({ where: { entityId: membership.id, action: 'AGENCY_ADMIN_REVOKED' } }), 1);
+    });
+
+    await test("delegation: immediate two-party visibility, one Client, selected amo broker and live status", async () => {
+      const outsider = await seedBroker(db);
+      await db.brokerAgency.create({ data: { brokerId: outsider.id, agencyId: agency.id } });
+      const data = { ...payload(), responsibleBrokerId: otherBroker.id };
+      const accepted = await api('/clients/fix', { ...data, idempotencyKey: randomUUID() });
+      const id = accepted.body.requestId;
+      assert.equal(accepted.status, 201);
+      assert.equal((await api(`/clients/fixation-requests/${id}`, undefined, otherBroker)).status, 200);
+      assert.equal((await api(`/clients/fixation-requests/${id}`, undefined, outsider)).status, 404);
+      assert((await api('/clients/fixation-requests?submittedForOthers=true')).body.some((row: any) => row.requestId === id));
+      assert(!(await api('/clients/fixation-requests?submittedForOthers=true', undefined, otherBroker)).body.some((row: any) => row.requestId === id));
+      const resumed = services(runId);
+      try { await resumed.outbox.process(id); } finally { await resumed.close(); }
+      const row = await db.client.findUniqueOrThrow({ where: { fixationRequestId: id } });
+      assert.equal(row.brokerId, broker.id);
+      assert.equal(row.responsibleBrokerId, otherBroker.id);
+      assert((await fixation.getClients(otherBroker.id, {})).clients.some((client: any) => client.id === row.id));
+      assert(!(await fixation.getClients(outsider.id, {})).clients.some((client: any) => client.id === row.id));
+      const post = crm.payloads.find((input: any) => input.clientPhone === data.phone);
+      assert.equal(post.brokerAmoContactId, Number(otherBroker.amoContactId));
+      assert.equal(post.brokerPhone, otherBroker.phone);
+      assert.equal(post.filedByPhone, broker.phone);
+      assert.equal(crm.posts.filter((lead: any) => lead.phone === data.phone).length, 1);
+      await db.client.update({ where: { id: row.id }, data: { uniquenessStatus: 'REJECTED' } });
+      assert.equal((await outbox.get(broker.id, id)).status, 'REJECTED');
+      assert.equal((await outbox.get(otherBroker.id, id)).status, 'REJECTED');
+    });
+
     assert.equal(
       blockedExternal.length,
       0,
@@ -614,6 +674,10 @@ async function main() {
           token: token(),
           brokerId: broker.id,
           managerToken: token(manager),
+          adminToken: token(systemAdmin),
+          otherBrokerToken: token(otherBroker),
+          otherBrokerId: otherBroker.id,
+          agencyId: agency.id,
           crmOrigin: crm.origin,
         }),
       );
